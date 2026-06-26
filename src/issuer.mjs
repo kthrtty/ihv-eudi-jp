@@ -1,7 +1,6 @@
 // Catalog-driven issuer: pick (credential x format) at issuance and mint, using
 // the dev PKI. Wraps src/mdoc.mjs and src/sdjwt.mjs. The OID4VCI HTTP envelope
 // (Hono/Workers) will sit on top of mint()/verify() in M2b.
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { X509Certificate } from 'node:crypto';
 import { tag1004, b64url } from './cbor.mjs';
@@ -20,9 +19,22 @@ import single from '../schemas/single.json' with { type: 'json' };
 import disaster from '../schemas/disaster.json' with { type: 'json' };
 import vaccine from '../schemas/vaccine.json' with { type: 'json' };
 
-const root = (rel) => fileURLToPath(new URL('../' + rel, import.meta.url));
-const readPem = (rel) => readFileSync(root(rel));
-const readDer = (rel) => new X509Certificate(readFileSync(root(rel))).raw;
+// Module-level PKI bundle — set by worker.mjs from env secrets for Workers deploy.
+// null = fall back to lazy disk reads (Node.js / local dev only).
+let _pki = null;
+export function setPki(pki) { _pki = pki; }
+
+// Lazy disk helpers — only invoked in Node.js when _pki is not set.
+// Dynamic import avoids a top-level node:fs import that crashes Workers startup.
+const _root = (rel) => fileURLToPath(new URL('../' + rel, import.meta.url));
+async function diskPem(rel) {
+  const { readFileSync } = await import('node:fs');
+  return readFileSync(_root(rel));
+}
+async function diskDer(rel) {
+  const { readFileSync } = await import('node:fs');
+  return new X509Certificate(readFileSync(_root(rel))).raw;
+}
 
 export { catalog };
 const schemas = { pid, juminhyo, qualification, koseki, tax, single, disaster, vaccine };
@@ -113,11 +125,12 @@ export async function mint(configId, { holderJwk, claims, status } = {}) {
       const val = mdocValue(c.type, data[c.key]);
       if (val !== undefined) arr.push({ id: c.mdoc.element, value: val });
     }
+    const dscKeyPem = _pki?.mdoc?.[ref]?.key ?? await diskPem(`pki/mdoc/dsc/${ref}.key`);
+    const dscCertDer = _pki?.mdoc?.[ref]?.cert ?? await diskDer(`pki/mdoc/dsc/${ref}.crt`);
+    const iacaCertDer = _pki?.mdoc?.iaca ?? await diskDer('pki/mdoc/iaca/iaca.crt');
     const credential = issueMdoc({
       docType: cfg.doctype, namespace: ns, claims: arr, holderJwk, status,
-      dscKeyPem: readPem(`pki/mdoc/dsc/${ref}.key`),
-      dscCertDer: readDer(`pki/mdoc/dsc/${ref}.crt`),
-      iacaCertDer: readDer('pki/mdoc/iaca/iaca.crt'),
+      dscKeyPem, dscCertDer, iacaCertDer,
     });
     return { configId, format: cfg.format, docType: cfg.doctype, credential };
   }
@@ -131,11 +144,12 @@ export async function mint(configId, { holderJwk, claims, status } = {}) {
     claimsObj[c.key] = val;
     if (c.selective_disclosure) sdKeys.push(c.key);
   }
+  const issuerKeyPem = _pki?.sdjwt?.[ref]?.key ?? await diskPem(`pki/sdjwt/${ref}.key`);
+  const issuerCertDer = _pki?.sdjwt?.[ref]?.cert ?? await diskDer(`pki/sdjwt/${ref}.crt`);
+  const issuerCaDer = _pki?.sdjwt?.caCert ?? await diskDer('pki/sdjwt/issuer-ca.crt');
   const credential = await issueSdJwtVc({
     vct: cfg.vct, iss: `https://issuer-${ref}.ihv.example`, claims: claimsObj, sdKeys, holderJwk, status,
-    issuerKeyPem: readPem(`pki/sdjwt/${ref}.key`),
-    issuerCertDer: readDer(`pki/sdjwt/${ref}.crt`),
-    issuerCaDer: readDer('pki/sdjwt/issuer-ca.crt'),
+    issuerKeyPem, issuerCertDer, issuerCaDer,
   });
   return { configId, format: cfg.format, vct: cfg.vct, credential };
 }
@@ -144,9 +158,11 @@ export async function mint(configId, { holderJwk, claims, status } = {}) {
 export async function verify(configId, credential) {
   const cfg = catalog.credential_configurations_supported[configId];
   if (cfg.format === 'mso_mdoc') {
-    return verifyMdoc(credential, { trustedIacaDer: readDer('pki/mdoc/iaca/iaca.crt'), expectedDocType: cfg.doctype });
+    const trustedIacaDer = _pki?.mdoc?.iaca ?? await diskDer('pki/mdoc/iaca/iaca.crt');
+    return verifyMdoc(credential, { trustedIacaDer, expectedDocType: cfg.doctype });
   }
-  return verifySdJwtVc(credential, { trustedIssuerCaDer: readDer('pki/sdjwt/issuer-ca.crt') });
+  const trustedIssuerCaDer = _pki?.sdjwt?.caCert ?? await diskDer('pki/sdjwt/issuer-ca.crt');
+  return verifySdJwtVc(credential, { trustedIssuerCaDer });
 }
 
 export const allConfigIds = () => Object.keys(catalog.credential_configurations_supported);

@@ -1,9 +1,8 @@
 // Hono app exposing the OID4VCI endpoints. Runs on Node (tests via app.request())
-// and Cloudflare Workers. NOTE for Workers deploy: src/mdoc.mjs + src/cose.mjs use
-// node:crypto (X509Certificate, sign/verify) -> port to Web Crypto or enable
-// nodejs_compat; and swap memoryStore() for a KV-backed store.
+// and Cloudflare Workers (nodejs_compat — node:crypto works, node:fs does not).
+// HTML pages: pass issuerHtml/verifierHtml strings for Workers; Node.js falls back
+// to lazy disk read then redirects to /issuer.html (Workers Static Assets).
 import { Hono } from 'hono';
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { IssuerService } from './oid4vci.mjs';
 import { VerifierService } from './verifier.mjs';
@@ -14,20 +13,27 @@ import { renderVerifyConsole, renderWebVerify, renderWebVerifyResult } from './v
 import { createWallet } from './wallet.mjs';
 import { allConfigIds, configInfo } from './issuer.mjs';
 
+// Lazy HTML loader for Node.js — not called in Workers (html string passed explicitly).
+async function loadHtml(rel) {
+  try {
+    const { readFileSync } = await import('node:fs');
+    return readFileSync(fileURLToPath(new URL('../' + rel, import.meta.url)), 'utf8');
+  } catch { return null; }
+}
+
 export function createApp(opts = {}) {
-  const svc = new IssuerService(opts);
+  const { issuerHtml = null, verifierPki = null, statusPki = null, ...svcOpts } = opts;
+  const svc = new IssuerService({ ...svcOpts, statusPki });
   const app = new Hono();
 
   const fail = (c, e) => c.json({ error: e.oauthError || 'server_error', error_description: e.description || e.message }, e.status || 500);
 
   app.get('/.well-known/openid-credential-issuer', (c) => c.json(svc.metadata()));
 
-  // delivery demo page (browser): selectively try by value/reference + QR/deep link
-  app.get('/', (c) => {
-    try {
-      const html = readFileSync(fileURLToPath(new URL('../web/issuer.html', import.meta.url)), 'utf8');
-      return c.html(html);
-    } catch { return c.text('issuer page not found', 404); }
+  // delivery demo page: use passed-in HTML string (Workers) or lazy disk read (Node.js)
+  app.get('/', async (c) => {
+    const html = issuerHtml ?? await loadHtml('web/issuer.html');
+    return html ? c.html(html) : c.redirect('/issuer.html');
   });
 
   // demo helper to mint an offer (issuer-initiated), with all delivery forms
@@ -159,7 +165,12 @@ export function createApp(opts = {}) {
 
   // ---- browser demo of the Verifier (OID4VP): interactive console ----
   const demoVerify = new Map(); // vdemo -> { wallet, request, transactionId }
-  const demoVerifier = new VerifierService({ statusResolver: async () => svc.statusListToken() });
+  const demoVerifier = new VerifierService({
+    statusResolver: async () => svc.statusListToken(),
+    encPrivatePem: verifierPki?.encKey ?? null,
+    trustedIacaDer: verifierPki?.iacaCert ?? null,
+    trustedIssuerCaDer: verifierPki?.sdjwtCaCert ?? null,
+  });
   const fmtClaim = (val) => {
     if (val == null) return '';
     if (val instanceof Date) return val.toISOString().slice(0, 10);
@@ -229,11 +240,11 @@ export function createApp(opts = {}) {
   });
 
   // issuer's own issuance ledger (history). No presentation/tracking data.
-  app.get('/issuances', (c) => c.json({ issuances: svc.issuances() }));
+  app.get('/issuances', async (c) => c.json({ issuances: await svc.issuances() }));
 
   // revoke one issued credential by its status index
   app.post('/revoke', async (c) => {
-    try { const { index, reason } = await c.req.json(); svc.revoke(index, reason); return c.json({ revoked: index, reason: reason ?? null }); }
+    try { const { index, reason } = await c.req.json(); await svc.revoke(index, reason); return c.json({ revoked: index, reason: reason ?? null }); }
     catch (e) { return fail(c, e); }
   });
 
@@ -243,22 +254,24 @@ export function createApp(opts = {}) {
 /**
  * Verifier (RP) app: OID4VP request/verify endpoints + the DC API browser page.
  * Separate from the issuer app (different role/origin), both Workers-ready.
- * NOTE Workers: serve the page via an asset binding instead of fs.readFileSync.
  */
 export function createVerifierApp(opts = {}) {
-  const { verifierOrigin = '', walletOrigin = '', ...rest } = opts;
-  const v = new VerifierService(rest);
+  const { verifierOrigin = '', walletOrigin = '', verifierPki = null, verifierHtml = null, ...rest } = opts;
+  const v = new VerifierService({
+    ...rest,
+    encPrivatePem: rest.encPrivatePem ?? verifierPki?.encKey ?? null,
+    trustedIacaDer: rest.trustedIacaDer ?? verifierPki?.iacaCert ?? null,
+    trustedIssuerCaDer: rest.trustedIssuerCaDer ?? verifierPki?.sdjwtCaCert ?? null,
+  });
   const app = new Hono();
   const fail = (c, e) => c.json({ error: e.message }, e.status || 500);
   const requests = new Map(); // txn -> request object (served by reference)
   const results = new Map();  // txn -> verification result
 
   // GET / -> DC API browser page (browser/emulator only; not unit-testable here)
-  app.get('/', (c) => {
-    try {
-      const html = readFileSync(fileURLToPath(new URL('../web/verifier.html', import.meta.url)), 'utf8');
-      return c.html(html);
-    } catch { return c.text('verifier page not found', 404); }
+  app.get('/', async (c) => {
+    const html = verifierHtml ?? await loadHtml('web/verifier.html');
+    return html ? c.html(html) : c.redirect('/verifier.html');
   });
 
   // POST /vp/request {specs, sessionId?, linkTo?} -> { transactionId, request }

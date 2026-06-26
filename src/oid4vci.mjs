@@ -55,14 +55,42 @@ export function kvStore(kv) {
 }
 
 export class IssuerService {
+  // statusPki: { key, cert } — injected by worker.mjs for Workers env;
+  // null lets StatusListService lazy-load from disk in Node.js dev.
   constructor({ store = memoryStore(), credentialIssuer = 'https://issuer.ihv.example', proofMaxAgeSec = 300,
-    userStore = createUserStore() } = {}) {
+    userStore = createUserStore(), statusPki = null } = {}) {
     this.store = store;
     this.credentialIssuer = credentialIssuer;
     this.proofMaxAgeSec = proofMaxAgeSec;
-    this.statusList = new StatusListService({ uri: `${credentialIssuer}/status-lists/1` });
+    this.statusList = new StatusListService({
+      uri: `${credentialIssuer}/status-lists/1`,
+      issuerKeyPem: statusPki?.key ?? null,
+      issuerCertDer: statusPki?.cert ?? null,
+    });
     this.issuanceLog = []; // issuer's own ledger (NOT presentation tracking)
+    this._stateLoaded = false;
     this.users = userStore;
+  }
+
+  // ---- KV state persistence (issuanceLog + status bits survive isolate restarts) ----
+  async _loadState() {
+    if (this._stateLoaded) return;
+    this._stateLoaded = true;
+    const saved = await this.store.get('_persist:state');
+    if (!saved) return;
+    if (saved.issuanceLog) this.issuanceLog = saved.issuanceLog;
+    if (saved.statusBits) this.statusList.bits = saved.statusBits;
+    if (saved.statusNext != null) this.statusList.next = saved.statusNext;
+    if (saved.statusReasons) this.statusList.reasons = new Map(saved.statusReasons);
+  }
+
+  async _saveState() {
+    await this.store.set('_persist:state', {
+      issuanceLog: this.issuanceLog,
+      statusBits: Array.from(this.statusList.bits),
+      statusNext: this.statusList.next,
+      statusReasons: [...this.statusList.reasons],
+    }, 86400 * 30); // 30-day TTL; use KV without TTL in production for indefinite retention
   }
 
   // ---- Passwordless session (user identification) ----
@@ -205,6 +233,7 @@ export class IssuerService {
     if (!Array.isArray(jwtProofs) || jwtProofs.length === 0) throw httpErr(400, 'invalid_proof', 'proofs.jwt required');
 
     // single-credential issuance (batch = multiple proofs -> multiple creds, future)
+    await this._loadState();
     const holderJwk = await this.#verifyProof(jwtProofs[0]);
     const status = this.statusList.allocate();
     const persona = at.userId ? this.users.get(at.userId) : null; // session-bound data switch
@@ -218,6 +247,7 @@ export class IssuerService {
       issued_at: new Date().toISOString(),
       expires_at: new Date(Date.now() + 365 * 864e5).toISOString(),
     });
+    await this._saveState();
     const wire = minted.format === 'mso_mdoc'
       ? Buffer.from(minted.credential).toString('base64url') // binary -> base64url JSON string
       : minted.credential;                                    // SD-JWT compact string
@@ -226,10 +256,15 @@ export class IssuerService {
 
   // ---- Status List (revocation) ----
   statusListToken() { return this.statusList.token(); }
-  revoke(idx, reason) { this.statusList.revoke(idx, reason); }
+  async revoke(idx, reason) {
+    await this._loadState();
+    this.statusList.revoke(idx, reason);
+    await this._saveState();
+  }
 
   /** Issuer's own issuance ledger (history). Never includes presentation data. */
-  issuances() {
+  async issuances() {
+    await this._loadState();
     return this.issuanceLog.map((e) => ({ ...e, revoked: this.statusList.isRevoked(e.idx), revocation: this.statusList.reasonFor(e.idx) }));
   }
 
