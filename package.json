@@ -20,7 +20,15 @@
     "test": "node --test",
     "coverage": "c8 --include 'src/**' --reporter=text --reporter=lcov node --test",
     "demo:handover": "node scripts/handover.mjs",
-    "interop": "node scripts/interop-vectors.mjs"
+    "interop": "node scripts/interop-vectors.mjs",
+    "dev:issuer":   "wrangler dev",
+    "dev:verifier": "wrangler dev --config wrangler.verifier.toml",
+    "dev:wallet":   "wrangler dev --config wrangler.wallet.toml",
+    "deploy:issuer":   "wrangler deploy",
+    "deploy:verifier": "wrangler deploy --config wrangler.verifier.toml",
+    "deploy:wallet":   "wrangler deploy --config wrangler.wallet.toml",
+    "deploy": "npm run deploy:issuer && npm run deploy:verifier && npm run deploy:wallet",
+    "gen-pki-json": "node scripts/gen-worker-pki.mjs"
   },
   "description": "eIDAS2/ARF IHV demo (OID4VCI/OID4VP/HAIP, mdoc+SD-JWT, DC API)",
   "engines": {
