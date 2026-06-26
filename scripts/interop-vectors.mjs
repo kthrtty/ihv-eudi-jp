@@ -13,7 +13,7 @@ import { createHash } from 'node:crypto';
 const sha256 = (b) => createHash('sha256').update(Buffer.from(b)).digest('hex');
 
 // ---- FIXED inputs (must match the other implementation exactly) ----
-const ORIGIN = 'https://verifier.ivh.example';
+const ORIGIN = 'https://verifier.ihv.example';
 const NONCE = 'ZmixedFixedNonce_0001';
 const THUMB = 'fixedThumbprintAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const DOCTYPE = 'jp.go.pid.1';
@@ -22,7 +22,7 @@ const FIXED_RANDOM = Buffer.alloc(16, 0x2a); // 0x2a*16, so digests are reproduc
 
 const line = (label, bytes) => console.log(`\n# ${label}\nhex:    ${hex(bytes)}\nsha256: ${sha256(bytes)}\ndet:    ${JSON.stringify(isDeterministic(bytes))}`);
 
-console.log('=== IVH interop vectors (fixed inputs) ===');
+console.log('=== IHV interop vectors (fixed inputs) ===');
 console.log(`origin=${ORIGIN}\nnonce=${NONCE}\njwkThumbprint=${THUMB}\ndocType=${DOCTYPE}`);
 
 // 1) Annex D SessionTranscript (OpenID4VPDCAPIHandover)

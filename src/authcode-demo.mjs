@@ -93,7 +93,7 @@ export function renderConsent(q, users, requested) {
 /** Wallet-start page: build the authorization request URL (+QR) the wallet opens. */
 export async function renderAuthStart({ issuer, configId, redirectUri, verifier, state }) {
   const url = `${issuer}/authorize?` + new URLSearchParams({
-    response_type: 'code', client_id: 'ivh-wallet', redirect_uri: redirectUri,
+    response_type: 'code', client_id: 'ihv-wallet', redirect_uri: redirectUri,
     code_challenge: s256(verifier), code_challenge_method: 'S256', scope: configId, state,
   }).toString();
   const qr = await offerQrSvg(url);
@@ -190,7 +190,7 @@ export const pkce = () => { const verifier = b64url(randomBytes(32)); return { v
 /** Build a wallet authorization request URL (optionally carrying issuer_state). */
 export function authorizeUrl({ issuer, redirectUri, challenge, state, scope, issuerState }) {
   const p = new URLSearchParams({
-    response_type: 'code', client_id: 'ivh-wallet', redirect_uri: redirectUri,
+    response_type: 'code', client_id: 'ihv-wallet', redirect_uri: redirectUri,
     code_challenge: challenge, code_challenge_method: 'S256', state,
   });
   if (issuerState) p.set('issuer_state', issuerState); else p.set('scope', scope);

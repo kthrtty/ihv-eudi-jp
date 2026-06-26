@@ -10,7 +10,7 @@ import { mint, verify as verifyCredential } from '../src/issuer.mjs';
 import { IssuerService } from '../src/oid4vci.mjs';
 import { packBits, bitAt, compressList, decompressList, buildStatusListToken, parseStatusListToken, verifyStatus, StatusListService } from '../src/status.mjs';
 
-const ISSUER = 'https://issuer.ivh.example';
+const ISSUER = 'https://issuer.ihv.example';
 const holderJwk = () => generateKeyPairSync('ec', { namedCurve: 'P-256' }).publicKey.export({ format: 'jwk' });
 
 test('status bits: pack/unpack + zlib round-trip (LSB-first)', () => {

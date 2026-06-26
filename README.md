@@ -1,6 +1,6 @@
-# ivh-eudi-jp
+# ihv-eudi-jp
 
-eIDAS2.0 / ARF 準拠の **Issuer–Verifier–Holder（IVH）デモ**（日本属性）。
+eIDAS2.0 / ARF 準拠の **Issuer–Verifier–Holder（IHV）デモ**（日本属性）。
 OID4VCI 1.0 で発行、OID4VP 1.0 + HAIP で提示、**mso_mdoc / SD-JWT VC** の選択的開示、
 DC API（ISO 18013-7 Annex C/D）連携、Token Status List 失効、そして DC API を使わない
 **Web ウォレット経路（HTTPS リダイレクト）**まで。設計の単一ソースは `CLAUDE.md`、詳細は `docs/`。

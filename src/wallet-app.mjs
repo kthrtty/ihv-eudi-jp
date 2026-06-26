@@ -70,7 +70,7 @@ export function createWalletApp({ walletOrigin = '' } = {}) {
         const { verifier, challenge, state } = pkce();
         s.pending = { verifier, configId, issuerBase, redirectUri: walletOrigin + '/oidc/cb' };
         const url = `${issuerBase}/authorize?` + new URLSearchParams({
-          response_type: 'code', client_id: 'ivh-web-wallet', redirect_uri: s.pending.redirectUri,
+          response_type: 'code', client_id: 'ihv-web-wallet', redirect_uri: s.pending.redirectUri,
           code_challenge: challenge, code_challenge_method: 'S256',
           issuer_state: grants.authorization_code.issuer_state, state,
         }).toString();
@@ -135,7 +135,7 @@ export function createWalletApp({ walletOrigin = '' } = {}) {
   return app;
 }
 
-const WALLET = { brand: 'IVH ウェブウォレット', sub: 'WEB WALLET', role: 'wallet' };
+const WALLET = { brand: 'IHV ウェブウォレット', sub: 'WEB WALLET', role: 'wallet' };
 
 function presentConsent({ request, claims, have }) {
   const pills = claims.map((k) => `<span class="pill">${esc(k)}</span>`).join(' ');

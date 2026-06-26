@@ -7,7 +7,7 @@ import { createApp } from '../src/app.mjs';
 import { verify as verifyCredential } from '../src/issuer.mjs';
 import { fromB64url } from '../src/cbor.mjs';
 
-const ISSUER = 'https://issuer.ivh.example';
+const ISSUER = 'https://issuer.ihv.example';
 const app = createApp({ credentialIssuer: ISSUER });
 
 const J = (path, body, headers = {}) => app.request(path, {

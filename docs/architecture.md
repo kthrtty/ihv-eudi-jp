@@ -1,4 +1,4 @@
-# IVH EUDI-JP デモ — アーキテクチャ & 決定事項
+# IHV EUDI-JP デモ — アーキテクチャ & 決定事項
 
 eIDAS2.0 / ARF 準拠の Issuer–Verifier–Holder エコシステム（日本属性のデモ）。
 

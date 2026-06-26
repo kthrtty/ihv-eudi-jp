@@ -60,7 +60,7 @@ export function createWallet() {
     /** OID4VCI authorization_code flow with PKCE, tied to a signed-in session.
      *  Pass issuerState for the issuer-initiated variant (offer carried issuer_state). */
     async authorizeAndReceive({ request, configId, sessionId, credentialIssuer, issuerState,
-      clientId = 'ivh-wallet', redirectUri = 'openid-credential-offer://cb' }) {
+      clientId = 'ihv-wallet', redirectUri = 'openid-credential-offer://cb' }) {
       const verifier = b64url(randomBytes(32));
       const params = {
         response_type: 'code', client_id: clientId, redirect_uri: redirectUri,

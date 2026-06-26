@@ -55,7 +55,7 @@ export function kvStore(kv) {
 }
 
 export class IssuerService {
-  constructor({ store = memoryStore(), credentialIssuer = 'https://issuer.ivh.example', proofMaxAgeSec = 300,
+  constructor({ store = memoryStore(), credentialIssuer = 'https://issuer.ihv.example', proofMaxAgeSec = 300,
     userStore = createUserStore() } = {}) {
     this.store = store;
     this.credentialIssuer = credentialIssuer;

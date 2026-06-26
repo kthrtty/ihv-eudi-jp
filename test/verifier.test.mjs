@@ -9,7 +9,7 @@ import { decryptResponse } from '../src/jwe.mjs';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-const ISSUER = 'https://issuer.ivh.example';
+const ISSUER = 'https://issuer.ihv.example';
 const encPriv = readFileSync(fileURLToPath(new URL('../pki/verifier/rp-enc.key', import.meta.url)));
 
 // issue the given configIds into one wallet (shared holder key)

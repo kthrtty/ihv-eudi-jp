@@ -132,7 +132,7 @@ export async function mint(configId, { holderJwk, claims, status } = {}) {
     if (c.selective_disclosure) sdKeys.push(c.key);
   }
   const credential = await issueSdJwtVc({
-    vct: cfg.vct, iss: `https://issuer-${ref}.ivh.example`, claims: claimsObj, sdKeys, holderJwk, status,
+    vct: cfg.vct, iss: `https://issuer-${ref}.ihv.example`, claims: claimsObj, sdKeys, holderJwk, status,
     issuerKeyPem: readPem(`pki/sdjwt/${ref}.key`),
     issuerCertDer: readDer(`pki/sdjwt/${ref}.crt`),
     issuerCaDer: readDer('pki/sdjwt/issuer-ca.crt'),
