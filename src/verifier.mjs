@@ -32,7 +32,7 @@ export class VerifierService {
 
   _initKeys(encPrivatePem, iacaDer, caDer) {
     this.encPrivatePem = encPrivatePem;
-    this.encJwk = createPublicKey({ key: createPrivateKey(encPrivatePem) }).export({ format: 'jwk' });
+    this.encJwk = createPublicKey(encPrivatePem).export({ format: 'jwk' });
     this.encPrivJwk = createPrivateKey(encPrivatePem).export({ format: 'jwk' });
     this.trustedIacaDer = iacaDer;
     this.trustedIssuerCaDer = caDer;

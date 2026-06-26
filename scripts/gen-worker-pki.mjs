@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// Generate ISSUER_PKI_JSON for `wrangler secret put ISSUER_PKI_JSON`.
+// Generate PKI JSON for Workers deployment.
 // Run after `npm run setup` (which creates the pki/ directory).
 //
 // Usage:
-//   node scripts/gen-worker-pki.mjs            # print JSON to stdout
-//   node scripts/gen-worker-pki.mjs | wrangler secret put ISSUER_PKI_JSON
+//   node scripts/gen-worker-pki.mjs            # full PKI JSON (for KV storage)
+//   node scripts/gen-worker-pki.mjs --wallet   # trust anchors only (for TRUST_ANCHORS_JSON secret)
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { X509Certificate } from 'node:crypto';
@@ -43,4 +43,12 @@ const bundle = {
   },
 };
 
-process.stdout.write(JSON.stringify(bundle));
+if (process.argv.includes('--wallet')) {
+  // Wallet only needs trust anchors (~1 kB, fits in 5 kB secret limit)
+  process.stdout.write(JSON.stringify({
+    mdoc:  { iaca:   bundle.mdoc.iaca },
+    sdjwt: { caCert: bundle.sdjwt.caCert },
+  }));
+} else {
+  process.stdout.write(JSON.stringify(bundle));
+}
