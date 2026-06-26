@@ -1,7 +1,6 @@
 // Verifier (Relying Party): builds HAIP-shaped OID4VP requests (DCQL + response
 // encryption) and verifies the encrypted vp_token. Supports single requests and
 // session-linked sequential requests (PID -> EAA) checking same-holder binding.
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { randomBytes, X509Certificate, createPrivateKey, createPublicKey } from 'node:crypto';
 import { verifyDeviceResponse } from './mdoc.mjs';
@@ -13,29 +12,49 @@ import { buildDcql, satisfies } from './dcql.mjs';
 import { verifyStatus } from './status.mjs';
 import { memoryStore } from './oid4vci.mjs';
 
-const root = (rel) => fileURLToPath(new URL('../' + rel, import.meta.url));
-const der = (rel) => new X509Certificate(readFileSync(root(rel))).raw;
 const rand = () => randomBytes(16).toString('base64url');
 const holderId = (jwk) => `${jwk.x}.${jwk.y}`; // normalize holder key across formats
 
 export class VerifierService {
+  // encPrivatePem / trustedIacaDer / trustedIssuerCaDer: explicit in Workers (from env);
+  // null triggers lazy disk load in Node.js dev via _ensurePki().
   constructor({ store = memoryStore(),
     clientId = 'x509_san_dns:verifier.ihv.example',
     origin = 'https://verifier.ihv.example',
-    encPrivatePem = readFileSync(root('pki/verifier/rp-enc.key')),
-    trustedIacaDer = der('pki/mdoc/iaca/iaca.crt'),
-    trustedIssuerCaDer = der('pki/sdjwt/issuer-ca.crt'), statusResolver = null } = {}) {
+    encPrivatePem = null, trustedIacaDer = null, trustedIssuerCaDer = null,
+    statusResolver = null } = {}) {
     this.store = store; this.clientId = clientId; this.origin = origin;
+    this.statusResolver = statusResolver;
+    this._trustedIacaDer = trustedIacaDer;
+    this._trustedIssuerCaDer = trustedIssuerCaDer;
+    if (encPrivatePem) this._initKeys(encPrivatePem, trustedIacaDer, trustedIssuerCaDer);
+  }
+
+  _initKeys(encPrivatePem, iacaDer, caDer) {
     this.encPrivatePem = encPrivatePem;
     this.encJwk = createPublicKey({ key: createPrivateKey(encPrivatePem) }).export({ format: 'jwk' });
-    this.encPrivJwk = createPrivateKey(encPrivatePem).export({ format: 'jwk' }); // HPKE recipient (Annex C)
-    this.trustedIacaDer = trustedIacaDer; this.trustedIssuerCaDer = trustedIssuerCaDer;
-    this.statusResolver = statusResolver; // optional fn(uri)->statuslist+jwt for revocation checks
+    this.encPrivJwk = createPrivateKey(encPrivatePem).export({ format: 'jwk' });
+    this.trustedIacaDer = iacaDer;
+    this.trustedIssuerCaDer = caDer;
+  }
+
+  async _ensurePki() {
+    if (this.encPrivatePem) return;
+    // Node.js fallback — never reached in Workers (PKI injected via constructor)
+    const { readFileSync } = await import('node:fs');
+    const root = (rel) => fileURLToPath(new URL('../' + rel, import.meta.url));
+    const der = (rel) => new X509Certificate(readFileSync(root(rel))).raw;
+    this._initKeys(
+      readFileSync(root('pki/verifier/rp-enc.key')),
+      this._trustedIacaDer ?? der('pki/mdoc/iaca/iaca.crt'),
+      this._trustedIssuerCaDer ?? der('pki/sdjwt/issuer-ca.crt'),
+    );
   }
 
   /** Build a presentation request. protocol: 'annex-d' (OID4VP/HAIP over DC API,
    *  JWE) or 'annex-c' (org-iso-mdoc, HPKE). Annex C is mdoc-only. */
   async createRequest({ specs, sessionId, linkTo, protocol = 'annex-d', transport, responseUri, responseUriBase } = {}) {
+    await this._ensurePki();
     const nonce = rand();
     const dcql_query = buildDcql(specs);
     const transactionId = rand();
@@ -112,6 +131,7 @@ export class VerifierService {
 
   /** Decrypt + verify the vp_token; check DCQL; record/compare holder for linking. */
   async verifyResponse({ transactionId, encryptedResponse }) {
+    await this._ensurePki();
     const session = await this.store.get(`vp:${transactionId}`);
     if (!session) return { valid: false, errors: ['unknown transaction'] };
     const errors = [];

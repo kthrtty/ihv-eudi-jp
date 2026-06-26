@@ -3,13 +3,10 @@
 // a status reference {idx, uri}; the issuer publishes a signed, compressed bit
 // array. The verifier fetches the WHOLE list and checks locally, so the issuer
 // never learns which credential was checked (issuer-verifier unlinkability).
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { deflateSync, inflateSync } from 'node:zlib';
 import { X509Certificate, createPrivateKey } from 'node:crypto';
 import { SignJWT, jwtVerify } from 'jose';
-
-const root = (rel) => fileURLToPath(new URL('../' + rel, import.meta.url));
 const b64url = (b) => Buffer.from(b).toString('base64url');
 
 // 1-bit status: bit i lives in byte floor(i/8), position i%8 (LSB-first per spec).
@@ -51,8 +48,9 @@ export async function verifyStatus(statusRef, resolve) {
 
 /** Issuer-side status list: allocate indices, revoke, publish the token. */
 export class StatusListService {
-  constructor({ uri, issuerKeyPem = readFileSync(root('pki/sdjwt/pid.key')),
-    issuerCertDer = new X509Certificate(readFileSync(root('pki/sdjwt/pid.crt'))).raw, size = 256 } = {}) {
+  // issuerKeyPem / issuerCertDer: explicit in Workers (from env secrets);
+  // null triggers lazy disk load in Node.js dev (pki/sdjwt/pid.key/.crt).
+  constructor({ uri, issuerKeyPem = null, issuerCertDer = null, size = 256 } = {}) {
     this.uri = uri;
     this.issuerKeyPem = issuerKeyPem;
     this.issuerCertDer = issuerCertDer;
@@ -64,5 +62,14 @@ export class StatusListService {
   revoke(idx, reason = 'unspecified') { this.bits[idx] = 1; this.reasons.set(idx, { reason, date: new Date().toISOString() }); }
   isRevoked(idx) { return this.bits[idx] === 1; }
   reasonFor(idx) { return this.reasons.get(idx) || null; }
-  token() { return buildStatusListToken({ bits: this.bits, issuerKeyPem: this.issuerKeyPem, issuerCertDer: this.issuerCertDer, sub: this.uri }); }
+  async token() {
+    if (!this.issuerKeyPem) {
+      // Node.js fallback — never reached in Workers (PKI injected via constructor)
+      const { readFileSync } = await import('node:fs');
+      const root = (rel) => fileURLToPath(new URL('../' + rel, import.meta.url));
+      this.issuerKeyPem = readFileSync(root('pki/sdjwt/pid.key'));
+      this.issuerCertDer = new X509Certificate(readFileSync(root('pki/sdjwt/pid.crt'))).raw;
+    }
+    return buildStatusListToken({ bits: this.bits, issuerKeyPem: this.issuerKeyPem, issuerCertDer: this.issuerCertDer, sub: this.uri });
+  }
 }
