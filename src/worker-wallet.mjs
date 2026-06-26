@@ -1,7 +1,8 @@
 // Web Wallet Worker — https://web-wallet.example.test
 // OID4VCI browser redirect issuance + OID4VP redirect presentation.
 //
-// Secrets: ISSUER_PKI_JSON (trust anchors only: IACA cert + SD-JWT CA cert)
+// Secrets: TRUST_ANCHORS_JSON  — output of `node scripts/gen-worker-pki.mjs --wallet`
+//          (IACA cert + SD-JWT CA cert only, ~1 kB — fits the 5 kB secret limit)
 // No KV needed — sessions are per-isolate in-memory (acceptable for demo wallet).
 import { createWalletApp } from './wallet-app.mjs';
 import { setPki } from './issuer.mjs';
@@ -22,7 +23,7 @@ let app;
 export default {
   async fetch(request, env, ctx) {
     if (!app) {
-      const pki = parseTrustAnchors(env.ISSUER_PKI_JSON ?? null);
+      const pki = parseTrustAnchors(env.TRUST_ANCHORS_JSON ?? null);
       if (pki) setPki(pki); // trust anchors for verifyCredential() display only
       app = createWalletApp({
         walletOrigin: env.WALLET_ORIGIN || 'https://web-wallet.example.test',

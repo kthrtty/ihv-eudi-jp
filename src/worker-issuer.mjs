@@ -1,9 +1,10 @@
 // Issuer Worker — https://issuer.example.test
 // OID4VCI endpoints + demo verifier console.
 //
-// Secrets: ISSUER_PKI_JSON (node scripts/gen-worker-pki.mjs | wrangler secret put ...)
-// KV:      IHV_KV (wrangler kv namespace create IHV_KV)
-// Assets:  web/ served at /issuer.html, /verifier.html (static)
+// PKI: stored in KV under key "_pki:config" (see scripts/gen-worker-pki.mjs + deploy:pki)
+//      or override with ISSUER_PKI_JSON secret (up to 5 kB — too small for full PKI).
+// KV:  IHV_KV binding required (session state + PKI config)
+// Assets: web/ served at /issuer.html, /verifier.html (static)
 import { createApp } from './app.mjs';
 import { kvStore } from './oid4vci.mjs';
 import { setPki } from './issuer.mjs';
@@ -40,10 +41,12 @@ let app; // built once per isolate; short-lived state lives in KV, not memory
 export default {
   async fetch(request, env, ctx) {
     if (!app) {
-      const pki = parsePki(env.ISSUER_PKI_JSON ?? null);
+      // PKI stored in KV at "_pki:config" (avoids 5 kB secret size limit)
+      const pkiJson = env.ISSUER_PKI_JSON ?? (await env.IHV_KV?.get('_pki:config')) ?? null;
+      const pki = parsePki(pkiJson);
       if (pki) setPki(pki.issuer); // inject into issuer.mjs module scope
       app = createApp({
-        store: env.IHV_KV ? kvStore(env.IHV_KV) : undefined, // dev: falls back to memoryStore
+        store: env.IHV_KV ? kvStore(env.IHV_KV) : undefined,
         credentialIssuer: env.ISSUER_URL || 'https://issuer.example.test',
         statusPki: pki?.statusPki ?? null,
         verifierPki: pki?.verifierPki ?? null,
