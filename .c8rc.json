@@ -1,0 +1,1 @@
+{ "include": ["src/**"], "reporter": ["text", "lcov"], "all": true, "clean": true }

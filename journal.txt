@@ -1,0 +1,12 @@
+# IVH demo — session journal (newest first). 1行=1セッションの要点。
+
+S(current): メモリ compaction + **Web ウォレット提示/検証（OID4VP redirect, direct_post.jwt, 3オリジンE2E wv-01..03）完了**。redirect handover を handover.mjs に追加。
+S: Web ウォレット連携（別オリジン）— pre-auth + authorization_code 発行をブラウザ・リダイレクトで実装。
+   src/wallet-app.mjs / wallet.exchangeAndReceive / shell に wallet ロール / test/webwallet.test.mjs / capture-webwallet(ww-01..05)。
+S: 役割ヘッダ（Issuer青/Verifier煉瓦/Wallet ティール）。検証者コンソール（16構成・mdoc/SD-JWT・項目選択・DCQL JSON・結果）。
+   Annex C/D 選択ディスパッチ（verifier.createRequest({protocol}) / wallet.respond / verifyResponse）。verifier.html ラベル修正。
+S: 発行者起点 authorization_code（issuer_state）+ 2段階コールバック。検証デモ（vf-01/02）。
+S: authorization_code(PKCE)+セッション+persona データ切替+ユーザー保守。auth-code デモUI（ac-/ai-）。
+S: M7 下準備（node:crypto は Workers OK と判明＝WebCrypto移植不要、schemas バンドル化、kvStore/worker/wrangler）。
+S: Token Status List 失効・16構成拡張・発行履歴UI。Credential Offer 配送（by value/ref・QR）。
+S: M1–M5（PKI/trust/schema、mdoc/SD-JWT 発行、OID4VCI、wallet-core、Verifier DCQL/HAIP/JWE、相互運用 golden）。

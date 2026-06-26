@@ -1,0 +1,328 @@
+{
+  "id": "pid",
+  "category": "PID",
+  "display": {
+    "ja": "個人識別情報 (写真付き身分証)",
+    "en": "Person Identification Data (photo ID)"
+  },
+  "issuer_ref": "pid",
+  "authority": {
+    "ja": "デモ PID プロバイダ",
+    "en": "Demo PID Provider"
+  },
+  "formats": {
+    "mso_mdoc": {
+      "doctype": "jp.go.pid.1",
+      "namespace": "jp.go.pid.1"
+    },
+    "dc+sd-jwt": {
+      "vct": "urn:jp:pid:1"
+    }
+  },
+  "basic_four": [
+    "name",
+    "residence_address",
+    "birth_date",
+    "sex"
+  ],
+  "claims": [
+    {
+      "key": "family_name",
+      "type": "string",
+      "display": {
+        "ja": "姓",
+        "en": "Family name"
+      },
+      "basic_four": true,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.pid.1",
+        "element": "family_name"
+      },
+      "sdjwt": {
+        "path": [
+          "family_name"
+        ]
+      }
+    },
+    {
+      "key": "given_name",
+      "type": "string",
+      "display": {
+        "ja": "名",
+        "en": "Given name"
+      },
+      "basic_four": true,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.pid.1",
+        "element": "given_name"
+      },
+      "sdjwt": {
+        "path": [
+          "given_name"
+        ]
+      }
+    },
+    {
+      "key": "family_name_kana",
+      "type": "string",
+      "display": {
+        "ja": "姓(カナ)",
+        "en": "Family name kana"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": true,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.pid.1",
+        "element": "family_name_kana"
+      },
+      "sdjwt": {
+        "path": [
+          "family_name_kana"
+        ]
+      }
+    },
+    {
+      "key": "given_name_kana",
+      "type": "string",
+      "display": {
+        "ja": "名(カナ)",
+        "en": "Given name kana"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": true,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.pid.1",
+        "element": "given_name_kana"
+      },
+      "sdjwt": {
+        "path": [
+          "given_name_kana"
+        ]
+      }
+    },
+    {
+      "key": "birth_date",
+      "type": "full-date",
+      "display": {
+        "ja": "生年月日",
+        "en": "Date of birth"
+      },
+      "basic_four": true,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.pid.1",
+        "element": "birth_date"
+      },
+      "sdjwt": {
+        "path": [
+          "birthdate"
+        ]
+      }
+    },
+    {
+      "key": "residence_address",
+      "type": "string",
+      "display": {
+        "ja": "住所",
+        "en": "Residence address"
+      },
+      "basic_four": true,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.pid.1",
+        "element": "resident_address"
+      },
+      "sdjwt": {
+        "path": [
+          "address",
+          "formatted"
+        ]
+      }
+    },
+    {
+      "key": "sex",
+      "type": "uint(ISO5218)",
+      "display": {
+        "ja": "性別",
+        "en": "Sex"
+      },
+      "basic_four": true,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.pid.1",
+        "element": "sex"
+      },
+      "sdjwt": {
+        "path": [
+          "sex"
+        ]
+      },
+      "note": "ISO/IEC 5218: 0=unknown,1=male,2=female,9=N/A"
+    },
+    {
+      "key": "portrait",
+      "type": "jpeg/bstr",
+      "display": {
+        "ja": "顔写真",
+        "en": "Portrait"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.pid.1",
+        "element": "portrait"
+      },
+      "sdjwt": {
+        "path": [
+          "portrait"
+        ]
+      },
+      "note": "mdoc: bstr(JPEG); sd-jwt: base64url string"
+    },
+    {
+      "key": "age_over_18",
+      "type": "bool",
+      "display": {
+        "ja": "18歳以上",
+        "en": "Age over 18"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.pid.1",
+        "element": "age_over_18"
+      },
+      "sdjwt": {
+        "path": [
+          "age_over_18"
+        ]
+      },
+      "note": "derived; lets verifier age-check without birth_date"
+    },
+    {
+      "key": "document_number",
+      "type": "string",
+      "display": {
+        "ja": "証明書番号",
+        "en": "Document number"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": true,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.pid.1",
+        "element": "document_number"
+      },
+      "sdjwt": {
+        "path": [
+          "document_number"
+        ]
+      }
+    },
+    {
+      "key": "issuing_country",
+      "type": "string",
+      "display": {
+        "ja": "発行国",
+        "en": "Issuing country"
+      },
+      "basic_four": false,
+      "selective_disclosure": false,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.pid.1",
+        "element": "issuing_country"
+      },
+      "sdjwt": {
+        "path": [
+          "issuing_country"
+        ]
+      }
+    },
+    {
+      "key": "issuing_authority",
+      "type": "string",
+      "display": {
+        "ja": "発行者",
+        "en": "Issuing authority"
+      },
+      "basic_four": false,
+      "selective_disclosure": false,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.pid.1",
+        "element": "issuing_authority"
+      },
+      "sdjwt": {
+        "path": [
+          "issuing_authority"
+        ]
+      }
+    },
+    {
+      "key": "issuance_date",
+      "type": "full-date",
+      "display": {
+        "ja": "発行日",
+        "en": "Issuance date"
+      },
+      "basic_four": false,
+      "selective_disclosure": false,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.pid.1",
+        "element": "issuance_date"
+      },
+      "sdjwt": {
+        "path": [
+          "issuance_date"
+        ]
+      }
+    },
+    {
+      "key": "expiry_date",
+      "type": "full-date",
+      "display": {
+        "ja": "有効期限",
+        "en": "Expiry date"
+      },
+      "basic_four": false,
+      "selective_disclosure": false,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.pid.1",
+        "element": "expiry_date"
+      },
+      "sdjwt": {
+        "path": [
+          "expiry_date"
+        ]
+      }
+    }
+  ]
+}

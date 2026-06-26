@@ -1,0 +1,21 @@
+# deps & build
+node_modules/
+coverage/
+.nyc_output/
+*.lcov
+
+# generated dev PKI (regenerate with: npm run setup). Never commit private keys.
+pki/
+
+# Cloudflare / Wrangler (M2b+)
+.wrangler/
+.dev.vars
+dist/
+
+# misc
+*.srl
+.DS_Store
+*.log
+
+# generated screenshots (regenerate with scripts/capture-*.mjs)
+web/captures/

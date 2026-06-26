@@ -1,0 +1,299 @@
+{
+  "id": "vaccine",
+  "category": "EAA",
+  "display": {
+    "ja": "ワクチン接種証明書",
+    "en": "Vaccination Certificate"
+  },
+  "issuer_ref": "vaccine",
+  "authority": {
+    "ja": "デモ市区町村 (厚生労働省)",
+    "en": "Demo Municipality (MHLW)"
+  },
+  "formats": {
+    "mso_mdoc": {
+      "doctype": "jp.go.vaccine.1",
+      "namespace": "jp.go.vaccine.1"
+    },
+    "dc+sd-jwt": {
+      "vct": "urn:jp:vaccine:1"
+    }
+  },
+  "basic_four": [],
+  "claims": [
+    {
+      "key": "family_name",
+      "type": "string",
+      "display": {
+        "ja": "姓",
+        "en": "Family name"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.vaccine.1",
+        "element": "family_name"
+      },
+      "sdjwt": {
+        "path": [
+          "family_name"
+        ]
+      }
+    },
+    {
+      "key": "given_name",
+      "type": "string",
+      "display": {
+        "ja": "名",
+        "en": "Given name"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.vaccine.1",
+        "element": "given_name"
+      },
+      "sdjwt": {
+        "path": [
+          "given_name"
+        ]
+      }
+    },
+    {
+      "key": "birth_date",
+      "type": "full-date",
+      "display": {
+        "ja": "生年月日",
+        "en": "Date of birth"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.vaccine.1",
+        "element": "birth_date"
+      },
+      "sdjwt": {
+        "path": [
+          "birthdate"
+        ]
+      }
+    },
+    {
+      "key": "disease",
+      "type": "string",
+      "display": {
+        "ja": "対象疾病",
+        "en": "Target disease"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.vaccine.1",
+        "element": "disease"
+      },
+      "sdjwt": {
+        "path": [
+          "disease"
+        ]
+      },
+      "note": "e.g. COVID-19"
+    },
+    {
+      "key": "vaccine_type",
+      "type": "string",
+      "display": {
+        "ja": "ワクチン名",
+        "en": "Vaccine"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.vaccine.1",
+        "element": "vaccine_type"
+      },
+      "sdjwt": {
+        "path": [
+          "vaccine_type"
+        ]
+      }
+    },
+    {
+      "key": "dose_number",
+      "type": "uint",
+      "display": {
+        "ja": "接種回数",
+        "en": "Dose number"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.vaccine.1",
+        "element": "dose_number"
+      },
+      "sdjwt": {
+        "path": [
+          "dose_number"
+        ]
+      }
+    },
+    {
+      "key": "vaccination_date",
+      "type": "full-date",
+      "display": {
+        "ja": "接種日",
+        "en": "Vaccination date"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.vaccine.1",
+        "element": "vaccination_date"
+      },
+      "sdjwt": {
+        "path": [
+          "vaccination_date"
+        ]
+      }
+    },
+    {
+      "key": "lot_number",
+      "type": "string",
+      "display": {
+        "ja": "ロット番号",
+        "en": "Lot number"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": true,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.vaccine.1",
+        "element": "lot_number"
+      },
+      "sdjwt": {
+        "path": [
+          "lot_number"
+        ]
+      }
+    },
+    {
+      "key": "vaccination_site",
+      "type": "string",
+      "display": {
+        "ja": "接種場所",
+        "en": "Vaccination site"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": true,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.vaccine.1",
+        "element": "vaccination_site"
+      },
+      "sdjwt": {
+        "path": [
+          "vaccination_site"
+        ]
+      }
+    },
+    {
+      "key": "certificate_number",
+      "type": "string",
+      "display": {
+        "ja": "証明書番号",
+        "en": "Certificate number"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.vaccine.1",
+        "element": "certificate_number"
+      },
+      "sdjwt": {
+        "path": [
+          "certificate_number"
+        ]
+      }
+    },
+    {
+      "key": "issuing_authority",
+      "type": "string",
+      "display": {
+        "ja": "発行者",
+        "en": "Issuing authority"
+      },
+      "basic_four": false,
+      "selective_disclosure": false,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.vaccine.1",
+        "element": "issuing_authority"
+      },
+      "sdjwt": {
+        "path": [
+          "issuing_authority"
+        ]
+      }
+    },
+    {
+      "key": "issuance_date",
+      "type": "full-date",
+      "display": {
+        "ja": "発行日",
+        "en": "Issuance date"
+      },
+      "basic_four": false,
+      "selective_disclosure": false,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.vaccine.1",
+        "element": "issuance_date"
+      },
+      "sdjwt": {
+        "path": [
+          "issuance_date"
+        ]
+      }
+    },
+    {
+      "key": "expiry_date",
+      "type": "full-date",
+      "display": {
+        "ja": "有効期限",
+        "en": "Expiry date"
+      },
+      "basic_four": false,
+      "selective_disclosure": false,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.vaccine.1",
+        "element": "expiry_date"
+      },
+      "sdjwt": {
+        "path": [
+          "expiry_date"
+        ]
+      }
+    }
+  ]
+}

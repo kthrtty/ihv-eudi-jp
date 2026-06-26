@@ -1,0 +1,17 @@
+name = "ivh-eudi-jp"
+main = "src/worker.mjs"
+compatibility_date = "2025-09-01"
+# node:crypto is fully supported under nodejs_compat (incl. ES256, createHash,
+# randomBytes, EC P-256, X509Certificate). No WebCrypto rewrite needed. See deploy doc.
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ISSUER_URL = "https://issuer.example.workers.dev"
+
+# Create with: wrangler kv namespace create IVH_KV   (then paste the id below)
+[[kv_namespaces]]
+binding = "IVH_KV"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+# Dev keys are read from disk today. In production, supply issuer signing keys as
+# secrets instead (wrangler secret put ISSUER_MDOC_DSC_KEY, etc.). See deploy doc.

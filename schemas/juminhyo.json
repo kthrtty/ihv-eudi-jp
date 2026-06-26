@@ -1,0 +1,360 @@
+{
+  "id": "juminhyo",
+  "category": "EAA",
+  "display": {
+    "ja": "住民票",
+    "en": "Certificate of Residence (Juminhyo)"
+  },
+  "issuer_ref": "juminhyo",
+  "authority": {
+    "ja": "デモ市区町村",
+    "en": "Demo Municipality"
+  },
+  "formats": {
+    "mso_mdoc": {
+      "doctype": "jp.go.juminhyo.1",
+      "namespace": "jp.go.juminhyo.1"
+    },
+    "dc+sd-jwt": {
+      "vct": "urn:jp:juminhyo:1"
+    }
+  },
+  "claims": [
+    {
+      "key": "family_name",
+      "type": "string",
+      "display": {
+        "ja": "姓",
+        "en": "Family name"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.juminhyo.1",
+        "element": "family_name"
+      },
+      "sdjwt": {
+        "path": [
+          "family_name"
+        ]
+      }
+    },
+    {
+      "key": "given_name",
+      "type": "string",
+      "display": {
+        "ja": "名",
+        "en": "Given name"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.juminhyo.1",
+        "element": "given_name"
+      },
+      "sdjwt": {
+        "path": [
+          "given_name"
+        ]
+      }
+    },
+    {
+      "key": "birth_date",
+      "type": "full-date",
+      "display": {
+        "ja": "生年月日",
+        "en": "Date of birth"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.juminhyo.1",
+        "element": "birth_date"
+      },
+      "sdjwt": {
+        "path": [
+          "birthdate"
+        ]
+      }
+    },
+    {
+      "key": "sex",
+      "type": "uint(ISO5218)",
+      "display": {
+        "ja": "性別",
+        "en": "Sex"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.juminhyo.1",
+        "element": "sex"
+      },
+      "sdjwt": {
+        "path": [
+          "sex"
+        ]
+      }
+    },
+    {
+      "key": "residence_address",
+      "type": "string",
+      "display": {
+        "ja": "住所",
+        "en": "Residence address"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.juminhyo.1",
+        "element": "resident_address"
+      },
+      "sdjwt": {
+        "path": [
+          "residence_address"
+        ]
+      }
+    },
+    {
+      "key": "municipality",
+      "type": "string",
+      "display": {
+        "ja": "市区町村",
+        "en": "Municipality"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.juminhyo.1",
+        "element": "municipality"
+      },
+      "sdjwt": {
+        "path": [
+          "municipality"
+        ]
+      }
+    },
+    {
+      "key": "head_of_household_name",
+      "type": "string",
+      "display": {
+        "ja": "世帯主氏名",
+        "en": "Head of household"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.juminhyo.1",
+        "element": "head_of_household_name"
+      },
+      "sdjwt": {
+        "path": [
+          "head_of_household_name"
+        ]
+      }
+    },
+    {
+      "key": "relationship_to_head",
+      "type": "string",
+      "display": {
+        "ja": "続柄",
+        "en": "Relationship to head"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.juminhyo.1",
+        "element": "relationship_to_head"
+      },
+      "sdjwt": {
+        "path": [
+          "relationship_to_head"
+        ]
+      }
+    },
+    {
+      "key": "date_of_moving_in",
+      "type": "full-date",
+      "display": {
+        "ja": "住定日",
+        "en": "Date of moving in"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.juminhyo.1",
+        "element": "date_of_moving_in"
+      },
+      "sdjwt": {
+        "path": [
+          "date_of_moving_in"
+        ]
+      }
+    },
+    {
+      "key": "previous_address",
+      "type": "string",
+      "display": {
+        "ja": "前住所",
+        "en": "Previous address"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": true,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.juminhyo.1",
+        "element": "previous_address"
+      },
+      "sdjwt": {
+        "path": [
+          "previous_address"
+        ]
+      }
+    },
+    {
+      "key": "domicile",
+      "type": "string",
+      "display": {
+        "ja": "本籍",
+        "en": "Registered domicile"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": true,
+      "sensitive": true,
+      "mdoc": {
+        "namespace": "jp.go.juminhyo.1",
+        "element": "domicile"
+      },
+      "sdjwt": {
+        "path": [
+          "domicile"
+        ]
+      }
+    },
+    {
+      "key": "residence_card_code",
+      "type": "string",
+      "display": {
+        "ja": "住民票コード",
+        "en": "Residence record code"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": true,
+      "sensitive": true,
+      "mdoc": {
+        "namespace": "jp.go.juminhyo.1",
+        "element": "residence_card_code"
+      },
+      "sdjwt": {
+        "path": [
+          "residence_card_code"
+        ]
+      }
+    },
+    {
+      "key": "certificate_number",
+      "type": "string",
+      "display": {
+        "ja": "証明書番号",
+        "en": "Certificate number"
+      },
+      "basic_four": false,
+      "selective_disclosure": false,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.juminhyo.1",
+        "element": "certificate_number"
+      },
+      "sdjwt": {
+        "path": [
+          "certificate_number"
+        ]
+      }
+    },
+    {
+      "key": "issuing_authority",
+      "type": "string",
+      "display": {
+        "ja": "発行者",
+        "en": "Issuing authority"
+      },
+      "basic_four": false,
+      "selective_disclosure": false,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.juminhyo.1",
+        "element": "issuing_authority"
+      },
+      "sdjwt": {
+        "path": [
+          "issuing_authority"
+        ]
+      }
+    },
+    {
+      "key": "issuance_date",
+      "type": "full-date",
+      "display": {
+        "ja": "発行日",
+        "en": "Issuance date"
+      },
+      "basic_four": false,
+      "selective_disclosure": false,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.juminhyo.1",
+        "element": "issuance_date"
+      },
+      "sdjwt": {
+        "path": [
+          "issuance_date"
+        ]
+      }
+    },
+    {
+      "key": "expiry_date",
+      "type": "full-date",
+      "display": {
+        "ja": "有効期限",
+        "en": "Expiry date"
+      },
+      "basic_four": false,
+      "selective_disclosure": false,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.juminhyo.1",
+        "element": "expiry_date"
+      },
+      "sdjwt": {
+        "path": [
+          "expiry_date"
+        ]
+      }
+    }
+  ]
+}
