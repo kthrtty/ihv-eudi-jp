@@ -1,0 +1,29 @@
+{
+  "name": "ivh-eudi-jp",
+  "private": true,
+  "type": "module",
+  "version": "0.0.1",
+  "dependencies": {
+    "cbor-x": "^1.6.4",
+    "hono": "^4.12.27",
+    "hpke-js": "^1.8.0",
+    "jose": "^5.10.0",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@hono/node-server": "^2.0.6",
+    "c8": "^10.1.3",
+    "playwright": "^1.61.1"
+  },
+  "scripts": {
+    "setup": "bash scripts/gen-pki.sh && node scripts/gen-trust.mjs && node scripts/gen-schemas.mjs",
+    "test": "node --test",
+    "coverage": "c8 --include 'src/**' --reporter=text --reporter=lcov node --test",
+    "demo:handover": "node scripts/handover.mjs",
+    "interop": "node scripts/interop-vectors.mjs"
+  },
+  "description": "eIDAS2/ARF IVH demo (OID4VCI/OID4VP/HAIP, mdoc+SD-JWT, DC API)",
+  "engines": {
+    "node": ">=18"
+  }
+}

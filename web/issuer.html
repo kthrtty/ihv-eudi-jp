@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>デジタル資格証発行ポータル — Credential Offer 配送</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 16px/1.6 system-ui, sans-serif; max-width: 44rem; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.25rem; } h2 { font-size: 1rem; margin-top: 1.5rem; }
+  fieldset { border: 1px solid #8884; border-radius: .5rem; margin: 1rem 0; }
+  label { display: inline-flex; align-items: center; gap: .35rem; margin: .2rem .8rem .2rem 0; }
+  button { font: inherit; padding: .6rem 1rem; border-radius: .5rem; border: 1px solid #888; cursor: pointer; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .card { border: 1px solid #8884; border-radius: .5rem; padding: 1rem; }
+  .qr { background: #fff; padding: .5rem; border-radius: .5rem; width: 220px; }
+  a.deeplink { word-break: break-all; font-size: .85rem; }
+  pre { background: #00000010; padding: 1rem; border-radius: .5rem; overflow: auto; white-space: pre-wrap; font-size: .8rem; }
+  .muted { color: #888; } .hidden { display: none; }
+</style>
+</head>
+<body>
+<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+  <span style="width:8px;height:22px;border-radius:3px;background:#1C3F94;display:inline-block"></span>
+  <h1 style="margin:0">デジタル資格証発行ポータル — Credential Offer 配送</h1>
+  <span style="margin-left:auto;font-size:12px;font-weight:700;color:#1C3F94;background:#EAEFFA;border:1px solid #D4DEF5;padding:4px 11px;border-radius:999px">発行者 · ISSUER</span>
+</div>
+<p class="muted">pre-authorized_code は常にオファー内（grants）に同梱されます。配送方法を選んで試せます。</p>
+
+<fieldset>
+  <legend>クレデンシャル（複数可）</legend>
+  <div id="cfgList" class="muted">読み込み中…</div>
+</fieldset>
+
+<fieldset>
+  <legend>配送方法</legend>
+  <div><strong>受け渡し:</strong>
+    <label><input type="radio" name="mode" value="value" checked> by value（オファー本体を URI に埋め込み）</label>
+    <label><input type="radio" name="mode" value="reference"> by reference（URI は取得先のみ／QR 向き）</label>
+  </div>
+  <div><strong>提示:</strong>
+    <label><input type="radio" name="present" value="qr" checked> QR（クロスデバイス）</label>
+    <label><input type="radio" name="present" value="deeplink"> ディープリンク（同一デバイス）</label>
+  </div>
+  <div><label><input type="checkbox" id="txcode"> tx_code（PIN=4921）を要求</label></div>
+</fieldset>
+
+<button id="gen">オファーを生成</button>
+
+<div id="result" class="hidden">
+  <div class="grid">
+    <div class="card">
+      <h2 id="presentTitle"></h2>
+      <div id="qrwrap"><img id="qr" class="qr" alt="offer QR"></div>
+      <a id="deeplink" class="deeplink hidden" href="#"></a>
+      <p class="muted" id="hint"></p>
+    </div>
+    <div class="card">
+      <h2>Credential Offer</h2>
+      <pre id="offerJson"></pre>
+      <p class="muted">pre-authorized_code: <code id="pac"></code></p>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const get = (name) => document.querySelector(`input[name="${name}"]:checked`)?.value;
+
+// クレデンシャル一覧を Issuer メタデータ（カタログ）から構築
+(async () => {
+  try {
+    const md = await (await fetch('/.well-known/openid-credential-issuer')).json();
+    const cfgs = md.credential_configurations_supported || {};
+    const label = (id, c) => {
+      const disp = (c.display && (c.display.find(d => d.locale === 'ja-JP') || c.display[0]))?.name || id;
+      return disp;
+    };
+    let first = true;
+    $('cfgList').innerHTML = Object.entries(cfgs).map(([id, c]) => {
+      const checked = first ? 'checked' : ''; first = false;
+      return `<label><input type="checkbox" name="cfg" value="${id}" ${checked}> ${label(id, c)}</label>`;
+    }).join('');
+  } catch { $('cfgList').textContent = 'カタログの取得に失敗しました'; }
+})();
+
+$('gen').addEventListener('click', async () => {
+  const cfgs = [...document.querySelectorAll('input[name="cfg"]:checked')].map((e) => e.value);
+  if (!cfgs.length) { alert('クレデンシャルを1つ以上選択してください'); return; }
+  const body = { credential_configuration_ids: cfgs, qr: true };
+  if ($('txcode').checked) body.tx_code = '4921';
+
+  const res = await (await fetch('/offer', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+  })).json();
+
+  const mode = get('mode');         // value | reference
+  const present = get('present');   // qr | deeplink
+  const uri = mode === 'value' ? res.delivery.by_value_uri : res.delivery.by_reference_uri;
+  const qrSvg = mode === 'value' ? res.delivery.by_value_qr_svg : res.delivery.by_reference_qr_svg;
+
+  $('presentTitle').textContent = `${mode === 'value' ? 'by value' : 'by reference'} / ${present === 'qr' ? 'QR' : 'deep link'}`;
+  $('result').classList.remove('hidden');
+
+  if (present === 'qr') {
+    $('qr').src = 'data:image/svg+xml;utf8,' + encodeURIComponent(qrSvg);
+    $('qrwrap').classList.remove('hidden'); $('deeplink').classList.add('hidden');
+    $('hint').textContent = 'ウォレット（Multipaz 等）でスキャン。by reference では URI 取得先 = ' + res.delivery.offer_uri;
+  } else {
+    $('deeplink').textContent = uri; $('deeplink').href = uri;
+    $('deeplink').classList.remove('hidden'); $('qrwrap').classList.add('hidden');
+    $('hint').textContent = '同一デバイスのウォレットが起動します（カスタムスキーム）。';
+  }
+  $('offerJson').textContent = JSON.stringify(res.credential_offer, null, 2);
+  $('pac').textContent = res.pre_authorized_code;
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,277 @@
+{
+  "id": "tax",
+  "category": "EAA",
+  "display": {
+    "ja": "課税証明書",
+    "en": "Tax Certificate"
+  },
+  "issuer_ref": "tax",
+  "authority": {
+    "ja": "デモ市区町村",
+    "en": "Demo Municipality"
+  },
+  "formats": {
+    "mso_mdoc": {
+      "doctype": "jp.go.tax.1",
+      "namespace": "jp.go.tax.1"
+    },
+    "dc+sd-jwt": {
+      "vct": "urn:jp:tax:1"
+    }
+  },
+  "basic_four": [],
+  "claims": [
+    {
+      "key": "family_name",
+      "type": "string",
+      "display": {
+        "ja": "姓",
+        "en": "Family name"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.tax.1",
+        "element": "family_name"
+      },
+      "sdjwt": {
+        "path": [
+          "family_name"
+        ]
+      }
+    },
+    {
+      "key": "given_name",
+      "type": "string",
+      "display": {
+        "ja": "名",
+        "en": "Given name"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.tax.1",
+        "element": "given_name"
+      },
+      "sdjwt": {
+        "path": [
+          "given_name"
+        ]
+      }
+    },
+    {
+      "key": "birth_date",
+      "type": "full-date",
+      "display": {
+        "ja": "生年月日",
+        "en": "Date of birth"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.tax.1",
+        "element": "birth_date"
+      },
+      "sdjwt": {
+        "path": [
+          "birthdate"
+        ]
+      }
+    },
+    {
+      "key": "address",
+      "type": "string",
+      "display": {
+        "ja": "住所",
+        "en": "Address"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.tax.1",
+        "element": "address"
+      },
+      "sdjwt": {
+        "path": [
+          "address"
+        ]
+      }
+    },
+    {
+      "key": "tax_year",
+      "type": "string",
+      "display": {
+        "ja": "課税年度",
+        "en": "Tax year"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.tax.1",
+        "element": "tax_year"
+      },
+      "sdjwt": {
+        "path": [
+          "tax_year"
+        ]
+      }
+    },
+    {
+      "key": "total_income",
+      "type": "uint",
+      "display": {
+        "ja": "合計所得金額",
+        "en": "Total income"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": true,
+      "mdoc": {
+        "namespace": "jp.go.tax.1",
+        "element": "total_income"
+      },
+      "sdjwt": {
+        "path": [
+          "total_income"
+        ]
+      }
+    },
+    {
+      "key": "taxable_amount",
+      "type": "uint",
+      "display": {
+        "ja": "課税標準額",
+        "en": "Taxable amount"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": true,
+      "mdoc": {
+        "namespace": "jp.go.tax.1",
+        "element": "taxable_amount"
+      },
+      "sdjwt": {
+        "path": [
+          "taxable_amount"
+        ]
+      }
+    },
+    {
+      "key": "tax_amount",
+      "type": "uint",
+      "display": {
+        "ja": "税額",
+        "en": "Tax amount"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": true,
+      "mdoc": {
+        "namespace": "jp.go.tax.1",
+        "element": "tax_amount"
+      },
+      "sdjwt": {
+        "path": [
+          "tax_amount"
+        ]
+      }
+    },
+    {
+      "key": "certificate_number",
+      "type": "string",
+      "display": {
+        "ja": "証明書番号",
+        "en": "Certificate number"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.tax.1",
+        "element": "certificate_number"
+      },
+      "sdjwt": {
+        "path": [
+          "certificate_number"
+        ]
+      }
+    },
+    {
+      "key": "issuing_authority",
+      "type": "string",
+      "display": {
+        "ja": "発行者",
+        "en": "Issuing authority"
+      },
+      "basic_four": false,
+      "selective_disclosure": false,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.tax.1",
+        "element": "issuing_authority"
+      },
+      "sdjwt": {
+        "path": [
+          "issuing_authority"
+        ]
+      }
+    },
+    {
+      "key": "issuance_date",
+      "type": "full-date",
+      "display": {
+        "ja": "発行日",
+        "en": "Issuance date"
+      },
+      "basic_four": false,
+      "selective_disclosure": false,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.tax.1",
+        "element": "issuance_date"
+      },
+      "sdjwt": {
+        "path": [
+          "issuance_date"
+        ]
+      }
+    },
+    {
+      "key": "expiry_date",
+      "type": "full-date",
+      "display": {
+        "ja": "有効期限",
+        "en": "Expiry date"
+      },
+      "basic_four": false,
+      "selective_disclosure": false,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.tax.1",
+        "element": "expiry_date"
+      },
+      "sdjwt": {
+        "path": [
+          "expiry_date"
+        ]
+      }
+    }
+  ]
+}

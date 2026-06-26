@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>デジタル資格証発行ポータル — サインインUIモック</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0E1A2B; --paper:#EFF2F7; --surface:#FFFFFF;
+    --civic:#1C3F94; --civic-press:#15306F;
+    --seal:#C8453C; --seal-soft:#f4ddd9;        /* 実印の朱色＝署名要素 */
+    --verify:#0E8A6B; --line:#DCE3ED; --muted:#5B6B82;
+    --r:14px; --chip:#fff;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;font-family:"Zen Kaku Gothic New",system-ui,sans-serif;color:var(--ink);
+    background:var(--paper);line-height:1.6}
+  .mono{font-family:"IBM Plex Mono",monospace}
+  button{font:inherit;cursor:pointer}
+  :focus-visible{outline:2px solid var(--civic);outline-offset:2px;border-radius:4px}
+
+  /* ---------- 印鑑シール（署名要素・3スケールで反復） ---------- */
+  .seal{display:grid;place-items:center;border-radius:50%;background:#fff;
+    color:var(--seal);border:2px solid var(--seal);
+    box-shadow:inset 0 0 0 2px #fff, inset 0 0 0 3px var(--seal-soft);
+    font-weight:700;letter-spacing:.02em;flex:none;user-select:none}
+  .seal.lg{width:88px;height:88px;font-size:34px}
+  .seal.md{width:56px;height:56px;font-size:22px}
+  .seal.sm{width:32px;height:32px;font-size:14px;border-width:1.5px;
+    box-shadow:inset 0 0 0 1.5px #fff, inset 0 0 0 2.5px var(--seal-soft)}
+
+  /* ---------- ログイン ---------- */
+  .stage{min-height:100dvh;display:grid;place-items:center;padding:32px 20px}
+  .login{width:100%;max-width:560px;text-align:center;
+    animation:rise .5s cubic-bezier(.2,.7,.2,1) both}
+  .eyebrow{font-size:12.5px;letter-spacing:.22em;color:var(--civic);font-weight:700;
+    text-transform:uppercase}
+  .login h1{font-size:26px;margin:.5rem 0 .25rem;font-weight:700;letter-spacing:.01em}
+  .login p{margin:0 0 2rem;color:var(--muted);font-size:14.5px}
+  .users{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:14px}
+  .user{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+    padding:20px 12px 16px;display:grid;justify-items:center;gap:10px;
+    transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+    animation:rise .5s cubic-bezier(.2,.7,.2,1) both}
+  .user:hover{transform:translateY(-3px);box-shadow:0 10px 24px #0e1a2b14;border-color:#c3cee0}
+  .user:nth-child(1){animation-delay:.05s}.user:nth-child(2){animation-delay:.1s}
+  .user:nth-child(3){animation-delay:.15s}.user:nth-child(4){animation-delay:.2s}
+  .user .nm{font-weight:500;font-size:15px}
+  .user .role{font-size:12px;color:var(--muted)}
+  .hint{margin-top:1.5rem;font-size:12.5px;color:var(--muted)}
+  .hint .dot{color:var(--verify);font-weight:700}
+
+  /* ---------- アプリシェル ---------- */
+  .app{display:none;min-height:100dvh;flex-direction:column}
+  .app.show{display:flex}
+  .topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;
+    padding:14px 22px;background:var(--surface);border-bottom:1px solid var(--line);
+    position:sticky;top:0;z-index:20}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.01em}
+  .brand .tag{width:10px;height:22px;border-radius:3px;background:var(--civic)}
+  .brand small{display:block;font-weight:500;font-size:11px;color:var(--muted);letter-spacing:.16em}
+
+  .chip{display:flex;align-items:center;gap:9px;background:var(--chip);border:1px solid var(--line);
+    border-radius:999px;padding:5px 12px 5px 6px}
+  .chip:hover{border-color:#c3cee0}
+  .chip .who{text-align:left;line-height:1.15}
+  .chip .who b{font-weight:500;font-size:13.5px}
+  .chip .who small{display:block;font-size:11px;color:var(--muted)}
+  .chev{width:16px;height:16px;color:var(--muted)}
+
+  .menu{position:absolute;top:60px;right:22px;width:268px;background:var(--surface);
+    border:1px solid var(--line);border-radius:var(--r);box-shadow:0 16px 40px #0e1a2b1f;
+    padding:16px;z-index:30;transform-origin:top right;display:none}
+  .menu.show{display:block;animation:pop .14s ease both}
+  .menu .id{display:flex;gap:12px;align-items:center}
+  .menu .id .nm{font-weight:700}
+  .menu .id .role{font-size:12px;color:var(--muted)}
+  .menu .id .uid{font-size:11px;color:var(--muted)}
+  .menu hr{border:0;border-top:1px solid var(--line);margin:14px -16px}
+  .menu a,.menu .out{display:flex;width:100%;align-items:center;gap:10px;padding:9px 10px;
+    border-radius:9px;text-decoration:none;color:var(--ink);font-size:14px;background:none;border:0;text-align:left}
+  .menu a:hover{background:#f1f4f9}
+  .menu .out{color:var(--seal)}
+  .menu .out:hover{background:var(--seal-soft)}
+  .menu .ico{width:17px;height:17px;color:var(--muted)}
+  .menu .out .ico{color:var(--seal)}
+
+  /* ---------- 発行セッション本体（最小） ---------- */
+  .main{max-width:880px;margin:0 auto;padding:30px 22px 60px;width:100%}
+  .session{display:flex;align-items:center;gap:12px;background:#fff;border:1px solid var(--line);
+    border-left:3px solid var(--verify);border-radius:12px;padding:14px 16px;margin-bottom:26px}
+  .session .v{font-size:11px;color:var(--verify);font-weight:700;letter-spacing:.04em}
+  .session .s{font-size:14px}
+  .main h2{font-size:16px;margin:0 0 14px;font-weight:700}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+  .cred{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;
+    flex-direction:column;gap:6px}
+  .cred .k{font-size:11px;color:var(--muted)}.mono.k{letter-spacing:0}
+  .cred .t{font-weight:500}
+  .cred .fmt{display:inline-flex;gap:6px;font-size:11px;color:var(--muted);margin-top:2px}
+  .cred .fmt span{border:1px solid var(--line);border-radius:6px;padding:1px 6px}
+  .cred-note{font-size:11.5px;color:var(--seal);background:var(--seal-soft);border-radius:8px;
+    padding:5px 9px;margin-top:2px;line-height:1.4}
+  .cred .issue{margin-top:10px;align-self:flex-start;background:var(--civic);color:#fff;border:0;    border-radius:9px;padding:8px 14px;font-size:13.5px}
+  .cred .issue:hover{background:var(--civic-press)}
+
+  .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(20px);
+    background:var(--ink);color:#fff;padding:12px 18px;border-radius:10px;font-size:14px;
+    box-shadow:0 12px 30px #0e1a2b40;opacity:0;pointer-events:none;transition:.25s}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  .toast b{color:#9ec1ff;font-weight:500}
+
+  /* ---------- 発行履歴 ---------- */
+  .view{display:none}.view.show{display:block}
+  .hrow{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px}
+  .note{display:flex;gap:8px;align-items:flex-start;background:#eef5f1;border:1px solid #cfe6da;color:#1e6b50;
+    border-radius:10px;padding:10px 12px;font-size:12.5px;margin:6px 0 18px}
+  .note b{color:#0E8A6B}
+  table.hist{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden;font-size:13px}
+  table.hist th,table.hist td{text-align:left;padding:11px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+  table.hist th{font-size:11px;letter-spacing:.04em;color:var(--muted);font-weight:700;background:#f7f9fc}
+  table.hist tr:last-child td{border-bottom:0}
+  .badge{font-size:11px;padding:2px 8px;border-radius:999px;font-weight:700}
+  .badge.ok{background:#e6f4ee;color:#0E8A6B}.badge.rv{background:var(--seal-soft);color:var(--seal)}
+  .pill{font-size:11px;border:1px solid var(--line);border-radius:6px;padding:1px 6px;color:var(--muted)}
+  .revoke{font:inherit;font-size:12px;border:1px solid var(--seal);color:var(--seal);background:#fff;border-radius:8px;padding:4px 10px}
+  .revoke:hover{background:var(--seal-soft)}.revoke:disabled{opacity:.4;border-color:var(--line);color:var(--muted)}
+  .linktab{background:none;border:0;color:var(--civic);font:inherit;font-size:13px;cursor:pointer;padding:0}
+  @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}  @keyframes pop{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+  @media (max-width:520px){.chip .who{display:none}.menu{right:12px}}
+</style>
+</head>
+<body>
+
+<!-- ============ サインイン ============ -->
+<div class="stage" id="login">
+  <div class="login">
+    <div class="eyebrow">デジタル資格証 発行ポータル</div>
+    <h1>サインインするアカウントを選択</h1>
+    <p>アイコンを選ぶだけでサインインできます。</p>
+    <div class="users" id="users"></div>
+    <div class="hint"><span class="dot">●</span> パスワード不要のデモ用サインイン。実環境では各自のウォレット鍵で本人確認します。</div>
+  </div>
+</div>
+
+<!-- ============ 発行アプリ ============ -->
+<div class="app" id="app">
+  <header class="topbar">
+    <div class="brand"><span class="tag"></span><div>デジタル資格証発行ポータル<small>DIGITAL CREDENTIAL ISSUER</small></div></div>
+    <button class="chip" id="chip" aria-haspopup="true" aria-expanded="false">
+      <span class="seal sm" id="chipSeal"></span>
+      <span class="who"><b id="chipName"></b></span>
+      <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+    </button>
+  </header>
+
+  <div class="menu" id="menu">
+    <div class="id">
+      <span class="seal md" id="menuSeal"></span>
+      <div><div class="nm" id="menuName"></div><div class="uid mono" id="menuUid"></div></div>
+    </div>
+    <hr>
+    <button class="out" id="histLink" style="color:var(--ink)"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg>発行履歴</button>
+    <a href="#" onclick="return false"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 8 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 3.6 15a1.65 1.65 0 0 0-1.51-1H2a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 3.6 9 1.65 1.65 0 0 0 3.27 7.18l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 8 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09A1.65 1.65 0 0 0 14 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>アカウント設定</a>
+    <button class="out" id="logout"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>サインアウト</button>
+  </div>
+
+  <main class="main">
+    <!-- 発行ビュー -->
+    <section class="view show" id="view-issue">
+      <div class="session"><span class="v">SESSION</span><span class="s"><b id="sessName"></b> さんとして発行できます</span></div>
+      <div class="hrow"><h2>発行できるクレデンシャル</h2><button class="linktab" id="toHist">発行履歴を見る →</button></div>
+      <div class="cards" id="cards"></div>
+    </section>
+
+    <!-- 発行履歴ビュー -->
+    <section class="view" id="view-history">
+      <div class="hrow"><h2>発行履歴</h2><button class="linktab" id="toIssue">← 発行に戻る</button></div>
+      <div class="note"><span>🛈</span><span><b>Issuer は提示を追跡しません（issuer–verifier unlinkability）。</b>この台帳は自分が発行した記録のみで、いつ・どこで提示されたか（提示回数・提示先）は保持しません。</span></div>
+      <table class="hist">
+        <thead><tr><th>クレデンシャル</th><th>形式</th><th>発行日時</th><th>有効期限</th><th>状態</th><th>失効理由</th><th>束縛鍵</th><th></th></tr></thead>
+        <tbody id="histBody"></tbody>
+      </table>
+    </section>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+const USERS = [
+  { id:'u_yamada', surname:'山田', name:'山田 太郎' },
+  { id:'u_sato',   surname:'佐藤', name:'佐藤 花子' },
+  { id:'u_suzuki', surname:'鈴木', name:'鈴木 一郎' },
+  { id:'u_tanaka', surname:'田中', name:'田中 美咲' },
+];
+const CREDS = [
+  { id:'pid', t:'PID（写真付き身分証）', sub:'基本四情報＋顔写真', note:'※ 実際にはスマホ搭載にフォールバック想定' },
+  { id:'juminhyo', t:'住民票（EAA）', sub:'住所・世帯情報' },
+  { id:'qualification', t:'国家資格（EAA）', sub:'医師・行政書士 等' },
+  { id:'koseki', t:'戸籍謄本（EAA）', sub:'本籍・続柄・親子関係' },
+  { id:'tax', t:'課税証明書（EAA）', sub:'所得・課税額' },
+  { id:'single', t:'独身証明書（EAA）', sub:'婚姻状況の証明' },
+  { id:'disaster', t:'罹災証明書（EAA）', sub:'被害程度の証明' },
+  { id:'vaccine', t:'ワクチン接種証明書（EAA）', sub:'接種記録' },
+];
+const $ = (s)=>document.querySelector(s);
+let session = null;
+
+// ---- ログイン画面を構築 ----
+const usersEl = $('#users');
+USERS.forEach(u=>{
+  const b = document.createElement('button');
+  b.className = 'user';
+  b.innerHTML = `<span class="seal lg">${u.surname[0]}</span><span class="nm">${u.name}</span>`;
+  b.addEventListener('click', ()=>signIn(u));
+  usersEl.appendChild(b);
+});
+
+function signIn(u){
+  session = u; // ← ここでユーザー識別済みセッション/トークンを発行（実装では server セッション + access token）
+  $('#chipSeal').textContent = u.surname[0];
+  $('#menuSeal').textContent = u.surname[0];
+  $('#chipName').textContent = u.name;
+  $('#menuName').textContent = u.name;
+  $('#menuUid').textContent = u.id;
+  $('#sessName').textContent = u.name;
+  history = seedHistory(u);
+  renderHistory();
+  showView('issue');
+  $('#login').style.display = 'none';
+  $('#app').classList.add('show');
+}
+
+function signOut(){
+  session = null; closeMenu();
+  $('#app').classList.remove('show');
+  $('#login').style.display = 'grid';
+}
+
+// ---- 発行履歴（モック）----
+let history = [];
+const thumb = () => 'sha256:' + Array.from({length:8},()=>'0123456789abcdef'[Math.floor(Math.random()*16)]).join('');
+function seedHistory(u){
+  // 自分が発行した記録のみ（提示回数・提示先は持たない）
+  return [
+    { cred:'PID', fmt:'mdoc', issued:'2026-06-01 10:12', exp:'2031-06-01', revoked:false, reason:'', key:thumb() },
+    { cred:'住民票', fmt:'SD-JWT', issued:'2026-06-01 10:13', exp:'2026-09-01', revoked:false, reason:'', key:thumb() },
+    { cred:'国家資格', fmt:'mdoc', issued:'2026-05-20 09:40', exp:'—', revoked:true, reason:'再発行のため失効', key:thumb() },
+    { cred:'ワクチン接種証明', fmt:'SD-JWT', issued:'2026-06-02 14:05', exp:'2027-06-01', revoked:false, reason:'', key:thumb() },
+  ];
+}
+function renderHistory(){
+  $('#histBody').innerHTML = history.map((r,i)=>`
+    <tr>
+      <td>${r.cred}</td>
+      <td><span class="pill">${r.fmt}</span></td>
+      <td>${r.issued}</td>
+      <td>${r.exp}</td>
+      <td>${r.revoked?'<span class="badge rv">失効</span>':'<span class="badge ok">有効</span>'}</td>
+      <td style="color:var(--muted)">${r.reason||'—'}</td>
+      <td class="mono" style="font-size:11px;color:var(--muted)">${r.key}</td>
+      <td><button class="revoke" data-i="${i}" ${r.revoked?'disabled':''}>失効</button></td>
+    </tr>`).join('');
+  $('#histBody').querySelectorAll('.revoke').forEach(b=>b.addEventListener('click',()=>{
+    const r = history[+b.dataset.i]; r.revoked = true; r.reason = '利用者の申告により失効';
+    renderHistory(); toast(`${r.cred}（${r.fmt}）を失効しました`);
+  }));
+}
+function showView(v){
+  $('#view-issue').classList.toggle('show', v==='issue');
+  $('#view-history').classList.toggle('show', v==='history');
+}
+
+// ---- 発行カード ----
+const cardsEl = $('#cards');
+CREDS.forEach(c=>{
+  const el = document.createElement('div');
+  el.className = 'cred';
+  el.innerHTML = `<div class="k mono">${c.id}</div><div class="t">${c.t}</div><div class="role" style="font-size:12px;color:var(--muted)">${c.sub}</div>
+    ${c.note ? `<div class="cred-note">${c.note}</div>` : ''}
+    <div class="fmt"><span>mdoc</span><span>SD-JWT</span></div>
+    <button class="issue">この資格情報を発行</button>`;
+  el.querySelector('.issue').addEventListener('click', ()=>{
+    const now = new Date().toISOString().slice(0,16).replace('T',' ');
+    history.unshift({ cred:c.t.replace(/（.*/,''), fmt:'mdoc', issued:now, exp:'2031-06-01', revoked:false, reason:'', key:thumb() });
+    renderHistory();
+    toast(`${c.t} の発行オファーを作成しました（${session.name}）`);
+  });
+  cardsEl.appendChild(el);
+});
+
+// ---- ビュー切替（発行 ⇄ 履歴）----
+$('#toHist').addEventListener('click', ()=>showView('history'));
+$('#toIssue').addEventListener('click', ()=>showView('issue'));
+$('#histLink').addEventListener('click', ()=>{ closeMenu(); showView('history'); });
+
+// ---- 右上メニュー ----
+const menu = $('#menu'), chip = $('#chip');
+function openMenu(){ menu.classList.add('show'); chip.setAttribute('aria-expanded','true'); }
+function closeMenu(){ menu.classList.remove('show'); chip.setAttribute('aria-expanded','false'); }
+chip.addEventListener('click', (e)=>{ e.stopPropagation(); menu.classList.contains('show')?closeMenu():openMenu(); });
+document.addEventListener('click', (e)=>{ if(!menu.contains(e.target)) closeMenu(); });
+document.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closeMenu(); });
+$('#logout').addEventListener('click', signOut);
+
+// ---- トースト ----
+let tt;
+function toast(msg){
+  const el = $('#toast'); el.innerHTML = msg.replace(/（(.+?)）/, '（<b>$1</b>）');
+  el.classList.add('show'); clearTimeout(tt); tt = setTimeout(()=>el.classList.remove('show'), 2600);
+}
+</script>
+</body>
+</html>

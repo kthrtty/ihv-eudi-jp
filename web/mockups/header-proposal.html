@@ -1,0 +1,39 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  body{margin:0;background:#EFF2F7;font-family:"Zen Kaku Gothic New",system-ui,sans-serif;color:#0E1A2B;padding:26px}
+  .cap{font-size:12px;color:#5B6B82;margin:18px 4px 6px;letter-spacing:.04em}
+  .top{display:flex;align-items:center;gap:11px;padding:14px 20px;background:#fff;border:1px solid #DCE3ED;border-radius:12px}
+  .top .tag{width:10px;height:24px;border-radius:3px}
+  .brand b{font-weight:700;font-size:16px;display:block;line-height:1.2}
+  .brand small{font-size:11px;color:#5B6B82;letter-spacing:.16em}
+  .role{margin-left:auto;font-size:12px;font-weight:700;letter-spacing:.04em;padding:5px 11px;border-radius:999px}
+  /* Issuer = muted blue */
+  .issuer .tag{background:#1C3F94}
+  .issuer .role{color:#1C3F94;background:#EAEFFA;border:1px solid #D4DEF5}
+  /* Verifier = muted brick red (distinct from the vermilion hanko seal) */
+  .verifier .tag{background:#9E3A3A}
+  .verifier .role{color:#9E3A3A;background:#F6ECEC;border:1px solid #E7D6D6}
+  .swatch{display:inline-block;width:13px;height:13px;border-radius:3px;vertical-align:-2px;margin-right:5px}
+  .note{font-size:12px;color:#5B6B82;margin-top:22px;line-height:1.7}
+  .mono{font-family:"IBM Plex Mono",monospace}
+</style></head>
+<body>
+  <div class="cap">ISSUER（発行・認可サーバ・同意・コールバック）— おとなしめの青</div>
+  <header class="top issuer"><span class="tag"></span>
+    <div class="brand"><b>デジタル資格証発行ポータル</b><small>CREDENTIAL ISSUER</small></div>
+    <span class="role">発行者 · ISSUER</span>
+  </header>
+
+  <div class="cap">VERIFIER（提示要求・検証結果）— おとなしめの煉瓦色</div>
+  <header class="top verifier"><span class="tag"></span>
+    <div class="brand"><b>クレデンシャル検証ポータル</b><small>VERIFIER</small></div>
+    <span class="role">検証者 · VERIFIER</span>
+  </header>
+
+  <div class="note">
+    <div><span class="swatch" style="background:#1C3F94"></span>Issuer: <span class="mono">#1C3F94</span>（civic blue・既存）／バッジ地 <span class="mono">#EAEFFA</span></div>
+    <div><span class="swatch" style="background:#9E3A3A"></span>Verifier: <span class="mono">#9E3A3A</span>（くすんだ煉瓦色）／バッジ地 <span class="mono">#F6ECEC</span></div>
+    <div style="margin-top:8px"><span class="swatch" style="background:#C8453C"></span>※ 実印の朱色 <span class="mono">#C8453C</span> は署名要素として温存。Verifier の赤はこれと別系統（より暗くくすませる）で競合回避。</div>
+  </div>
+</body></html>

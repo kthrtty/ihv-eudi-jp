@@ -1,0 +1,263 @@
+{
+  "id": "qualification",
+  "category": "EAA",
+  "display": {
+    "ja": "国家資格",
+    "en": "National Qualification"
+  },
+  "issuer_ref": "qualification",
+  "authority": {
+    "ja": "デモ所管庁",
+    "en": "Demo Competent Authority"
+  },
+  "formats": {
+    "mso_mdoc": {
+      "doctype": "jp.go.qualification.1",
+      "namespace": "jp.go.qualification.1"
+    },
+    "dc+sd-jwt": {
+      "vct": "urn:jp:national-qualification:1"
+    }
+  },
+  "example": {
+    "qualification_name": "医師",
+    "competent_authority": "厚生労働省"
+  },
+  "claims": [
+    {
+      "key": "holder_family_name",
+      "type": "string",
+      "display": {
+        "ja": "姓",
+        "en": "Holder family name"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.qualification.1",
+        "element": "holder_family_name"
+      },
+      "sdjwt": {
+        "path": [
+          "holder_family_name"
+        ]
+      }
+    },
+    {
+      "key": "holder_given_name",
+      "type": "string",
+      "display": {
+        "ja": "名",
+        "en": "Holder given name"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.qualification.1",
+        "element": "holder_given_name"
+      },
+      "sdjwt": {
+        "path": [
+          "holder_given_name"
+        ]
+      }
+    },
+    {
+      "key": "holder_birth_date",
+      "type": "full-date",
+      "display": {
+        "ja": "生年月日",
+        "en": "Holder date of birth"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.qualification.1",
+        "element": "holder_birth_date"
+      },
+      "sdjwt": {
+        "path": [
+          "birthdate"
+        ]
+      }
+    },
+    {
+      "key": "qualification_name",
+      "type": "string",
+      "display": {
+        "ja": "資格名",
+        "en": "Qualification name"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.qualification.1",
+        "element": "qualification_name"
+      },
+      "sdjwt": {
+        "path": [
+          "qualification_name"
+        ]
+      },
+      "note": "e.g. 医師 / 看護師 / 一級建築士"
+    },
+    {
+      "key": "qualification_category",
+      "type": "string",
+      "display": {
+        "ja": "資格区分",
+        "en": "Qualification category"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.qualification.1",
+        "element": "qualification_category"
+      },
+      "sdjwt": {
+        "path": [
+          "qualification_category"
+        ]
+      }
+    },
+    {
+      "key": "registration_number",
+      "type": "string",
+      "display": {
+        "ja": "登録番号",
+        "en": "Registration number"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.qualification.1",
+        "element": "registration_number"
+      },
+      "sdjwt": {
+        "path": [
+          "registration_number"
+        ]
+      }
+    },
+    {
+      "key": "registration_date",
+      "type": "full-date",
+      "display": {
+        "ja": "登録年月日",
+        "en": "Registration date"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.qualification.1",
+        "element": "registration_date"
+      },
+      "sdjwt": {
+        "path": [
+          "registration_date"
+        ]
+      }
+    },
+    {
+      "key": "competent_authority",
+      "type": "string",
+      "display": {
+        "ja": "所管庁",
+        "en": "Competent authority"
+      },
+      "basic_four": false,
+      "selective_disclosure": false,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.qualification.1",
+        "element": "competent_authority"
+      },
+      "sdjwt": {
+        "path": [
+          "competent_authority"
+        ]
+      },
+      "note": "e.g. 厚生労働省"
+    },
+    {
+      "key": "valid_from",
+      "type": "full-date",
+      "display": {
+        "ja": "有効期間開始",
+        "en": "Valid from"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": true,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.qualification.1",
+        "element": "valid_from"
+      },
+      "sdjwt": {
+        "path": [
+          "valid_from"
+        ]
+      }
+    },
+    {
+      "key": "valid_until",
+      "type": "full-date",
+      "display": {
+        "ja": "有効期限",
+        "en": "Valid until"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": true,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.qualification.1",
+        "element": "valid_until"
+      },
+      "sdjwt": {
+        "path": [
+          "valid_until"
+        ]
+      },
+      "note": "null = lifetime"
+    },
+    {
+      "key": "status",
+      "type": "string",
+      "display": {
+        "ja": "状態",
+        "en": "Status"
+      },
+      "basic_four": false,
+      "selective_disclosure": false,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.qualification.1",
+        "element": "status"
+      },
+      "sdjwt": {
+        "path": [
+          "status"
+        ]
+      },
+      "note": "有効/停止/取消 — or status list"
+    }
+  ]
+}
