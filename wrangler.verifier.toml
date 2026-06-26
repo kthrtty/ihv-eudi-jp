@@ -1,0 +1,19 @@
+name = "verifier"
+main = "src/worker-verifier.mjs"
+compatibility_date = "2025-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+VERIFIER_ORIGIN = "https://verifier.example.test"
+WALLET_ORIGIN   = "https://web-wallet.example.test"
+ISSUER_URL      = "https://issuer.example.test"
+
+# Secrets: ISSUER_PKI_JSON (same secret as issuer; enc key + trust anchors used)
+#   wrangler secret put ISSUER_PKI_JSON --config wrangler.verifier.toml
+
+[[kv_namespaces]]
+binding = "IHV_KV"
+id      = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+[assets]
+directory = "web"
