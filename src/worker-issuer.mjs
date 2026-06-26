@@ -1,13 +1,9 @@
-// Cloudflare Workers entry. Wires the Hono app with a KV-backed store and
-// env-provided issuer URL and PKI secrets.
+// Issuer Worker — https://issuer.kthrtty.workers.dev
+// OID4VCI endpoints + demo verifier console.
 //
-// node:crypto works on Workers under `nodejs_compat` (verified against current
-// Cloudflare docs), so NO WebCrypto rewrite is needed.
-//
-// PKI injection: set ISSUER_PKI_JSON secret (see scripts/gen-worker-pki.mjs).
-// HTML: place web/*.html under [assets] in wrangler.toml — served as static assets
-// at /issuer.html and /verifier.html; the app routes redirect there when no HTML
-// string is passed.
+// Secrets: ISSUER_PKI_JSON (node scripts/gen-worker-pki.mjs | wrangler secret put ...)
+// KV:      IHV_KV (wrangler kv namespace create IHV_KV)
+// Assets:  web/ served at /issuer.html, /verifier.html (static)
 import { createApp } from './app.mjs';
 import { kvStore } from './oid4vci.mjs';
 import { setPki } from './issuer.mjs';
@@ -48,7 +44,7 @@ export default {
       if (pki) setPki(pki.issuer); // inject into issuer.mjs module scope
       app = createApp({
         store: env.IHV_KV ? kvStore(env.IHV_KV) : undefined, // dev: falls back to memoryStore
-        credentialIssuer: env.ISSUER_URL || 'https://issuer.example.workers.dev',
+        credentialIssuer: env.ISSUER_URL || 'https://issuer.kthrtty.workers.dev',
         statusPki: pki?.statusPki ?? null,
         verifierPki: pki?.verifierPki ?? null,
       });

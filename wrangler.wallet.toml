@@ -1,0 +1,17 @@
+name = "web-wallet"
+main = "src/worker-wallet.mjs"
+compatibility_date = "2025-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+WALLET_ORIGIN   = "https://web-wallet.kthrtty.workers.dev"
+ISSUER_URL      = "https://issuer.kthrtty.workers.dev"
+VERIFIER_ORIGIN = "https://verifier.kthrtty.workers.dev"
+
+# Secrets: ISSUER_PKI_JSON (trust anchors only — IACA cert + SD-JWT CA cert)
+#   wrangler secret put ISSUER_PKI_JSON --config wrangler.wallet.toml
+
+# No KV — wallet sessions are in-memory per-isolate (acceptable for demo)
+
+[assets]
+directory = "web"
