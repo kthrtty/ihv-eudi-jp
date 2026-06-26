@@ -25,7 +25,8 @@ export default {
     if (!app) {
       const verifierOrigin = env.VERIFIER_ORIGIN || 'https://verifier.kthrtty.workers.dev';
       const walletOrigin   = env.WALLET_ORIGIN   || 'https://web-wallet.kthrtty.workers.dev';
-      const verifierPki = parseVerifierPki(env.ISSUER_PKI_JSON ?? null);
+      const pkiJson = env.ISSUER_PKI_JSON ?? (await env.IHV_KV?.get('_pki:config')) ?? null;
+      const verifierPki = parseVerifierPki(pkiJson);
       app = createVerifierApp({
         store: env.IHV_KV ? kvStore(env.IHV_KV) : undefined,
         clientId: `x509_san_dns:${new URL(verifierOrigin).hostname}`,

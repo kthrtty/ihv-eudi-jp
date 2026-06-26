@@ -13,7 +13,7 @@ ISSUER_URL      = "https://issuer.kthrtty.workers.dev"
 
 [[kv_namespaces]]
 binding = "IHV_KV"
-id      = "REPLACE_WITH_KV_NAMESPACE_ID"
+id      = "84ba206f1832417ea3dcfc0db2960d6d"
 
 [assets]
 directory = "web"
