@@ -49,5 +49,5 @@ test('verifier: JAR signing JWK is sig/ES256 with x5c', () => {
 });
 
 test('verifier: client_id uses x509_san_dns prefix', () => {
-  assert.match(tl.relying_party.verifier.client_id, /^x509_san_dns:verifier\.ivh\.example$/);
+  assert.match(tl.relying_party.verifier.client_id, /^x509_san_dns:verifier\.ihv\.example$/);
 });

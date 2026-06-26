@@ -34,9 +34,9 @@ async function encJwkFromKey(keyPath) {
 }
 
 const ISSUERS = [
-  { id: 'pid',           authority: 'IVH Demo PID Provider (写真付き身分証/基本四情報)' },
-  { id: 'juminhyo',      authority: 'IVH Demo 市区町村 (住民票 EAA Provider)' },
-  { id: 'qualification', authority: 'IVH Demo 所管庁 (国家資格 EAA Provider)' },
+  { id: 'pid',           authority: 'IHV Demo PID Provider (写真付き身分証/基本四情報)' },
+  { id: 'juminhyo',      authority: 'IHV Demo 市区町村 (住民票 EAA Provider)' },
+  { id: 'qualification', authority: 'IHV Demo 所管庁 (国家資格 EAA Provider)' },
 ];
 
 mkdirSync(new URL('../trust', import.meta.url), { recursive: true });
@@ -52,7 +52,7 @@ for (const it of ISSUERS) {
     id: it.id,
     authority: it.authority,
     // HAIP/ARF: SD-JWT VC issuer identified via x5c (x509_san_dns) and/or vct catalog
-    iss: `https://issuer-${it.id}.ivh.example`,
+    iss: `https://issuer-${it.id}.ihv.example`,
     trust_mechanism: 'x5c (chain to SD-JWT Issuer CA)',
     jwks,
   });
@@ -71,7 +71,7 @@ for (const it of ISSUERS) {
 
 const trustList = {
   // Mock EUDI-style trust list. In production: ETSI TL / LOTL + IACA trust list.
-  schema: 'ivh-demo-trust-list/v1',
+  schema: 'ihv-demo-trust-list/v1',
   generated_at: new Date().toISOString(),
   note: 'DEVELOPMENT trust anchors only. Not a real LOTL/ETSI trust list.',
 
@@ -79,7 +79,7 @@ const trustList = {
     // ISO 18013-5: trust anchored at IACA; DSC validated up to IACA at verify time.
     trusted_iaca: [{
       country: 'JP',
-      name: 'IVH-Demo IACA Root',
+      name: 'IHV-Demo IACA Root',
       certificate_pem: read('pki/mdoc/iaca/iaca.crt').trim(),
     }],
     document_signers_ref: dscRefs,
@@ -88,7 +88,7 @@ const trustList = {
   reader_auth: {
     // verifier (mdoc reader) authentication trust anchor
     trusted_reader_ca: [{
-      name: 'IVH-Demo Reader CA',
+      name: 'IHV-Demo Reader CA',
       certificate_pem: read('pki/reader/reader-ca.crt').trim(),
     }],
   },
@@ -98,11 +98,11 @@ const trustList = {
   relying_party: {
     // RP auth (OID4VP x509_san_dns client_id scheme + JAR signing)
     trusted_rp_ca: [{
-      name: 'IVH-Demo RP CA',
+      name: 'IHV-Demo RP CA',
       certificate_pem: read('pki/verifier/rp-ca.crt').trim(),
     }],
     verifier: {
-      client_id: 'x509_san_dns:verifier.ivh.example',
+      client_id: 'x509_san_dns:verifier.ihv.example',
       jar_signing_jwk: rpSig,        // public; private stays in verifier worker secret
       response_encryption_jwk: rpEnc, // wallet encrypts OID4VP response to this (ECDH-ES+A128GCM)
     },

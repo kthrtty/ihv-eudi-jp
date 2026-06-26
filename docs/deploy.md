@@ -6,8 +6,8 @@ DCQL・JWE・SD-JWT=jose）はそのまま動くが、**3つの移植**が要る
 ## 1. ストア: memoryStore → KV（済・テスト済）
 
 `src/oid4vci.mjs` に `kvStore(kv)` を追加（`set/get/del` は memoryStore と同形、KV 最小 TTL=60s）。
-`src/worker.mjs` が `env.IVH_KV` があれば KV、無ければ memoryStore（dev）を使う。`wrangler.toml` に
-KV バインディング `IVH_KV` を定義。残: `wrangler kv namespace create IVH_KV` して id を差し込む。
+`src/worker.mjs` が `env.IHV_KV` があれば KV、無ければ memoryStore（dev）を使う。`wrangler.toml` に
+KV バインディング `IHV_KV` を定義。残: `wrangler kv namespace create IHV_KV` して id を差し込む。
 
 保存キーは TTL 付き短命データ（`pac:` `code:` `at:` `nonce:` `sess:` `offer:` `demo*`）なので KV 向き。
 発行台帳(`issuanceLog`)とステータスビット列は現状プロセス内メモリ → **D1 もしくは KV/DO に要移設**（下記4）。
@@ -52,7 +52,7 @@ import 時や実行時の `readFileSync` が Workers では不可。対象:
 ## 手順
 
 ```
-wrangler kv namespace create IVH_KV       # id を wrangler.toml へ
+wrangler kv namespace create IHV_KV       # id を wrangler.toml へ
 wrangler secret put ISSUER_MDOC_DSC_KEY   # 署名鍵を投入（複数 ref 分）
 wrangler dev                              # workerd でローカル実行・スモーク
 wrangler deploy                           # HTTPS origin 確保 → M6 実機へ

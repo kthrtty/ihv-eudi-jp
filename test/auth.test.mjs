@@ -9,7 +9,7 @@ import { createWallet } from '../src/wallet.mjs';
 import { IssuerService, httpErr } from '../src/oid4vci.mjs';
 import { verify as verifyCredential } from '../src/issuer.mjs';
 
-const ISSUER = 'https://issuer.ivh.example';
+const ISSUER = 'https://issuer.ihv.example';
 const b64url = (b) => Buffer.from(b).toString('base64url');
 const s256 = (s) => b64url(createHash('sha256').update(Buffer.from(s, 'ascii')).digest());
 

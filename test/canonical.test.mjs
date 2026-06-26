@@ -11,7 +11,7 @@ import { mint } from '../src/issuer.mjs';
 import { generateKeyPairSync } from 'node:crypto';
 
 // ---- fixed inputs (keep stable; changing them changes the golden vectors) ----
-const ORIGIN = 'https://verifier.ivh.example';
+const ORIGIN = 'https://verifier.ihv.example';
 const NONCE = 'ZmixedFixedNonce_0001';
 const THUMB = 'fixedThumbprintAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const DOCTYPE = 'jp.go.pid.1';

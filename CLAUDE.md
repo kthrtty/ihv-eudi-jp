@@ -1,4 +1,4 @@
-# CLAUDE.md — IVH (Issuer–Verifier–Holder) demo / eIDAS2・ARF 準拠（日本属性）
+# CLAUDE.md — IHV (Issuer–Verifier–Holder) demo / eIDAS2・ARF 準拠（日本属性）
 
 セッション永続メモリ。現状を簡潔に保つこと（陳腐化＝劣化）。詳細は `docs/`。
 

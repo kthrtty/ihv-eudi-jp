@@ -76,7 +76,7 @@ mdoc の場合は `claims[].path = ["jp.go.pid.1", "<element>"]`、`intent_to_re
 
 ## 共通: HAIP / セキュリティ要件
 
-- RP 認証: `client_id` = `x509_san_dns:verifier.ivh.example`、AuthzRequest を JAR 署名
+- RP 認証: `client_id` = `x509_san_dns:verifier.ihv.example`、AuthzRequest を JAR 署名
 - Wallet→Verifier: `response_mode=direct_post.jwt`、レスポンスを Verifier の enc 鍵へ JWE
 - リプレイ防止: per-request `nonce` を mdoc は `OpenID4VPHandover`/`OpenID4VPDCAPIHandover`
   内に、SD-JWT は KB-JWT(`nonce`+`aud`)に束縛（出所と構造は `docs/mdoc-handover.md`）、

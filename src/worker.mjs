@@ -14,7 +14,7 @@ export default {
   async fetch(request, env, ctx) {
     if (!app) {
       app = createApp({
-        store: env.IVH_KV ? kvStore(env.IVH_KV) : undefined, // dev: falls back to memoryStore
+        store: env.IHV_KV ? kvStore(env.IHV_KV) : undefined, // dev: falls back to memoryStore
         credentialIssuer: env.ISSUER_URL || 'https://issuer.example.workers.dev',
       });
     }

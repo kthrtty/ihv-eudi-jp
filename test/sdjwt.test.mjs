@@ -25,7 +25,7 @@ const claims = {
 const sdKeys = ['family_name', 'given_name', 'birthdate', 'sex'];
 
 async function issue(holderJwk) {
-  return issueSdJwtVc({ vct: VCT, iss: 'https://issuer-pid.ivh.example', claims, sdKeys,
+  return issueSdJwtVc({ vct: VCT, iss: 'https://issuer-pid.ihv.example', claims, sdKeys,
     holderJwk, issuerKeyPem, issuerCertDer, issuerCaDer });
 }
 
@@ -75,9 +75,9 @@ test('sd-jwt: wrong issuer CA fails chain', async () => {
 test('sd-jwt: KB-JWT binds nonce/aud/sd_hash (M3 seed)', async () => {
   const { jwk, pem } = holderKeypair();
   const presented = selectDisclosures(await issue(jwk), ['family_name']);
-  const kb = await makeKbJwt({ sdjwtPresented: presented, nonce: 'n-123', aud: 'verifier.ivh.example', holderKeyPem: pem });
-  const ok = await verifyKbJwt({ kbJwt: kb, sdjwtPresented: presented, holderJwk: jwk, expectedNonce: 'n-123', expectedAud: 'verifier.ivh.example' });
+  const kb = await makeKbJwt({ sdjwtPresented: presented, nonce: 'n-123', aud: 'verifier.ihv.example', holderKeyPem: pem });
+  const ok = await verifyKbJwt({ kbJwt: kb, sdjwtPresented: presented, holderJwk: jwk, expectedNonce: 'n-123', expectedAud: 'verifier.ihv.example' });
   assert.equal(ok.valid, true, ok.errors.join(';'));
-  const bad = await verifyKbJwt({ kbJwt: kb, sdjwtPresented: presented, holderJwk: jwk, expectedNonce: 'WRONG', expectedAud: 'verifier.ivh.example' });
+  const bad = await verifyKbJwt({ kbJwt: kb, sdjwtPresented: presented, holderJwk: jwk, expectedNonce: 'WRONG', expectedAud: 'verifier.ihv.example' });
   assert.equal(bad.valid, false);
 });

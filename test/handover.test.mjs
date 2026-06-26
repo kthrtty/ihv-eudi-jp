@@ -15,7 +15,7 @@ const FIXED_JWK = { kty: 'EC', crv: 'P-256',
   x: 'pDe667JupOe9pXc8xQyf_H03jsQu24r5qXI25x_n1Zs',
   y: 'w-g0OrRBN7WFLX3zsngfCWD3zfor5-NLHxJPmzsSvqQ' };
 const FIXED_NONCE = new Uint8Array([0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]);
-const ORIGIN = 'https://verifier.ivh.example';
+const ORIGIN = 'https://verifier.ihv.example';
 
 // ---- golden vectors (computed once, frozen) -------------------------------
 const GOLDEN_B64EINFO = 'gmVkY2FwaaJlbm9uY2VQAAECAwQFBgcICQoLDA0OD3JyZWNpcGllbnRQdWJsaWNLZXmkAQIgASFYIKQ3uuuybqTnvaV3PMUMn_x9N47ELtuK-alyNucf59WbIlggw-g0OrRBN7WFLX3zsngfCWD3zfor5-NLHxJPmzsSvqQ';

@@ -275,11 +275,11 @@ for (const schema of Object.values(creds)) {
 const catalog = {
   // Shape approximates OID4VCI 1.0 Issuer Metadata so the wallet can offer a
   // pick-list (credential x format) at issuance time.
-  credential_issuer: 'https://issuer.ivh.example',
-  authorization_servers: ['https://issuer.ivh.example'],
-  credential_endpoint: 'https://issuer.ivh.example/credential',
-  nonce_endpoint: 'https://issuer.ivh.example/nonce',
-  display: [{ name: 'IVH Demo Issuer', locale: 'en-US' }, { name: 'IVH デモ発行者', locale: 'ja-JP' }],
+  credential_issuer: 'https://issuer.ihv.example',
+  authorization_servers: ['https://issuer.ihv.example'],
+  credential_endpoint: 'https://issuer.ihv.example/credential',
+  nonce_endpoint: 'https://issuer.ihv.example/nonce',
+  display: [{ name: 'IHV Demo Issuer', locale: 'en-US' }, { name: 'IHV デモ発行者', locale: 'ja-JP' }],
   credential_configurations_supported: configs,
 };
 out('schemas/credential-catalog.json', catalog);

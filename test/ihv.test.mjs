@@ -10,8 +10,8 @@ import { verifyDeviceResponse } from '../src/mdoc.mjs';
 import { verifySdJwtPresentation } from '../src/sdjwt.mjs';
 import { annexDSessionTranscript } from '../src/handover.mjs';
 
-const ISSUER = 'https://issuer.ivh.example';
-const VERIFIER = 'x509_san_dns:verifier.ivh.example';
+const ISSUER = 'https://issuer.ihv.example';
+const VERIFIER = 'x509_san_dns:verifier.ihv.example';
 const p = (rel) => fileURLToPath(new URL('../' + rel, import.meta.url));
 const der = (rel) => new X509Certificate(readFileSync(p(rel))).raw;
 const iacaDer = der('pki/mdoc/iaca/iaca.crt');
@@ -29,7 +29,7 @@ async function issueInto(configId) {
   return { wallet, id: rec.id };
 }
 const verifierNonce = () => Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString('base64url');
-const transcript = (nonce) => annexDSessionTranscript({ origin: 'https://verifier.ivh.example', nonce, jwkThumbprint: 'demoThumb' });
+const transcript = (nonce) => annexDSessionTranscript({ origin: 'https://verifier.ihv.example', nonce, jwkThumbprint: 'demoThumb' });
 
 test('I→H→V: PID mdoc — issue, store, present (selective), verify', async () => {
   const { wallet, id } = await issueInto('pid_mdoc');

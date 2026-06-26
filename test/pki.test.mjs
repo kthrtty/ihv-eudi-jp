@@ -39,6 +39,6 @@ test('reader carries ISO mDL Reader Auth EKU 1.0.18013.5.1.6', () => {
 });
 
 test('sd-jwt issuer + RP carry expected SAN dNSName', () => {
-  assert.match(ext('pki/sdjwt/pid.crt', 'subjectAltName'), /DNS:issuer-pid\.ivh\.example/);
-  assert.match(ext('pki/verifier/rp.crt', 'subjectAltName'), /DNS:verifier\.ivh\.example/);
+  assert.match(ext('pki/sdjwt/pid.crt', 'subjectAltName'), /DNS:issuer-pid\.ihv\.example/);
+  assert.match(ext('pki/verifier/rp.crt', 'subjectAltName'), /DNS:verifier\.ihv\.example/);
 });

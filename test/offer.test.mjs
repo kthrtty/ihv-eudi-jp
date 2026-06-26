@@ -6,7 +6,7 @@ import { createApp } from '../src/app.mjs';
 import { createWallet } from '../src/wallet.mjs';
 import { offerByValueUri, offerByReferenceUri, parseOfferUri, offerQrSvg, OFFER_SCHEME } from '../src/offer.mjs';
 
-const ISSUER = 'https://issuer.ivh.example';
+const ISSUER = 'https://issuer.ihv.example';
 const app = createApp({ credentialIssuer: ISSUER });
 
 test('offer URIs use the standard scheme and round-trip via parse', () => {

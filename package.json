@@ -1,5 +1,5 @@
 {
-  "name": "ivh-eudi-jp",
+  "name": "ihv-eudi-jp",
   "private": true,
   "type": "module",
   "version": "0.0.1",
@@ -22,7 +22,7 @@
     "demo:handover": "node scripts/handover.mjs",
     "interop": "node scripts/interop-vectors.mjs"
   },
-  "description": "eIDAS2/ARF IVH demo (OID4VCI/OID4VP/HAIP, mdoc+SD-JWT, DC API)",
+  "description": "eIDAS2/ARF IHV demo (OID4VCI/OID4VP/HAIP, mdoc+SD-JWT, DC API)",
   "engines": {
     "node": ">=18"
   }

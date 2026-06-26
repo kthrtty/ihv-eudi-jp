@@ -20,8 +20,8 @@ const holderId = (jwk) => `${jwk.x}.${jwk.y}`; // normalize holder key across fo
 
 export class VerifierService {
   constructor({ store = memoryStore(),
-    clientId = 'x509_san_dns:verifier.ivh.example',
-    origin = 'https://verifier.ivh.example',
+    clientId = 'x509_san_dns:verifier.ihv.example',
+    origin = 'https://verifier.ihv.example',
     encPrivatePem = readFileSync(root('pki/verifier/rp-enc.key')),
     trustedIacaDer = der('pki/mdoc/iaca/iaca.crt'),
     trustedIssuerCaDer = der('pki/sdjwt/issuer-ca.crt'), statusResolver = null } = {}) {
