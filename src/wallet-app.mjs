@@ -22,9 +22,13 @@ const fmt = (v) => {
   return v;
 };
 
-export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer.kthrtty.workers.dev', verifierUrl = 'https://verifier.kthrtty.workers.dev' } = {}) {
+export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer.kthrtty.workers.dev', verifierUrl = 'https://verifier.kthrtty.workers.dev', boundFetch = null } = {}) {
   const app = new Hono();
   const sessions = new Map(); // wsid -> { wallet, creds: [{id,configId,format,claims}], pending }
+
+  // Use Service Binding-aware fetch when available (Workers production/dev),
+  // fall back to global fetch() in local Node.js server and unit tests.
+  const doFetch = boundFetch ?? fetch;
 
   const sess = (c) => {
     let sid = getCookie(c, 'wsid');
@@ -35,7 +39,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     }
     return sessions.get(sid);
   };
-  const httpTo = (base) => (path, opts) => fetch(base + path, opts); // OID4VCI client -> Issuer
+  const httpTo = (base) => (path, opts) => doFetch(base + path, opts); // OID4VCI client -> Issuer
 
   const record = async (s, rec) => {
     let claims = {};
@@ -53,7 +57,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     if (!configId) {
       // Show credential picker: fetch issuer metadata
       try {
-        const meta = await (await fetch(iss + '/.well-known/openid-credential-issuer')).json();
+        const meta = await (await doFetch(iss + '/.well-known/openid-credential-issuer')).json();
         const configs = Object.keys(meta.credential_configurations_supported || {});
         return c.html(requestPicker(configs, iss));
       } catch (e) {
@@ -82,7 +86,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     const iss = c.req.query('issuer') || issuerUrl;
     if (!configId) {
       try {
-        const meta = await (await fetch(iss + '/.well-known/openid-credential-issuer')).json();
+        const meta = await (await doFetch(iss + '/.well-known/openid-credential-issuer')).json();
         const configs = Object.keys(meta.credential_configurations_supported || {});
         return c.html(offerPicker(configs, iss));
       } catch (e) {
@@ -91,7 +95,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     }
     // Create issuer-initiated offer, then start auth-code PKCE flow
     const s = sess(c);
-    const offerRes = await fetch(iss + '/offer', {
+    const offerRes = await doFetch(iss + '/offer', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ credential_configuration_ids: configId, grant: 'authorization_code' }),
     });
@@ -115,7 +119,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
       const byVal = c.req.query('credential_offer');
       const byRef = c.req.query('credential_offer_uri');
       if (byVal) offer = JSON.parse(byVal);
-      else if (byRef) offer = await (await fetch(byRef)).json();
+      else if (byRef) offer = await (await doFetch(byRef)).json();
       else return c.html(shell('ウォレット', `<div class="card"><h1>オファーがありません</h1><div class="hint">credential_offer / credential_offer_uri を付けて開いてください。</div></div>`, WALLET));
 
       const issuerBase = offer.credential_issuer;
@@ -165,7 +169,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
   app.get('/present', async (c) => {
     const s = sess(c);
     try {
-      const request = await (await fetch(c.req.query('request_uri'))).json();
+      const request = await (await doFetch(c.req.query('request_uri'))).json();
       s.present = { request };
       const claims = (request.dcql_query?.credentials || []).flatMap((q) => (q.claims || []).map((cl) => cl.path[cl.path.length - 1]));
       const have = s.creds.some((cr) => request.dcql_query.credentials.some((q) =>
@@ -182,7 +186,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
       const request = s.present?.request;
       if (!request) throw new Error('no pending presentation');
       const jwe = await s.wallet.respond(request);
-      const r = await (await fetch(request.response_uri, {
+      const r = await (await doFetch(request.response_uri, {
         method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ response: jwe }).toString(),
       })).json();
