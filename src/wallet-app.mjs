@@ -260,7 +260,7 @@ function home(s, issuerUrl, verifierUrl) {
         </a>
         <a class="hublink" href="/offer-form">
           <div class="hub-icon">📲</div>
-          <div><b>オファー URI を受け取る</b><br><span class="hub-sub">発行者が生成した QR・リンクのオファー URI を貼り付け。Pre-Auth（認可不要・即交換）または発行者起点 認可コード（<code>issuer_state</code> 付き）を自動判別</span></div>
+          <div><b>オファー URI を受け取る</b><br><span class="hub-sub">発行者が生成した QR・リンクのオファー URI を貼り付け。Pre-Auth グラント（認可不要・即交換）または Authorization Code グラント（認可あり）を自動判別</span></div>
         </a>
       </div>
     </div>
@@ -340,9 +340,9 @@ function grantChoiceScreen(configId, issuerBase) {
     <div class="card">
       <div class="step">OID4VCI — グラント選択</div>
       <h1>発行フローを選択してください</h1>
-      <div class="hint">このオファーは Pre-Auth と認可コードの両方をサポートしています。<br>
-        <b>Pre-Auth</b>: 認可画面なしで即座に取得。<br>
-        <b>認可コード</b>: 発行者の認可画面でユーザー同意を確認してから取得。</div>
+      <div class="hint">このオファーは Pre-Auth グラントと Authorization Code グラントの両方をサポートしています。<br>
+        <b>Pre-Auth グラント</b>: 認可画面なしで即座に取得。<br>
+        <b>Authorization Code グラント</b>: 発行者の認可画面でユーザー同意を確認してから取得。</div>
       <form method="POST" action="/add/choose" style="margin-top:16px;display:flex;flex-direction:column;gap:10px">
         <button class="btn" type="submit" name="grant" value="pre-authorized_code">Pre-Auth で取得（認可不要）</button>
         <button class="btn" type="submit" name="grant" value="authorization_code">認可コードで取得（同意画面あり）</button>
