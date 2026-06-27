@@ -96,15 +96,15 @@
   </div>
 </div>
 
-<!-- ── Section 3: Full demo console link ── -->
+<!-- ── Section 3: Full verify console link ── -->
 <div class="section" style="background:#fafaf8">
-  <h2>③ 発行＋検証 統合デモコンソール（Issuer 側）</h2>
+  <h2>③ 検証コンソール（要求ビルダー＋自己完結検証）</h2>
   <p class="muted" style="margin-top:0">
-    16 種 × {mdoc / SD-JWT}・項目選択・選択的開示・DCQL JSON を確認できるフルコンソールは Issuer サービス上にあります。
-    下のリンクから開けます（Verifier のアドレスを Issuer に書き換えてください）。
+    16 種 × {mdoc / SD-JWT}・項目選択・選択的開示・プロトコル選択・DCQL JSON を確認できるフルコンソール。
+    発行者からテスト用クレデンシャルを取得し、その場で提示・検証まで実行します。
   </p>
   <div class="row">
-    <a class="link" id="demoLink" href="#" target="_blank">/demo/verify（Issuer コンソールへ）</a>
+    <a class="link" href="/verifier">/verifier（検証コンソールを開く）</a>
   </div>
 </div>
 
@@ -112,11 +112,6 @@
 const dcStatus = document.getElementById('dcStatus');
 const dcOut    = document.getElementById('dcOut');
 const PROTOCOL = 'openid4vp-v1-unsigned';
-
-// Set Issuer link dynamically (same host with "verifier" → "issuer" swap)
-const issuerOrigin = location.origin.replace('verifier', 'issuer');
-document.getElementById('demoLink').href = issuerOrigin + '/demo/verify';
-document.getElementById('demoLink').textContent = issuerOrigin + '/demo/verify';
 
 function supported() {
   return typeof window.DigitalCredential !== 'undefined'

@@ -27,6 +27,12 @@ export default {
       const walletOrigin   = env.WALLET_ORIGIN   || 'https://web-wallet.kthrtty.workers.dev';
       const pkiJson = env.ISSUER_PKI_JSON ?? (await env.IHV_KV?.get('_pki:config')) ?? null;
       const verifierPki = parseVerifierPki(pkiJson);
+      const issuerUrl = env.ISSUER_URL || 'https://issuer.kthrtty.workers.dev';
+      // Service Binding-aware fetch so the verify console can mint a test
+      // credential from the issuer Worker (avoids error 1042 on *.workers.dev).
+      const boundFetch = env.IHV_ISSUER
+        ? (url, init) => env.IHV_ISSUER.fetch(new Request(url, init))
+        : null;
       app = createVerifierApp({
         store: env.IHV_KV ? kvStore(env.IHV_KV) : undefined,
         clientId: `x509_san_dns:${new URL(verifierOrigin).hostname}`,
@@ -34,6 +40,8 @@ export default {
         verifierOrigin,
         walletOrigin,
         verifierPki,
+        issuerUrl,
+        boundFetch,
       });
     }
     return app.fetch(request, env, ctx);
