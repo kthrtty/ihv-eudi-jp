@@ -302,7 +302,8 @@ function offerForm(issuerBase) {
       <div class="step">OID4VCI — pre-authorized_code</div>
       <h1>発行者オファーを受け取る</h1>
       <div class="hint">発行者から受け取ったクレデンシャルオファー URI を貼り付けてください。<br>
-        発行者の「オファーを作成」ページから取得できます（例: <code>${esc(issuerBase)}/offer</code>）。
+        発行者の「オファーを作成」ページから取得できます →
+        <a href="${esc(issuerBase)}/" target="_blank" rel="noopener">${esc(issuerBase)}</a>
       </div>
       <form method="GET" action="/add" style="margin-top:14px">
         <textarea name="credential_offer_uri" placeholder="openid-credential-offer://... または https://..."
