@@ -153,23 +153,22 @@ export class IssuerService {
     };
   }
 
-  // ---- 4. Credential Offer (pre-authorized_code OR authorization_code) ----
+  // ---- 4. Credential Offer (pre-authorized_code | authorization_code | both) ----
   async createOffer(credentialConfigurationIds, { txCode, grant = 'pre-authorized_code' } = {}) {
     const ids = [].concat(credentialConfigurationIds);
     for (const id of ids) if (!catalog.credential_configurations_supported[id]) throw httpErr(400, 'invalid_request', `unknown config ${id}`);
-    let grants, preAuthorizedCode = null, issuerState = null;
-    if (grant === 'authorization_code') {
-      // issuer-initiated authorization_code: the offer carries only an issuer_state
-      // correlation handle; the authorization code is obtained later via /authorize.
+    let grants = {}, preAuthorizedCode = null, issuerState = null;
+    if (grant === 'authorization_code' || grant === 'both') {
       issuerState = tok();
       await this.store.set(`istate:${issuerState}`, { ids }, 600);
-      grants = { authorization_code: { issuer_state: issuerState } };
-    } else {
+      grants.authorization_code = { issuer_state: issuerState };
+    }
+    if (grant !== 'authorization_code') {
       preAuthorizedCode = tok();
       await this.store.set(`pac:${preAuthorizedCode}`, { ids, txCode: txCode ?? null, used: false });
       const g = { 'pre-authorized_code': preAuthorizedCode };
       if (txCode) g.tx_code = { input_mode: 'numeric', length: String(txCode).length };
-      grants = { [PRE_AUTH_GRANT]: g };
+      grants[PRE_AUTH_GRANT] = g;
     }
     const credential_offer = {
       credential_issuer: this.credentialIssuer,
