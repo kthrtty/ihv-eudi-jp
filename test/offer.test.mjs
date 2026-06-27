@@ -77,10 +77,11 @@ test('delivery round-trip: by-REFERENCE URI is fetched then drives issuance', as
   assert.equal(rec.format, 'dc+sd-jwt');
 });
 
-test('issuer delivery page is served and value-mode QR works', async () => {
+test('issuer delivery page redirects to login when unauthenticated; value-mode QR works', async () => {
+  // / now requires a session — unauthenticated requests get a login redirect
   const page = await app.request('/');
-  assert.equal(page.status, 200);
-  assert.match(await page.text(), /Credential Offer/);
+  assert.equal(page.status, 302);
+  assert.ok(page.headers.get('location')?.includes('/login'));
 
   const made = await (await app.request('/offer', {
     method: 'POST', headers: { 'content-type': 'application/json' },

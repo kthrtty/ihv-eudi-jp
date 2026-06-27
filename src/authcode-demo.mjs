@@ -189,6 +189,185 @@ export async function completeIssuance(svc, { code, verifier, configId, redirect
 
 export const pkce = () => { const verifier = b64url(randomBytes(32)); return { verifier, challenge: s256(verifier), state: b64url(randomBytes(8)) }; };
 
+// ── Issuer Portal UI ──────────────────────────────────────────────────────────
+
+/** Standalone full-page login (no header, centered layout). */
+export function renderLogin(users, next = '/', { note = null } = {}) {
+  const cards = users.map((u) => `
+    <form method="POST" action="/login/select" style="margin:0">
+      <input type="hidden" name="user_id" value="${esc(u.id)}">
+      <input type="hidden" name="next" value="${esc(next)}">
+      <button type="submit" class="login-card">
+        <span class="login-seal">${esc(u.surname[0] ?? u.name[0])}</span>
+        <span class="login-nm">${esc(u.name)}</span>
+      </button>
+    </form>`).join('');
+  const noteHtml = note
+    ? `<div style="margin-top:12px;font-size:13px;color:#1C3F94;background:#EAEFFA;border:1px solid #D4DEF5;border-radius:8px;padding:10px 14px;text-align:left">${esc(note)}</div>`
+    : '';
+  return `<!doctype html><html lang="ja"><head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>サインイン — IHV 発行ポータル</title>${FONTS}
+    <style>
+      *{box-sizing:border-box}
+      body{margin:0;font-family:"Zen Kaku Gothic New",system-ui,sans-serif;background:#EFF2F7;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#0E1A2B}
+      .login-card{background:#fff;border:1px solid #DCE3ED;border-radius:14px;padding:24px 18px;width:140px;cursor:pointer;font:inherit;font-family:inherit;display:flex;flex-direction:column;align-items:center;gap:12px;transition:box-shadow .15s,transform .15s}
+      .login-card:hover{transform:translateY(-3px);box-shadow:0 8px 24px rgba(14,26,43,.12)}
+      .login-seal{width:78px;height:78px;border-radius:50%;background:#fff;color:#C8453C;border:2.5px solid #C8453C;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:700}
+      .login-nm{font-size:14px;font-weight:500;color:#0E1A2B}
+    </style>
+  </head><body>
+    <div style="text-align:center;max-width:700px;padding:0 24px">
+      <p style="font-size:13px;letter-spacing:.18em;color:#1C3F94;font-weight:700;margin:0 0 14px">デジタル資格証　発行ポータル</p>
+      <h1 style="font-size:26px;font-weight:700;margin:0 0 8px">サインインするアカウントを選択</h1>
+      <p style="font-size:14px;color:#5B6B82;margin:0 0 4px">アイコンを選ぶだけでサインインできます。</p>
+      ${noteHtml}
+      <div style="display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:32px">${cards}</div>
+      <div style="margin-top:32px;display:flex;align-items:center;gap:8px;justify-content:center;font-size:13px;color:#5B6B82">
+        <span style="width:8px;height:8px;border-radius:50%;background:#0E8A6B;flex-shrink:0;display:inline-block"></span>
+        パスワード不要のデモ用サインイン。実環境では各自のウォレット鍵で本人確認します。
+      </div>
+    </div>
+  </body></html>`;
+}
+
+/** App header with logged-in user avatar + logout dropdown. */
+function appHeaderHtml(user) {
+  if (!user) return `
+    <header style="background:#fff;border-bottom:1px solid #DCE3ED;padding:0 24px;display:flex;align-items:center;height:60px;gap:12px">
+      <span style="width:4px;height:28px;border-radius:2px;background:#1C3F94;flex-shrink:0;display:block"></span>
+      <div><div style="font-size:16px;font-weight:700;color:#0E1A2B;line-height:1.2">IHV 発行ポータル</div>
+        <div style="font-size:10px;letter-spacing:.14em;color:#5B6B82">CREDENTIAL ISSUER</div></div>
+    </header>`;
+  const initial = esc(user.surname[0] ?? user.family[0]);
+  const name = esc(`${user.family} ${user.given}`);
+  const desc = user.desc ? `<div style="font-size:11px;color:#5B6B82">${esc(user.desc)}</div>` : '';
+  return `
+    <header style="background:#fff;border-bottom:1px solid #DCE3ED;padding:0 24px;display:flex;align-items:center;height:60px;gap:12px">
+      <span style="width:4px;height:28px;border-radius:2px;background:#1C3F94;flex-shrink:0;display:block"></span>
+      <div><div style="font-size:16px;font-weight:700;color:#0E1A2B;line-height:1.2">IHV 発行ポータル</div>
+        <div style="font-size:10px;letter-spacing:.14em;color:#5B6B82">CREDENTIAL ISSUER</div></div>
+      <div style="margin-left:auto">
+        <details style="position:relative">
+          <summary style="list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;padding:5px 14px 5px 6px;border:1px solid #DCE3ED;border-radius:999px;background:#fff">
+            <span style="width:36px;height:36px;border-radius:50%;border:2px solid #C8453C;color:#C8453C;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0">${initial}</span>
+            <div style="text-align:left"><div style="font-size:14px;font-weight:600;line-height:1.3">${name}</div>${desc}</div>
+            <span style="font-size:11px;color:#5B6B82;margin-left:2px">▾</span>
+          </summary>
+          <div style="position:absolute;right:0;top:calc(100% + 6px);background:#fff;border:1px solid #DCE3ED;border-radius:10px;min-width:160px;box-shadow:0 4px 16px rgba(14,26,43,.08);z-index:10;padding:4px">
+            <form method="POST" action="/logout">
+              <button type="submit" style="width:100%;text-align:left;padding:9px 14px;border:none;background:none;font:inherit;font-size:14px;cursor:pointer;border-radius:6px;color:#C8453C">サインアウト</button>
+            </form>
+          </div>
+        </details>
+      </div>
+    </header>`;
+}
+
+/** Page shell with IHV header (user may be null). */
+export function appShell(title, body, user = null) {
+  return `<!doctype html><html lang="ja"><head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>${esc(title)} — IHV 発行ポータル</title>${FONTS}<style>${CSS}</style>
+  </head><body style="background:var(--paper);min-height:100vh">
+    ${appHeaderHtml(user)}<div class="wrap">${body}</div>
+  </body></html>`;
+}
+
+/** Consent screen shown at GET /authorize when a session already exists. */
+export function renderConsentScreen(q, user, requested) {
+  const init = q.issuer_state ? '発行者起点（issuer_state）' : 'ウォレット起点';
+  const hidden = ['response_type', 'client_id', 'redirect_uri', 'code_challenge', 'code_challenge_method', 'scope', 'issuer_state', 'state']
+    .map((k) => `<input type="hidden" name="${k}" value="${esc(q[k] ?? '')}">`).join('');
+  return appShell('発行への同意', `
+    <div class="card" style="margin-top:28px">
+      <div class="step">認可 — 発行への同意</div>
+      <div class="eyebrow" style="margin-top:10px">クレデンシャル発行への同意</div>
+      <h1>以下の発行に同意しますか？</h1>
+      <div class="req">
+        <div class="k">要求元クライアント</div><b>${esc(q.client_id || 'wallet')}</b>
+        <div class="k" style="margin-top:8px">発行が要求されているクレデンシャル</div><b>${esc(requested)}</b>
+        <div class="k" style="margin-top:8px">開始方式</div><span>${esc(init)}</span>
+        <div class="k mono" style="margin-top:8px">PKCE: ${esc((q.code_challenge_method || '') + ' ' + String(q.code_challenge || '').slice(0, 16))}…</div>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;margin-top:20px">
+        <form method="POST" action="/authorize/consent">${hidden}
+          <button type="submit" class="btn">同意して発行する</button>
+        </form>
+        <a href="/" style="color:var(--muted);font-size:14px;text-decoration:none">キャンセル</a>
+      </div>
+    </div>`, user);
+}
+
+/** VC selection top page (shown at GET / when logged in). */
+export function renderVcSelect(user) {
+  const types = [
+    ['pid',           'PID（個人識別情報）'],
+    ['juminhyo',      '住民票'],
+    ['qualification', '国家資格'],
+    ['koseki',        '戸籍謄本'],
+    ['tax',           '課税証明'],
+    ['single',        '独身証明'],
+    ['disaster',      '罹災証明'],
+    ['vaccine',       'ワクチン接種証明'],
+  ];
+  const opts = types.map(([k, label]) => `<option value="${k}">${esc(label)}</option>`).join('');
+  return appShell('クレデンシャルを発行する', `
+    <div style="margin-top:28px">
+      <h2 style="font-size:15px;margin:0 0 16px;color:var(--muted);font-weight:600">クレデンシャルオファーを作成</h2>
+      <div class="card">
+        <form method="POST" action="/issue">
+          <div style="display:grid;gap:16px">
+            <label style="display:block">
+              <div style="font-size:12px;color:var(--muted);margin-bottom:6px;font-weight:600">クレデンシャル種別</div>
+              <select name="type" style="font:inherit;width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:#fff">${opts}</select>
+            </label>
+            <label style="display:block">
+              <div style="font-size:12px;color:var(--muted);margin-bottom:6px;font-weight:600">形式</div>
+              <select name="format" style="font:inherit;width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:#fff">
+                <option value="mdoc">mdoc（mso_mdoc / ISO 18013-5）</option>
+                <option value="sdjwt">SD-JWT VC（dc+sd-jwt）</option>
+              </select>
+            </label>
+            <label style="display:block">
+              <div style="font-size:12px;color:var(--muted);margin-bottom:6px;font-weight:600">グラント（発行フロー）</div>
+              <select name="grant" style="font:inherit;width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:#fff">
+                <option value="pre-authorized_code">Pre-Auth グラント（認可不要・即交換）</option>
+                <option value="authorization_code">Authorization Code グラント（認可あり）</option>
+                <option value="both">両方（ウォレットが選択）</option>
+              </select>
+            </label>
+            <button type="submit" class="btn" style="width:100%;text-align:center;padding:13px">オファーを作成する</button>
+          </div>
+        </form>
+      </div>
+    </div>`, user);
+}
+
+/** Offer creation result page (async — generates QR). */
+export async function renderOfferCreated(user, configId, result) {
+  const { offerUri, credential_offer } = result;
+  const qr = await offerQrSvg(offerUri);
+  return appShell('オファーを作成しました', `
+    <div style="margin-top:28px">
+      <div class="card">
+        <div class="eyebrow">オファー生成完了</div>
+        <h1 style="font-size:18px">クレデンシャルオファーが作成されました</h1>
+        <div class="req">
+          <div class="k">クレデンシャル</div><b>${esc(configId)}</b>
+          <div class="k" style="margin-top:8px">グラント</div>
+          <span style="font-size:13px">${esc(Object.keys(credential_offer.grants || {}).join(' + '))}</span>
+          <div class="k" style="margin-top:8px">オファー URI</div>
+          <div class="urlbox mono" style="font-size:11px;word-break:break-all;margin-top:4px">${esc(offerUri)}</div>
+        </div>
+        <div style="text-align:center;margin:16px 0">
+          <img alt="offer QR" style="width:180px;height:180px;border:1px solid var(--line);border-radius:10px;padding:8px;background:#fff" src="data:image/svg+xml;utf8,${encodeURIComponent(qr)}">
+        </div>
+        <a href="/" style="font-size:14px;color:var(--muted);text-decoration:none">← 別のクレデンシャルを発行する</a>
+      </div>
+    </div>`, user);
+}
+
 /** Build a wallet authorization request URL (optionally carrying issuer_state). */
 export function authorizeUrl({ issuer, redirectUri, challenge, state, scope, issuerState }) {
   const p = new URLSearchParams({
