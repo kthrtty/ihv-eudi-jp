@@ -13,6 +13,7 @@
 // When absent (local Node.js server, unit tests), falls back to regular fetch().
 import { createWalletApp } from './wallet-app.mjs';
 import { setPki } from './issuer.mjs';
+import { kvStore } from './oid4vci.mjs';
 import { X509Certificate } from 'node:crypto';
 
 // Extract only the trust anchors needed for verifyCredential() display.
@@ -54,6 +55,8 @@ export default {
         issuerUrl:     env.ISSUER_URL      || 'https://issuer.kthrtty.workers.dev',
         verifierUrl:   env.VERIFIER_ORIGIN || 'https://verifier.kthrtty.workers.dev',
         boundFetch:    makeBoundFetch(env),
+        // Durable session storage across isolates (holder key + stored VCs survive).
+        store:         env.IHV_KV ? kvStore(env.IHV_KV) : null,
       });
     }
     return app.fetch(request, env, ctx);
