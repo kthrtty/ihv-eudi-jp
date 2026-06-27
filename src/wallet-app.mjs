@@ -221,7 +221,7 @@ function home(s, issuerUrl, verifierUrl) {
         </a>
         <a class="hublink" href="/offer-form">
           <div class="hub-icon">📲</div>
-          <div><b>オファー URI を受け取る（Pre-Auth / Issuer 起点）</b><br><span class="hub-sub">発行者が生成した QR・リンクのオファー URI を貼り付け。Pre-Auth にも認可コード（<code>issuer_state</code>）にも対応</span></div>
+          <div><b>オファー URI を受け取る</b><br><span class="hub-sub">発行者が生成した QR・リンクのオファー URI を貼り付け。Pre-Auth（認可不要・即交換）または発行者起点 認可コード（<code>issuer_state</code> 付き）を自動判別</span></div>
         </a>
       </div>
     </div>
