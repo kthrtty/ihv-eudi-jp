@@ -15,5 +15,11 @@ ISSUER_URL      = "https://issuer.example.test"
 binding = "IHV_KV"
 id      = "84ba206f1832417ea3dcfc0db2960d6d"
 
+# Service Binding to the issuer Worker: the merged verify console mints a test
+# credential from the issuer to verify it (Worker-to-Worker, avoids error 1042).
+[[services]]
+binding = "IHV_ISSUER"
+service = "issuer"
+
 [assets]
 directory = "web"

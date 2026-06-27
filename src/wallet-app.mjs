@@ -309,7 +309,7 @@ function home(s, issuerUrl, verifierUrl) {
       <div class="hubgrid" style="margin-top:10px">
         <a class="hublink small" href="${esc(issuerUrl2)}/">発行者トップ</a>
         <a class="hublink small" href="${esc(issuerUrl2)}/login">発行者ログイン</a>
-        <a class="hublink small" href="${esc(issuerUrl2)}/demo/verify">発行＋検証コンソール</a>
+        <a class="hublink small" href="${esc(verifierUrl)}/verifier">検証コンソール（Verifier）</a>
         <a class="hublink small" href="${esc(issuerUrl2)}/demo/authcode">Auth-Code デモ（Issuer 側・wallet 起点）</a>
         <a class="hublink small" href="${esc(issuerUrl2)}/demo/offer-authcode">Issuer 起点オファー生成＋QR（認可コード）</a>
         <a class="hublink small" href="${esc(verifierUrl)}/">Verifier トップ</a>
