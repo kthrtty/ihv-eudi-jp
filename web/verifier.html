@@ -3,94 +3,127 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>IHV Verifier — Digital Credentials API デモ</title>
+<title>IHV Verifier</title>
 <style>
   :root { color-scheme: light dark; }
-  body { font: 16px/1.6 system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
-  h1 { font-size: 1.25rem; }
+  body { font: 16px/1.6 system-ui, sans-serif; max-width: 44rem; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.25rem; } h2 { font-size: 1rem; margin: 1.4rem 0 .4rem; }
   button { font: inherit; padding: .6rem 1rem; border-radius: .5rem; border: 1px solid #888; cursor: pointer; }
   button:disabled { opacity: .5; cursor: not-allowed; }
-  .row { display: flex; gap: .5rem; flex-wrap: wrap; margin: 1rem 0; }
+  .row { display: flex; gap: .5rem; flex-wrap: wrap; margin: .8rem 0; }
   pre { background: #00000010; padding: 1rem; border-radius: .5rem; overflow: auto; white-space: pre-wrap; }
   .ok { color: #1a7f37; } .ng { color: #cf222e; } .muted { color: #888; }
+  .section { border: 1px solid #ddd; border-radius: 8px; padding: 1rem 1.2rem; margin: 1rem 0; }
+  .section h2 { margin-top: 0; }
+  select { font: inherit; padding: .4rem .6rem; border-radius: .4rem; border: 1px solid #aaa; }
+  a.btn { display:inline-block; padding:.6rem 1.2rem; background:#9E3A3A; color:#fff;
+          text-decoration:none; border-radius:.5rem; font-weight:600; }
+  a.btn:hover { background:#7d2e2e; }
 </style>
 </head>
 <body>
 <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
   <span style="width:8px;height:22px;border-radius:3px;background:#9E3A3A;display:inline-block"></span>
-  <h1 style="margin:0">検証者 (Verifier) — 本人確認（DC API デモ）</h1>
+  <h1 style="margin:0">検証者 (Verifier)</h1>
   <span style="margin-left:auto;font-size:12px;font-weight:700;color:#9E3A3A;background:#F6ECEC;border:1px solid #E7D6D6;padding:4px 11px;border-radius:999px">検証者 · VERIFIER</span>
 </div>
-<p class="muted">
-  ブラウザ/エミュレータ専用。Annex D（OID4VP over Digital Credentials API）。
-  Safari は <code>org-iso-mdoc</code>（Annex C）のみ対応のため、ここでは未対応として扱います。
-</p>
 
-<div class="row">
-  <button id="pid">PID を要求（mdoc）</button>
-  <button id="qual">国家資格 を要求（mdoc）</button>
+<!-- ── Section 1: DC API ── -->
+<div class="section">
+  <h2>① Digital Credentials API（ネイティブウォレット / Annex D）</h2>
+  <p class="muted" style="margin-top:0;font-size:14px">
+    ブラウザ/エミュレータ専用。<code>navigator.credentials.get()</code> で OS 内蔵ウォレットに要求します。
+    Chrome 141+ / Android が必要です。
+  </p>
+  <div class="row">
+    <button id="pid">PID を要求（mdoc）</button>
+    <button id="qual">国家資格 を要求（mdoc）</button>
+  </div>
+  <p id="status" class="muted">準備完了。ユーザー操作（ボタン）起点で DC API を呼び出します。</p>
+  <pre id="out"></pre>
 </div>
 
-<p id="status" class="muted">準備完了。ユーザー操作（ボタン）起点で DC API を呼び出します。</p>
-<pre id="out"></pre>
+<!-- ── Section 2: OID4VP redirect → Web ウォレット ── -->
+<div class="section">
+  <h2>② Web ウォレットに要求（OID4VP リダイレクト）</h2>
+  <p class="muted" style="margin-top:0;font-size:14px">
+    DC API 非対応環境向け。Verifier がリクエストを生成し、ウェブウォレット
+    (<code>web-wallet.example.test</code>) へリダイレクトします。
+    ウォレットが提示し、結果を Verifier に <code>direct_post.jwt</code> で返します。
+  </p>
+  <div class="row">
+    <label>クレデンシャル種別:
+      <select id="webCfg">
+        <option value="pid_mdoc">PID（mdoc）</option>
+        <option value="pid_sdjwt">PID（SD-JWT）</option>
+        <option value="resident_mdoc">住民票（mdoc）</option>
+        <option value="qualification_mdoc">国家資格（mdoc）</option>
+        <option value="family_mdoc">戸籍謄本（mdoc）</option>
+        <option value="tax_mdoc">課税証明（mdoc）</option>
+        <option value="single_mdoc">独身証明（mdoc）</option>
+        <option value="vaccine_mdoc">ワクチン接種（mdoc）</option>
+      </select>
+    </label>
+    <button id="webVerify">Web ウォレットに要求 →</button>
+  </div>
+</div>
 
 <script type="module">
 const status = document.getElementById('status');
 const out = document.getElementById('out');
-const PROTOCOL = 'openid4vp-v1-unsigned'; // Annex D。署名要求なら -signed
+const PROTOCOL = 'openid4vp-v1-unsigned';
 
 function supported() {
   return typeof window.DigitalCredential !== 'undefined'
     && DigitalCredential.userAgentAllowsProtocol?.(PROTOCOL);
 }
 
-async function flow(specs) {
+async function dcApiFlow(specs) {
   out.textContent = '';
   if (!supported()) {
     status.innerHTML = '<span class="ng">このブラウザは ' + PROTOCOL
-      + ' に未対応です（Chrome 141+ / Android、または非DC-APIのリダイレクト経路にフォールバックしてください）。</span>';
+      + ' に未対応です（② Web ウォレット経由をお試しください）。</span>';
     return;
   }
   try {
-    // 1) Verifier バックエンドから OID4VP リクエストを取得
     status.textContent = 'リクエスト生成中…';
     const reqRes = await fetch('/vp/request', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ specs }),
     });
     const { transactionId, request } = await reqRes.json();
 
-    // 2) DC API でウォレットに提示要求（必ずユーザー操作起点・セキュアコンテキスト）
     status.textContent = 'ウォレットを呼び出し中…';
     const credential = await navigator.credentials.get({
       mediation: 'required',
       digital: { requests: [{ protocol: PROTOCOL, data: request }] },
     });
 
-    // 3) 暗号化された vp_token を Verifier バックエンドへ（復号・検証はサーバ側）
     status.textContent = '検証中…';
-    const data = credential.data ?? credential; // 実装差を吸収
+    const data = credential.data ?? credential;
     const encryptedResponse = typeof data === 'string' ? data : (data.response ?? JSON.stringify(data));
     const verRes = await fetch('/vp/verify', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ transactionId, encryptedResponse }),
     });
     const result = await verRes.json();
-
-    status.innerHTML = result.valid
-      ? '<span class="ok">検証成功</span>'
-      : '<span class="ng">検証失敗</span>';
+    status.innerHTML = result.valid ? '<span class="ok">検証成功</span>' : '<span class="ng">検証失敗</span>';
     out.textContent = JSON.stringify(result, null, 2);
   } catch (e) {
     status.innerHTML = '<span class="ng">エラー: ' + (e?.message ?? e) + '</span>';
   }
 }
 
-document.getElementById('pid').addEventListener('click', () => flow([
+document.getElementById('pid').addEventListener('click', () => dcApiFlow([
   { id: 'pid', configId: 'pid_mdoc', claims: ['family_name', 'given_name', 'age_over_18'] },
 ]));
-document.getElementById('qual').addEventListener('click', () => flow([
+document.getElementById('qual').addEventListener('click', () => dcApiFlow([
   { id: 'qual', configId: 'qualification_mdoc', claims: ['qualification_name', 'competent_authority'] },
 ]));
+
+document.getElementById('webVerify').addEventListener('click', () => {
+  const cfg = document.getElementById('webCfg').value;
+  window.location.href = '/demo/webverify?cfg=' + encodeURIComponent(cfg);
+});
 </script>
 </body>
 </html>
