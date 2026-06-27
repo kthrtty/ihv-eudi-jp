@@ -8,7 +8,7 @@ import { IssuerService } from './oid4vci.mjs';
 import { VerifierService } from './verifier.mjs';
 import { buildDelivery, offerByValueUri, offerByReferenceUri, offerQrSvg } from './offer.mjs';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
-import { shell, renderConsent, renderAuthStart, renderCallback, renderOfferAuthcode, completeIssuance, pkce, authorizeUrl } from './authcode-demo.mjs';
+import { shell, renderConsent, renderAuthStart, renderCallback, renderOfferAuthcode, completeIssuance, pkce, authorizeUrl, renderLogin, appShell, renderConsentScreen, renderVcSelect, renderOfferCreated } from './authcode-demo.mjs';
 import { renderVerifyConsole, renderWebVerify, renderWebVerifyResult } from './verifier-demo.mjs';
 import { createWallet } from './wallet.mjs';
 import { allConfigIds, configInfo } from './issuer.mjs';
@@ -30,10 +30,17 @@ export function createApp(opts = {}) {
 
   app.get('/.well-known/openid-credential-issuer', (c) => c.json(svc.metadata()));
 
-  // delivery demo page: use passed-in HTML string (Workers) or lazy disk read (Node.js)
+  // Issuer portal top — requires login; shows VC selection / offer creation
   app.get('/', async (c) => {
+    const user = await svc.sessionUser(sid(c));
+    if (!user) return c.redirect('/login?next=/', 302);
+    return c.html(renderVcSelect(user));
+  });
+
+  // Static issuer demo page (legacy / direct URL fallback)
+  app.get('/issuer', async (c) => {
     const html = issuerHtml ?? await loadHtml('web/issuer.html');
-    return html ? c.html(html) : c.redirect('/issuer.html');
+    return html ? c.html(html) : c.text('not found', 404);
   });
 
   // demo helper to mint an offer (issuer-initiated), with all delivery forms
@@ -78,22 +85,7 @@ export function createApp(opts = {}) {
   app.get('/login', (c) => {
     const users = svc.listUsers();
     const next = c.req.query('next') || '/';
-    const seals = users.map((u) => `
-      <form method="POST" action="/login/select" style="margin:0">
-        <input type="hidden" name="user_id" value="${u.id}">
-        <input type="hidden" name="next" value="${next}">
-        <button class="userbtn" type="submit">
-          <span class="seal">${u.surname[0] ?? u.name[0]}</span>
-          <span class="nm">${u.name}</span>
-        </button>
-      </form>`).join('');
-    return c.html(shell('サインイン', `
-      <div class="card">
-        <div class="eyebrow">発行者ポータル</div>
-        <h1>アカウントを選択</h1>
-        <div class="hint">パスワード不要のデモログインです。発行されるクレデンシャルはここで選んだ利用者のものになります。</div>
-        <div class="users" style="margin-top:14px;display:flex;gap:12px;flex-wrap:wrap">${seals}</div>
-      </div>`));
+    return c.html(renderLogin(users, next));
   });
   app.post('/login/select', async (c) => {
     const f = await c.req.parseBody();
@@ -109,7 +101,11 @@ export function createApp(opts = {}) {
       return c.json({ session_id: sessionId, user });
     } catch (e) { return fail(c, e); }
   });
-  app.post('/logout', async (c) => { await svc.logout(sid(c)); deleteCookie(c, 'sid', { path: '/' }); return c.json({ ok: true }); });
+  app.post('/logout', async (c) => {
+    await svc.logout(sid(c));
+    deleteCookie(c, 'sid', { path: '/' });
+    return c.redirect('/login', 302);
+  });
   app.get('/session', async (c) => {
     const user = await svc.sessionUser(sid(c));
     return user ? c.json({ user }) : c.json({ user: null }, 200);
@@ -118,33 +114,55 @@ export function createApp(opts = {}) {
   // ---- authorization endpoint (authorization_code + PKCE) ----
   app.get('/authorize', async (c) => {
     const sessionId = sid(c);
-    const hasSession = sessionId && await svc.sessionUser(sessionId);
-    // browser with no session -> render the AS login + consent screen
-    if (!hasSession && (c.req.header('accept') || '').includes('text/html')) {
-      const q = c.req.query();
-      const ids = await svc.requestedIds(q);
-      const md = svc.metadata().credential_configurations_supported;
-      const name = ids.map((id) => (md[id]?.display?.find((d) => d.locale === 'ja-JP') || md[id]?.display?.[0])?.name || id).join('、');
-      return c.html(renderConsent(q, svc.listUsers(), name));
+    const user = sessionId ? await svc.sessionUser(sessionId) : null;
+    if (!user) {
+      // No session — redirect to login, carrying the full authorize URL as `next`
+      const next = '/authorize?' + new URLSearchParams(c.req.query()).toString();
+      return c.redirect('/login?' + new URLSearchParams({ next }).toString(), 302);
     }
-    try {
-      const { redirect } = await svc.authorize({ sessionId, ...c.req.query() });
-      return c.redirect(redirect, 302);
-    } catch (e) { return fail(c, e); }
+    // Programmatic callers (wallet-core, tests) pass x-session-id and expect an
+    // immediate redirect with the code — no UI consent step needed.
+    if (c.req.header('x-session-id')) {
+      try {
+        const { redirect } = await svc.authorize({ sessionId, ...c.req.query() });
+        return c.redirect(redirect, 302);
+      } catch (e) { return fail(c, e); }
+    }
+    // Browser with cookie session — show the explicit consent screen
+    const q = c.req.query();
+    const ids = await svc.requestedIds(q);
+    const md = svc.metadata().credential_configurations_supported;
+    const name = ids.map((id) => (md[id]?.display?.find((d) => d.locale === 'ja-JP') || md[id]?.display?.[0])?.name || id).join('、');
+    return c.html(renderConsentScreen(q, user, name));
   });
 
-  // consent submit: passwordless login + issue code, then redirect back to the wallet
+  // Consent submit: session must already exist; issue code and redirect to client
   app.post('/authorize/consent', async (c) => {
     try {
+      const sessionId = sid(c);
+      if (!sessionId || !await svc.sessionUser(sessionId)) {
+        return c.redirect('/login?next=/', 302);
+      }
       const f = await c.req.parseBody();
-      const { sessionId } = await svc.login(f.user_id);
-      setCookie(c, 'sid', sessionId, { httpOnly: true, sameSite: 'Lax', path: '/' });
       const { redirect } = await svc.authorize({
         sessionId, response_type: f.response_type, redirect_uri: f.redirect_uri,
         code_challenge: f.code_challenge, code_challenge_method: f.code_challenge_method,
         scope: f.scope || undefined, issuer_state: f.issuer_state || undefined, state: f.state,
       });
       return c.redirect(redirect, 302);
+    } catch (e) { return fail(c, e); }
+  });
+
+  // ---- Issuer portal: offer creation from top page ----
+  app.post('/issue', async (c) => {
+    try {
+      const user = await svc.sessionUser(sid(c));
+      if (!user) return c.redirect('/login?next=/', 302);
+      const f = await c.req.parseBody();
+      const configId = `${f.type}_${f.format}`;
+      const grant = f.grant || 'pre-authorized_code';
+      const result = await svc.createOffer(configId, { grant });
+      return c.html(await renderOfferCreated(user, configId, result));
     } catch (e) { return fail(c, e); }
   });
 

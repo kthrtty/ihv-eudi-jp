@@ -4,13 +4,13 @@
 // (edit) that data.
 const SEED = [
   { id: 'u_yamada', surname: '山田', family: '山田', given: '太郎', family_kana: 'ヤマダ', given_kana: 'タロウ',
-    birth: '1990-01-15', sex: 1, address: '東京都千代田区1-1-1', honseki: '東京都千代田区千代田1番' },
+    birth: '1990-01-15', sex: 1, address: '東京都千代田区1-1-1', honseki: '東京都千代田区千代田1番', desc: '医師（国家資格あり）' },
   { id: 'u_sato', surname: '佐藤', family: '佐藤', given: '花子', family_kana: 'サトウ', given_kana: 'ハナコ',
-    birth: '1988-07-03', sex: 2, address: '東京都新宿区西新宿2-8-1', honseki: '東京都新宿区西新宿2番' },
+    birth: '1988-07-03', sex: 2, address: '東京都新宿区西新宿2-8-1', honseki: '東京都新宿区西新宿2番', desc: '公務員' },
   { id: 'u_suzuki', surname: '鈴木', family: '鈴木', given: '一郎', family_kana: 'スズキ', given_kana: 'イチロウ',
-    birth: '1975-12-20', sex: 1, address: '神奈川県横浜市西区みなとみらい3-3', honseki: '神奈川県横浜市西区1番' },
+    birth: '1975-12-20', sex: 1, address: '神奈川県横浜市西区みなとみらい3-3', honseki: '神奈川県横浜市西区1番', desc: '会社員' },
   { id: 'u_tanaka', surname: '田中', family: '田中', given: '美咲', family_kana: 'タナカ', given_kana: 'ミサキ',
-    birth: '2002-04-10', sex: 2, address: '大阪府大阪市北区梅田1-1', honseki: '大阪府大阪市北区梅田1番' },
+    birth: '2002-04-10', sex: 2, address: '大阪府大阪市北区梅田1-1', honseki: '大阪府大阪市北区梅田1番', desc: '学生' },
 ];
 
 // persona attribute -> the credential claim keys it should fill
