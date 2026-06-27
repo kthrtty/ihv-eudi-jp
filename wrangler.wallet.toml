@@ -11,7 +11,11 @@ VERIFIER_ORIGIN = "https://verifier.example.test"
 # Secrets: TRUST_ANCHORS_JSON (IACA cert + SD-JWT CA cert only, ~1 kB)
 #   node scripts/gen-worker-pki.mjs --wallet | wrangler secret put TRUST_ANCHORS_JSON --config wrangler.wallet.toml
 
-# No KV — wallet sessions are in-memory per-isolate (acceptable for demo)
+# KV: wallet sessions (holder key + stored VCs) persist across isolates.
+# Reuses the shared IHV_KV namespace; wallet keys are prefixed wsess:.
+[[kv_namespaces]]
+binding = "IHV_KV"
+id      = "84ba206f1832417ea3dcfc0db2960d6d"
 
 # Service Bindings: Worker-to-Worker calls without going through the public internet.
 # Required because Cloudflare blocks fetch() to *.workers.dev from within a Worker (error 1042).

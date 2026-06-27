@@ -310,8 +310,13 @@ export function createVerifierApp(opts = {}) {
   });
   const app = new Hono();
   const fail = (c, e) => c.json({ error: e.message }, e.status || 500);
-  const requests = new Map(); // txn -> request object (served by reference)
-  const results = new Map();  // txn -> verification result
+  // OID4VP request objects (by-reference) and results live in the shared store so
+  // they survive across Cloudflare isolates (in-memory Maps would 404 on a
+  // different isolate handling the wallet's response/result fetch).
+  const putRequest = (txn, request) => v.store.set(`vpreq:${txn}`, request, 600);
+  const getRequest = (txn) => v.store.get(`vpreq:${txn}`);
+  const putResult  = (txn, result) => v.store.set(`vpres:${txn}`, result, 600);
+  const getResult  = (txn) => v.store.get(`vpres:${txn}`);
 
   // GET / -> DC API browser page (browser/emulator only; not unit-testable here)
   app.get('/', async (c) => {
@@ -337,13 +342,13 @@ export function createVerifierApp(opts = {}) {
       specs: [{ id: 'q1', configId, claims }], transport: 'redirect',
       responseUriBase: `${verifierOrigin}/oid4vp/response`,
     });
-    requests.set(transactionId, request);
+    await putRequest(transactionId, request);
     const requestUri = `${verifierOrigin}/oid4vp/request/${transactionId}`;
     const walletPresent = `${walletOrigin}/present?request_uri=${encodeURIComponent(requestUri)}`;
     return c.html(renderWebVerify({ request, requestUri, walletPresent }));
   });
-  app.get('/oid4vp/request/:txn', (c) => {
-    const r = requests.get(c.req.param('txn'));
+  app.get('/oid4vp/request/:txn', async (c) => {
+    const r = await getRequest(c.req.param('txn'));
     return r ? c.json(r) : c.json({ error: 'unknown request' }, 404);
   });
   app.post('/oid4vp/response/:txn', async (c) => {
@@ -351,11 +356,11 @@ export function createVerifierApp(opts = {}) {
       const txn = c.req.param('txn');
       const body = await c.req.parseBody();
       const result = await v.verifyResponse({ transactionId: txn, encryptedResponse: body.response });
-      results.set(txn, result);
+      await putResult(txn, result);
       return c.json({ redirect_uri: `${verifierOrigin}/oid4vp/result/${txn}` }); // direct_post.jwt
     } catch (e) { return fail(c, e); }
   });
-  app.get('/oid4vp/result/:txn', (c) => c.html(renderWebVerifyResult(results.get(c.req.param('txn')))));
+  app.get('/oid4vp/result/:txn', async (c) => c.html(renderWebVerifyResult(await getResult(c.req.param('txn')))));
 
   return app;
 }

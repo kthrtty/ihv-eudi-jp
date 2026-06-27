@@ -225,7 +225,7 @@ export function renderLogin(users, next = '/', { note = null } = {}) {
       <div style="display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:32px">${cards}</div>
       <div style="margin-top:32px;display:flex;align-items:center;gap:8px;justify-content:center;font-size:13px;color:#5B6B82">
         <span style="width:8px;height:8px;border-radius:50%;background:#0E8A6B;flex-shrink:0;display:inline-block"></span>
-        パスワード不要のデモ用サインイン。実環境では各自のウォレット鍵で本人確認します。
+        パスワード不要のデモ用サインイン。実環境ではマイナンバーカードやパスキーを用いて当人認証します。
       </div>
     </div>
   </body></html>`;
