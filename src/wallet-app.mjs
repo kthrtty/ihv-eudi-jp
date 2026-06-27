@@ -96,12 +96,20 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
       const configId = offer.credential_configuration_ids[0];
       const grants = offer.grants || {};
 
-      if (grants['urn:ietf:params:oauth:grant-type:pre-authorized_code']) {
+      const hasPreAuth = !!grants['urn:ietf:params:oauth:grant-type:pre-authorized_code'];
+      const hasAuthCode = !!grants.authorization_code;
+
+      if (hasPreAuth && hasAuthCode) {
+        // Both grants present — let the user choose which flow to use
+        s.pending = { offer, configId, issuerBase };
+        return c.html(grantChoiceScreen(configId, issuerBase));
+      }
+      if (hasPreAuth) {
         const rec = await s.wallet.receive({ request: httpTo(issuerBase), offer, credentialIssuer: issuerBase });
         await record(s, rec);
         return c.html(added(s, configId, 'pre-authorized_code'));
       }
-      if (grants.authorization_code) {
+      if (hasAuthCode) {
         const { verifier, challenge, state } = pkce();
         s.pending = { verifier, configId, issuerBase, redirectUri: walletOrigin + '/oidc/cb' };
         const url = `${issuerBase}/authorize?` + new URLSearchParams({
@@ -109,13 +117,44 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
           code_challenge: challenge, code_challenge_method: 'S256',
           issuer_state: grants.authorization_code.issuer_state, state,
         }).toString();
-        return c.redirect(url, 302); // hand the browser to the Issuer's authorization endpoint
+        return c.redirect(url, 302);
       }
       return c.html(shell('ウォレット', `<div class="card"><h1>未対応のグラントです</h1></div>`, WALLET));
     } catch (e) {
       return c.html(shell('ウォレット', `<div class="card"><h1>追加に失敗</h1><div class="hint" style="color:#9E3A3A">${esc(e.message)}</div></div>`, WALLET));
     }
   });
+
+  // Grant choice: user selects pre-auth or auth-code when both are available
+  app.post('/add/choose', async (c) => {
+    const s = sess(c);
+    const f = await c.req.parseBody();
+    const chosen = f.grant;
+    const { offer, configId, issuerBase } = s.pending || {};
+    if (!offer) return c.html(shell('ウォレット', `<div class="card"><h1>セッションが切れました</h1><a href="/">戻る</a></div>`, WALLET));
+    const grants = offer.grants || {};
+    try {
+      if (chosen === 'pre-authorized_code') {
+        const rec = await s.wallet.receive({ request: httpTo(issuerBase), offer, credentialIssuer: issuerBase });
+        await record(s, rec);
+        return c.html(added(s, configId, 'pre-authorized_code'));
+      }
+      if (chosen === 'authorization_code') {
+        const { verifier, challenge, state } = pkce();
+        s.pending = { verifier, configId, issuerBase, redirectUri: walletOrigin + '/oidc/cb' };
+        const url = `${issuerBase}/authorize?` + new URLSearchParams({
+          response_type: 'code', client_id: 'ihv-web-wallet', redirect_uri: s.pending.redirectUri,
+          code_challenge: challenge, code_challenge_method: 'S256',
+          issuer_state: grants.authorization_code.issuer_state, state,
+        }).toString();
+        return c.redirect(url, 302);
+      }
+      return c.html(shell('ウォレット', `<div class="card"><h1>不明な選択です</h1></div>`, WALLET));
+    } catch (e) {
+      return c.html(shell('ウォレット', `<div class="card"><h1>取得に失敗</h1><div class="hint" style="color:#9E3A3A">${esc(e.message)}</div></div>`, WALLET));
+    }
+  });
+
 
   // OID4VCI redirect callback: exchange the authorization code, then issue
   app.get('/oidc/cb', async (c) => {
@@ -295,6 +334,23 @@ function requestPicker(configs, issuerBase) {
     </div>${STYLE}`, WALLET);
 }
 
+
+function grantChoiceScreen(configId, issuerBase) {
+  return shell('フロー選択', `
+    <div class="card">
+      <div class="step">OID4VCI — グラント選択</div>
+      <h1>発行フローを選択してください</h1>
+      <div class="hint">このオファーは Pre-Auth と認可コードの両方をサポートしています。<br>
+        <b>Pre-Auth</b>: 認可画面なしで即座に取得。<br>
+        <b>認可コード</b>: 発行者の認可画面でユーザー同意を確認してから取得。</div>
+      <form method="POST" action="/add/choose" style="margin-top:16px;display:flex;flex-direction:column;gap:10px">
+        <button class="btn" type="submit" name="grant" value="pre-authorized_code">Pre-Auth で取得（認可不要）</button>
+        <button class="btn" type="submit" name="grant" value="authorization_code">認可コードで取得（同意画面あり）</button>
+      </form>
+      <div style="margin-top:12px;font-size:13px;color:var(--muted)">種別: <code>${esc(configId)}</code> / 発行者: ${esc(issuerBase)}</div>
+      <div style="margin-top:8px"><a href="/">← キャンセル</a></div>
+    </div>${STYLE}`, WALLET);
+}
 
 function offerForm(issuerBase) {
   return shell('Pre-Auth オファー受け取り', `
