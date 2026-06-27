@@ -13,5 +13,16 @@ VERIFIER_ORIGIN = "https://verifier.example.test"
 
 # No KV — wallet sessions are in-memory per-isolate (acceptable for demo)
 
+# Service Bindings: Worker-to-Worker calls without going through the public internet.
+# Required because Cloudflare blocks fetch() to *.workers.dev from within a Worker (error 1042).
+# Falls back to regular fetch() automatically when bindings are absent (local Node.js / tests).
+[[services]]
+binding = "IHV_ISSUER"
+service = "issuer"
+
+[[services]]
+binding = "IHV_VERIFIER"
+service = "verifier"
+
 [assets]
 directory = "web"
