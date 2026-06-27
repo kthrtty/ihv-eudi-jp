@@ -22,7 +22,7 @@ const fmt = (v) => {
   return v;
 };
 
-export function createWalletApp({ walletOrigin = '' } = {}) {
+export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer.kthrtty.workers.dev', verifierUrl = 'https://verifier.kthrtty.workers.dev' } = {}) {
   const app = new Hono();
   const sessions = new Map(); // wsid -> { wallet, creds: [{id,configId,format,claims}], pending }
 
@@ -43,8 +43,38 @@ export function createWalletApp({ walletOrigin = '' } = {}) {
     s.creds.push({ ...rec, claims: Object.fromEntries(Object.entries(claims).map(([k, v]) => [k, fmt(v)])) });
   };
 
-  app.get('/', (c) => c.html(home(sess(c))));
+  app.get('/', (c) => c.html(home(sess(c), verifierUrl)));
   app.get('/creds', (c) => c.json(sess(c).creds.map(({ id, configId, format }) => ({ id, configId, format }))));
+
+  // Wallet-initiated auth-code: user picks credential type, wallet starts PKCE flow
+  app.get('/request', async (c) => {
+    const configId = c.req.query('cfg');
+    const iss = c.req.query('issuer') || issuerUrl;
+    if (!configId) {
+      // Show credential picker: fetch issuer metadata
+      try {
+        const meta = await (await fetch(iss + '/.well-known/openid-credential-issuer')).json();
+        const configs = Object.keys(meta.credential_configurations_supported || {});
+        return c.html(requestPicker(configs, iss));
+      } catch (e) {
+        return c.html(shell('ウォレット', `<div class="card"><h1>発行者へ接続できません</h1><div class="hint" style="color:#9E3A3A">${esc(e.message)}</div></div>`, WALLET));
+      }
+    }
+    // Start PKCE auth-code (wallet-initiated: scope= instead of issuer_state=)
+    const s = sess(c);
+    const { verifier, challenge, state } = pkce();
+    const redirectUri = walletOrigin + '/oidc/cb';
+    s.pending = { verifier, configId, issuerBase: iss, redirectUri };
+    const url = iss + '/authorize?' + new URLSearchParams({
+      response_type: 'code', client_id: 'ihv-web-wallet', redirect_uri: redirectUri,
+      code_challenge: challenge, code_challenge_method: 'S256',
+      scope: configId, state,
+    }).toString();
+    return c.redirect(url, 302);
+  });
+
+  // Issuer-initiated pre-auth: paste/scan credential offer URI
+  app.get('/offer-form', (c) => c.html(offerForm(issuerUrl)));
 
   // receive a Credential Offer (by value or by reference) and run OID4VCI
   app.get('/add', async (c) => {
@@ -164,15 +194,20 @@ function credCard(c) {
     <table class="cl">${rows}</table></div>`;
 }
 
-function home(s) {
+function home(s, verifierUrl) {
   const body = s.creds.length
     ? s.creds.map(credCard).join('')
-    : `<div class="hint">まだクレデンシャルがありません。発行者のオファー（QR/リンク）から <span class="mono">/add</span> を開くと、ここに保管されます。</div>`;
+    : `<div class="hint">まだクレデンシャルがありません。下のボタンから取得してください。</div>`;
   return shell('ウェブウォレット', `
     <div class="card">
       <div class="step">保管中のクレデンシャル</div>
       <h1>ウォレット</h1>
       ${body}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+        <a class="btn" href="/request">クレデンシャルを取得（認可コード）</a>
+        <a class="btn" href="/offer-form" style="background:#3d6e6e">オファーを受け取る（Pre-Auth）</a>
+        <a class="btn" href="${esc(verifierUrl)}/demo/webverify" style="background:#5c3a8e">検証を開始（OID4VP）</a>
+      </div>
     </div>${STYLE}`, WALLET);
 }
 
@@ -186,6 +221,44 @@ function added(s, configId, grant) {
       ${credCard(c)}
       <div style="margin-top:14px"><a class="btn" href="/">ウォレットを開く</a></div>
       <div class="hint" style="margin-top:10px">この発行は OID4VCI を <b>HTTPS リダイレクト</b>で実行しました（ネイティブ DC API 不使用）。</div>
+    </div>${STYLE}`, WALLET);
+}
+
+function requestPicker(configs, issuerBase) {
+  const opts = configs.map((id) => `<option value="${esc(id)}">${esc(id)}</option>`).join('');
+  return shell('クレデンシャル取得', `
+    <div class="card">
+      <div class="step">発行者: ${esc(issuerBase)}</div>
+      <h1>認可コードフローで取得</h1>
+      <div class="hint">クレデンシャル種別を選択して「取得する」を押すと、発行者のログインページへ移動します。
+        ログイン後、このウォレットにクレデンシャルが発行されます。</div>
+      <form method="GET" action="/request" style="margin-top:14px">
+        <input type="hidden" name="issuer" value="${esc(issuerBase)}" />
+        <select name="cfg" style="font:inherit;padding:.5rem;border-radius:.4rem;border:1px solid #aaa;width:100%;max-width:320px">${opts}</select>
+        <div style="margin-top:10px">
+          <button class="btn" type="submit">取得する（認可コード + PKCE）</button>
+        </div>
+      </form>
+      <div style="margin-top:12px"><a href="/">← ウォレットに戻る</a></div>
+    </div>${STYLE}`, WALLET);
+}
+
+function offerForm(issuerBase) {
+  return shell('Pre-Auth オファー受け取り', `
+    <div class="card">
+      <div class="step">OID4VCI — pre-authorized_code</div>
+      <h1>発行者オファーを受け取る</h1>
+      <div class="hint">発行者から受け取ったクレデンシャルオファー URI を貼り付けてください。<br>
+        発行者の「オファーを作成」ページから取得できます（例: <code>${esc(issuerBase)}/offer</code>）。
+      </div>
+      <form method="GET" action="/add" style="margin-top:14px">
+        <textarea name="credential_offer_uri" placeholder="openid-credential-offer://... または https://..."
+          style="font:inherit;width:100%;box-sizing:border-box;min-height:80px;padding:.5rem;border-radius:.4rem;border:1px solid #aaa"></textarea>
+        <div style="margin-top:10px">
+          <button class="btn" type="submit">取得する</button>
+        </div>
+      </form>
+      <div style="margin-top:12px"><a href="/">← ウォレットに戻る</a></div>
     </div>${STYLE}`, WALLET);
 }
 

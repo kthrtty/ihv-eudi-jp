@@ -26,7 +26,9 @@ export default {
       const pki = parseTrustAnchors(env.TRUST_ANCHORS_JSON ?? null);
       if (pki) setPki(pki); // trust anchors for verifyCredential() display only
       app = createWalletApp({
-        walletOrigin: env.WALLET_ORIGIN || 'https://web-wallet.kthrtty.workers.dev',
+        walletOrigin:  env.WALLET_ORIGIN   || 'https://web-wallet.kthrtty.workers.dev',
+        issuerUrl:     env.ISSUER_URL      || 'https://issuer.kthrtty.workers.dev',
+        verifierUrl:   env.VERIFIER_ORIGIN || 'https://verifier.kthrtty.workers.dev',
       });
     }
     return app.fetch(request, env, ctx);
