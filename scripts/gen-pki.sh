@@ -49,14 +49,14 @@ mkleaf() { # <keyout> <crtout> <subj> <cakey> <cacrt> <extra-ext-lines...>
 
 echo "==> mdoc: IACA root (trust anchor, C=JP)"
 mkca pki/mdoc/iaca/iaca.key pki/mdoc/iaca/iaca.crt \
-  "/C=JP/O=IVH Demo Issuing Authority/CN=IVH-Demo IACA Root"
+  "/C=JP/O=IHV Demo Issuing Authority/CN=IVH-Demo IACA Root"
 
 # ISO 18013-5 mDL Document Signer EKU = 1.0.18013.5.1.2 (dev placeholder; each
 # ecosystem/doctype defines its own DS EKU in production).
 echo "==> mdoc: Document Signer Certs (PID / Juminhyo / Qualification)"
 for who in pid juminhyo qualification koseki tax single disaster vaccine; do
   mkleaf pki/mdoc/dsc/${who}.key pki/mdoc/dsc/${who}.crt \
-    "/C=JP/O=IVH Demo Issuing Authority/CN=IVH-Demo DSC ${who}" \
+    "/C=JP/O=IHV Demo Issuing Authority/CN=IVH-Demo DSC ${who}" \
     pki/mdoc/iaca/iaca.key pki/mdoc/iaca/iaca.crt \
     "keyUsage=critical,digitalSignature" \
     "extendedKeyUsage=1.0.18013.5.1.2"
@@ -64,33 +64,33 @@ done
 
 echo "==> reader: mdoc reader-auth CA + leaf (verifier)"
 mkca pki/reader/reader-ca.key pki/reader/reader-ca.crt \
-  "/C=JP/O=IVH Demo Relying Party/CN=IVH-Demo Reader CA"
+  "/C=JP/O=IHV Demo Relying Party/CN=IVH-Demo Reader CA"
 # ISO 18013-5 mDL Reader Auth EKU = 1.0.18013.5.1.6
 mkleaf pki/reader/reader.key pki/reader/reader.crt \
-  "/C=JP/O=IVH Demo Relying Party/CN=IVH-Demo Reader" \
+  "/C=JP/O=IHV Demo Relying Party/CN=IVH-Demo Reader" \
   pki/reader/reader-ca.key pki/reader/reader-ca.crt \
   "keyUsage=critical,digitalSignature" \
   "extendedKeyUsage=1.0.18013.5.1.6"
 
 echo "==> sd-jwt: issuer CA + leaf issuer certs (x5c)"
 mkca pki/sdjwt/issuer-ca.key pki/sdjwt/issuer-ca.crt \
-  "/C=JP/O=IVH Demo SD-JWT Issuer CA/CN=IVH-Demo SD-JWT Issuer CA"
+  "/C=JP/O=IHV Demo SD-JWT Issuer CA/CN=IVH-Demo SD-JWT Issuer CA"
 for who in pid juminhyo qualification koseki tax single disaster vaccine; do
   mkleaf pki/sdjwt/${who}.key pki/sdjwt/${who}.crt \
-    "/C=JP/O=IVH Demo Issuer/CN=issuer-${who}.ivh.example" \
+    "/C=JP/O=IHV Demo Issuer/CN=issuer-${who}.ihv.example" \
     pki/sdjwt/issuer-ca.key pki/sdjwt/issuer-ca.crt \
     "keyUsage=critical,digitalSignature" \
-    "subjectAltName=DNS:issuer-${who}.ivh.example"
+    "subjectAltName=DNS:issuer-${who}.ihv.example"
 done
 
 echo "==> verifier: RP auth CA + RP cert (x509_san_dns) + JWE recipient key"
 mkca pki/verifier/rp-ca.key pki/verifier/rp-ca.crt \
-  "/C=JP/O=IVH Demo RP CA/CN=IVH-Demo RP CA"
+  "/C=JP/O=IHV Demo RP CA/CN=IVH-Demo RP CA"
 mkleaf pki/verifier/rp.key pki/verifier/rp.crt \
-  "/C=JP/O=IVH Demo Verifier/CN=verifier.ivh.example" \
+  "/C=JP/O=IHV Demo Verifier/CN=verifier.ihv.example" \
   pki/verifier/rp-ca.key pki/verifier/rp-ca.crt \
   "keyUsage=critical,digitalSignature" \
-  "subjectAltName=DNS:verifier.ivh.example"
+  "subjectAltName=DNS:verifier.ihv.example"
 # JWE recipient (ECDH-ES response encryption); signing & enc keys kept separate
 genkey pki/verifier/rp-enc.key
 

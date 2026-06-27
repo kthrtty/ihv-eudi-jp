@@ -5,100 +5,153 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>IHV Verifier</title>
 <style>
-  :root { color-scheme: light dark; }
-  body { font: 16px/1.6 system-ui, sans-serif; max-width: 44rem; margin: 2rem auto; padding: 0 1rem; }
+  :root { color-scheme: light dark; --accent: #9E3A3A; }
+  body { font: 16px/1.6 system-ui, sans-serif; max-width: 50rem; margin: 2rem auto; padding: 0 1rem; }
   h1 { font-size: 1.25rem; } h2 { font-size: 1rem; margin: 1.4rem 0 .4rem; }
-  button { font: inherit; padding: .6rem 1rem; border-radius: .5rem; border: 1px solid #888; cursor: pointer; }
+  button { font: inherit; padding: .55rem 1rem; border-radius: .5rem; border: 1px solid #888; cursor: pointer; background: #f9f9f9; }
   button:disabled { opacity: .5; cursor: not-allowed; }
-  .row { display: flex; gap: .5rem; flex-wrap: wrap; margin: .8rem 0; }
-  pre { background: #00000010; padding: 1rem; border-radius: .5rem; overflow: auto; white-space: pre-wrap; }
-  .ok { color: #1a7f37; } .ng { color: #cf222e; } .muted { color: #888; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.primary:hover { background: #7d2e2e; }
+  .row { display: flex; gap: .5rem; flex-wrap: wrap; margin: .8rem 0; align-items: center; }
+  pre { background: #00000010; padding: 1rem; border-radius: .5rem; overflow: auto; white-space: pre-wrap; font-size: 13px; }
+  .ok { color: #1a7f37; } .ng { color: #cf222e; } .muted { color: #666; font-size: 14px; }
   .section { border: 1px solid #ddd; border-radius: 8px; padding: 1rem 1.2rem; margin: 1rem 0; }
   .section h2 { margin-top: 0; }
   select { font: inherit; padding: .4rem .6rem; border-radius: .4rem; border: 1px solid #aaa; }
-  a.btn { display:inline-block; padding:.6rem 1.2rem; background:#9E3A3A; color:#fff;
-          text-decoration:none; border-radius:.5rem; font-weight:600; }
-  a.btn:hover { background:#7d2e2e; }
+  .header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 1rem; }
+  .badge { font-size: 12px; font-weight: 700; color: var(--accent); background: #F6ECEC; border: 1px solid #E7D6D6; padding: 4px 11px; border-radius: 999px; margin-left: auto; }
+  .bar { width: 8px; height: 22px; border-radius: 3px; background: var(--accent); flex-shrink: 0; }
+  a.link { color: var(--accent); }
 </style>
 </head>
 <body>
-<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-  <span style="width:8px;height:22px;border-radius:3px;background:#9E3A3A;display:inline-block"></span>
+<div class="header">
+  <span class="bar"></span>
   <h1 style="margin:0">検証者 (Verifier)</h1>
-  <span style="margin-left:auto;font-size:12px;font-weight:700;color:#9E3A3A;background:#F6ECEC;border:1px solid #E7D6D6;padding:4px 11px;border-radius:999px">検証者 · VERIFIER</span>
+  <span class="badge">検証者 · VERIFIER</span>
 </div>
 
 <!-- ── Section 1: DC API ── -->
 <div class="section">
-  <h2>① Digital Credentials API（ネイティブウォレット / Annex D）</h2>
-  <p class="muted" style="margin-top:0;font-size:14px">
-    ブラウザ/エミュレータ専用。<code>navigator.credentials.get()</code> で OS 内蔵ウォレットに要求します。
-    Chrome 141+ / Android が必要です。
+  <h2>① Digital Credentials API（ネイティブウォレット）</h2>
+  <p class="muted" style="margin-top:0">
+    ブラウザ内蔵 <code>navigator.credentials.get()</code> で OS ウォレットに要求（Chrome 141+ / Android DC API 対応端末が必要）。
   </p>
   <div class="row">
-    <button id="pid">PID を要求（mdoc）</button>
-    <button id="qual">国家資格 を要求（mdoc）</button>
+    <label>種別:
+      <select id="dcCfg">
+        <option value="pid_mdoc">PID（mdoc）</option>
+        <option value="pid_sdjwt">PID（SD-JWT）</option>
+        <option value="resident_mdoc">住民票（mdoc）</option>
+        <option value="resident_sdjwt">住民票（SD-JWT）</option>
+        <option value="qualification_mdoc">国家資格（mdoc）</option>
+        <option value="qualification_sdjwt">国家資格（SD-JWT）</option>
+        <option value="family_mdoc">戸籍謄本（mdoc）</option>
+        <option value="family_sdjwt">戸籍謄本（SD-JWT）</option>
+        <option value="tax_mdoc">課税証明（mdoc）</option>
+        <option value="tax_sdjwt">課税証明（SD-JWT）</option>
+        <option value="single_mdoc">独身証明（mdoc）</option>
+        <option value="single_sdjwt">独身証明（SD-JWT）</option>
+        <option value="disaster_mdoc">罹災証明（mdoc）</option>
+        <option value="disaster_sdjwt">罹災証明（SD-JWT）</option>
+        <option value="vaccine_mdoc">ワクチン接種（mdoc）</option>
+        <option value="vaccine_sdjwt">ワクチン接種（SD-JWT）</option>
+      </select>
+    </label>
+    <button class="primary" id="dcRequest">DC API で要求</button>
   </div>
-  <p id="status" class="muted">準備完了。ユーザー操作（ボタン）起点で DC API を呼び出します。</p>
-  <pre id="out"></pre>
+  <p id="dcStatus" class="muted">準備完了。ユーザー操作（ボタン）起点で DC API を呼び出します。</p>
+  <pre id="dcOut" style="display:none"></pre>
 </div>
 
-<!-- ── Section 2: OID4VP redirect → Web ウォレット ── -->
+<!-- ── Section 2: OID4VP redirect → Web Wallet ── -->
 <div class="section">
-  <h2>② Web ウォレットに要求（OID4VP リダイレクト）</h2>
-  <p class="muted" style="margin-top:0;font-size:14px">
-    DC API 非対応環境向け。Verifier がリクエストを生成し、ウェブウォレット
-    (<code>web-wallet.example.test</code>) へリダイレクトします。
-    ウォレットが提示し、結果を Verifier に <code>direct_post.jwt</code> で返します。
+  <h2>② Web ウォレットに要求（OID4VP HTTPS リダイレクト）</h2>
+  <p class="muted" style="margin-top:0">
+    DC API 非対応環境向け。Verifier がリクエストを生成し、Web ウォレットへリダイレクトします。
+    ウォレットが提示し、結果を <code>direct_post.jwt</code> で返します。
   </p>
   <div class="row">
-    <label>クレデンシャル種別:
+    <label>種別:
       <select id="webCfg">
         <option value="pid_mdoc">PID（mdoc）</option>
         <option value="pid_sdjwt">PID（SD-JWT）</option>
         <option value="resident_mdoc">住民票（mdoc）</option>
+        <option value="resident_sdjwt">住民票（SD-JWT）</option>
         <option value="qualification_mdoc">国家資格（mdoc）</option>
+        <option value="qualification_sdjwt">国家資格（SD-JWT）</option>
         <option value="family_mdoc">戸籍謄本（mdoc）</option>
+        <option value="family_sdjwt">戸籍謄本（SD-JWT）</option>
         <option value="tax_mdoc">課税証明（mdoc）</option>
+        <option value="tax_sdjwt">課税証明（SD-JWT）</option>
         <option value="single_mdoc">独身証明（mdoc）</option>
+        <option value="single_sdjwt">独身証明（SD-JWT）</option>
+        <option value="disaster_mdoc">罹災証明（mdoc）</option>
+        <option value="disaster_sdjwt">罹災証明（SD-JWT）</option>
         <option value="vaccine_mdoc">ワクチン接種（mdoc）</option>
+        <option value="vaccine_sdjwt">ワクチン接種（SD-JWT）</option>
       </select>
     </label>
-    <button id="webVerify">Web ウォレットに要求 →</button>
+    <button class="primary" id="webVerify">Web ウォレットに要求 →</button>
+  </div>
+</div>
+
+<!-- ── Section 3: Full demo console link ── -->
+<div class="section" style="background:#fafaf8">
+  <h2>③ 発行＋検証 統合デモコンソール（Issuer 側）</h2>
+  <p class="muted" style="margin-top:0">
+    16 種 × {mdoc / SD-JWT}・項目選択・選択的開示・DCQL JSON を確認できるフルコンソールは Issuer サービス上にあります。
+    下のリンクから開けます（Verifier のアドレスを Issuer に書き換えてください）。
+  </p>
+  <div class="row">
+    <a class="link" id="demoLink" href="#" target="_blank">/demo/verify（Issuer コンソールへ）</a>
   </div>
 </div>
 
 <script type="module">
-const status = document.getElementById('status');
-const out = document.getElementById('out');
+const dcStatus = document.getElementById('dcStatus');
+const dcOut    = document.getElementById('dcOut');
 const PROTOCOL = 'openid4vp-v1-unsigned';
+
+// Set Issuer link dynamically (same host with "verifier" → "issuer" swap)
+const issuerOrigin = location.origin.replace('verifier', 'issuer');
+document.getElementById('demoLink').href = issuerOrigin + '/demo/verify';
+document.getElementById('demoLink').textContent = issuerOrigin + '/demo/verify';
 
 function supported() {
   return typeof window.DigitalCredential !== 'undefined'
     && DigitalCredential.userAgentAllowsProtocol?.(PROTOCOL);
 }
 
-async function dcApiFlow(specs) {
-  out.textContent = '';
+async function dcApiFlow(configId) {
+  dcOut.style.display = 'none'; dcOut.textContent = '';
   if (!supported()) {
-    status.innerHTML = '<span class="ng">このブラウザは ' + PROTOCOL
-      + ' に未対応です（② Web ウォレット経由をお試しください）。</span>';
+    dcStatus.innerHTML = '<span class="ng">このブラウザは ' + PROTOCOL + ' に未対応です（② Web ウォレット経由をお試しください）。</span>';
     return;
   }
+  const defaultClaims = {
+    pid_mdoc: ['family_name', 'given_name', 'age_over_18'],
+    pid_sdjwt: ['family_name', 'given_name', 'age_over_18'],
+    qualification_mdoc: ['qualification_name', 'competent_authority'],
+    qualification_sdjwt: ['qualification_name', 'competent_authority'],
+  };
+  const claims = defaultClaims[configId] || ['family_name'];
+  const specs = [{ id: 'q1', configId, claims }];
+
   try {
-    status.textContent = 'リクエスト生成中…';
+    dcStatus.textContent = 'リクエスト生成中…';
     const reqRes = await fetch('/vp/request', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ specs }),
     });
     const { transactionId, request } = await reqRes.json();
 
-    status.textContent = 'ウォレットを呼び出し中…';
+    dcStatus.textContent = 'ウォレットを呼び出し中…';
     const credential = await navigator.credentials.get({
       mediation: 'required',
       digital: { requests: [{ protocol: PROTOCOL, data: request }] },
     });
 
-    status.textContent = '検証中…';
+    dcStatus.textContent = '検証中…';
     const data = credential.data ?? credential;
     const encryptedResponse = typeof data === 'string' ? data : (data.response ?? JSON.stringify(data));
     const verRes = await fetch('/vp/verify', {
@@ -106,19 +159,17 @@ async function dcApiFlow(specs) {
       body: JSON.stringify({ transactionId, encryptedResponse }),
     });
     const result = await verRes.json();
-    status.innerHTML = result.valid ? '<span class="ok">検証成功</span>' : '<span class="ng">検証失敗</span>';
-    out.textContent = JSON.stringify(result, null, 2);
+    dcStatus.innerHTML = result.valid ? '<span class="ok">検証成功</span>' : '<span class="ng">検証失敗</span>';
+    dcOut.style.display = 'block';
+    dcOut.textContent = JSON.stringify(result, null, 2);
   } catch (e) {
-    status.innerHTML = '<span class="ng">エラー: ' + (e?.message ?? e) + '</span>';
+    dcStatus.innerHTML = '<span class="ng">エラー: ' + (e?.message ?? e) + '</span>';
   }
 }
 
-document.getElementById('pid').addEventListener('click', () => dcApiFlow([
-  { id: 'pid', configId: 'pid_mdoc', claims: ['family_name', 'given_name', 'age_over_18'] },
-]));
-document.getElementById('qual').addEventListener('click', () => dcApiFlow([
-  { id: 'qual', configId: 'qualification_mdoc', claims: ['qualification_name', 'competent_authority'] },
-]));
+document.getElementById('dcRequest').addEventListener('click', () => {
+  dcApiFlow(document.getElementById('dcCfg').value);
+});
 
 document.getElementById('webVerify').addEventListener('click', () => {
   const cfg = document.getElementById('webCfg').value;

@@ -1,10 +1,10 @@
 // IETF SD-JWT VC issuance + verification (selective disclosure) and KB-JWT.
-import { SignJWT, jwtVerify } from 'jose';
-import { X509Certificate, createPrivateKey, randomBytes, createHash, KeyObject } from 'node:crypto';
+import { SignJWT, jwtVerify, importPKCS8, importSPKI } from 'jose';
+import { X509Certificate, randomBytes, createHash } from 'node:crypto';
 
 const b64url = (b) => Buffer.from(b).toString('base64url');
 const sha256b64 = (s) => b64url(createHash('sha256').update(Buffer.from(s, 'ascii')).digest());
-const der2pubkey = (b64der) => new X509Certificate(Buffer.from(b64der, 'base64')).publicKey;
+const der2spkiPem = (b64der) => new X509Certificate(Buffer.from(b64der, 'base64')).publicKey.export({ format: 'pem', type: 'spki' });
 
 function makeDisclosure(key, value) {
   const salt = b64url(randomBytes(16));
@@ -34,7 +34,7 @@ export async function issueSdJwtVc({ vct, iss, claims, sdKeys, holderJwk, issuer
 
   const payload = { iss, iat, exp, vct, cnf: { jwk: holderJwk }, _sd, _sd_alg: 'sha-256', ...flat };
   if (status) payload.status = { status_list: { idx: status.idx, uri: status.uri } };
-  const key = createPrivateKey(issuerKeyPem);
+  const key = await importPKCS8(typeof issuerKeyPem === 'string' ? issuerKeyPem : issuerKeyPem.toString('utf8'), 'ES256');
   const x5c = [Buffer.from(issuerCertDer).toString('base64'), Buffer.from(issuerCaDer).toString('base64')];
   const jwt = await new SignJWT(payload)
     .setProtectedHeader({ alg: 'ES256', typ: 'dc+sd-jwt', x5c })
@@ -61,7 +61,7 @@ export async function verifySdJwtVc(sdjwt, { trustedIssuerCaDer } = {}) {
   const header = JSON.parse(Buffer.from(jwt.split('.')[0], 'base64url').toString('utf8'));
   let payload;
   try {
-    const leafPub = der2pubkey(header.x5c[0]);
+    const leafPub = await importSPKI(der2spkiPem(header.x5c[0]), 'ES256');
     ({ payload } = await jwtVerify(jwt, leafPub));
     const leaf = new X509Certificate(Buffer.from(header.x5c[0], 'base64'));
     const ca = new X509Certificate(Buffer.from(trustedIssuerCaDer ?? header.x5c[1]));
@@ -89,7 +89,7 @@ export async function makeKbJwt({ sdjwtPresented, nonce, aud, holderKeyPem,
   const sd_hash = sha256b64(sdjwtPresented);
   return new SignJWT({ nonce, aud, iat, sd_hash })
     .setProtectedHeader({ alg: 'ES256', typ: 'kb+jwt' })
-    .sign(createPrivateKey(holderKeyPem));
+    .sign(await importPKCS8(holderKeyPem, 'ES256'));
 }
 
 export async function verifyKbJwt({ kbJwt, sdjwtPresented, holderJwk, expectedNonce, expectedAud }) {

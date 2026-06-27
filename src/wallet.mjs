@@ -2,7 +2,7 @@
 // their device-bound holder key, and present via OID4VP (mdoc DeviceResponse /
 // SD-JWT presentation). Transport-agnostic: `request` is a fetch-like fn so it
 // works against the Hono app (app.request) in tests and any HTTP client live.
-import { SignJWT } from 'jose';
+import { SignJWT, importPKCS8 } from 'jose';
 import { generateKeyPairSync, randomBytes, createHash } from 'node:crypto';
 import { buildDeviceResponse } from './mdoc.mjs';
 import { presentSdJwt } from './sdjwt.mjs';
@@ -32,7 +32,7 @@ export function createWallet() {
     const { c_nonce } = await (await request('/nonce', { method: 'POST' })).json();
     const proof = await new SignJWT({ aud: credentialIssuer, iat: Math.floor(Date.now() / 1000), nonce: c_nonce })
       .setProtectedHeader({ alg: 'ES256', typ: 'openid4vci-proof+jwt', jwk: holderJwk })
-      .sign(privateKey);
+      .sign(await importPKCS8(holderKeyPem, 'ES256'));
     const credRes = await (await request('/credential', {
       method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ credential_configuration_id: configId, proofs: { jwt: [proof] } }),

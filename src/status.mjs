@@ -5,8 +5,8 @@
 // never learns which credential was checked (issuer-verifier unlinkability).
 import { fileURLToPath } from 'node:url';
 import { deflateSync, inflateSync } from 'node:zlib';
-import { X509Certificate, createPrivateKey } from 'node:crypto';
-import { SignJWT, jwtVerify } from 'jose';
+import { X509Certificate } from 'node:crypto';
+import { SignJWT, jwtVerify, importPKCS8, importSPKI } from 'jose';
 const b64url = (b) => Buffer.from(b).toString('base64url');
 
 // 1-bit status: bit i lives in byte floor(i/8), position i%8 (LSB-first per spec).
@@ -24,13 +24,14 @@ export async function buildStatusListToken({ bits, issuerKeyPem, issuerCertDer, 
   const x5c = [Buffer.from(issuerCertDer).toString('base64')];
   return new SignJWT({ sub, iat, status_list: { bits: 1, lst: compressList(bits) } })
     .setProtectedHeader({ alg: 'ES256', typ: 'statuslist+jwt', x5c })
-    .sign(createPrivateKey(issuerKeyPem));
+    .sign(await importPKCS8(typeof issuerKeyPem === 'string' ? issuerKeyPem : issuerKeyPem.toString('utf8'), 'ES256'));
 }
 
 /** Verify a Status List Token and return a bit accessor. */
 export async function parseStatusListToken(jwt) {
   const header = JSON.parse(Buffer.from(jwt.split('.')[0], 'base64url').toString('utf8'));
-  const pub = new X509Certificate(Buffer.from(header.x5c[0], 'base64')).publicKey;
+  const pubPem = new X509Certificate(Buffer.from(header.x5c[0], 'base64')).publicKey.export({ format: 'pem', type: 'spki' });
+  const pub = await importSPKI(pubPem, 'ES256');
   const { payload } = await jwtVerify(jwt, pub, { typ: 'statuslist+jwt' });
   const bytes = decompressList(payload.status_list.lst);
   return { sub: payload.sub, getStatus: (idx) => bitAt(bytes, idx) };
