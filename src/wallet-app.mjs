@@ -47,7 +47,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     s.creds.push({ ...rec, claims: Object.fromEntries(Object.entries(claims).map(([k, v]) => [k, fmt(v)])) });
   };
 
-  app.get('/', (c) => c.html(home(sess(c), verifierUrl)));
+  app.get('/', (c) => c.html(home(sess(c), issuerUrl, verifierUrl)));
   app.get('/creds', (c) => c.json(sess(c).creds.map(({ id, configId, format }) => ({ id, configId, format }))));
 
   // Wallet-initiated auth-code: user picks credential type, wallet starts PKCE flow
@@ -229,11 +229,11 @@ function credCard(c) {
     <table class="cl">${rows}</table></div>`;
 }
 
-function home(s, verifierUrl) {
+function home(s, issuerUrl, verifierUrl) {
   const body = s.creds.length
     ? s.creds.map(credCard).join('')
     : `<div class="hint" style="color:var(--muted)">まだクレデンシャルがありません。下のメニューから取得してください。</div>`;
-  const issuerUrl2 = verifierUrl.replace('verifier', 'issuer');
+  const issuerUrl2 = issuerUrl;
   return shell('ウェブウォレット', `
     <div class="card">
       <div class="step">保管中のクレデンシャル</div>
