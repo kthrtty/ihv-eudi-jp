@@ -4,7 +4,7 @@
 // callback page that completes issuance. The "wallet" PKCE verifier is kept in
 // a server-side demo session purely so the browser demo needs no WebCrypto.
 import { generateKeyPairSync, randomBytes, createHash } from 'node:crypto';
-import { SignJWT } from 'jose';
+import { SignJWT, importPKCS8 } from 'jose';
 import { catalog } from './issuer.mjs';
 import { verify as verifyCredential } from './issuer.mjs';
 import { offerQrSvg } from './offer.mjs';
@@ -167,9 +167,11 @@ export async function completeIssuance(svc, { code, verifier, configId, redirect
   const { c_nonce } = await svc.nonce();
   const { publicKey, privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
   const holderJwk = publicKey.export({ format: 'jwk' });
+  const holderPrivPem = privateKey.export({ type: 'pkcs8', format: 'pem' });
+  const signingKey = await importPKCS8(holderPrivPem, 'ES256');
   const proof = await new SignJWT({ aud: svc.credentialIssuer, iat: Math.floor(Date.now() / 1000), nonce: c_nonce })
     .setProtectedHeader({ alg: 'ES256', typ: 'openid4vci-proof+jwt', jwk: holderJwk })
-    .sign(privateKey);
+    .sign(signingKey);
   const res = await svc.credential({ accessToken: tokenRes.access_token, body: { credential_configuration_id: configId, proofs: { jwt: [proof] } } });
   const wire = res.credentials[0].credential;
   const cred = configId.endsWith('_mdoc') ? new Uint8Array(Buffer.from(wire, 'base64url')) : wire;

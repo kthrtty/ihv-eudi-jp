@@ -1,6 +1,6 @@
 // COSE_Sign1 (RFC 9052/8152) for mdoc issuerAuth, ES256 (alg -7) over P-256.
 // Signature is raw r||s (IEEE P1363), as COSE requires (not DER).
-import { createPrivateKey, X509Certificate, sign as nodeSign, verify as nodeVerify } from 'node:crypto';
+import { X509Certificate, sign as nodeSign, verify as nodeVerify } from 'node:crypto';
 import { cborEncode, cborDecodeMap, Tag } from './cbor.mjs';
 
 const ALG_ES256 = -7;
@@ -12,6 +12,11 @@ function sigStructure(protectedContent, payloadContent) {
   return cborEncode(['Signature1', protectedContent, new Uint8Array(0), payloadContent]);
 }
 
+// Normalize key to string — Workers nodejs_compat rejects KeyObject as options.key
+const toKeyStr = (k) => (typeof k === 'string' ? k : Buffer.isBuffer(k) ? k.toString('utf8') : k);
+// Export PublicKeyObject to SPKI PEM so nodeVerify accepts it in Workers
+const toPubPem = (k) => (typeof k === 'string' ? k : Buffer.isBuffer(k) ? k.toString('utf8') : k.export({ format: 'pem', type: 'spki' }));
+
 /**
  * Build a COSE_Sign1 over payloadContent (raw bytes), signed with an EC P-256
  * private key PEM. x5chain is an array of DER certs (leaf-first).
@@ -22,7 +27,7 @@ export function coseSign1({ payloadContent, privateKeyPem, x5chain }) {
   const unprotected = new Map([[HDR_X5CHAIN, x5chain.map((d) => new Uint8Array(d))]]);
   const toSign = sigStructure(protectedContent, payloadContent);
   const signature = new Uint8Array(
-    nodeSign('sha256', Buffer.from(toSign), { key: createPrivateKey(privateKeyPem), dsaEncoding: 'ieee-p1363' }),
+    nodeSign('sha256', Buffer.from(toSign), { key: toKeyStr(privateKeyPem), dsaEncoding: 'ieee-p1363' }),
   );
   return [protectedContent, unprotected, payloadContent, signature];
 }
@@ -37,7 +42,7 @@ export function coseVerify(coseSign1Arr) {
   const leaf = new X509Certificate(Buffer.from(chain[0]));
   const toVerify = sigStructure(protectedContent, payloadContent);
   const valid = nodeVerify('sha256', Buffer.from(toVerify),
-    { key: leaf.publicKey, dsaEncoding: 'ieee-p1363' }, Buffer.from(signature));
+    { key: toPubPem(leaf.publicKey), dsaEncoding: 'ieee-p1363' }, Buffer.from(signature));
   return { valid, leaf, chain, payloadContent };
 }
 
@@ -53,7 +58,7 @@ export function coseSign1Detached({ detachedPayload, privateKeyPem }) {
   const protectedContent = cborEncode(new Map([[HDR_ALG, ALG_ES256]]));
   const toSign = sigStructure(protectedContent, detachedPayload);
   const signature = new Uint8Array(
-    nodeSign('sha256', Buffer.from(toSign), { key: createPrivateKey(privateKeyPem), dsaEncoding: 'ieee-p1363' }),
+    nodeSign('sha256', Buffer.from(toSign), { key: toKeyStr(privateKeyPem), dsaEncoding: 'ieee-p1363' }),
   );
   return [protectedContent, new Map(), null, signature]; // payload = null (detached)
 }
@@ -61,7 +66,7 @@ export function coseSign1Detached({ detachedPayload, privateKeyPem }) {
 export function coseVerifyDetached(coseArr, detachedPayload, publicKey) {
   const [protectedContent, , , signature] = coseArr;
   const toVerify = sigStructure(protectedContent, detachedPayload);
-  return nodeVerify('sha256', Buffer.from(toVerify), { key: publicKey, dsaEncoding: 'ieee-p1363' }, Buffer.from(signature));
+  return nodeVerify('sha256', Buffer.from(toVerify), { key: toPubPem(publicKey), dsaEncoding: 'ieee-p1363' }, Buffer.from(signature));
 }
 
 export { ALG_ES256, HDR_X5CHAIN };
