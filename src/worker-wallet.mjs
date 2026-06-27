@@ -26,7 +26,9 @@ export default {
       const pki = parseTrustAnchors(env.TRUST_ANCHORS_JSON ?? null);
       if (pki) setPki(pki); // trust anchors for verifyCredential() display only
       app = createWalletApp({
-        walletOrigin: env.WALLET_ORIGIN || 'https://web-wallet.example.test',
+        walletOrigin:  env.WALLET_ORIGIN   || 'https://web-wallet.example.test',
+        issuerUrl:     env.ISSUER_URL      || 'https://issuer.example.test',
+        verifierUrl:   env.VERIFIER_ORIGIN || 'https://verifier.example.test',
       });
     }
     return app.fetch(request, env, ctx);
