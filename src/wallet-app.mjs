@@ -22,22 +22,40 @@ const fmt = (v) => {
   return v;
 };
 
-export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer.example.test', verifierUrl = 'https://verifier.example.test', boundFetch = null } = {}) {
+export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer.example.test', verifierUrl = 'https://verifier.example.test', boundFetch = null, store = null } = {}) {
   const app = new Hono();
-  const sessions = new Map(); // wsid -> { wallet, creds: [{id,configId,format,claims}], pending }
+  // Per-isolate cache. On Workers, requests for one user may land on different
+  // isolates, so the durable copy lives in `store` (KV); `mem` is just a fast path.
+  const mem = new Map(); // wsid -> { wallet, creds, pending, present, _sid }
 
   // Use Service Binding-aware fetch when available (Workers production/dev),
   // fall back to global fetch() in local Node.js server and unit tests.
   const doFetch = boundFetch ?? fetch;
 
-  const sess = (c) => {
+  // Load the session: in-memory cache → KV snapshot → fresh. Sets cookie on new.
+  const loadSession = async (c) => {
     let sid = getCookie(c, 'wsid');
-    if (!sid || !sessions.has(sid)) {
-      sid = rand();
-      sessions.set(sid, { wallet: createWallet(), creds: [] });
-      setCookie(c, 'wsid', sid, { httpOnly: true, sameSite: 'Lax', path: '/' });
+    if (sid && mem.has(sid)) return mem.get(sid);
+    if (sid && store) {
+      const snap = await store.get(`wsess:${sid}`);
+      if (snap) {
+        const s = { wallet: createWallet(snap.wallet), creds: snap.creds || [], pending: snap.pending || null, present: snap.present || null, _sid: sid };
+        mem.set(sid, s);
+        return s;
+      }
     }
-    return sessions.get(sid);
+    sid = rand();
+    const s = { wallet: createWallet(), creds: [], pending: null, present: null, _sid: sid };
+    mem.set(sid, s);
+    setCookie(c, 'wsid', sid, { httpOnly: true, sameSite: 'Lax', path: '/' });
+    return s;
+  };
+  // Persist the session to KV (no-op without a store, e.g. local Node single-isolate).
+  const saveSession = async (s) => {
+    if (!store || !s?._sid) return;
+    await store.set(`wsess:${s._sid}`, {
+      wallet: s.wallet.serialize(), creds: s.creds, pending: s.pending ?? null, present: s.present ?? null,
+    }, 3600);
   };
   const httpTo = (base) => (path, opts) => doFetch(base + path, opts); // OID4VCI client -> Issuer
 
@@ -47,8 +65,8 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     s.creds.push({ ...rec, claims: Object.fromEntries(Object.entries(claims).map(([k, v]) => [k, fmt(v)])) });
   };
 
-  app.get('/', (c) => c.html(home(sess(c), issuerUrl, verifierUrl)));
-  app.get('/creds', (c) => c.json(sess(c).creds.map(({ id, configId, format }) => ({ id, configId, format }))));
+  app.get('/', async (c) => { const s = await loadSession(c); await saveSession(s); return c.html(home(s, issuerUrl, verifierUrl)); });
+  app.get('/creds', async (c) => { const s = await loadSession(c); return c.json(s.creds.map(({ id, configId, format }) => ({ id, configId, format }))); });
 
   // Wallet-initiated auth-code: user picks credential type, wallet starts PKCE flow
   app.get('/request', async (c) => {
@@ -65,10 +83,11 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
       }
     }
     // Start PKCE auth-code (wallet-initiated: scope= instead of issuer_state=)
-    const s = sess(c);
+    const s = await loadSession(c);
     const { verifier, challenge, state } = pkce();
     const redirectUri = walletOrigin + '/oidc/cb';
     s.pending = { verifier, configId, issuerBase: iss, redirectUri };
+    await saveSession(s);
     const url = iss + '/authorize?' + new URLSearchParams({
       response_type: 'code', client_id: 'ihv-web-wallet', redirect_uri: redirectUri,
       code_challenge: challenge, code_challenge_method: 'S256',
@@ -83,7 +102,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
 
   // receive a Credential Offer (by value or by reference) and run OID4VCI
   app.get('/add', async (c) => {
-    const s = sess(c);
+    const s = await loadSession(c);
     try {
       let offer;
       const byVal = c.req.query('credential_offer');
@@ -102,16 +121,19 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
       if (hasPreAuth && hasAuthCode) {
         // Both grants present — let the user choose which flow to use
         s.pending = { offer, configId, issuerBase };
+        await saveSession(s);
         return c.html(grantChoiceScreen(configId, issuerBase));
       }
       if (hasPreAuth) {
         const rec = await s.wallet.receive({ request: httpTo(issuerBase), offer, credentialIssuer: issuerBase });
         await record(s, rec);
+        await saveSession(s);
         return c.html(added(s, configId, 'pre-authorized_code'));
       }
       if (hasAuthCode) {
         const { verifier, challenge, state } = pkce();
         s.pending = { verifier, configId, issuerBase, redirectUri: walletOrigin + '/oidc/cb' };
+        await saveSession(s);
         const url = `${issuerBase}/authorize?` + new URLSearchParams({
           response_type: 'code', client_id: 'ihv-web-wallet', redirect_uri: s.pending.redirectUri,
           code_challenge: challenge, code_challenge_method: 'S256',
@@ -127,7 +149,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
 
   // Grant choice: user selects pre-auth or auth-code when both are available
   app.post('/add/choose', async (c) => {
-    const s = sess(c);
+    const s = await loadSession(c);
     const f = await c.req.parseBody();
     const chosen = f.grant;
     const { offer, configId, issuerBase } = s.pending || {};
@@ -137,11 +159,14 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
       if (chosen === 'pre-authorized_code') {
         const rec = await s.wallet.receive({ request: httpTo(issuerBase), offer, credentialIssuer: issuerBase });
         await record(s, rec);
+        s.pending = null;
+        await saveSession(s);
         return c.html(added(s, configId, 'pre-authorized_code'));
       }
       if (chosen === 'authorization_code') {
         const { verifier, challenge, state } = pkce();
         s.pending = { verifier, configId, issuerBase, redirectUri: walletOrigin + '/oidc/cb' };
+        await saveSession(s);
         const url = `${issuerBase}/authorize?` + new URLSearchParams({
           response_type: 'code', client_id: 'ihv-web-wallet', redirect_uri: s.pending.redirectUri,
           code_challenge: challenge, code_challenge_method: 'S256',
@@ -158,7 +183,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
 
   // OID4VCI redirect callback: exchange the authorization code, then issue
   app.get('/oidc/cb', async (c) => {
-    const s = sess(c);
+    const s = await loadSession(c);
     try {
       const p = s.pending;
       if (!p) throw new Error('no pending issuance');
@@ -168,6 +193,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
       });
       s.pending = null;
       await record(s, rec);
+      await saveSession(s);
       return c.html(added(s, p.configId, 'authorization_code'));
     } catch (e) {
       return c.html(shell('ウォレット', `<div class="card"><h1>発行に失敗</h1><div class="hint" style="color:#9E3A3A">${esc(e.message)}</div></div>`, WALLET));
@@ -176,10 +202,11 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
 
   // OID4VP presentation (redirect / direct_post.jwt): fetch request -> consent
   app.get('/present', async (c) => {
-    const s = sess(c);
+    const s = await loadSession(c);
     try {
       const request = await (await doFetch(c.req.query('request_uri'))).json();
       s.present = { request };
+      await saveSession(s);
       const claims = (request.dcql_query?.credentials || []).flatMap((q) => (q.claims || []).map((cl) => cl.path[cl.path.length - 1]));
       const have = s.creds.some((cr) => request.dcql_query.credentials.some((q) =>
         (q.meta?.doctype_value && cr.configId.endsWith('_mdoc')) || (q.meta?.vct_values && cr.configId.endsWith('_sdjwt'))));
@@ -190,7 +217,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
   });
   // user consents -> build vp_token, POST (direct_post.jwt) to response_uri, follow redirect
   app.post('/present/confirm', async (c) => {
-    const s = sess(c);
+    const s = await loadSession(c);
     try {
       const request = s.present?.request;
       if (!request) throw new Error('no pending presentation');
@@ -200,6 +227,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
         body: new URLSearchParams({ response: jwe }).toString(),
       })).json();
       s.present = null;
+      await saveSession(s); // presentation does NOT consume the credential — it stays in the wallet
       return c.redirect(r.redirect_uri, 302); // back to the Verifier's result page
     } catch (e) {
       return c.html(shell('ウォレット', `<div class="card"><h1>提示に失敗</h1><div class="hint" style="color:#9E3A3A">${esc(e.message)}</div></div>`, WALLET));
@@ -353,19 +381,21 @@ function grantChoiceScreen(configId, issuerBase) {
 }
 
 function offerForm(issuerBase) {
-  return shell('Pre-Auth オファー受け取り', `
+  return shell('オファー URI を受け取る', `
     <div class="card">
-      <div class="step">OID4VCI — pre-authorized_code</div>
+      <div class="step">OID4VCI — Issuer 起点（Pre-Auth / issuer_state）</div>
       <h1>発行者オファーを受け取る</h1>
-      <div class="hint">発行者から受け取ったクレデンシャルオファー URI を貼り付けてください。<br>
-        発行者の「オファーを作成」ページから取得できます →
-        <a href="${esc(issuerBase)}/" target="_blank" rel="noopener">${esc(issuerBase)}</a>
+      <div class="hint">① 発行者の「オファーを作成」ページを<b>別タブ</b>で開き、種別を選んでオファー URI（または QR）を生成します。
+        このウォレット画面はそのまま残ります。</div>
+      <div style="margin-top:12px">
+        <a class="btn" href="${esc(issuerBase)}/" target="_blank" rel="noopener">発行者でオファーを作成（別タブで開く ↗）</a>
       </div>
-      <form method="GET" action="/add" style="margin-top:14px">
+      <div class="hint" style="margin-top:18px">② 生成された <b>credential_offer_uri</b> をここに貼り付けて取得します。</div>
+      <form method="GET" action="/add" style="margin-top:8px">
         <textarea name="credential_offer_uri" placeholder="openid-credential-offer://... または https://..."
           style="font:inherit;width:100%;box-sizing:border-box;min-height:80px;padding:.5rem;border-radius:.4rem;border:1px solid #aaa"></textarea>
         <div style="margin-top:10px">
-          <button class="btn" type="submit">取得する</button>
+          <button class="btn" type="submit">このウォレットで取得する</button>
         </div>
       </form>
       <div style="margin-top:12px"><a href="/">← ウォレットに戻る</a></div>

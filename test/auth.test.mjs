@@ -168,3 +168,30 @@ test('issuer-initiated e2e: offer(issuer_state) -> authorize -> token -> credent
   const v = await verifyCredential('pid_mdoc', wallet.get(rec.id).credential);
   assert.equal(v.claims.family_name, '佐藤'); // session-bound data, reached via issuer_state
 });
+
+test('wallet serialize/restore round-trips holder key + stored mdoc (Workers KV persistence)', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+  const login = await (await app.request('/login', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ user_id: 'u_yamada' }),
+  })).json();
+  const wallet = createWallet();
+  const rec = await wallet.authorizeAndReceive({
+    request: app.request.bind(app), configId: 'pid_mdoc', sessionId: login.session_id, credentialIssuer: ISSUER,
+  });
+
+  // snapshot -> JSON round-trip (what KV does) -> rebuild
+  const snap = JSON.parse(JSON.stringify(wallet.serialize()));
+  const restored = createWallet(snap);
+
+  // credential survived and is still verifiable from the restored wallet
+  assert.deepEqual(restored.list(), wallet.list());
+  const got = restored.get(rec.id);
+  assert.ok(got.credential instanceof Uint8Array); // mdoc bytes revived
+  const v = await verifyCredential('pid_mdoc', got.credential);
+  assert.equal(v.claims.family_name, '山田');
+
+  // holder key preserved across the round-trip (so presentations still bind correctly)
+  assert.equal(got.holderKeyPem, wallet.get(rec.id).holderKeyPem);
+  assert.ok(got.holderKeyPem.includes('BEGIN PRIVATE KEY'));
+});

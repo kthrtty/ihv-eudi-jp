@@ -18,14 +18,34 @@ const annexDRedirectTranscript = (request) => oid4vpRedirectSessionTranscript({
 const b64url = (b) => Buffer.from(b).toString('base64url');
 const s256 = (s) => b64url(createHash('sha256').update(Buffer.from(s, 'ascii')).digest());
 
-export function createWallet() {
+// Decode a serialized credential entry back into runtime shape (mdoc bytes).
+const reviveCred = (e) => ({
+  ...e, credential: e.format === 'mso_mdoc' ? new Uint8Array(Buffer.from(e.credential, 'base64url')) : e.credential,
+});
+// Serialize a runtime credential entry (mdoc bytes -> base64url) for KV storage.
+const dumpCred = (e) => ({
+  id: e.id, configId: e.configId, format: e.format, holderKeyPem: e.holderKeyPem, holderJwk: e.holderJwk,
+  credential: e.format === 'mso_mdoc' ? Buffer.from(e.credential).toString('base64url') : e.credential,
+});
+
+/** Create a wallet. Pass a prior `serialize()` snapshot to restore holder key +
+ *  stored credentials (needed so Workers survive across isolates via KV). */
+export function createWallet(snapshot = null) {
   const store = new Map();
   let seq = 0;
-  // one device-bound holder key per wallet (mock-TEE). Multiple credentials bind
-  // to it, which is what makes session-linked PID->EAA presentations verifiable.
-  const { publicKey, privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
-  const holderJwk = publicKey.export({ format: 'jwk' });
-  const holderKeyPem = privateKey.export({ type: 'pkcs8', format: 'pem' });
+  let holderJwk, holderKeyPem;
+  if (snapshot) {
+    holderJwk = snapshot.holderJwk;
+    holderKeyPem = snapshot.holderKeyPem;
+    seq = snapshot.seq || 0;
+    for (const e of snapshot.store || []) { const r = reviveCred(e); store.set(r.id, r); }
+  } else {
+    // one device-bound holder key per wallet (mock-TEE). Multiple credentials bind
+    // to it, which is what makes session-linked PID->EAA presentations verifiable.
+    const { publicKey, privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    holderJwk = publicKey.export({ format: 'jwk' });
+    holderKeyPem = privateKey.export({ type: 'pkcs8', format: 'pem' });
+  }
 
   // shared tail: nonce -> key-proof -> credential -> store
   async function finish(request, accessToken, configId, credentialIssuer) {
@@ -88,6 +108,9 @@ export function createWallet() {
 
     list() { return [...store.values()].map(({ id, configId, format }) => ({ id, configId, format })); },
     get(id) { return store.get(id); },
+
+    /** Snapshot the wallet (holder key + stored creds) for KV persistence. */
+    serialize() { return { holderKeyPem, holderJwk, seq, store: [...store.values()].map(dumpCred) }; },
 
     /**
      * Present a stored credential.
