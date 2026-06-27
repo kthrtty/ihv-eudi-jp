@@ -80,36 +80,6 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
   // Issuer-initiated pre-auth: paste/scan credential offer URI
   app.get('/offer-form', (c) => c.html(offerForm(issuerUrl)));
 
-  // Issuer-initiated authorization_code: wallet calls issuer /offer to get issuer_state, then starts PKCE
-  app.get('/add-offer', async (c) => {
-    const configId = c.req.query('cfg');
-    const iss = c.req.query('issuer') || issuerUrl;
-    if (!configId) {
-      try {
-        const meta = await (await doFetch(iss + '/.well-known/openid-credential-issuer')).json();
-        const configs = Object.keys(meta.credential_configurations_supported || {});
-        return c.html(offerPicker(configs, iss));
-      } catch (e) {
-        return c.html(shell('ウォレット', `<div class="card"><h1>発行者へ接続できません</h1><div class="hint" style="color:#9E3A3A">${esc(e.message)}</div></div>`, WALLET));
-      }
-    }
-    // Create issuer-initiated offer, then start auth-code PKCE flow
-    const s = sess(c);
-    const offerRes = await doFetch(iss + '/offer', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ credential_configuration_ids: configId, grant: 'authorization_code' }),
-    });
-    const { credential_offer } = await offerRes.json();
-    const issuerState = credential_offer?.grants?.authorization_code?.issuer_state;
-    const { verifier, challenge, state } = pkce();
-    s.pending = { verifier, configId, issuerBase: iss, redirectUri: walletOrigin + '/oidc/cb' };
-    const url = iss + '/authorize?' + new URLSearchParams({
-      response_type: 'code', client_id: 'ihv-web-wallet', redirect_uri: s.pending.redirectUri,
-      code_challenge: challenge, code_challenge_method: 'S256',
-      issuer_state: issuerState, state,
-    }).toString();
-    return c.redirect(url, 302);
-  });
 
   // receive a Credential Offer (by value or by reference) and run OID4VCI
   app.get('/add', async (c) => {
@@ -242,20 +212,16 @@ function home(s, issuerUrl, verifierUrl) {
     </div>
 
     <div class="card" style="margin-top:12px">
-      <div class="step">発行受領</div>
+      <div class="step">発行受領 — OID4VCI</div>
       <h1 style="font-size:16px;margin-bottom:10px">クレデンシャルを取得する</h1>
       <div class="hubgrid">
         <a class="hublink" href="/request">
           <div class="hub-icon">🔑</div>
-          <div><b>認可コード（ウォレット起点）</b><br><span class="hub-sub">クレデンシャル種別を選んでログイン → 発行</span></div>
-        </a>
-        <a class="hublink" href="/add-offer">
-          <div class="hub-icon">📋</div>
-          <div><b>認可コード（発行者起点）</b><br><span class="hub-sub">発行者がオファーを生成 → ログイン → 発行</span></div>
+          <div><b>認可コード（ウォレット起点）</b><br><span class="hub-sub">ウォレットが種別を選んで発行者に <code>scope</code> で要求</span></div>
         </a>
         <a class="hublink" href="/offer-form">
-          <div class="hub-icon">🔗</div>
-          <div><b>Pre-Auth オファー貼り付け</b><br><span class="hub-sub">オファー URI を入力して即時取得</span></div>
+          <div class="hub-icon">📲</div>
+          <div><b>オファー URI を受け取る（Pre-Auth / Issuer 起点）</b><br><span class="hub-sub">発行者が生成した QR・リンクのオファー URI を貼り付け。Pre-Auth にも認可コード（<code>issuer_state</code>）にも対応</span></div>
         </a>
       </div>
     </div>
@@ -277,8 +243,8 @@ function home(s, issuerUrl, verifierUrl) {
         <a class="hublink small" href="${esc(issuerUrl2)}/">発行者トップ</a>
         <a class="hublink small" href="${esc(issuerUrl2)}/login">発行者ログイン</a>
         <a class="hublink small" href="${esc(issuerUrl2)}/demo/verify">発行＋検証コンソール</a>
-        <a class="hublink small" href="${esc(issuerUrl2)}/demo/authcode">Auth-Code デモ（Issuer 側）</a>
-        <a class="hublink small" href="${esc(issuerUrl2)}/demo/offer-authcode">Offer-AuthCode デモ（Issuer 側）</a>
+        <a class="hublink small" href="${esc(issuerUrl2)}/demo/authcode">Auth-Code デモ（Issuer 側・wallet 起点）</a>
+        <a class="hublink small" href="${esc(issuerUrl2)}/demo/offer-authcode">Issuer 起点オファー生成＋QR（認可コード）</a>
         <a class="hublink small" href="${esc(verifierUrl)}/">Verifier トップ</a>
         <a class="hublink small" href="${esc(verifierUrl)}/demo/webverify">Verifier OID4VP リダイレクト</a>
         <a class="hublink small" href="${esc(issuerUrl2)}/issuances">発行台帳</a>
@@ -329,23 +295,6 @@ function requestPicker(configs, issuerBase) {
     </div>${STYLE}`, WALLET);
 }
 
-function offerPicker(configs, issuerBase) {
-  const opts = configs.map((id) => `<option value="${esc(id)}">${esc(id)}</option>`).join('');
-  return shell('発行者起点 取得', `
-    <div class="card">
-      <div class="step">発行者: ${esc(issuerBase)}</div>
-      <h1>発行者起点 認可コードフロー</h1>
-      <div class="hint">クレデンシャル種別を選ぶと発行者がオファーを生成し、認証フローが始まります。</div>
-      <form method="GET" action="/add-offer" style="margin-top:14px">
-        <input type="hidden" name="issuer" value="${esc(issuerBase)}" />
-        <select name="cfg" style="font:inherit;padding:.5rem;border-radius:.4rem;border:1px solid #aaa;width:100%;max-width:320px">${opts}</select>
-        <div style="margin-top:10px">
-          <button class="btn" type="submit">取得する（Issuer 起点 + PKCE）</button>
-        </div>
-      </form>
-      <div style="margin-top:12px"><a href="/">← ウォレットに戻る</a></div>
-    </div>${STYLE}`, WALLET);
-}
 
 function offerForm(issuerBase) {
   return shell('Pre-Auth オファー受け取り', `
