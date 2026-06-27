@@ -8,7 +8,7 @@ import { IssuerService } from './oid4vci.mjs';
 import { VerifierService } from './verifier.mjs';
 import { buildDelivery, offerByValueUri, offerByReferenceUri, offerQrSvg } from './offer.mjs';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
-import { renderConsent, renderAuthStart, renderCallback, renderOfferAuthcode, completeIssuance, pkce, authorizeUrl } from './authcode-demo.mjs';
+import { shell, renderConsent, renderAuthStart, renderCallback, renderOfferAuthcode, completeIssuance, pkce, authorizeUrl } from './authcode-demo.mjs';
 import { renderVerifyConsole, renderWebVerify, renderWebVerifyResult } from './verifier-demo.mjs';
 import { createWallet } from './wallet.mjs';
 import { allConfigIds, configInfo } from './issuer.mjs';
@@ -74,6 +74,33 @@ export function createApp(opts = {}) {
 
   // ---- passwordless session ----
   const sid = (c) => c.req.header('x-session-id') || getCookie(c, 'sid');
+  // GET /login — simple user picker for browser access (sets session, redirects to /)
+  app.get('/login', (c) => {
+    const users = svc.listUsers();
+    const next = c.req.query('next') || '/';
+    const seals = users.map((u) => `
+      <form method="POST" action="/login/select" style="margin:0">
+        <input type="hidden" name="user_id" value="${u.id}">
+        <input type="hidden" name="next" value="${next}">
+        <button class="userbtn" type="submit">
+          <span class="seal">${u.surname[0] ?? u.name[0]}</span>
+          <span class="nm">${u.name}</span>
+        </button>
+      </form>`).join('');
+    return c.html(shell('サインイン', `
+      <div class="card">
+        <div class="eyebrow">発行者ポータル</div>
+        <h1>アカウントを選択</h1>
+        <div class="hint">パスワード不要のデモログインです。発行されるクレデンシャルはここで選んだ利用者のものになります。</div>
+        <div class="users" style="margin-top:14px;display:flex;gap:12px;flex-wrap:wrap">${seals}</div>
+      </div>`));
+  });
+  app.post('/login/select', async (c) => {
+    const f = await c.req.parseBody();
+    const { sessionId } = await svc.login(f.user_id);
+    setCookie(c, 'sid', sessionId, { httpOnly: true, sameSite: 'Lax', path: '/' });
+    return c.redirect(f.next || '/', 302);
+  });
   app.post('/login', async (c) => {
     try {
       const { user_id } = await c.req.json();
