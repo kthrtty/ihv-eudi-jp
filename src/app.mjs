@@ -8,7 +8,7 @@ import { IssuerService } from './oid4vci.mjs';
 import { VerifierService } from './verifier.mjs';
 import { buildDelivery, offerByValueUri, offerByReferenceUri, offerQrSvg } from './offer.mjs';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
-import { shell, renderConsent, renderAuthStart, renderCallback, renderOfferAuthcode, completeIssuance, pkce, authorizeUrl, renderLogin, appShell, renderConsentScreen, renderVcSelect, renderOfferCreated } from './authcode-demo.mjs';
+import { shell, renderConsent, renderAuthStart, renderCallback, renderOfferAuthcode, completeIssuance, pkce, authorizeUrl, renderLogin, appShell, renderConsentScreen, renderVcSelect, groupCatalog, renderHistory, renderAccount } from './authcode-demo.mjs';
 import { renderVerifyConsole, renderWebVerify, renderWebVerifyResult } from './verifier-demo.mjs';
 import { createWallet } from './wallet.mjs';
 import { allConfigIds, configInfo } from './issuer.mjs';
@@ -34,13 +34,36 @@ export function createApp(opts = {}) {
   app.get('/', async (c) => {
     const user = await svc.sessionUser(sid(c));
     if (!user) return c.redirect('/login?next=/', 302);
-    return c.html(renderVcSelect(user));
+    return c.html(renderVcSelect(user, groupCatalog(allConfigIds().map(configInfo))));
   });
 
   // Static issuer demo page (legacy / direct URL fallback)
   app.get('/issuer', async (c) => {
     const html = issuerHtml ?? await loadHtml('web/issuer.html');
     return html ? c.html(html) : c.text('not found', 404);
+  });
+
+  // Account menu → issuance history (image 04)
+  app.get('/history', async (c) => {
+    const user = await svc.sessionUser(sid(c));
+    if (!user) return c.redirect('/login?next=/history', 302);
+    return c.html(renderHistory(user, await svc.issuances()));
+  });
+
+  // Account menu → account settings (edit persona data)
+  app.get('/account', async (c) => {
+    const user = await svc.sessionUser(sid(c));
+    if (!user) return c.redirect('/login?next=/account', 302);
+    return c.html(renderAccount(user));
+  });
+  app.post('/account', async (c) => {
+    const user = await svc.sessionUser(sid(c));
+    if (!user) return c.redirect('/login?next=/account', 302);
+    const f = await c.req.parseBody();
+    svc.updateUser(user.id, {
+      family: f.family, given: f.given, birth: f.birth, address: f.address, honseki: f.honseki,
+    });
+    return c.redirect('/account', 302);
   });
 
   // demo helper to mint an offer (issuer-initiated), with all delivery forms
@@ -153,19 +176,6 @@ export function createApp(opts = {}) {
     } catch (e) { return fail(c, e); }
   });
 
-  // ---- Issuer portal: offer creation from top page ----
-  app.post('/issue', async (c) => {
-    try {
-      const user = await svc.sessionUser(sid(c));
-      if (!user) return c.redirect('/login?next=/', 302);
-      const f = await c.req.parseBody();
-      const configId = `${f.type}_${f.format}`;
-      const grant = f.grant || 'pre-authorized_code';
-      const result = await svc.createOffer(configId, { grant });
-      return c.html(await renderOfferCreated(user, configId, result));
-    } catch (e) { return fail(c, e); }
-  });
-
   // ---- browser demo of the whole auth-code journey ----
   app.get('/demo/authcode', async (c) => {
     const configId = c.req.query('cfg') || 'pid_mdoc';
@@ -208,49 +218,7 @@ export function createApp(opts = {}) {
     } catch (e) { return c.json({ error: e.description || e.message }, 400); }
   });
 
-  // ---- browser demo of the Verifier (OID4VP): interactive console ----
-  const demoVerify = new Map(); // vdemo -> { wallet, request, transactionId }
-  const demoVerifier = new VerifierService({
-    statusResolver: async () => svc.statusListToken(),
-    encPrivatePem: verifierPki?.encKey ?? null,
-    trustedIacaDer: verifierPki?.iacaCert ?? null,
-    trustedIssuerCaDer: verifierPki?.sdjwtCaCert ?? null,
-  });
-  const fmtClaim = (val) => {
-    if (val == null) return '';
-    if (val instanceof Date) return val.toISOString().slice(0, 10);
-    if (val instanceof Uint8Array || Buffer.isBuffer(val)) return `(${val.length} bytes)`;
-    if (typeof val === 'object') return 'value' in val ? String(val.value) : JSON.stringify(val);
-    return val;
-  };
-  app.get('/demo/verify', (c) => c.html(renderVerifyConsole()));
-  app.get('/demo/verify/catalog', (c) => c.json(allConfigIds().map(configInfo)));
-  app.post('/demo/verify/prepare', async (c) => {
-    try {
-      const { configId, claims, protocol } = await c.req.json();
-      if (!claims || !claims.length) return c.json({ error: '少なくとも1項目を選択してください' }, 400);
-      const wallet = createWallet();
-      const { credential_offer } = await svc.createOffer(configId);
-      await wallet.receive({ request: app.request.bind(app), offer: credential_offer, credentialIssuer: svc.credentialIssuer });
-      const { transactionId, request } = await demoVerifier.createRequest({ specs: [{ id: 'q1', configId, claims }], protocol });
-      const demoId = Math.random().toString(36).slice(2);
-      demoVerify.set(demoId, { wallet, request, transactionId });
-      setCookie(c, 'vdemo', demoId, { httpOnly: true, sameSite: 'Lax', path: '/' });
-      return c.json({ request });
-    } catch (e) { return c.json({ error: e.message }, 400); }
-  });
-  app.post('/demo/verify/present', async (c) => {
-    try {
-      const d = demoVerify.get(getCookie(c, 'vdemo'));
-      if (!d) return c.json({ error: '要求が未生成か期限切れです' }, 400);
-      const encryptedResponse = await d.wallet.respond(d.request);
-      const result = await demoVerifier.verifyResponse({ transactionId: d.transactionId, encryptedResponse });
-      const first = (result.results || [])[0] || {};
-      const claims = Object.fromEntries(Object.entries(first.claims || {}).map(([k, v]) => [k, fmtClaim(v)]));
-      const holder = first.holder && typeof first.holder === 'object' ? `${first.holder.x || ''}`.slice(0, 32) : first.holder;
-      return c.json({ valid: result.valid, claims, holder, errors: result.errors });
-    } catch (e) { return c.json({ error: e.message }, 400); }
-  });
+  // (The interactive Verifier console moved to the Verifier app at /verifier.)
 
   // ---- user-data maintenance ----
   app.get('/users', (c) => c.json({ users: svc.listUsers() }));
@@ -301,12 +269,19 @@ export function createApp(opts = {}) {
  * Separate from the issuer app (different role/origin), both Workers-ready.
  */
 export function createVerifierApp(opts = {}) {
-  const { verifierOrigin = '', walletOrigin = '', verifierPki = null, verifierHtml = null, ...rest } = opts;
+  const { verifierOrigin = '', walletOrigin = '', verifierPki = null, verifierHtml = null,
+    issuerUrl = 'https://issuer.example.test', boundFetch = null, ...rest } = opts;
+  // Cross-origin fetch to the issuer (Service Binding-aware on Workers); used by
+  // the merged self-contained verify console to mint a test credential to verify.
+  const doFetch = boundFetch ?? fetch;
+  const issuerFetch = (path, init) => doFetch(issuerUrl + path, init);
   const v = new VerifierService({
     ...rest,
     encPrivatePem: rest.encPrivatePem ?? verifierPki?.encKey ?? null,
     trustedIacaDer: rest.trustedIacaDer ?? verifierPki?.iacaCert ?? null,
     trustedIssuerCaDer: rest.trustedIssuerCaDer ?? verifierPki?.sdjwtCaCert ?? null,
+    // resolve revocation against the issuer's Token Status List
+    statusResolver: rest.statusResolver ?? (async () => (await issuerFetch('/status-lists/0')).text()),
   });
   const app = new Hono();
   const fail = (c, e) => c.json({ error: e.message }, e.status || 500);
@@ -322,6 +297,52 @@ export function createVerifierApp(opts = {}) {
   app.get('/', async (c) => {
     const html = verifierHtml ?? await loadHtml('web/verifier.html');
     return html ? c.html(html) : c.redirect('/verifier.html');
+  });
+
+  // ---- Verify console (merged from the issuer's /demo/verify) ----
+  // Self-contained loop: mint a test credential from the issuer into an ephemeral
+  // wallet, build an OID4VP request, present it, and verify. The wallet snapshot
+  // lives in the store so prepare/present survive across Cloudflare isolates.
+  const fmtClaim = (val) => {
+    if (val == null) return '';
+    if (val instanceof Date) return val.toISOString().slice(0, 10);
+    if (val instanceof Uint8Array || Buffer.isBuffer(val)) return `(${val.length} bytes)`;
+    if (typeof val === 'object') return 'value' in val ? String(val.value) : JSON.stringify(val);
+    return val;
+  };
+  app.get('/verifier', (c) => c.html(renderVerifyConsole()));
+  app.get('/demo/verify/catalog', (c) => c.json(allConfigIds().map(configInfo)));
+  app.post('/demo/verify/prepare', async (c) => {
+    try {
+      const { configId, claims, protocol } = await c.req.json();
+      if (!claims || !claims.length) return c.json({ error: '少なくとも1項目を選択してください' }, 400);
+      // mint a fresh credential from the issuer into an ephemeral wallet
+      const wallet = createWallet();
+      const offerRes = await issuerFetch('/offer', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ credential_configuration_ids: [configId] }),
+      });
+      const { credential_offer } = await offerRes.json();
+      await wallet.receive({ request: issuerFetch, offer: credential_offer, credentialIssuer: issuerUrl });
+      const { transactionId, request } = await v.createRequest({ specs: [{ id: 'q1', configId, claims }], protocol });
+      const demoId = Math.random().toString(36).slice(2);
+      await v.store.set(`vdemo:${demoId}`, { wallet: wallet.serialize(), request, transactionId }, 600);
+      setCookie(c, 'vdemo', demoId, { httpOnly: true, sameSite: 'Lax', path: '/' });
+      return c.json({ request });
+    } catch (e) { return c.json({ error: e.message }, 400); }
+  });
+  app.post('/demo/verify/present', async (c) => {
+    try {
+      const d = await v.store.get(`vdemo:${getCookie(c, 'vdemo')}`);
+      if (!d) return c.json({ error: '要求が未生成か期限切れです' }, 400);
+      const wallet = createWallet(d.wallet);
+      const encryptedResponse = await wallet.respond(d.request);
+      const result = await v.verifyResponse({ transactionId: d.transactionId, encryptedResponse });
+      const first = (result.results || [])[0] || {};
+      const claims = Object.fromEntries(Object.entries(first.claims || {}).map(([k, val]) => [k, fmtClaim(val)]));
+      const holder = first.holder && typeof first.holder === 'object' ? `${first.holder.x || ''}`.slice(0, 32) : first.holder;
+      return c.json({ valid: result.valid, claims, holder, errors: result.errors });
+    } catch (e) { return c.json({ error: e.message }, 400); }
   });
 
   // POST /vp/request {specs, sessionId?, linkTo?} -> { transactionId, request }
