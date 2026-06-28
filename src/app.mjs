@@ -70,10 +70,10 @@ export function createApp(opts = {}) {
   app.post('/offer', async (c) => {
     try {
       const { credential_configuration_ids, tx_code, qr, grant } = await c.req.json();
-      const { credential_offer, preAuthorizedCode, issuerState, offerId, offerUri } =
+      const { credential_offer, preAuthorizedCode, issuerState, offerId, offerUri, txCode } =
         await svc.createOffer(credential_configuration_ids, { txCode: tx_code, grant });
       const delivery = await buildDelivery({ offer: credential_offer, offerUri, withQr: qr === true });
-      return c.json({ credential_offer, pre_authorized_code: preAuthorizedCode, issuer_state: issuerState, offer_id: offerId, delivery });
+      return c.json({ credential_offer, pre_authorized_code: preAuthorizedCode, issuer_state: issuerState, offer_id: offerId, delivery, tx_code: txCode });
     } catch (e) { return fail(c, e); }
   });
 

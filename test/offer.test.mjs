@@ -102,6 +102,27 @@ test('tx_code: offer advertises a numeric transaction code input', async () => {
   assert.equal(grant.tx_code.length, 4);
 });
 
+test('tx_code dynamic: tx_code:true makes the issuer generate a fresh PIN returned in the response', async () => {
+  const a = await (await app.request('/offer', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'], tx_code: true }),
+  })).json();
+  // the generated PIN is surfaced to the issuer UI and advertised by length only
+  assert.match(a.tx_code, /^\d{4}$/);
+  assert.equal(a.credential_offer.grants['urn:ietf:params:oauth:grant-type:pre-authorized_code'].tx_code.length, 4);
+  // the offer itself never carries the PIN value (out-of-band)
+  assert.equal(JSON.stringify(a.credential_offer).includes(a.tx_code), false);
+
+  // the returned PIN actually unlocks issuance; a wrong one does not
+  await assert.rejects(createWallet().receive({ request: app.request.bind(app), offer: a.credential_offer, credentialIssuer: ISSUER, txCode: String((Number(a.tx_code) + 1) % 10000).padStart(4, '0') }));
+  const b = await (await app.request('/offer', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'], tx_code: true }),
+  })).json();
+  const recs = await createWallet().receive({ request: app.request.bind(app), offer: b.credential_offer, credentialIssuer: ISSUER, txCode: b.tx_code });
+  assert.equal(recs[0].configId, 'pid_mdoc');
+});
+
 test('receive: multi-credential offer issues EVERY credential (array of recs)', async () => {
   const made = await (await app.request('/offer', {
     method: 'POST', headers: { 'content-type': 'application/json' },
