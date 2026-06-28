@@ -47,9 +47,16 @@ export function memoryStore() {
  * this demo; use Durable Objects or D1 for strict single-use in production.
  */
 export function kvStore(kv) {
+  // Binary-safe JSON: plain JSON.stringify turns a Uint8Array into {"0":..,"1":..}
+  // which then deserialises to a useless Object. Verifier sessions carry raw
+  // Uint8Array fields (e.g. the OID4VP SessionTranscript) — round-tripping those
+  // as objects breaks mdoc verification (Buffer.from(object) throws). Encode any
+  // Uint8Array as {__u8: base64} on the way out and restore it on the way in.
+  const replacer = (_k, v) => (v instanceof Uint8Array ? { __u8: Buffer.from(v).toString('base64') } : v);
+  const reviver = (_k, v) => (v && typeof v === 'object' && typeof v.__u8 === 'string' ? new Uint8Array(Buffer.from(v.__u8, 'base64')) : v);
   return {
-    async set(k, v, ttlSec = 600) { await kv.put(k, JSON.stringify(v), { expirationTtl: Math.max(60, ttlSec | 0) }); },
-    async get(k) { const s = await kv.get(k); return s ? JSON.parse(s) : null; },
+    async set(k, v, ttlSec = 600) { await kv.put(k, JSON.stringify(v, replacer), { expirationTtl: Math.max(60, ttlSec | 0) }); },
+    async get(k) { const s = await kv.get(k); return s ? JSON.parse(s, reviver) : null; },
     async del(k) { await kv.delete(k); },
   };
 }
