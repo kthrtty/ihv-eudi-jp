@@ -293,11 +293,9 @@ export function createVerifierApp(opts = {}) {
   const putResult  = (txn, result) => v.store.set(`vpres:${txn}`, result, 600);
   const getResult  = (txn) => v.store.get(`vpres:${txn}`);
 
-  // GET / -> DC API browser page (browser/emulator only; not unit-testable here)
-  app.get('/', async (c) => {
-    const html = verifierHtml ?? await loadHtml('web/verifier.html');
-    return html ? c.html(html) : c.redirect('/verifier.html');
-  });
+  // GET / -> the unified verify console (selective disclosure + JSON + protocol
+  // + present-target dispatch). The old static DC-API page is superseded.
+  app.get('/', (c) => c.redirect('/verifier', 302));
 
   // ---- Verify console (merged from the issuer's /demo/verify) ----
   // Self-contained loop: mint a test credential from the issuer into an ephemeral
@@ -348,6 +346,30 @@ export function createVerifierApp(opts = {}) {
   // POST /vp/request {specs, sessionId?, linkTo?} -> { transactionId, request }
   app.post('/vp/request', async (c) => {
     try { return c.json(await v.createRequest(await c.req.json())); } catch (e) { return fail(c, e); }
+  });
+
+  // POST /vp/build {configId, claims, protocol, target} -> request JSON for the
+  // chosen present target. target: 'dcapi' (native, Annex C/D) | 'web' (Annex D
+  // redirect -> web wallet). Returns the request to preview AND (for web) the
+  // wallet deep link. Used by the verify console to drive REAL wallets.
+  app.post('/vp/build', async (c) => {
+    try {
+      const { configId, claims, protocol = 'annex-d', target = 'dcapi' } = await c.req.json();
+      if (!claims || !claims.length) return c.json({ error: '少なくとも1項目を選択してください' }, 400);
+      const specs = [{ id: 'q1', configId, claims }];
+      if (target === 'web') {
+        if (protocol === 'annex-c') return c.json({ error: 'Annex C はネイティブウォレット（DC API）専用です' }, 400);
+        const { transactionId, request } = await v.createRequest({ specs, transport: 'redirect', responseUriBase: `${verifierOrigin}/oid4vp/response` });
+        await putRequest(transactionId, request);
+        const requestUri = `${verifierOrigin}/oid4vp/request/${transactionId}`;
+        const walletPresent = `${walletOrigin}/present?request_uri=${encodeURIComponent(requestUri)}`;
+        return c.json({ transactionId, request, target, walletPresent });
+      }
+      // native DC API (Annex C or D)
+      const { transactionId, request } = await v.createRequest({ specs, protocol });
+      const dcProtocol = request.protocol === 'org-iso-mdoc' ? 'org-iso-mdoc' : 'openid4vp-v1-unsigned';
+      return c.json({ transactionId, request, target, dcProtocol });
+    } catch (e) { return c.json({ error: e.message }, 400); }
   });
 
   // POST /vp/verify {transactionId, encryptedResponse} -> verification result
