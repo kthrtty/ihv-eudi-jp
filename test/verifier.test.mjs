@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { createApp } from '../src/app.mjs';
 import { createWallet } from '../src/wallet.mjs';
 import { VerifierService } from '../src/verifier.mjs';
+import { kvStore } from '../src/oid4vci.mjs';
 import { decryptResponse } from '../src/jwe.mjs';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -83,6 +84,36 @@ test('Selective disclosure: respond(request, selection) discloses only the holde
   assert.equal(r.results[0].claims.family_name, '山田');
   assert.equal(r.results[0].claims.given_name, undefined, 'given_name withheld');
   assert.equal(r.results[0].claims.birth_date, undefined, 'birth_date withheld');
+});
+
+test('KV-backed verifier: mdoc redirect presentation survives the KV JSON round-trip (binary SessionTranscript)', async () => {
+  // Reproduces a production-only crash: kvStore serialises sessions with JSON, so a
+  // raw Uint8Array SessionTranscript came back as a plain Object and mdoc verify
+  // threw "...Received an instance of Object". SD-JWT was unaffected (no transcript).
+  const wallet = await walletWith(['pid_mdoc']);
+  const kv = new Map();
+  const fakeKV = { get: async (k) => kv.get(k) ?? null, put: async (k, v) => { kv.set(k, v); }, delete: async (k) => { kv.delete(k); } };
+  const v = new VerifierService({ store: kvStore(fakeKV) });
+  const { transactionId, request } = await v.createRequest({
+    specs: [{ id: 'q1', configId: 'pid_mdoc', claims: ['family_name', 'given_name', 'portrait'] }],
+    transport: 'redirect', responseUriBase: 'https://verifier.ihv.example/resp',
+  });
+  const wires = request.dcql_query.credentials[0].claims.map((c) => c.path[1]);
+  const jwe = await wallet.respond(request, { q1: { credentialId: wallet.list()[0].id, disclose: wires } });
+  const r = await v.verifyResponse({ transactionId, encryptedResponse: jwe });
+  assert.equal(r.valid, true, r.errors.join(';'));
+  assert.equal(r.results[0].claims.family_name, '山田');
+});
+
+test('kvStore: a Uint8Array round-trips as a Uint8Array (not a plain object)', async () => {
+  const kv = new Map();
+  const s = kvStore({ get: async (k) => kv.get(k) ?? null, put: async (k, val) => { kv.set(k, val); }, delete: async () => {} });
+  await s.set('k', { t: new Uint8Array([1, 2, 250]), n: 'x', nested: { b: new Uint8Array([9]) } });
+  const got = await s.get('k');
+  assert.ok(got.t instanceof Uint8Array);
+  assert.deepEqual([...got.t], [1, 2, 250]);
+  assert.ok(got.nested.b instanceof Uint8Array);
+  assert.equal(got.n, 'x');
 });
 
 test('Optional claims: required claims are enforced by satisfies; optional ones are not', async () => {
