@@ -40,7 +40,7 @@ export function renderVerifyConsole() {
 
       <div class="actions">
         <button class="btn ghost" id="build">要求を生成（JSON）</button>
-        <button class="btn" id="present" disabled>提示を要求</button>
+        <button class="btn" id="present">提示を要求</button>
       </div>
 
       <div id="reqbox" class="hidden">
@@ -78,7 +78,7 @@ export function renderVerifyConsole() {
       }
       function selected() { return [...claimsEl.querySelectorAll('input:checked')].map((i) => i.value); }
       function updateCount() { $('csel').textContent = '（' + selected().length + ' / ' + cur().claims.length + ' 項目）'; }
-      function reset() { $('reqbox').classList.add('hidden'); $('result').innerHTML = ''; $('present').disabled = true; built = null; }
+      function reset() { $('reqbox').classList.add('hidden'); $('result').innerHTML = ''; built = null; }
       function err(m) { $('result').innerHTML = '<div class="hint" style="color:#9E3A3A">'+m+'</div>'; }
 
       claimsEl.addEventListener('change', updateCount);
@@ -88,28 +88,30 @@ export function renderVerifyConsole() {
       document.querySelectorAll('input[name=proto]').forEach((r) => r.onchange = () => { syncTargets(); reset(); });
       document.querySelectorAll('input[name=target]').forEach((r) => r.onchange = reset);
 
-      // ---- 要求を生成（JSON）: build the request for the chosen target ----
-      $('build').onclick = async () => {
+      // ---- build the request for the chosen target (returns built or null) ----
+      async function doBuild() {
         const claims = selected();
-        if (!claims.length) { err('少なくとも1項目を選択してください'); return; }
+        if (!claims.length) { err('少なくとも1項目を選択してください'); return null; }
         const tgt = target();
         const path = tgt === 'selftest' ? '/demo/verify/prepare' : '/vp/build';
         const body = tgt === 'selftest'
           ? { configId: cfgEl.value, claims, protocol: proto() }
           : { configId: cfgEl.value, claims, protocol: proto(), target: tgt };
         const d = await (await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
-        if (d.error) { err(d.error); return; }
+        if (d.error) { err(d.error); return null; }
         built = { target: tgt, ...d };
         $('reqjson').textContent = JSON.stringify(d.request, null, 2);
         $('reqbox').classList.remove('hidden');
-        $('present').disabled = false;
         $('result').innerHTML = '';
         $('present').textContent = tgt === 'web' ? 'Web ウォレットに要求 →' : '提示を要求';
-      };
+        return built;
+      }
+      // 要求を生成（JSON）: just build + preview.
+      $('build').onclick = () => doBuild();
 
-      // ---- 提示を要求: dispatch per target ----
+      // ---- 提示を要求: auto-build if needed, then dispatch per target ----
       $('present').onclick = async () => {
-        if (!built) return;
+        if (!built) { if (!await doBuild()) return; } // auto-generate the request first
         if (built.target === 'web') { window.location.href = built.walletPresent; return; }
         if (built.target === 'selftest') return runSelfTest();
         return runDcApi();
