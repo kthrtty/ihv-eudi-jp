@@ -74,8 +74,13 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
   const doFetch = boundFetch ?? fetch;
 
   // Persistent wallet cookie so the session (and its VCs) survives browser restarts.
+  // SameSite=None (with Secure) is REQUIRED: the OID4VP redirect lands on /present
+  // via a cross-site top-level navigation from the Verifier origin (under the
+  // *.workers.dev public suffix, web-wallet.* and verifier.* are different sites),
+  // and Lax cookies are dropped on that hop in some browsers (notably iOS Safari),
+  // leaving /present with no session => "保有: なし".
   const setWsidCookie = (c, sid) => setCookie(c, 'wsid', sid, {
-    httpOnly: true, sameSite: 'Lax', secure: true, path: '/', maxAge: SESSION_TTL,
+    httpOnly: true, sameSite: 'None', secure: true, path: '/', maxAge: SESSION_TTL,
   });
 
   // Load the session. With a KV store (Workers) ALWAYS read KV — the per-isolate
