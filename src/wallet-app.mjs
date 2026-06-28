@@ -10,8 +10,8 @@ import { getCookie, setCookie } from 'hono/cookie';
 import { randomBytes, createHash } from 'node:crypto';
 import { createWallet } from './wallet.mjs';
 import { verify as verifyCredential } from './issuer.mjs';
-import { shell, pkce, typeIcon } from './authcode-demo.mjs';
-import { catalog, configInfo } from './issuer.mjs';
+import { shell, pkce, typeIcon, typeName } from './authcode-demo.mjs';
+import { catalog } from './issuer.mjs';
 
 // type prefix of a configId (pid_mdoc -> pid) for the issuer-matched icon
 const credType = (configId) => String(configId || '').replace(/_(mdoc|sdjwt)$/, '');
@@ -386,19 +386,18 @@ function presentConsent({ request, plan, have, held = [] }) {
     </div>`;
   const qCard = (q) => {
     const first = q.matches[0];
-    const info = configInfo(first.configId);
     const icon = typeIcon(credType(first.configId));
     const multi = q.matches.length > 1;
     const picker = multi ? `<div class="picker">
       <div class="pk-h">一致する候補が${q.matches.length}件。提示するクレデンシャルを選択：</div>
       ${q.matches.map((m, i) => `<label class="prow">
         <input type="radio" name="cred:${esc(q.dcqlId)}" value="${esc(m.id)}" data-q="${esc(q.dcqlId)}" ${i === 0 ? 'checked' : ''}>
-        <span class="rdo"></span><span>${esc(configInfo(m.configId).name)} <span class="mono" style="color:var(--muted);font-size:11px">${esc(m.id.slice(0, 8))}</span></span>
+        <span class="rdo"></span><span>${esc(typeName(credType(m.configId)))} <span class="mono" style="color:var(--muted);font-size:11px">${esc(m.id.slice(0, 8))}</span></span>
       </label>`).join('')}
     </div>` : `<input type="hidden" name="cred:${esc(q.dcqlId)}" value="${esc(first.id)}">`;
     return `<div class="card qcard" data-q="${esc(q.dcqlId)}">
       <div class="qhead">${icon}<div>
-        <div class="qname">${esc(info.name)}</div>
+        <div class="qname">${esc(typeName(credType(first.configId)))}</div>
         <div class="qmeta">${esc(q.want || '')} ・ <span class="fmt">${q.isMdoc ? 'mdoc' : 'SD-JWT'}</span></div>
       </div></div>
       ${picker}
@@ -516,7 +515,7 @@ const PRESENT_JS = `<script>
 function credCard(c) {
   const rows = Object.entries(c.claims || {}).slice(0, 6)
     .map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('');
-  const name = (() => { try { return configInfo(c.configId).name; } catch { return c.configId; } })();
+  const name = typeName(credType(c.configId));
   return `<div class="held">
     <div class="hd"><span class="hd-ic">${typeIcon(credType(c.configId))}</span>
       <span class="hd-t"><b>${esc(name)}</b><small>${esc(c.configId)}</small></span>

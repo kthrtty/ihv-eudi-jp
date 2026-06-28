@@ -363,6 +363,13 @@ function paperIcon(type, m) {
   </svg>`;
 }
 
+/** Curated display name for a credential type (same label as the issuer portal
+ *  tiles, e.g. 'PID（写真付き身分証）'). Keeps wallet/verifier names consistent
+ *  with the issuer instead of the catalog's metadata display name. */
+export function typeName(type) {
+  return TYPE_META[type]?.name || type;
+}
+
 /** Per-type icon: landscape card for ID-style creds, portrait sheet for certs. */
 export function typeIcon(type) {
   const m = TYPE_META[type] || { c1: '#607D8B', c2: '#455A64', glyph: '📄', shape: 'paper' };
