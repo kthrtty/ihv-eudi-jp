@@ -8,24 +8,35 @@ const cfg = (configId) => catalog.credential_configurations_supported[configId];
 /**
  * Build a DCQL query.
  * specs: [{ id, configId, claims:[<required key>], optional?:[<optional key>] }]
- * Optional claims are carried in the same `claims` array with a non-standard
- * `optional:true` marker so the wallet can offer them as holder-elective while
- * `satisfies()` only enforces the required ones. (Vendor extension for the demo.)
+ * Required vs optional is expressed with STANDARD DCQL `claim_sets`: every claim
+ * gets an `id`, and claim_sets list the acceptable combinations in preference
+ * order — [required+optional] preferred, [required] as the fallback. A wallet
+ * (and satisfies()) treats claims common to all sets as mandatory and the rest as
+ * holder-elective. With no optional claims, claim_sets is omitted (all required).
  */
 export function buildDcql(specs) {
   return {
     credentials: specs.map(({ id, configId, claims, optional = [] }) => {
       const c = cfg(configId);
       const isMdoc = c.format === 'mso_mdoc';
-      const claim = (key, isOptional) => {
+      const mkClaim = (key, cid) => {
         const path = isMdoc ? [c.doctype, mdocElement(configId, key)] : [key];
-        const o = isMdoc ? { path, intent_to_retain: false } : { path };
-        return isOptional ? { ...o, optional: true } : o;
+        const base = isMdoc ? { path, intent_to_retain: false } : { path };
+        return cid ? { id: cid, ...base } : base;
       };
-      const all = [...claims.map((k) => claim(k, false)), ...optional.map((k) => claim(k, true))];
-      return isMdoc
-        ? { id, format: 'mso_mdoc', meta: { doctype_value: c.doctype }, claims: all }
-        : { id, format: 'dc+sd-jwt', meta: { vct_values: [c.vct] }, claims: all };
+      const meta = isMdoc ? { doctype_value: c.doctype } : { vct_values: [c.vct] };
+      const format = isMdoc ? 'mso_mdoc' : 'dc+sd-jwt';
+      if (!optional.length) {
+        return { id, format, meta, claims: claims.map((k) => mkClaim(k)) };
+      }
+      // ids let claim_sets reference each claim (r* = required, o* = optional)
+      const req = claims.map((k, i) => ({ cid: `r${i}`, claim: mkClaim(k, `r${i}`) }));
+      const opt = optional.map((k, i) => ({ cid: `o${i}`, claim: mkClaim(k, `o${i}`) }));
+      return {
+        id, format, meta,
+        claims: [...req, ...opt].map((x) => x.claim),
+        claim_sets: [[...req, ...opt].map((x) => x.cid), req.map((x) => x.cid)],
+      };
     }),
   };
 }
@@ -46,12 +57,15 @@ export function resolveForWallet(dcql, wallet) {
   });
 }
 
-/** Check verified claims satisfy a DCQL credential query. Optional claims
- *  (cl.optional) are NOT enforced — only required claims must be disclosed. */
+/** Check verified claims satisfy a DCQL credential query. With `claim_sets`, the
+ *  response must satisfy AT LEAST ONE set (contain all of its claims); extra
+ *  disclosed claims are allowed. Without claim_sets, every claim is required. */
 export function satisfies(query, claims) {
   const isMdoc = query.format === 'mso_mdoc';
-  return query.claims.filter((cl) => !cl.optional).every((cl) => {
-    const key = isMdoc ? cl.path[1] : cl.path[0];
-    return claims[key] !== undefined;
-  });
+  const present = (cl) => claims[isMdoc ? cl.path[1] : cl.path[0]] !== undefined;
+  if (query.claim_sets?.length) {
+    const byId = Object.fromEntries((query.claims || []).map((cl) => [cl.id, cl]));
+    return query.claim_sets.some((set) => set.every((id) => byId[id] && present(byId[id])));
+  }
+  return (query.claims || []).every(present);
 }
