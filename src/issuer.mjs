@@ -175,6 +175,15 @@ export function personaClaims(configId, persona) {
   return personaOverrides(persona, schema.claims.map((c) => c.key));
 }
 
+/** Map a schema claim key to its mdoc namespace element id (on-the-wire name).
+ * Most keys map to themselves, but some (e.g. residence_address -> resident_address)
+ * differ to match ARF/ISO element naming. SD-JWT issues by key, so only mdoc needs this. */
+export function mdocElement(configId, key) {
+  const { credId } = splitConfig(configId);
+  const c = schemas[credId]?.claims.find((x) => x.key === key);
+  return c?.mdoc?.element ?? key;
+}
+
 /** Config metadata for UIs: display name, format and selectable claim keys. */
 export function configInfo(configId) {
   const cfg = catalog.credential_configurations_supported[configId];

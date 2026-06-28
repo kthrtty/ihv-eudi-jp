@@ -71,6 +71,19 @@ test('Verifier scenario B: EAA 国家資格 single (mdoc)', async () => {
   assert.equal(r.results[0].claims.qualification_name, '医師');
 });
 
+test('Verifier regression: juminhyo (mdoc) residence_address whose mdoc element differs from key', async () => {
+  // residence_address maps to mdoc element `resident_address`; DCQL must request
+  // the wire element name, not the schema key, or verification fails as unsatisfied.
+  const wallet = await walletWith(['juminhyo_mdoc']);
+  const v = new VerifierService();
+  const { transactionId, request } = await v.createRequest({
+    specs: [{ id: 'ju', configId: 'juminhyo_mdoc', claims: ['family_name', 'residence_address'] }],
+  });
+  const r = await v.verifyResponse({ transactionId, encryptedResponse: await wallet.respond(request) });
+  assert.equal(r.valid, true, r.errors.join(';'));
+  assert.equal(r.results[0].claims.resident_address, '東京都千代田区1-1-1');
+});
+
 test('Verifier JWE: response is encrypted (not plaintext) and needs the RP key', async () => {
   const wallet = await walletWith(['pid_sdjwt']);
   const v = new VerifierService();

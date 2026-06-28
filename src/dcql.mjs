@@ -1,7 +1,7 @@
 // Minimal DCQL (Digital Credentials Query Language) helpers for the demo:
 // build a query, resolve it against a wallet's stored credentials, and check a
 // verified response satisfies it. Covers single + multi credential queries.
-import { catalog } from './issuer.mjs';
+import { catalog, mdocElement } from './issuer.mjs';
 
 const cfg = (configId) => catalog.credential_configurations_supported[configId];
 
@@ -17,7 +17,7 @@ export function buildDcql(specs) {
         return {
           id, format: 'mso_mdoc',
           meta: { doctype_value: c.doctype },
-          claims: claims.map((el) => ({ path: [c.doctype, el], intent_to_retain: false })),
+          claims: claims.map((el) => ({ path: [c.doctype, mdocElement(configId, el)], intent_to_retain: false })),
         };
       }
       return {
