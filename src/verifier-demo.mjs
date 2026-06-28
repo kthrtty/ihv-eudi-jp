@@ -2,7 +2,7 @@
 // can present, the format (mdoc / SD-JWT via the configId variant), the protocol
 // (Annex D OID4VP/JWE or Annex C org-iso-mdoc/HPKE), and which claims to request
 // (selective disclosure). Shows the actual request JSON, then the verified result.
-import { shell, typeIcon } from './authcode-demo.mjs';
+import { shell, typeIcon, renderClaimsModal } from './authcode-demo.mjs';
 
 const CHECKS = [
   '発行者署名（issuerAuth / COSE_Sign1）',
@@ -17,6 +17,7 @@ export function renderVerifyConsole(groups = []) {
     const chips = g.formats.map((f) =>
       `<button type="button" class="vcs-chip" data-cfg="${f.configId}">${f.label}</button>`).join('');
     return `<div class="vcs-card">
+      <button type="button" class="vcinfo" title="含まれる項目を見る" onclick="event.stopPropagation();openClaims('${g.type}')">i</button>
       <div class="vcs-art">${typeIcon(g.type)}</div>
       <div class="vcs-name">${g.name}</div>
       <div class="vcs-chips">${chips}</div>
@@ -181,7 +182,7 @@ export function renderVerifyConsole(groups = []) {
       .lbl{display:block;font-size:12px;color:var(--muted);font-weight:700;margin:16px 0 6px;letter-spacing:.02em}
       .sel{width:100%;font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff}
       /* credential selector cards (single-select; ::after ring = no layout shift) */
-      .vcsel{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+      .vcsel{display:grid;grid-template-columns:repeat(auto-fill,minmax(186px,1fr));gap:10px}
       .vcs-card{position:relative;box-sizing:border-box;width:100%;min-width:0;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;transition:background .12s}
       .vcs-card.sel{background:#f4f7fd}
       .vcs-card.sel::after{content:"";position:absolute;inset:0;border-radius:12px;box-shadow:0 0 0 2px var(--civic) inset;pointer-events:none}
@@ -204,7 +205,8 @@ export function renderVerifyConsole(groups = []) {
       .hidden{display:none}.muted{color:var(--muted)}
       .checks{display:grid;gap:6px;margin-top:8px}.ck2{font-size:13px}
       .cok{color:var(--verify);font-weight:700}.cng{color:var(--muted)}
-    </style>`, { brand: 'クレデンシャル検証ポータル', sub: 'VERIFIER', role: 'verifier', width: 'mid' });
+    </style>
+    ${renderClaimsModal(groups)}`, { brand: 'クレデンシャル検証ポータル', sub: 'VERIFIER', role: 'verifier', width: 'mid' });
 }
 
 const claimNames = (request) => (request.dcql_query?.credentials || [])
