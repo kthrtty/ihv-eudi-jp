@@ -296,12 +296,19 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     const s = await loadSession(c);
     try {
       const request = s.present?.request;
-      if (!request) throw new Error('no pending presentation');
+      if (!request) throw new Error('保留中の提示要求がありません。提示要求を取得し直してください。');
+      if (!request.response_uri) throw new Error('提示要求に response_uri がありません（DC API 用の要求の可能性）。');
       const jwe = await s.wallet.respond(request);
-      const r = await (await doFetch(request.response_uri, {
+      const resp = await doFetch(request.response_uri, {
         method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ response: jwe }).toString(),
-      })).json();
+      });
+      const r = await resp.json().catch(() => ({}));
+      // Guard: never c.redirect(undefined) — that yields Location: undefined and the
+      // browser lands on /present/undefined (404). Surface a real error instead.
+      if (!resp.ok || !r.redirect_uri) {
+        throw new Error(r.error || `Verifier への提示送信に失敗しました（HTTP ${resp.status}）。要求が期限切れの可能性があります。`);
+      }
       s.present = null;
       await saveSession(s); // presentation does NOT consume the credential — it stays in the wallet
       return c.redirect(r.redirect_uri, 302); // back to the Verifier's result page
@@ -405,7 +412,7 @@ function home(s, issuerUrl, verifierUrl) {
         <a class="hublink small" href="${esc(issuerUrl2)}/">発行者トップ</a>
         <a class="hublink small" href="${esc(issuerUrl2)}/login">発行者ログイン</a>
         <a class="hublink small" href="${esc(verifierUrl)}/verifier">検証コンソール（Verifier）</a>
-        <a class="hublink small" href="/dev/holder-key">ホルダー束縛鍵を表示</a>
+        <a class="hublink small" href="/dev/holder-key">ホルダーバインディング鍵を表示</a>
         <a class="hublink small" href="${esc(issuerUrl2)}/demo/offer-authcode">発行者起点オファー デモ（Issuer 側）</a>
         <a class="hublink small" href="${esc(issuerUrl2)}/issuances">発行台帳</a>
         <a class="hublink small" href="${esc(issuerUrl2)}/users">ユーザー一覧 (API)</a>
@@ -427,12 +434,12 @@ function home(s, issuerUrl, verifierUrl) {
 
 function holderKeyPage(jwk, pem, thumbprint, credCount) {
   const pub = JSON.stringify({ kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y }, null, 2);
-  return shell('ホルダー束縛鍵', `
+  return shell('ホルダーバインディング鍵', `
     <div class="card">
       <div class="step">開発者 — Holder Binding Key（mock TEE soft key）</div>
-      <h1>ホルダー束縛鍵</h1>
-      <div class="hint">このウォレットの端末束縛鍵（ES256 / P-256）です。発行時の鍵証明（proof）と提示時の deviceAuth / KB-JWT に使われ、
-        保管中の <b>${esc(String(credCount))}</b> 件すべてがこの鍵に束縛されています。</div>
+      <h1>ホルダーバインディング鍵</h1>
+      <div class="hint">このウォレットのホルダーバインディング鍵（端末バインディング・ES256 / P-256）です。発行時の鍵証明（proof）と提示時の deviceAuth / KB-JWT に使われ、
+        保管中の <b>${esc(String(credCount))}</b> 件すべてがこの鍵にバインドされています。</div>
 
       <div class="k" style="margin-top:14px">公開鍵（JWK）</div>
       <pre class="keybox">${esc(pub)}</pre>

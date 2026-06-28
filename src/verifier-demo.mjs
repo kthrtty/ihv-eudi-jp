@@ -6,7 +6,7 @@ import { shell, typeIcon, renderClaimsModal } from './authcode-demo.mjs';
 
 const CHECKS = [
   '発行者署名（issuerAuth / COSE_Sign1）',
-  'ホルダー束縛（deviceAuth / KB-JWT）',
+  'ホルダーバインディング（deviceAuth / KB-JWT）',
   'nonce・origin（リプレイ防止）',
   'DCQL 充足（要求項目の開示）',
   '失効なし（Token Status List）',
@@ -237,7 +237,7 @@ export function renderWebVerifyResult(result) {
   const first = (result?.results || [])[0] || {};
   const rows = Object.entries(first.claims || {}).map(([k, v]) =>
     `<tr><td>${k}</td><td>${v instanceof Object ? JSON.stringify(v) : v}</td></tr>`).join('');
-  const checks = ['発行者署名', 'ホルダー束縛', 'nonce・origin', 'DCQL 充足', '失効なし']
+  const checks = ['発行者署名', 'ホルダーバインディング', 'nonce・origin', 'DCQL 充足', '失効なし']
     .map((l) => `<div class="ck2"><span class="${ok ? 'cok' : 'cng'}">${ok ? '✓' : '—'}</span> ${l}</div>`).join('');
   return shell('検証結果', `
     <div class="card">
