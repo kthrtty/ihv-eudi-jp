@@ -592,6 +592,19 @@ const DELETE_CONFIRM = `<div class="vc-confirm" id="delConfirm" hidden>
     </form>
   </div></div>`;
 
+// wallet-wide reset confirmation (deletes ALL creds + the holder key)
+const RESET_CONFIRM = `<div class="vc-confirm" id="resetConfirm" hidden>
+  <div class="vc-scrim" onclick="cancelReset()"></div>
+  <div class="confirm">
+    <div class="cf-ic">${delGlyph(26)}</div>
+    <h3 class="cf-h">ウォレットを初期化</h3>
+    <p class="cf-p">保管中の<span class="cf-nm">すべてのクレデンシャル</span>とホルダーバインディング鍵を削除します。<br>この操作は取り消せません。</p>
+    <form method="POST" action="/reset" class="cf-btns">
+      <button type="button" class="cf-cancel" onclick="cancelReset()">キャンセル</button>
+      <button type="submit" class="cf-del">初期化する</button>
+    </form>
+  </div></div>`;
+
 const VC_MODAL_STYLE = `<style>
   .held:not(.static){cursor:pointer;transition:box-shadow .12s,border-color .12s}
   .held:not(.static):hover{border-color:#cfdbe6;box-shadow:0 2px 10px rgba(14,26,43,.06)}
@@ -634,6 +647,8 @@ const VC_MODAL_JS = `<script>
   function closeCred(id){var m=document.getElementById('cm-'+id);if(m){m.hidden=true;document.body.style.overflow='';}}
   function askDelete(id,name){var d=document.getElementById('delConfirm');document.getElementById('delForm').action='/cred/'+encodeURIComponent(id)+'/delete';document.getElementById('delName').textContent=name;d.hidden=false;document.body.style.overflow='hidden';}
   function cancelDelete(){document.getElementById('delConfirm').hidden=true;document.body.style.overflow='';}
+  function askReset(){var d=document.getElementById('resetConfirm');if(d){d.hidden=false;document.body.style.overflow='hidden';}}
+  function cancelReset(){var d=document.getElementById('resetConfirm');if(d){d.hidden=true;document.body.style.overflow='';}}
   document.querySelectorAll('.seg').forEach(function(seg){
     seg.addEventListener('click',function(e){
       var b=e.target.closest('button[data-pan]');if(!b)return;
@@ -651,15 +666,14 @@ function home(s, issuerUrl, verifierUrl) {
     : `<div class="hint" style="color:var(--muted)">まだクレデンシャルがありません。下のメニューから取得してください。</div>`;
   const issuerUrl2 = issuerUrl;
   const resetBtn = s.creds.length
-    ? `<form method="POST" action="/reset" onsubmit="return confirm('ウォレット内のクレデンシャルと鍵をすべて初期化します。よろしいですか？')" style="margin:0">
-         <button type="submit" class="reset-btn">初期化</button>
-       </form>`
+    ? `<button type="button" class="reset-btn" onclick="askReset()">初期化</button>`
     : '';
-  const modals = s.creds.map(credModal).join('') + (s.creds.length ? DELETE_CONFIRM : '');
+  const modals = s.creds.map(credModal).join('') + (s.creds.length ? DELETE_CONFIRM + RESET_CONFIRM : '');
   return shell('ウェブウォレット', `
     <div class="card">
+      <div class="step">保管中のクレデンシャル</div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-        <div><div class="step">保管中のクレデンシャル</div><h1 style="margin:0">ウォレット</h1></div>
+        <h1 style="margin:0">ウォレット</h1>
         ${resetBtn}
       </div>
       <div style="margin-top:12px">${body}</div>
