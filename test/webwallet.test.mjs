@@ -232,6 +232,46 @@ test('web wallet present: holding vaccine_mdoc, a vaccine_SDJWT request is not h
   }
 });
 
+test('web wallet home: VC cards show ≤4 attrs + a modal with 属性/JSON segment; per-VC delete removes only that VC', async () => {
+  const IP = 8975, WP = 8976;
+  const ISSUER = `http://127.0.0.1:${IP}`, WALLET = `http://127.0.0.1:${WP}`;
+  const issuer = serve({ fetch: createApp({ credentialIssuer: ISSUER }).fetch, port: IP });
+  try {
+    const wallet = createWalletApp({ walletOrigin: WALLET, issuerUrl: ISSUER });
+    const mk = async (configId) => (await (await fetch(`${ISSUER}/offer`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ credential_configuration_ids: [configId] }),
+    })).json()).offer_id;
+    // issue two creds into one wallet session (shared cookie)
+    const add1 = await wallet.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${await mk('pid_mdoc')}`));
+    const cookie = add1.headers.get('set-cookie').split(';')[0];
+    await wallet.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${await mk('juminhyo_sdjwt')}`), { headers: { cookie } });
+
+    const home = await (await wallet.request('/', { headers: { cookie } })).text();
+    assert.match(home, /すべての属性・JSON を表示/);     // card opens a modal
+    assert.match(home, /class="seg"/);                    // segment (属性/JSON), not tabs
+    assert.match(home, /data-pan="json"/);
+    assert.match(home, /class="djson"/);                  // JSON representation present
+    assert.match(home, /mso_mdoc/);                        // mdoc JSON repr (HTML-escaped)
+    assert.match(home, /namespaces/);
+    assert.match(home, /class="vc-del"/);                 // delete lives in the modal
+    // a PID card shows at most 4 representative attr rows on the card face
+    const firstCard = home.split('held-more')[0];
+    assert.ok((firstCard.match(/<tr>/g) || []).length <= 4, 'card shows ≤4 attrs');
+
+    // delete the pid_mdoc; juminhyo_sdjwt must remain
+    const before = await (await wallet.request('/creds', { headers: { cookie } })).json();
+    const pid = before.find((x) => x.configId === 'pid_mdoc');
+    const del = await wallet.request(`/cred/${pid.id}/delete`, { method: 'POST', headers: { cookie }, redirect: 'manual' });
+    assert.equal(del.status, 302);
+    const after = await (await wallet.request('/creds', { headers: { cookie } })).json();
+    assert.equal(after.length, 1);
+    assert.equal(after[0].configId, 'juminhyo_sdjwt');
+  } finally {
+    await new Promise((r) => issuer.close(r));
+  }
+});
+
 test('web wallet present: selective-disclosure UX (提示先 label, per-claim checkboxes, debug preview, issuer icon)', async () => {
   const IP = 8980, VP = 8981, WP = 8982;
   const ISSUER = `http://127.0.0.1:${IP}`, VERIF = `http://127.0.0.1:${VP}`, WALLET = `http://127.0.0.1:${WP}`;
