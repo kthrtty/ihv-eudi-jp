@@ -260,12 +260,13 @@ test('web wallet present: holding vaccine_mdoc, a vaccine_SDJWT request is not h
   }
 });
 
-test('wallet cookie is SameSite=None; Secure so it survives the cross-site redirect to /present', async () => {
+test('wallet cookie is SameSite=Lax + Secure + HttpOnly (Lax carries the top-level GET redirect; not None, to keep CSRF protection on POSTs)', async () => {
   const app = createWalletApp({ walletOrigin: 'https://web-wallet.example' });
   const res = await app.request('/');
   const sc = res.headers.get('set-cookie') || '';
   assert.match(sc, /wsid=/);
-  assert.match(sc, /SameSite=None/i);
+  assert.match(sc, /SameSite=Lax/i);
+  assert.doesNotMatch(sc, /SameSite=None/i); // None would expose mutating POSTs to CSRF
   assert.match(sc, /Secure/i);
   assert.match(sc, /HttpOnly/i);
 });
