@@ -7,7 +7,7 @@
 // transport (cross-origin fetch + browser redirects) is new.
 import { Hono } from 'hono';
 import { getCookie, setCookie } from 'hono/cookie';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
 import { createWallet } from './wallet.mjs';
 import { verify as verifyCredential } from './issuer.mjs';
 import { resolveForWallet } from './dcql.mjs';
@@ -15,6 +15,7 @@ import { shell, pkce } from './authcode-demo.mjs';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
 const rand = () => randomBytes(16).toString('hex');
+const b64url = (b) => Buffer.from(b).toString('base64url');
 const fmt = (v) => {
   if (v == null) return '';
   if (v instanceof Date) return v.toISOString().slice(0, 10);
@@ -28,27 +29,34 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
   // Per-isolate cache. On Workers, requests for one user may land on different
   // isolates, so the durable copy lives in `store` (KV); `mem` is just a fast path.
   const mem = new Map(); // wsid -> { wallet, creds, pending, present, _sid }
+  const SESSION_TTL = 60 * 60 * 24 * 30; // 30 days — wallet contents persist long-term
 
   // Use Service Binding-aware fetch when available (Workers production/dev),
   // fall back to global fetch() in local Node.js server and unit tests.
   const doFetch = boundFetch ?? fetch;
 
+  // Persistent wallet cookie so the session (and its VCs) survives browser restarts.
+  const setWsidCookie = (c, sid) => setCookie(c, 'wsid', sid, {
+    httpOnly: true, sameSite: 'Lax', secure: true, path: '/', maxAge: SESSION_TTL,
+  });
+
   // Load the session: in-memory cache → KV snapshot → fresh. Sets cookie on new.
   const loadSession = async (c) => {
     let sid = getCookie(c, 'wsid');
-    if (sid && mem.has(sid)) return mem.get(sid);
+    if (sid && mem.has(sid)) { setWsidCookie(c, sid); return mem.get(sid); } // refresh cookie maxAge
     if (sid && store) {
       const snap = await store.get(`wsess:${sid}`);
       if (snap) {
         const s = { wallet: createWallet(snap.wallet), creds: snap.creds || [], pending: snap.pending || null, present: snap.present || null, _sid: sid };
         mem.set(sid, s);
+        setWsidCookie(c, sid); // refresh cookie maxAge on access
         return s;
       }
     }
     sid = rand();
     const s = { wallet: createWallet(), creds: [], pending: null, present: null, _sid: sid };
     mem.set(sid, s);
-    setCookie(c, 'wsid', sid, { httpOnly: true, sameSite: 'Lax', path: '/' });
+    setWsidCookie(c, sid);
     return s;
   };
   // Persist the session to KV (no-op without a store, e.g. local Node single-isolate).
@@ -56,7 +64,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     if (!store || !s?._sid) return;
     await store.set(`wsess:${s._sid}`, {
       wallet: s.wallet.serialize(), creds: s.creds, pending: s.pending ?? null, present: s.present ?? null,
-    }, 3600);
+    }, SESSION_TTL);
   };
   const httpTo = (base) => (path, opts) => doFetch(base + path, opts); // OID4VCI client -> Issuer
 
@@ -68,6 +76,28 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
 
   app.get('/', async (c) => { const s = await loadSession(c); await saveSession(s); return c.html(home(s, issuerUrl, verifierUrl)); });
   app.get('/creds', async (c) => { const s = await loadSession(c); return c.json(s.creds.map(({ id, configId, format }) => ({ id, configId, format }))); });
+
+  // Reset (initialize) the wallet: drop all stored VCs and the device-bound key.
+  app.post('/reset', async (c) => {
+    const s = await loadSession(c);
+    s.wallet = createWallet();   // fresh holder key
+    s.creds = []; s.pending = null; s.present = null;
+    await saveSession(s);
+    return c.redirect('/', 302);
+  });
+
+  // Dev: show the holder-binding (device) key — public JWK + thumbprint, and the
+  // demo soft-key private PEM (mock TEE; never exposed like this in production).
+  app.get('/dev/holder-key', async (c) => {
+    const s = await loadSession(c);
+    const snap = s.wallet.serialize();
+    const j = snap.holderJwk;
+    // RFC7638 JWK thumbprint: members in lexicographic order, no whitespace
+    const thumb = b64url(createHash('sha256')
+      .update(JSON.stringify({ crv: j.crv, kty: j.kty, x: j.x, y: j.y }))
+      .digest());
+    return c.html(holderKeyPage(j, snap.holderKeyPem, thumb, s.creds.length));
+  });
 
   // Wallet-initiated auth-code: user picks credential type, wallet starts PKCE flow
   app.get('/request', async (c) => {
@@ -329,11 +359,18 @@ function home(s, issuerUrl, verifierUrl) {
     ? s.creds.map(credCard).join('')
     : `<div class="hint" style="color:var(--muted)">まだクレデンシャルがありません。下のメニューから取得してください。</div>`;
   const issuerUrl2 = issuerUrl;
+  const resetBtn = s.creds.length
+    ? `<form method="POST" action="/reset" onsubmit="return confirm('ウォレット内のクレデンシャルと鍵をすべて初期化します。よろしいですか？')" style="margin:0">
+         <button type="submit" class="reset-btn">初期化</button>
+       </form>`
+    : '';
   return shell('ウェブウォレット', `
     <div class="card">
-      <div class="step">保管中のクレデンシャル</div>
-      <h1>ウォレット</h1>
-      ${body}
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <div><div class="step">保管中のクレデンシャル</div><h1 style="margin:0">ウォレット</h1></div>
+        ${resetBtn}
+      </div>
+      <div style="margin-top:12px">${body}</div>
     </div>
 
     <div class="card" style="margin-top:12px">
@@ -368,6 +405,7 @@ function home(s, issuerUrl, verifierUrl) {
         <a class="hublink small" href="${esc(issuerUrl2)}/">発行者トップ</a>
         <a class="hublink small" href="${esc(issuerUrl2)}/login">発行者ログイン</a>
         <a class="hublink small" href="${esc(verifierUrl)}/verifier">検証コンソール（Verifier）</a>
+        <a class="hublink small" href="/dev/holder-key">ホルダー束縛鍵を表示</a>
         <a class="hublink small" href="${esc(issuerUrl2)}/demo/offer-authcode">発行者起点オファー デモ（Issuer 側）</a>
         <a class="hublink small" href="${esc(issuerUrl2)}/issuances">発行台帳</a>
         <a class="hublink small" href="${esc(issuerUrl2)}/users">ユーザー一覧 (API)</a>
@@ -375,6 +413,8 @@ function home(s, issuerUrl, verifierUrl) {
     </details>
     ${STYLE}
     <style>
+      .reset-btn{font:inherit;font-size:13px;padding:7px 14px;border:1px solid #E2B4AE;color:#C8453C;background:#fff;border-radius:8px;cursor:pointer}
+      .reset-btn:hover{background:#FBE9E7}
       .hubgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
       .hublink{display:flex;align-items:flex-start;gap:10px;border:1px solid var(--line);border-radius:10px;
                padding:12px 14px;text-decoration:none;color:inherit;transition:background .1s}
@@ -383,6 +423,31 @@ function home(s, issuerUrl, verifierUrl) {
       .hub-sub{font-size:12px;color:var(--muted)}
       .hublink.small{font-size:13px;padding:8px 12px;align-items:center}
     </style>`, { ...WALLET, width: 'mid' });
+}
+
+function holderKeyPage(jwk, pem, thumbprint, credCount) {
+  const pub = JSON.stringify({ kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y }, null, 2);
+  return shell('ホルダー束縛鍵', `
+    <div class="card">
+      <div class="step">開発者 — Holder Binding Key（mock TEE soft key）</div>
+      <h1>ホルダー束縛鍵</h1>
+      <div class="hint">このウォレットの端末束縛鍵（ES256 / P-256）です。発行時の鍵証明（proof）と提示時の deviceAuth / KB-JWT に使われ、
+        保管中の <b>${esc(String(credCount))}</b> 件すべてがこの鍵に束縛されています。</div>
+
+      <div class="k" style="margin-top:14px">公開鍵（JWK）</div>
+      <pre class="keybox">${esc(pub)}</pre>
+      <div class="k" style="margin-top:10px">JWK Thumbprint（RFC 7638 / SHA-256）</div>
+      <div class="keybox mono" style="word-break:break-all">${esc(thumbprint)}</div>
+
+      <details style="margin-top:12px">
+        <summary style="cursor:pointer;color:#C8453C;font-size:13px">秘密鍵（PKCS#8 PEM）を表示 — デモ専用・本番では非公開</summary>
+        <pre class="keybox" style="margin-top:8px">${esc(pem)}</pre>
+      </details>
+
+      <div style="margin-top:14px"><a class="btn" href="/">← ウォレットに戻る</a></div>
+    </div>${STYLE}
+    <style>.keybox{background:#0E1A2B;color:#D7E0EE;border-radius:10px;padding:12px;font-size:12px;line-height:1.5;overflow:auto;white-space:pre-wrap;font-family:"IBM Plex Mono",monospace;margin:4px 0 0}
+    .k{color:var(--muted);font-size:12px;font-weight:600}</style>`, WALLET);
 }
 
 function added(s, recs, grant) {
