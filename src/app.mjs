@@ -308,7 +308,7 @@ export function createVerifierApp(opts = {}) {
     if (typeof val === 'object') return 'value' in val ? String(val.value) : JSON.stringify(val);
     return val;
   };
-  app.get('/verifier', (c) => c.html(renderVerifyConsole()));
+  app.get('/verifier', (c) => c.html(renderVerifyConsole(groupCatalog(allConfigIds().map(configInfo)))));
   app.get('/demo/verify/catalog', (c) => c.json(allConfigIds().map(configInfo)));
   app.post('/demo/verify/prepare', async (c) => {
     try {

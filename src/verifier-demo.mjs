@@ -2,7 +2,7 @@
 // can present, the format (mdoc / SD-JWT via the configId variant), the protocol
 // (Annex D OID4VP/JWE or Annex C org-iso-mdoc/HPKE), and which claims to request
 // (selective disclosure). Shows the actual request JSON, then the verified result.
-import { shell } from './authcode-demo.mjs';
+import { shell, typeIcon } from './authcode-demo.mjs';
 
 const CHECKS = [
   '発行者署名（issuerAuth / COSE_Sign1）',
@@ -12,14 +12,23 @@ const CHECKS = [
   '失効なし（Token Status List）',
 ];
 
-export function renderVerifyConsole() {
+export function renderVerifyConsole(groups = []) {
+  const cfgCards = groups.map((g) => {
+    const chips = g.formats.map((f) =>
+      `<button type="button" class="vcs-chip" data-cfg="${f.configId}">${f.label}</button>`).join('');
+    return `<div class="vcs-card">
+      <div class="vcs-art">${typeIcon(g.type)}</div>
+      <div class="vcs-name">${g.name}</div>
+      <div class="vcs-chips">${chips}</div>
+    </div>`;
+  }).join('');
   return shell('検証者コンソール', `
     <div class="card">
       <div class="step">検証要求ビルダー · OpenID4VP / DCQL</div>
       <h1>提示を要求するクレデンシャルと項目を選ぶ</h1>
 
-      <label class="lbl">クレデンシャル（発行者が提示可能なものから選択）</label>
-      <select id="cfg" class="sel"></select>
+      <label class="lbl">クレデンシャル（発行者が提示可能なものから選択 — カードの形式をクリック）</label>
+      <div class="vcsel">${cfgCards}</div>
 
       <label class="lbl">プロトコル</label>
       <div class="radios">
@@ -53,9 +62,9 @@ export function renderVerifyConsole() {
       const CHECKS = ${JSON.stringify(CHECKS)};
       const DCAPI_PROTOCOLS = ['openid4vp-v1-unsigned', 'org-iso-mdoc'];
       const $ = (id) => document.getElementById(id);
-      let catalog = [], built = null;
-      const cfgEl = $('cfg'), claimsEl = $('claims');
-      const cur = () => catalog.find((c) => c.configId === cfgEl.value);
+      let catalog = [], built = null, selCfg = null;
+      const claimsEl = $('claims');
+      const cur = () => catalog.find((c) => c.configId === selCfg);
       const isMdoc = (c) => c.format === 'mso_mdoc';
       const DEFAULT = ['family_name', 'given_name', 'age_over_18'];
       const proto = () => document.querySelector('input[name=proto]:checked').value;
@@ -84,7 +93,16 @@ export function renderVerifyConsole() {
       claimsEl.addEventListener('change', updateCount);
       $('all').onclick = () => { claimsEl.querySelectorAll('input').forEach((i) => i.checked = true); updateCount(); };
       $('none').onclick = () => { claimsEl.querySelectorAll('input').forEach((i) => i.checked = false); updateCount(); };
-      cfgEl.onchange = renderClaims;
+      // single-select credential cards: clicking a format chip picks that configId
+      function selectCfg(cfg, chip) {
+        document.querySelectorAll('.vcs-chip.on').forEach((c) => c.classList.remove('on'));
+        document.querySelectorAll('.vcs-card.sel').forEach((c) => c.classList.remove('sel'));
+        chip.classList.add('on');
+        chip.closest('.vcs-card').classList.add('sel');
+        selCfg = cfg;
+        renderClaims();
+      }
+      document.querySelectorAll('.vcs-chip').forEach((chip) => { chip.onclick = () => selectCfg(chip.dataset.cfg, chip); });
       document.querySelectorAll('input[name=proto]').forEach((r) => r.onchange = () => { syncTargets(); reset(); });
       document.querySelectorAll('input[name=target]').forEach((r) => r.onchange = reset);
 
@@ -95,8 +113,8 @@ export function renderVerifyConsole() {
         const tgt = target();
         const path = tgt === 'selftest' ? '/demo/verify/prepare' : '/vp/build';
         const body = tgt === 'selftest'
-          ? { configId: cfgEl.value, claims, protocol: proto() }
-          : { configId: cfgEl.value, claims, protocol: proto(), target: tgt };
+          ? { configId: selCfg, claims, protocol: proto() }
+          : { configId: selCfg, claims, protocol: proto(), target: tgt };
         const d = await (await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
         if (d.error) { err(d.error); return null; }
         built = { target: tgt, ...d };
@@ -154,13 +172,25 @@ export function renderVerifyConsole() {
 
       (async () => {
         catalog = await (await fetch('/demo/verify/catalog')).json();
-        cfgEl.innerHTML = catalog.map((c) => '<option value="'+c.configId+'">'+c.name+'</option>').join('');
-        renderClaims();
+        // default-select the first credential card's first format
+        const firstChip = document.querySelector('.vcs-chip');
+        if (firstChip) selectCfg(firstChip.dataset.cfg, firstChip);
       })();
     </script>
     <style>
       .lbl{display:block;font-size:12px;color:var(--muted);font-weight:700;margin:16px 0 6px;letter-spacing:.02em}
       .sel{width:100%;font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff}
+      /* credential selector cards (single-select; ::after ring = no layout shift) */
+      .vcsel{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+      .vcs-card{position:relative;box-sizing:border-box;width:100%;min-width:0;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;transition:background .12s}
+      .vcs-card.sel{background:#f4f7fd}
+      .vcs-card.sel::after{content:"";position:absolute;inset:0;border-radius:12px;box-shadow:0 0 0 2px var(--civic) inset;pointer-events:none}
+      .vcs-art .vcicon{height:62px;width:auto;display:block;filter:drop-shadow(0 4px 10px rgba(14,26,43,.16))}
+      .vcs-name{font-size:12.5px;font-weight:700;line-height:1.3}
+      .vcs-chips{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
+      .vcs-chip{font:inherit;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--muted);cursor:pointer;transition:all .12s}
+      .vcs-chip:hover{border-color:#aebbd3}
+      .vcs-chip.on{background:var(--civic);color:#fff;border-color:var(--civic)}
       .radios{display:grid;gap:6px;font-size:13.5px}
       .radios label{display:flex;align-items:center;gap:8px}
       .claimbar{display:flex;gap:8px;margin-bottom:8px}
