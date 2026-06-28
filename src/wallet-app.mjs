@@ -118,6 +118,16 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     return c.redirect('/', 302);
   });
 
+  // delete a single stored credential (keeps the holder key + other creds)
+  app.post('/cred/:id/delete', async (c) => {
+    const s = await loadSession(c);
+    const id = c.req.param('id');
+    s.wallet.remove(id);
+    s.creds = s.creds.filter((x) => x.id !== id);
+    await saveSession(s);
+    return c.redirect('/', 302);
+  });
+
   // Dev: show the holder-binding (device) key — public JWK + thumbprint, and the
   // demo soft-key private PEM (mock TEE; never exposed like this in production).
   app.get('/dev/holder-key', async (c) => {
@@ -512,16 +522,119 @@ const PRESENT_JS = `<script>
 })();
 </script>`;
 
+// red box-with-X delete glyph (no trash can)
+const delGlyph = (sz = 20) => `<svg width="${sz}" height="${sz}" viewBox="0 0 20 20" aria-hidden="true" style="display:block">
+  <rect x="2.6" y="2.6" width="14.8" height="14.8" rx="3.6" fill="none" stroke="#C8453C" stroke-width="1.7"/>
+  <path d="M7 7 L13 13 M13 7 L7 13" stroke="#C8453C" stroke-width="1.9" stroke-linecap="round"/></svg>`;
+
+/** A wallet-local JSON representation of a stored credential, built from the
+ *  decoded claims + catalog metadata (mdoc -> docType/namespaces, SD-JWT -> vct/claims). */
+function credJsonRepr(c) {
+  const cc = catalog.credential_configurations_supported[c.configId] || {};
+  return c.format === 'mso_mdoc'
+    ? { format: 'mso_mdoc', docType: cc.doctype, namespaces: { [cc.doctype]: c.claims || {} } }
+    : { format: 'dc+sd-jwt', vct: cc.vct, claims: c.claims || {} };
+}
+
+// card: issuer-style icon + up to 4 representative claims; whole card opens the modal
 function credCard(c) {
-  const rows = Object.entries(c.claims || {}).slice(0, 6)
-    .map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('');
+  const entries = Object.entries(c.claims || {});
+  const rows = entries.slice(0, 4).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('');
+  const extra = entries.length - Math.min(entries.length, 4);
   const name = typeName(credType(c.configId));
-  return `<div class="held">
+  return `<div class="held" role="button" tabindex="0" onclick="openCred('${esc(c.id)}')" onkeydown="if(event.key==='Enter')openCred('${esc(c.id)}')">
     <div class="hd"><span class="hd-ic">${typeIcon(credType(c.configId))}</span>
       <span class="hd-t"><b>${esc(name)}</b><small>${esc(c.configId)}</small></span>
       <span class="fmt">${c.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT'}</span></div>
-    <table class="cl">${rows}</table></div>`;
+    <table class="cl">${rows}</table>
+    <div class="held-more">▤ すべての属性・JSON を表示${extra > 0 ? ` ＋${extra}項目` : ''} →</div></div>`;
 }
+
+// bottom-sheet modal per credential: 属性 / JSON segment + delete (-> confirm dialog)
+function credModal(c) {
+  const name = typeName(credType(c.configId));
+  const entries = Object.entries(c.claims || {});
+  const full = entries.map(([k, v]) => `<div class="r"><span class="dk">${esc(k)}</span><span class="dv">${esc(v)}</span></div>`).join('');
+  const json = JSON.stringify(credJsonRepr(c), null, 2);
+  return `<div class="vcsheet" id="cm-${esc(c.id)}" hidden>
+    <div class="vc-scrim" onclick="closeCred('${esc(c.id)}')"></div>
+    <div class="sheet">
+      <div class="mh">${typeIcon(credType(c.configId))}<div class="mh-nm">${esc(name)}</div>
+        <button type="button" class="mh-x" onclick="closeCred('${esc(c.id)}')" aria-label="閉じる">×</button></div>
+      <div class="seg">
+        <button type="button" class="on" data-pan="attr">属性（全${entries.length}件）</button>
+        <button type="button" data-pan="json">JSON</button></div>
+      <div class="mc">
+        <div class="pan pan-attr"><div class="dfull">${full}</div></div>
+        <div class="pan pan-json" hidden><pre class="djson">${esc(json)}</pre></div></div>
+      <div class="mfoot"><button type="button" class="vc-del" onclick="askDelete('${esc(c.id)}','${esc(name)}')">${delGlyph()}<span>このクレデンシャルを削除</span></button></div>
+    </div></div>`;
+}
+
+// shared delete-confirmation dialog (target set by askDelete)
+const DELETE_CONFIRM = `<div class="vc-confirm" id="delConfirm" hidden>
+  <div class="vc-scrim" onclick="cancelDelete()"></div>
+  <div class="confirm">
+    <div class="cf-ic">${delGlyph(26)}</div>
+    <h3 class="cf-h">クレデンシャルを削除</h3>
+    <p class="cf-p"><span id="delName" class="cf-nm"></span> をウォレットから削除します。<br>この操作は取り消せません。</p>
+    <form method="POST" id="delForm" class="cf-btns">
+      <button type="button" class="cf-cancel" onclick="cancelDelete()">キャンセル</button>
+      <button type="submit" class="cf-del">削除する</button>
+    </form>
+  </div></div>`;
+
+const VC_MODAL_STYLE = `<style>
+  .held{cursor:pointer;transition:box-shadow .12s,border-color .12s}
+  .held:hover{border-color:#cfdbe6;box-shadow:0 2px 10px rgba(14,26,43,.06)}
+  .held:focus-visible{outline:2px solid #2E7D6B;outline-offset:2px}
+  .held-more{margin-top:10px;font-size:12px;color:#2E7D6B;font-weight:700}
+  .vcsheet,.vc-confirm{position:fixed;inset:0;z-index:50;display:flex}
+  .vcsheet[hidden],.vc-confirm[hidden]{display:none}
+  .vcsheet{align-items:flex-end}.vc-confirm{align-items:center;justify-content:center;padding:24px}
+  .vc-scrim{position:absolute;inset:0;background:rgba(14,26,43,.45)}
+  .vcsheet .sheet{position:relative;width:100%;max-width:560px;margin:0 auto;background:#fff;border-radius:18px 18px 0 0;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 -8px 30px rgba(0,0,0,.2)}
+  .sheet .mh{display:flex;align-items:center;gap:11px;padding:16px 18px 12px;border-bottom:1px solid var(--line)}
+  .sheet .mh .vcicon{width:42px;height:auto}
+  .sheet .mh-nm{font-weight:700;font-size:15px}
+  .sheet .mh-x{margin-left:auto;font-size:22px;line-height:1;color:var(--muted);background:none;border:none;cursor:pointer;padding:0 4px}
+  .seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:12px 18px 0}
+  .seg button{flex:1;font:inherit;font-size:12.5px;font-weight:700;padding:9px;border:none;background:#fff;color:var(--muted);cursor:pointer}
+  .seg button.on{background:#E8F2EF;color:#246154}
+  .mc{padding:14px 18px 18px;overflow:auto}
+  .dfull .r{display:flex;justify-content:space-between;gap:12px;padding:9px 2px;font-size:13.5px;border-bottom:1px solid #f0f3f8}
+  .dfull .r:last-child{border-bottom:none}
+  .dfull .dk{color:var(--muted)}.dfull .dv{font-weight:600;text-align:right;word-break:break-all}
+  .djson{background:#0E1A2B;color:#cfe6dd;border-radius:10px;padding:14px;margin:0;font-family:ui-monospace,monospace;font-size:11.5px;line-height:1.65;white-space:pre;overflow:auto}
+  .mfoot{padding:12px 18px 18px;border-top:1px solid var(--line)}
+  .vc-del{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;background:#fff;color:#C8453C;border:1px solid #E2B4AE;border-radius:11px;padding:13px;font:inherit;font-size:14px;font-weight:700;cursor:pointer}
+  .vc-del:hover{background:#FBE9E7}
+  .vc-confirm .confirm{position:relative;background:#fff;border-radius:16px;padding:22px 20px 18px;width:100%;max-width:340px;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,.25)}
+  .cf-ic{width:52px;height:52px;border-radius:13px;border:1.6px solid #C8453C;background:#FBE9E7;display:flex;align-items:center;justify-content:center;margin:0 auto 12px}
+  .cf-h{margin:0 0 8px;font-size:17px}
+  .cf-p{margin:0;font-size:13px;color:var(--muted);line-height:1.7}
+  .cf-nm{color:var(--ink);font-weight:700}
+  .cf-btns{display:flex;gap:10px;margin-top:18px}
+  .cf-btns button{flex:1;font:inherit;font-size:14px;font-weight:700;padding:12px;border-radius:10px;cursor:pointer}
+  .cf-cancel{background:#fff;border:1px solid var(--line);color:var(--ink)}
+  .cf-del{background:#C8453C;border:none;color:#fff}
+</style>`;
+
+const VC_MODAL_JS = `<script>
+  function openCred(id){var m=document.getElementById('cm-'+id);if(m){m.hidden=false;document.body.style.overflow='hidden';}}
+  function closeCred(id){var m=document.getElementById('cm-'+id);if(m){m.hidden=true;document.body.style.overflow='';}}
+  function askDelete(id,name){var d=document.getElementById('delConfirm');document.getElementById('delForm').action='/cred/'+encodeURIComponent(id)+'/delete';document.getElementById('delName').textContent=name;d.hidden=false;document.body.style.overflow='hidden';}
+  function cancelDelete(){document.getElementById('delConfirm').hidden=true;document.body.style.overflow='';}
+  document.querySelectorAll('.seg').forEach(function(seg){
+    seg.addEventListener('click',function(e){
+      var b=e.target.closest('button[data-pan]');if(!b)return;
+      seg.querySelectorAll('button').forEach(function(x){x.classList.toggle('on',x===b);});
+      var sheet=seg.parentNode;
+      sheet.querySelector('.pan-attr').hidden=b.dataset.pan!=='attr';
+      sheet.querySelector('.pan-json').hidden=b.dataset.pan!=='json';
+    });
+  });
+</script>`;
 
 function home(s, issuerUrl, verifierUrl) {
   const body = s.creds.length
@@ -533,6 +646,7 @@ function home(s, issuerUrl, verifierUrl) {
          <button type="submit" class="reset-btn">初期化</button>
        </form>`
     : '';
+  const modals = s.creds.map(credModal).join('') + (s.creds.length ? DELETE_CONFIRM : '');
   return shell('ウェブウォレット', `
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
@@ -541,6 +655,7 @@ function home(s, issuerUrl, verifierUrl) {
       </div>
       <div style="margin-top:12px">${body}</div>
     </div>
+    ${modals}${VC_MODAL_STYLE}${s.creds.length ? VC_MODAL_JS : ''}
 
     <div class="card" style="margin-top:12px">
       <div class="step">発行受領 — OID4VCI</div>
