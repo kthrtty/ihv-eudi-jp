@@ -71,6 +71,29 @@ test('Verifier scenario B: EAA 国家資格 single (mdoc)', async () => {
   assert.equal(r.results[0].claims.qualification_name, '医師');
 });
 
+test('Selective disclosure: respond(request, selection) discloses only the holder-chosen subset', async () => {
+  const wallet = await walletWith(['pid_mdoc']);
+  const v = new VerifierService();
+  const { transactionId, request } = await v.createRequest({
+    specs: [{ id: 'pid', configId: 'pid_mdoc', claims: ['family_name', 'given_name', 'birth_date'] }],
+  });
+  // holder elects to reveal only family_name out of the three requested
+  const selection = { pid: { credentialId: wallet.list()[0].id, disclose: ['family_name'] } };
+  const r = await v.verifyResponse({ transactionId, encryptedResponse: await wallet.respond(request, selection) });
+  assert.equal(r.results[0].claims.family_name, '山田');
+  assert.equal(r.results[0].claims.given_name, undefined, 'given_name withheld');
+  assert.equal(r.results[0].claims.birth_date, undefined, 'birth_date withheld');
+});
+
+test('Request advertises a human-readable client_name (提示先 label source)', async () => {
+  const v = new VerifierService({ clientName: '○○クリニック' });
+  const { request } = await v.createRequest({
+    specs: [{ id: 'pid', configId: 'pid_mdoc', claims: ['family_name'] }],
+    transport: 'redirect', responseUriBase: 'https://verifier.example/resp',
+  });
+  assert.equal(request.client_metadata.client_name, '○○クリニック');
+});
+
 test('Verifier regression: juminhyo (mdoc) residence_address whose mdoc element differs from key', async () => {
   // residence_address maps to mdoc element `resident_address`; DCQL must request
   // the wire element name, not the schema key, or verification fails as unsatisfied.

@@ -139,14 +139,23 @@ export function createWallet(snapshot = null) {
       return presentSdJwt({ sdjwt: c.credential, disclose: req.disclose, nonce: req.nonce, aud: req.aud, holderKeyPem: c.holderKeyPem });
     },
 
-    /** Answer an OID4VP Authorization Request: build vp_token and JWE-encrypt it. */
-    async respond(request) {
+    /** Answer an OID4VP Authorization Request: build vp_token and JWE-encrypt it.
+     *  `selection` (optional) lets the holder narrow what each query discloses:
+     *  { [dcqlId]: { credentialId?, disclose?:[wireNames] } }. Missing entries keep
+     *  the resolver defaults (which credential matches, and all requested claims). */
+    async respond(request, selection = null) {
+      // apply the holder's per-query selection on top of the resolver result
+      const pick = (r) => {
+        const sel = selection?.[r.dcqlId];
+        if (!sel) return r;
+        return { ...r, credentialId: sel.credentialId ?? r.credentialId, disclose: sel.disclose ?? r.disclose };
+      };
       // Annex C (org-iso-mdoc, HPKE) vs Annex D (OID4VP/HAIP, JWE)
       if (request.protocol === 'org-iso-mdoc' || request.encryption_info) {
         const encInfo = cborDecodeMap(fromB64url(request.encryption_info)); // ["dcapi", Map]
         const recipientJwk = coseKeyToJwk(encInfo[1].get('recipientPublicKey'));
         const transcript = annexCSessionTranscript({ base64EncryptionInfo: request.encryption_info, serializedOrigin: request.origin });
-        const resolved = resolveForWallet(request.dcql_query, this).filter((r) => r.format === 'mso_mdoc');
+        const resolved = resolveForWallet(request.dcql_query, this).filter((r) => r.format === 'mso_mdoc').map(pick);
         const r = resolved[0];
         const deviceResponse = buildDeviceResponse({
           issuerSignedBytes: store.get(r.credentialId).credential, disclose: r.disclose,
@@ -165,7 +174,7 @@ export function createWallet(snapshot = null) {
       const transcript = (request.response_mode === 'direct_post.jwt' && request.response_uri)
         ? annexDRedirectTranscript(request)
         : annexDSessionTranscript({ origin: request.origin, nonce: request.nonce, jwkThumbprint: thumbprint });
-      const resolved = resolveForWallet(request.dcql_query, this);
+      const resolved = resolveForWallet(request.dcql_query, this).map(pick);
 
       const vp_token = {};
       for (const r of resolved) {

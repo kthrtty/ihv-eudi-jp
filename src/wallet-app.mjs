@@ -10,8 +10,40 @@ import { getCookie, setCookie } from 'hono/cookie';
 import { randomBytes, createHash } from 'node:crypto';
 import { createWallet } from './wallet.mjs';
 import { verify as verifyCredential } from './issuer.mjs';
-import { resolveForWallet } from './dcql.mjs';
-import { shell, pkce } from './authcode-demo.mjs';
+import { shell, pkce, typeIcon } from './authcode-demo.mjs';
+import { catalog, configInfo } from './issuer.mjs';
+
+// type prefix of a configId (pid_mdoc -> pid) for the issuer-matched icon
+const credType = (configId) => String(configId || '').replace(/_(mdoc|sdjwt)$/, '');
+
+// Human-readable "提示先" label: prefer client_metadata.client_name, else fall
+// back to the host of the response_uri / a redirect_uri client_id, else client_id.
+function verifierLabel(request) {
+  const name = request?.client_metadata?.client_name;
+  if (name) return { name, src: 'client_metadata.client_name' };
+  const cid = String(request?.client_id || '');
+  const uri = request?.response_uri || (cid.startsWith('redirect_uri:') ? cid.slice('redirect_uri:'.length) : '');
+  try { if (uri) return { name: new URL(uri).host, src: 'response_uri host' }; } catch {}
+  if (cid.startsWith('x509_san_dns:')) return { name: cid.slice('x509_san_dns:'.length), src: 'x509 SAN dNSName' };
+  return { name: cid || '(不明)', src: 'client_id' };
+}
+
+/** Resolve a DCQL request against the wallet's stored creds (with claim values),
+ *  returning per-query matches so the UI can let the holder pick credential+claims.
+ *  Matches by BOTH format AND doctype/vct — the same rule used at present time. */
+function resolvePresentation(request, creds) {
+  return (request?.dcql_query?.credentials || []).map((q) => {
+    const isMdoc = q.format === 'mso_mdoc';
+    const want = isMdoc ? q.meta?.doctype_value : q.meta?.vct_values?.[0];
+    const matches = creds.filter((cr) => {
+      const cc = catalog.credential_configurations_supported[cr.configId];
+      return cr.format === q.format && (isMdoc ? cc?.doctype === want : cc?.vct === want);
+    });
+    // requested claim wire-names = last path segment (mdoc element / sd-jwt key)
+    const reqClaims = (q.claims || []).map((cl) => cl.path[cl.path.length - 1]);
+    return { dcqlId: q.id, format: q.format, isMdoc, want, matches, reqClaims };
+  });
+}
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
 const rand = () => randomBytes(16).toString('hex');
@@ -274,31 +306,32 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
       const request = await (await doFetch(c.req.query('request_uri'))).json();
       s.present = { request };
       await saveSession(s);
-      const claims = (request.dcql_query?.credentials || []).flatMap((q) => (q.claims || []).map((cl) => cl.path[cl.path.length - 1]));
-      // Accurate fulfillment check: can the wallet actually resolve this request?
-      // (matches by BOTH format AND doctype/vct — same logic used at present time)
-      let have = true;
-      try { resolveForWallet(request.dcql_query, s.wallet); } catch { have = false; }
-      // describe the requested credential(s) (format + doctype/vct) and what's held,
-      // so a format/type mismatch is explained rather than "you have nothing".
-      const reqs = (request.dcql_query?.credentials || []).map((q) => ({
-        fmt: q.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT',
-        id: q.format === 'mso_mdoc' ? (q.meta?.doctype_value || '') : (q.meta?.vct_values?.[0] || ''),
-      }));
+      // resolve the DCQL against held creds: per query, which creds match + values
+      const plan = resolvePresentation(request, s.creds);
+      const have = plan.length > 0 && plan.every((q) => q.matches.length > 0);
       const held = s.creds.map((cr) => ({ configId: cr.configId, fmt: cr.configId.endsWith('_mdoc') ? 'mdoc' : 'SD-JWT' }));
-      return c.html(presentConsent({ request, claims, have, reqs, held }));
+      return c.html(presentConsent({ request, plan, have, held }));
     } catch (e) {
       return c.html(shell('ウォレット', `<div class="card"><h1>提示要求の取得に失敗</h1><div class="hint" style="color:#9E3A3A">${esc(e.message)}</div></div>`, WALLET));
     }
   });
-  // user consents -> build vp_token, POST (direct_post.jwt) to response_uri, follow redirect
+  // user consents -> build vp_token with the chosen creds/claims, POST to response_uri
   app.post('/present/confirm', async (c) => {
     const s = await loadSession(c);
     try {
       const request = s.present?.request;
       if (!request) throw new Error('保留中の提示要求がありません。提示要求を取得し直してください。');
       if (!request.response_uri) throw new Error('提示要求に response_uri がありません（DC API 用の要求の可能性）。');
-      const jwe = await s.wallet.respond(request);
+      // build the holder's selection from the form: per query, chosen credential + claims
+      const body = await c.req.parseBody({ all: true });
+      const arr = (v) => (v === undefined ? [] : Array.isArray(v) ? v : [v]);
+      const plan = resolvePresentation(request, s.creds);
+      const selection = {};
+      for (const q of plan) {
+        const credentialId = body[`cred:${q.dcqlId}`] ?? q.matches[0]?.id;
+        selection[q.dcqlId] = { credentialId, disclose: arr(body[`disclose:${q.dcqlId}`]) };
+      }
+      const jwe = await s.wallet.respond(request, selection);
       const resp = await doFetch(request.response_uri, {
         method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ response: jwe }).toString(),
@@ -322,42 +355,172 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
 
 const WALLET = { brand: 'IHV ウェブウォレット', sub: 'WEB WALLET', role: 'wallet' };
 
-function presentConsent({ request, claims, have, reqs = [], held = [] }) {
-  const pills = claims.map((k) => `<span class="pill">${esc(k)}</span>`).join(' ');
-  const reqLine = reqs.map((r) => `${esc(r.id || '?')}（${esc(r.fmt)}）`).join('、');
-  const heldLine = held.length
-    ? held.map((h) => `${esc(h.configId)}（${esc(h.fmt)}）`).join('、')
-    : 'なし';
+function presentConsent({ request, plan, have, held = [] }) {
+  const v = verifierLabel(request);
+  const rpHost = (() => { try { return new URL(request.response_uri).host; } catch { return ''; } })();
+  // ---- requested-but-not-held: explain the format/type mismatch
+  const reqLine = plan.map((q) => `${esc(q.want || '?')}（${q.isMdoc ? 'mdoc' : 'SD-JWT'}）`).join('、');
+  const heldLine = held.length ? held.map((h) => `${esc(h.configId)}（${esc(h.fmt)}）`).join('、') : 'なし';
   const notHeld = `
     <div class="hint" style="color:#9E3A3A;margin-top:12px">
       要求された形式・種別のクレデンシャルを保有していません。<br>
-      <b>要求</b>: ${reqLine || '—'}<br>
-      <b>保有</b>: ${heldLine}
+      <b>要求</b>: ${reqLine || '—'}<br><b>保有</b>: ${heldLine}
       <div style="margin-top:6px">同じ種別でも <b>mdoc / SD-JWT の形式が一致</b>している必要があります。該当形式での発行を受けてください。</div>
     </div>`;
+
+  // ---- one card per requested credential (query): pick credential + claims
+  const claimRow = (q, cred, wire, active) => {
+    const valRaw = cred.claims?.[wire];
+    const has = valRaw !== undefined && valRaw !== '';
+    const val = has ? String(valRaw) : '（保有なし）';
+    return `<label class="crow${has ? '' : ' missing'}">
+      <input type="checkbox" name="disclose:${esc(q.dcqlId)}" value="${esc(wire)}"
+        data-q="${esc(q.dcqlId)}" data-key="${esc(wire)}" data-val="${esc(val)}"
+        ${has ? 'checked' : 'disabled'} ${active ? '' : 'disabled'}>
+      <span class="cbx"></span>
+      <span class="cl-main"><span class="cl-k">${esc(wire)}</span><span class="cl-v">${esc(val)}</span></span>
+    </label>`;
+  };
+  const credBlock = (q, cred, active) => `<div class="cblock" data-q="${esc(q.dcqlId)}" data-cred="${esc(cred.id)}" ${active ? '' : 'hidden'}>
+      ${q.reqClaims.map((w) => claimRow(q, cred, w, active)).join('')}
+    </div>`;
+  const qCard = (q) => {
+    const first = q.matches[0];
+    const info = configInfo(first.configId);
+    const icon = typeIcon(credType(first.configId));
+    const multi = q.matches.length > 1;
+    const picker = multi ? `<div class="picker">
+      <div class="pk-h">一致する候補が${q.matches.length}件。提示するクレデンシャルを選択：</div>
+      ${q.matches.map((m, i) => `<label class="prow">
+        <input type="radio" name="cred:${esc(q.dcqlId)}" value="${esc(m.id)}" data-q="${esc(q.dcqlId)}" ${i === 0 ? 'checked' : ''}>
+        <span class="rdo"></span><span>${esc(configInfo(m.configId).name)} <span class="mono" style="color:var(--muted);font-size:11px">${esc(m.id.slice(0, 8))}</span></span>
+      </label>`).join('')}
+    </div>` : `<input type="hidden" name="cred:${esc(q.dcqlId)}" value="${esc(first.id)}">`;
+    return `<div class="card qcard" data-q="${esc(q.dcqlId)}">
+      <div class="qhead">${icon}<div>
+        <div class="qname">${esc(info.name)}</div>
+        <div class="qmeta">${esc(q.want || '')} ・ <span class="fmt">${q.isMdoc ? 'mdoc' : 'SD-JWT'}</span></div>
+      </div></div>
+      ${picker}
+      <div class="claims">${q.matches.map((m, i) => credBlock(q, m, i === 0)).join('')}</div>
+    </div>`;
+  };
+
+  const body = have
+    ? `<form method="POST" action="/present/confirm" id="pf">
+        ${plan.map(qCard).join('')}
+        <div class="card" id="prevCard">
+          <div class="step">送信プレビュー（デバッグ）— vp_token に入る claims</div>
+          <pre id="preview" class="prev"></pre>
+        </div>
+        <div class="bar">
+          <div class="count" id="count"></div>
+          <button class="btn" type="submit">この内容で提示（暗号化して送信）</button>
+          <div class="mini" id="minall">↺ 必要最小限だけにする</div>
+        </div>
+        <div class="hint">チェックを外した項目は vp_token に含まれず、提示先に渡りません。提示は OID4VP を <b>HTTPS リダイレクト</b>（direct_post.jwt）で実行します。</div>
+      </form>`
+    : `<div class="card">${notHeld}</div>`;
+
   return shell('提示の確認', `
-    <div class="card">
-      <div class="step">OID4VP 提示要求（Verifier から）</div>
+    <div class="card rpcard">
+      <div class="step">OID4VP 提示要求</div>
       <h1>この情報を提示しますか？</h1>
-      <div class="req">
-        <div class="k">要求元（client_id）</div><b class="mono" style="font-size:12px">${esc(request.client_id)}</b>
-        <div class="k" style="margin-top:8px">要求クレデンシャル</div><div style="margin-top:2px;font-size:13px">${esc(reqLine || '—')}</div>
-        <div class="k" style="margin-top:8px">要求項目（これだけを開示）</div><div style="margin-top:4px">${pills}</div>
-        <div class="k mono" style="margin-top:8px;font-size:11px">direct_post.jwt → ${esc(request.response_uri)}</div>
+      <div class="rp">
+        <div class="rp-ic"></div>
+        <div class="rp-main">
+          <div class="rp-k">提示先</div>
+          <div class="rp-name">${esc(v.name)}</div>
+          <div class="rp-sub mono">${esc(rpHost || request.client_id)}</div>
+        </div>
       </div>
-      ${have
-      ? `<form method="POST" action="/present/confirm" style="text-align:center;margin-top:12px"><button class="btn" type="submit">提示する（暗号化して送信）</button></form>`
-      : notHeld}
-      <div class="hint" style="margin-top:10px">提示は OID4VP を <b>HTTPS リダイレクト</b>で実行します（ネイティブ DC API 不使用）。</div>
-    </div>${STYLE}
-    <style>.pill{display:inline-block;font-size:12px;background:#f1f5f4;border:1px solid var(--line);border-radius:999px;padding:2px 9px;margin:2px}</style>`, WALLET);
+      <div class="rp-src">ラベル取得元: <code>${esc(v.src)}</code></div>
+    </div>
+    ${body}${STYLE}${PRESENT_STYLE}${have ? PRESENT_JS : ''}`, WALLET);
 }
+
+const PRESENT_STYLE = `<style>
+  .rpcard h1{font-size:18px;margin:6px 0 12px}
+  .rp{display:flex;gap:11px;align-items:center;background:#f7f9fc;border:1px solid var(--line);border-radius:11px;padding:12px 14px}
+  .rp-ic{width:34px;height:34px;border-radius:9px;background:#9E3A3A;flex:none}
+  .rp-k{font-size:11px;color:var(--muted)}
+  .rp-name{font-weight:700;font-size:15px;margin-top:1px}
+  .rp-sub{font-size:11px;color:var(--muted);margin-top:1px}
+  .rp-src{font-size:11px;color:var(--muted);margin-top:8px}
+  .qcard{margin-top:12px;padding:16px}
+  .qhead{display:flex;gap:12px;align-items:center}
+  .qhead .vcicon{width:48px;height:auto;flex:none}
+  .qname{font-weight:700;font-size:15px}
+  .qmeta{font-size:11px;color:var(--muted);margin-top:2px}
+  .qmeta .fmt{color:#2E7D6B;font-weight:700}
+  .picker{margin-top:12px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#fbfdfc}
+  .pk-h{font-size:12px;color:var(--muted);margin-bottom:6px}
+  .prow{display:flex;align-items:center;gap:9px;padding:5px 0;font-size:13.5px;cursor:pointer}
+  .prow input{display:none}
+  .rdo{width:18px;height:18px;border-radius:50%;border:2px solid var(--line);flex:none}
+  .prow input:checked+.rdo{border-color:#2E7D6B;background:radial-gradient(circle,#fff 0 3px,#2E7D6B 4px)}
+  .claims{margin-top:8px}
+  .crow{display:flex;align-items:center;gap:11px;padding:11px 2px;border-top:1px solid var(--line);cursor:pointer}
+  .crow:first-child{border-top:none}
+  .crow input{display:none}
+  .cbx{width:22px;height:22px;border-radius:7px;border:2px solid var(--line);flex:none;position:relative}
+  .crow input:checked+.cbx{background:#2E7D6B;border-color:#2E7D6B}
+  .crow input:checked+.cbx::after{content:"";position:absolute;left:7px;top:3px;width:5px;height:10px;border:solid #fff;border-width:0 2.5px 2.5px 0;transform:rotate(45deg)}
+  .crow.missing{opacity:.5;cursor:not-allowed}
+  .cl-main{flex:1;min-width:0}
+  .cl-k{display:block;font-size:11px;color:var(--muted)}
+  .cl-v{display:block;font-size:14px;font-weight:600;margin-top:1px;word-break:break-all}
+  .prev{background:#0E1A2B;color:#cfe6dd;border-radius:10px;padding:13px 14px;margin:8px 0 0;font-family:ui-monospace,monospace;font-size:12px;line-height:1.7;white-space:pre-wrap;word-break:break-all;overflow:auto}
+  .bar{position:sticky;bottom:0;background:#fff;border:1px solid var(--line);border-radius:14px;padding:13px 16px;margin-top:12px}
+  .count{font-size:12.5px;color:var(--muted);margin-bottom:10px;text-align:center}
+  .count b{color:var(--ink)}
+  .bar .btn{display:block;width:100%;background:#2E7D6B}
+  .bar .btn:hover{background:#246154}
+  .mini{font-size:12px;color:#2E7D6B;font-weight:700;text-align:right;margin-top:8px;cursor:pointer}
+</style>`;
+
+const PRESENT_JS = `<script>
+(function(){
+  var f=document.getElementById('pf'); if(!f) return;
+  function activeBoxes(){ return [].slice.call(f.querySelectorAll('input[name^="disclose:"]')).filter(function(b){return !b.disabled;}); }
+  function refresh(){
+    var groups={}, n=0, total=0;
+    activeBoxes().forEach(function(b){
+      total++;
+      if(b.checked){ n++; (groups[b.dataset.q]=groups[b.dataset.q]||{})[b.dataset.key]=b.dataset.val; }
+    });
+    document.getElementById('preview').textContent=JSON.stringify(groups,null,2);
+    document.getElementById('count').innerHTML='開示する項目: <b>'+n+'</b> / '+total;
+  }
+  // credential radios: show the chosen cred's claim block, toggle input.disabled
+  f.addEventListener('change',function(e){
+    if(e.target.name && e.target.name.indexOf('cred:')===0){
+      var q=e.target.dataset.q, chosen=e.target.value;
+      f.querySelectorAll('.cblock[data-q="'+q+'"]').forEach(function(bl){
+        var on=bl.dataset.cred===chosen; bl.hidden=!on;
+        bl.querySelectorAll('input[name^="disclose:"]').forEach(function(i){
+          // never enable rows the holder doesn't actually have (data-val placeholder)
+          i.disabled = !on || i.dataset.val==='（保有なし）';
+        });
+      });
+    }
+    refresh();
+  });
+  document.getElementById('minall').addEventListener('click',function(){
+    activeBoxes().forEach(function(b){ b.checked=false; }); refresh();
+  });
+  refresh();
+})();
+</script>`;
 
 function credCard(c) {
   const rows = Object.entries(c.claims || {}).slice(0, 6)
     .map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('');
+  const name = (() => { try { return configInfo(c.configId).name; } catch { return c.configId; } })();
   return `<div class="held">
-    <div class="hd"><b>${esc(c.configId)}</b><span class="fmt">${c.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT'}</span></div>
+    <div class="hd"><span class="hd-ic">${typeIcon(credType(c.configId))}</span>
+      <span class="hd-t"><b>${esc(name)}</b><small>${esc(c.configId)}</small></span>
+      <span class="fmt">${c.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT'}</span></div>
     <table class="cl">${rows}</table></div>`;
 }
 
@@ -569,7 +732,10 @@ function offerForm(issuerBase) {
 
 const STYLE = `<style>
   .held{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-top:12px}
-  .held .hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+  .held .hd{display:flex;align-items:center;gap:11px;margin-bottom:6px}
+  .held .hd-ic .vcicon{width:42px;height:auto;display:block}
+  .held .hd-t{flex:1;min-width:0}
+  .held .hd-t small{display:block;font-size:11px;color:var(--muted);font-family:ui-monospace,monospace}
   .held .fmt{font-size:11px;color:#2E7D6B;background:#E8F2EF;border:1px solid #D2E5DF;border-radius:999px;padding:2px 9px;font-weight:700}
   table.cl{width:100%;border-collapse:collapse;font-size:13px}
   table.cl td{padding:6px 8px;border-bottom:1px solid var(--line)}

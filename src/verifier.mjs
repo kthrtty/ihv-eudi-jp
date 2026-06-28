@@ -21,9 +21,11 @@ export class VerifierService {
   constructor({ store = memoryStore(),
     clientId = 'x509_san_dns:verifier.ihv.example',
     origin = 'https://verifier.ihv.example',
+    clientName = 'IHV デモ検証者（RP）',
     encPrivatePem = null, trustedIacaDer = null, trustedIssuerCaDer = null,
     statusResolver = null } = {}) {
     this.store = store; this.clientId = clientId; this.origin = origin;
+    this.clientName = clientName;
     this.statusResolver = statusResolver;
     this._trustedIacaDer = trustedIacaDer;
     this._trustedIssuerCaDer = trustedIssuerCaDer;
@@ -99,6 +101,7 @@ export class VerifierService {
         nonce,
         dcql_query,
         client_metadata: {
+          client_name: this.clientName,
           jwks: { keys: [{ ...this.encJwk, use: 'enc', alg: 'ECDH-ES' }] },
           authorization_encrypted_response_alg: 'ECDH-ES',
           authorization_encrypted_response_enc: 'A128GCM',
@@ -120,6 +123,7 @@ export class VerifierService {
       origin: this.origin,
       dcql_query,
       client_metadata: {
+        client_name: this.clientName,
         jwks: { keys: [{ ...this.encJwk, use: 'enc', alg: 'ECDH-ES' }] },
         authorization_encrypted_response_alg: 'ECDH-ES',
         authorization_encrypted_response_enc: 'A128GCM',
