@@ -487,7 +487,7 @@ export function renderVcSelect(user, groups) {
         </div>
         <div class="optrow">
           <div class="optlbl">tx_code</div>
-          <label class="inline"><input type="checkbox" id="txcode"> PIN（4921）を要求（Pre-Auth のみ）</label>
+          <label class="inline"><input type="checkbox" id="txcode"> PIN を要求（Pre-Auth のみ・発行時に動的生成）</label>
         </div>
         <div class="actions">
           <button class="btn ghost" id="showjson">オファリング JSON を表示</button>
@@ -497,6 +497,11 @@ export function renderVcSelect(user, groups) {
       </div>
 
       <div id="out" class="hidden">
+        <div id="pinbanner" class="pinbanner hidden">
+          <div class="pin-k">発行者 PIN（tx_code）— ウォレットにこの番号を入力</div>
+          <div class="pin-v" id="pinval">––––</div>
+          <div class="pin-note">この PIN はオファー生成のたびに動的生成されます。発行者が利用者へ別経路で伝える想定です。</div>
+        </div>
         <div class="grid2">
           <div class="card">
             <div class="eyebrow">Credential Offer（JSON）</div>
@@ -528,7 +533,7 @@ export function renderVcSelect(user, groups) {
         if (!selected.size) { alert('クレデンシャルの形式を1つ以上選択してください'); return null; }
         const grant = $('grant').value;
         const body = { credential_configuration_ids: [...selected], grant, qr: withQr };
-        if ($('txcode').checked) body.tx_code = '4921';
+        if ($('txcode').checked) body.tx_code = true; // issuer generates a fresh PIN
         const r = await fetch('/offer', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
         const d = await r.json();
         if (d.error) { alert('生成に失敗: ' + (d.error_description || d.error)); return null; }
@@ -538,6 +543,8 @@ export function renderVcSelect(user, groups) {
         // JSON step: build the Credential Offer (the URI is already created) and
         // show ONLY the JSON. Issue step: also reveal the QR + URI together.
         $('offerjson').textContent = JSON.stringify(d.credential_offer, null, 2);
+        if (d.tx_code) { $('pinval').textContent = d.tx_code; $('pinbanner').classList.remove('hidden'); }
+        else { $('pinbanner').classList.add('hidden'); }
         if (withQr) {
           const mode = document.querySelector('input[name=delivery]:checked').value;
           const uri = mode === 'value' ? d.delivery.by_value_uri : d.delivery.by_reference_uri;
@@ -556,6 +563,10 @@ export function renderVcSelect(user, groups) {
       $('issue').onclick = async (e) => { e.preventDefault(); const d = await buildOffer(true); if (d) showResult(d, true); };
     </script>
     <style>
+      .pinbanner{background:#fff;border:1px solid var(--line);border-left:4px solid var(--seal);border-radius:10px;padding:14px 18px;margin-bottom:14px;text-align:center}
+      .pin-k{font-size:12px;color:var(--muted);letter-spacing:.04em}
+      .pin-v{font-family:"IBM Plex Mono",monospace;font-size:34px;font-weight:700;letter-spacing:.18em;color:var(--seal);margin:6px 0}
+      .pin-note{font-size:11px;color:var(--muted)}
       .sect{background:#fff;border:1px solid var(--line);border-left:4px solid var(--verify);border-radius:10px;padding:14px 18px;font-size:13px;color:var(--muted);letter-spacing:.04em}
       .sect b{color:var(--ink);font-weight:700}
       .h2{font-size:20px;margin:24px 0 6px;font-weight:700}
