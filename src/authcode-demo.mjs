@@ -317,17 +317,34 @@ export function renderConsentScreen(q, user, requested) {
 
 // Curated display names + short descriptions per credential type (matches the
 // card tiles in the issuer portal). Keyed by the type prefix of the configId.
+// c1/c2: material-design gradient; glyph: an emoji evoking the credential type.
 const TYPE_META = {
-  pid:           { name: 'PID（写真付き身分証）',     desc: '基本四情報＋顔写真' },
-  juminhyo:      { name: '住民票（EAA）',             desc: '住所・世帯情報' },
-  qualification: { name: '国家資格（EAA）',           desc: '医師・行政書士 等' },
-  koseki:        { name: '戸籍謄本（EAA）',           desc: '本籍・続柄・親子関係' },
-  tax:           { name: '課税証明書（EAA）',         desc: '所得・課税額' },
-  single:        { name: '独身証明書（EAA）',         desc: '婚姻状況の証明' },
-  disaster:      { name: '罹災証明書（EAA）',         desc: '被害程度の証明' },
-  vaccine:       { name: 'ワクチン接種証明書（EAA）', desc: '接種記録' },
+  pid:           { name: 'PID（写真付き身分証）',     desc: '基本四情報＋顔写真',    c1: '#3949AB', c2: '#283593', glyph: '🪪' },
+  juminhyo:      { name: '住民票（EAA）',             desc: '住所・世帯情報',        c1: '#00897B', c2: '#00695C', glyph: '🏠' },
+  qualification: { name: '国家資格（EAA）',           desc: '医師・行政書士 等',     c1: '#8E24AA', c2: '#6A1B9A', glyph: '🎓' },
+  koseki:        { name: '戸籍謄本（EAA）',           desc: '本籍・続柄・親子関係',  c1: '#6D4C41', c2: '#4E342E', glyph: '📜' },
+  tax:           { name: '課税証明書（EAA）',         desc: '所得・課税額',          c1: '#2E7D32', c2: '#1B5E20', glyph: '🧾' },
+  single:        { name: '独身証明書（EAA）',         desc: '婚姻状況の証明',        c1: '#D81B60', c2: '#AD1457', glyph: '💍' },
+  disaster:      { name: '罹災証明書（EAA）',         desc: '被害程度の証明',        c1: '#F4511E', c2: '#D84315', glyph: '🏚️' },
+  vaccine:       { name: 'ワクチン接種証明書（EAA）', desc: '接種記録',              c1: '#039BE5', c2: '#0277BD', glyph: '💉' },
 };
 const fmtLabel = (format) => (format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT');
+
+/** A small credential-card-shaped icon (IC chip + glyph + name band), themed per type. */
+function typeIcon(type) {
+  const m = TYPE_META[type] || { c1: '#607D8B', c2: '#455A64', glyph: '📄' };
+  return `<svg class="vcicon" width="84" height="106" viewBox="0 0 84 106" aria-hidden="true">
+    <defs><linearGradient id="g-${esc(type)}" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="${m.c1}"/><stop offset="1" stop-color="${m.c2}"/></linearGradient></defs>
+    <rect x="2" y="2" width="80" height="102" rx="13" fill="url(#g-${esc(type)})"/>
+    <rect x="13" y="16" width="18" height="13" rx="3" fill="#fff" opacity=".9"/>
+    <rect x="15.5" y="20.5" width="13" height="1.6" rx=".8" fill="${m.c2}" opacity=".55"/>
+    <rect x="15.5" y="24" width="13" height="1.6" rx=".8" fill="${m.c2}" opacity=".55"/>
+    <text x="50" y="58" font-size="30" text-anchor="middle" dominant-baseline="central">${m.glyph}</text>
+    <rect x="13" y="84" width="40" height="5" rx="2.5" fill="#fff" opacity=".55"/>
+    <rect x="13" y="92" width="26" height="5" rx="2.5" fill="#fff" opacity=".35"/>
+  </svg>`;
+}
 
 /** Group flat configInfo list into per-type cards: { type, name, desc, formats:[{configId,label}] }. */
 export function groupCatalog(configs) {
@@ -349,10 +366,13 @@ export function renderVcSelect(user, groups) {
     const chips = g.formats.map((f) =>
       `<button type="button" class="fmtchip" data-cfg="${esc(f.configId)}">${esc(f.label)}</button>`).join('');
     return `<div class="vccard">
-      <div class="vctype">${esc(g.type)}</div>
-      <div class="vcname">${esc(g.name)}</div>
-      <div class="vcdesc">${esc(g.desc)}</div>
-      <div class="vcchips">${chips}</div>
+      <div class="vcmain">
+        <div class="vctype">${esc(g.type)}</div>
+        <div class="vcname">${esc(g.name)}</div>
+        <div class="vcdesc">${esc(g.desc)}</div>
+        <div class="vcchips">${chips}</div>
+      </div>
+      <div class="vcart">${typeIcon(g.type)}</div>
     </div>`;
   }).join('');
   return appShell('クレデンシャルを発行する', `
@@ -447,8 +467,11 @@ export function renderVcSelect(user, groups) {
       .sect{background:#fff;border:1px solid var(--line);border-left:4px solid var(--verify);border-radius:10px;padding:14px 18px;font-size:13px;color:var(--muted);letter-spacing:.04em}
       .sect b{color:var(--ink);font-weight:700}
       .h2{font-size:20px;margin:24px 0 6px;font-weight:700}
-      .vcgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
-      .vccard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+      .vcgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:16px}
+      .vccard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px 20px;display:flex;align-items:center;gap:16px}
+      .vcmain{min-width:0;flex:1}
+      .vcart{flex-shrink:0}
+      .vcicon{display:block;filter:drop-shadow(0 6px 14px rgba(14,26,43,.18))}
       .vctype{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--muted);margin-bottom:6px}
       .vcname{font-size:17px;font-weight:700;margin-bottom:6px}
       .vcdesc{font-size:13px;color:var(--muted);margin-bottom:14px}
