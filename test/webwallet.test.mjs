@@ -6,6 +6,29 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { createApp, createVerifierApp } from '../src/app.mjs';
 import { createWalletApp } from '../src/wallet-app.mjs';
+import { kvStore } from '../src/oid4vci.mjs';
+
+// A fake Cloudflare KV (string store) wrapped by the real kvStore codec, with a
+// switch to force the next N `wsess:` reads to miss — simulates KV eventual
+// consistency / cross-edge propagation lag that the session layer must survive.
+function fakeKvStore() {
+  const kv = new Map();
+  let missWsess = 0;
+  const base = kvStore({
+    get: async (k) => (kv.has(k) ? kv.get(k) : null),
+    put: async (k, v) => { kv.set(k, v); },
+    delete: async (k) => { kv.delete(k); },
+  });
+  return {
+    get: async (k) => { if (missWsess > 0 && k.startsWith('wsess:')) { missWsess--; return null; } return base.get(k); },
+    set: base.set,
+    del: base.del,
+    forceMiss(n = 1) { missWsess = n; },
+    _rawKeys: () => [...kv.keys()],
+  };
+}
+const cookieOf = (res) => res.headers.get('set-cookie')?.split(';')[0];
+const sidOf = (res) => cookieOf(res)?.split('=')[1];
 
 test('web wallet: pre-auth issuance over HTTPS (cross-origin)', async () => {
   const PORT = 8930;
@@ -234,6 +257,68 @@ test('web wallet present: holding vaccine_mdoc, a vaccine_SDJWT request is not h
   } finally {
     await new Promise((r) => issuer.close(r));
     await new Promise((r) => verifier.close(r));
+  }
+});
+
+test('KV session: VCs added persist and BOTH formats are presentable from another isolate (not 保有なし)', async () => {
+  const IP = 8985, VP = 8986, WP = 8987;
+  const ISSUER = `http://127.0.0.1:${IP}`, VERIF = `http://127.0.0.1:${VP}`, WALLET = `http://127.0.0.1:${WP}`;
+  const issuer = serve({ fetch: createApp({ credentialIssuer: ISSUER }).fetch, port: IP });
+  const verifier = serve({ fetch: createVerifierApp({ verifierOrigin: VERIF, walletOrigin: WALLET, issuerUrl: ISSUER }).fetch, port: VP });
+  try {
+    const store = fakeKvStore();                                   // shared KV across "isolates"
+    const A = createWalletApp({ walletOrigin: WALLET, issuerUrl: ISSUER, store });
+    const B = createWalletApp({ walletOrigin: WALLET, issuerUrl: ISSUER, store });
+    const mk = async (cfg) => (await (await fetch(`${ISSUER}/offer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ credential_configuration_ids: [cfg] }) })).json()).offer_id;
+    // add PID mdoc + PID sd-jwt into one session on isolate A
+    const add = await A.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${await mk('pid_mdoc')}`));
+    const cookie = cookieOf(add);
+    await A.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${await mk('pid_sdjwt')}`), { headers: { cookie } });
+
+    // isolate B sees both on the home page
+    const home = await (await B.request('/', { headers: { cookie } })).text();
+    assert.match(home, /pid_mdoc/);
+    assert.match(home, /pid_sdjwt/);
+
+    // and BOTH formats are presentable (no "保有していません")
+    for (const cfg of ['pid_mdoc', 'pid_sdjwt']) {
+      const build = await (await fetch(`${VERIF}/vp/build`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ configId: cfg, claims: ['family_name'], protocol: 'annex-d', target: 'web' }) })).json();
+      const reqUri = new URL(build.walletPresent).searchParams.get('request_uri');
+      const present = await (await B.request('/present?request_uri=' + encodeURIComponent(reqUri), { headers: { cookie } })).text();
+      assert.doesNotMatch(present, /保有していません/, `${cfg} should be held`);
+      assert.match(present, /この内容で提示/, `${cfg} should be presentable`);
+    }
+  } finally {
+    await new Promise((r) => issuer.close(r));
+    await new Promise((r) => verifier.close(r));
+  }
+});
+
+test('KV session: a transient read miss must NOT rotate the cookie nor wipe stored VCs', async () => {
+  const IP = 8988, WP = 8989;
+  const ISSUER = `http://127.0.0.1:${IP}`, WALLET = `http://127.0.0.1:${WP}`;
+  const issuer = serve({ fetch: createApp({ credentialIssuer: ISSUER }).fetch, port: IP });
+  try {
+    const store = fakeKvStore();
+    const app = createWalletApp({ walletOrigin: WALLET, issuerUrl: ISSUER, store });
+    const offerId = (await (await fetch(`${ISSUER}/offer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'] }) })).json()).offer_id;
+    const add = await app.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${offerId}`));
+    const cookie = cookieOf(add);
+    const sid = sidOf(add);
+    assert.ok(sid);
+
+    // force the next wsess read to miss (eventual-consistency lag) and load a page
+    store.forceMiss(1);
+    const miss = await app.request('/', { headers: { cookie } });
+    // cookie must NOT be rotated to a new sid...
+    const newCookie = miss.headers.get('set-cookie');
+    if (newCookie) assert.equal(sidOf(miss), sid, 'cookie sid must be stable across a transient KV miss');
+    // ...and the stored VC must survive (a later, consistent read still sees it)
+    const creds = await (await app.request('/creds', { headers: { cookie } })).json();
+    assert.equal(creds.length, 1, 'VC must not be wiped by a transient miss');
+    assert.equal(creds[0].configId, 'pid_mdoc');
+  } finally {
+    await new Promise((r) => issuer.close(r));
   }
 });
 
