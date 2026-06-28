@@ -327,7 +327,7 @@ function home(s, issuerUrl, verifierUrl) {
       .hub-icon{font-size:20px;line-height:1;flex-shrink:0;margin-top:2px}
       .hub-sub{font-size:12px;color:var(--muted)}
       .hublink.small{font-size:13px;padding:8px 12px;align-items:center}
-    </style>`, WALLET);
+    </style>`, { ...WALLET, width: 'mid' });
 }
 
 function added(s, configId, grant) {

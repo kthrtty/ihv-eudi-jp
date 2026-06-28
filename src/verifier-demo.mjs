@@ -174,7 +174,7 @@ export function renderVerifyConsole() {
       .hidden{display:none}.muted{color:var(--muted)}
       .checks{display:grid;gap:6px;margin-top:8px}.ck2{font-size:13px}
       .cok{color:var(--verify);font-weight:700}.cng{color:var(--muted)}
-    </style>`, { brand: 'クレデンシャル検証ポータル', sub: 'VERIFIER', role: 'verifier' });
+    </style>`, { brand: 'クレデンシャル検証ポータル', sub: 'VERIFIER', role: 'verifier', width: 'mid' });
 }
 
 const claimNames = (request) => (request.dcql_query?.credentials || [])
