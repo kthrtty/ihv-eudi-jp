@@ -237,6 +237,38 @@ test('web wallet present: holding vaccine_mdoc, a vaccine_SDJWT request is not h
   }
 });
 
+test('multi-isolate: a stale per-isolate cache must not hide VCs another isolate stored in shared KV', async () => {
+  const IP = 8983, WP = 8984;
+  const ISSUER = `http://127.0.0.1:${IP}`, WALLET = `http://127.0.0.1:${WP}`;
+  const issuer = serve({ fetch: createApp({ credentialIssuer: ISSUER }).fetch, port: IP });
+  try {
+    // a fake KV shared by two app instances = two Workers isolates with separate mem.
+    // get returns a fresh clone (like KV's JSON round-trip), so no shared references.
+    const kv = new Map();
+    const store = { get: async (k) => (kv.has(k) ? JSON.parse(kv.get(k)) : null), set: async (k, v) => { kv.set(k, JSON.stringify(v)); } };
+    const A = createWalletApp({ walletOrigin: WALLET, issuerUrl: ISSUER, store }); // isolate A
+    const B = createWalletApp({ walletOrigin: WALLET, issuerUrl: ISSUER, store }); // isolate B
+
+    // isolate A first visit: creates + (in the old code) caches an EMPTY session
+    const visit = await A.request('/');
+    const cookie = visit.headers.get('set-cookie').split(';')[0];
+
+    // isolate B adds a credential under that same session (writes to shared KV)
+    const made = await (await fetch(`${ISSUER}/offer`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ credential_configuration_ids: ['vaccine_sdjwt'] }),
+    })).json();
+    await B.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${made.offer_id}`), { headers: { cookie } });
+
+    // isolate A again: must reflect KV, not its own stale empty cache
+    const creds = await (await A.request('/creds', { headers: { cookie } })).json();
+    assert.equal(creds.length, 1, 'isolate A must see the VC added via KV');
+    assert.equal(creds[0].configId, 'vaccine_sdjwt');
+  } finally {
+    await new Promise((r) => issuer.close(r));
+  }
+});
+
 test('web wallet home: VC cards show ≤4 attrs + a modal with 属性/JSON segment; per-VC delete removes only that VC', async () => {
   const IP = 8975, WP = 8976;
   const ISSUER = `http://127.0.0.1:${IP}`, WALLET = `http://127.0.0.1:${WP}`;
