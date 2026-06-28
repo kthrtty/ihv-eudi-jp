@@ -369,16 +369,72 @@ export function typeIcon(type) {
   return m.shape === 'card' ? cardIcon(type, m) : paperIcon(type, m);
 }
 
-/** Group flat configInfo list into per-type cards: { type, name, desc, formats:[{configId,label}] }. */
+/** Reusable "claims of this credential" modal. Renders the dialog markup, its
+ *  styles, and a global openClaims(type) the card ⓘ buttons call. `groups` come
+ *  from groupCatalog() (each provides name + claims + lets us draw the icon). */
+export function renderClaimsModal(groups) {
+  const META = {};
+  for (const g of groups) META[g.type] = { name: g.name, claims: g.claims, icon: typeIcon(g.type) };
+  return `
+    <div id="claimModal" class="cmodal-scrim hidden">
+      <div class="cmodal">
+        <div class="cmodal-head">
+          <div id="cmIcon" class="cmodal-icon"></div>
+          <div><div id="cmTitle" class="cmodal-title"></div><div id="cmSub" class="cmodal-sub"></div></div>
+          <span class="cmodal-close" id="cmClose" role="button" aria-label="閉じる">✕</span>
+        </div>
+        <div class="cmodal-body"><div class="cmodal-grp">含有クレーム（選択的開示の対象）</div><div id="cmPills" class="cmodal-pills"></div></div>
+      </div>
+    </div>
+    <script>
+      (function(){
+        const META = ${JSON.stringify(META)};
+        const $ = (id) => document.getElementById(id);
+        window.openClaims = function(type){
+          const m = META[type]; if(!m) return;
+          $('cmIcon').innerHTML = m.icon;
+          $('cmTitle').textContent = m.name;
+          $('cmSub').textContent = 'この資格情報に含まれる項目（' + m.claims.length + '）';
+          $('cmPills').innerHTML = m.claims.map((c) => '<span class="cmodal-pill">' + c + '</span>').join('');
+          $('claimModal').classList.remove('hidden');
+        };
+        const close = () => $('claimModal').classList.add('hidden');
+        $('cmClose').onclick = close;
+        $('claimModal').onclick = (e) => { if(e.target.id === 'claimModal') close(); };
+        document.addEventListener('keydown', (e) => { if(e.key === 'Escape') close(); });
+      })();
+    </script>
+    <style>
+      .cmodal-scrim{position:fixed;inset:0;background:#0e1a2b66;display:flex;align-items:center;justify-content:center;z-index:50;padding:20px}
+      .cmodal-scrim.hidden{display:none}
+      .cmodal{background:#fff;border-radius:16px;width:520px;max-width:94vw;max-height:88vh;overflow:auto;box-shadow:0 20px 60px #0e1a2b40}
+      .cmodal-head{display:flex;align-items:center;gap:14px;padding:18px 22px;border-bottom:1px solid var(--line)}
+      .cmodal-icon svg{height:56px;width:auto;display:block}
+      .cmodal-title{font-size:18px;font-weight:700}
+      .cmodal-sub{font-size:12px;color:var(--muted)}
+      .cmodal-close{margin-left:auto;cursor:pointer;color:var(--muted);font-size:20px;line-height:1}
+      .cmodal-body{padding:18px 22px}
+      .cmodal-grp{font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.04em;margin:0 0 10px}
+      .cmodal-pills{display:flex;flex-wrap:wrap;gap:6px}
+      .cmodal-pill{font-size:12px;font-family:"IBM Plex Mono",monospace;background:#eef2fb;border:1px solid #d7e0f3;color:#26407e;border-radius:999px;padding:3px 11px}
+      .vcinfo{position:absolute;top:10px;right:11px;width:23px;height:23px;border-radius:50%;border:1px solid var(--line);background:#fff;color:var(--muted);font-size:13px;font-weight:700;font-style:italic;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;font-family:Georgia,serif;z-index:2}
+      .vcinfo:hover{border-color:var(--civic);color:var(--civic);background:#f4f7fd}
+    </style>`;
+}
+
+/** Group flat configInfo list into per-type cards:
+ *  { type, name, desc, formats:[{configId,label}], claims:[union of claim keys] }. */
 export function groupCatalog(configs) {
   const byType = new Map();
   for (const c of configs) {
     const type = c.configId.replace(/_(mdoc|sdjwt)$/, '');
-    if (!byType.has(type)) byType.set(type, []);
-    byType.get(type).push({ configId: c.configId, label: fmtLabel(c.format) });
+    if (!byType.has(type)) byType.set(type, { formats: [], claims: [] });
+    const g = byType.get(type);
+    g.formats.push({ configId: c.configId, label: fmtLabel(c.format) });
+    for (const k of c.claims || []) if (!g.claims.includes(k)) g.claims.push(k); // union, insertion order
   }
-  return [...byType.entries()].map(([type, formats]) => ({
-    type, name: TYPE_META[type]?.name || type, desc: TYPE_META[type]?.desc || '', formats,
+  return [...byType.entries()].map(([type, g]) => ({
+    type, name: TYPE_META[type]?.name || type, desc: TYPE_META[type]?.desc || '', formats: g.formats, claims: g.claims,
   }));
 }
 
@@ -389,6 +445,7 @@ export function renderVcSelect(user, groups) {
     const chips = g.formats.map((f) =>
       `<button type="button" class="fmtchip" data-cfg="${esc(f.configId)}">${esc(f.label)}</button>`).join('');
     return `<div class="vccard">
+      <button type="button" class="vcinfo" title="含まれる項目を見る" onclick="event.stopPropagation();openClaims('${esc(g.type)}')">i</button>
       <div class="vcmain">
         <div class="vctype">${esc(g.type)}</div>
         <div class="vcname">${esc(g.name)}</div>
@@ -527,7 +584,8 @@ export function renderVcSelect(user, groups) {
       .json{background:#0E1A2B;color:#D7E0EE;border-radius:10px;padding:14px;font-size:11.5px;line-height:1.5;overflow:auto;max-width:100%;max-height:480px;font-family:"IBM Plex Mono",monospace;white-space:pre}
       .hidden{display:none}
       @media(max-width:720px){.grid2{grid-template-columns:1fr}}
-    </style>`, user, { width: 'wide' });
+    </style>
+    ${renderClaimsModal(groups)}`, user, { width: 'wide' });
 }
 
 /** Issuance history ledger page (account menu → 発行履歴). */
