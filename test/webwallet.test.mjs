@@ -336,6 +336,19 @@ test('web wallet present: selective-disclosure UX (提示先 label, per-claim ch
     assert.match(html, /name="disclose:[^"]+" value="given_name"/);
     assert.match(html, /送信プレビュー（デバッグ）/);              // debug preview present
     assert.match(html, /<svg class="vcicon"/);                     // issuer-matched icon
+
+    // required vs optional: family_name required (locked on), age_over_18 optional (opt-in)
+    const build2 = await (await fetch(`${VERIF}/vp/build`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ configId: 'pid_mdoc', claims: ['family_name'], optional: ['age_over_18'], protocol: 'annex-d', target: 'web' }),
+    })).json();
+    const reqUri2 = new URL(build2.walletPresent).searchParams.get('request_uri');
+    const html2 = await (await wallet.request('/present?request_uri=' + encodeURIComponent(reqUri2), { headers: { cookie } })).text();
+    assert.match(html2, /rtag req/);   // a 必須 tag is rendered
+    assert.match(html2, /rtag opt/);   // a 任意 tag is rendered
+    // the required claim's checkbox is locked (data-req + cannot be unchecked)
+    assert.match(html2, /value="family_name"[^>]*data-req="1"/);
+    assert.match(html2, /data-req="1"[^>]*checked|checked[^>]*data-req="1"/);
   } finally {
     await new Promise((r) => issuer.close(r));
     await new Promise((r) => verifier.close(r));
