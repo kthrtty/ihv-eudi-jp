@@ -305,6 +305,56 @@ test('KV session: VCs added persist and BOTH formats are presentable from anothe
   }
 });
 
+// THE bug that bit 3x: in production the Verifier->wallet /present hop is cross-site
+// and Safari withheld the SameSite=Lax wsid cookie, so /present saw an empty session
+// and showed "保有: なし" even though the VCs were on the home page. Server logic was
+// correct (proven: with the cookie it presents). Fix = a same-site bounce when no
+// wsid arrives. These tests assert the bounce, no infinite loop, and no regression.
+test('present cross-site cookie defense: no wsid -> same-site bounce (not 保有なし); ?_b=1 terminates; cookie present -> presents', async () => {
+  const IP = 8990, VP = 8991, WP = 8992;
+  const ISSUER = `http://127.0.0.1:${IP}`, VERIF = `http://127.0.0.1:${VP}`, WALLET = `http://127.0.0.1:${WP}`;
+  const issuer = serve({ fetch: createApp({ credentialIssuer: ISSUER }).fetch, port: IP });
+  const verifier = serve({ fetch: createVerifierApp({ verifierOrigin: VERIF, walletOrigin: WALLET, issuerUrl: ISSUER }).fetch, port: VP });
+  try {
+    const store = fakeKvStore();
+    const app = createWalletApp({ walletOrigin: WALLET, issuerUrl: ISSUER, store });
+    const offerId = (await (await fetch(`${ISSUER}/offer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'] }) })).json()).offer_id;
+    const add = await app.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${offerId}`));
+    const cookie = cookieOf(add);
+    const build = await (await fetch(`${VERIF}/vp/build`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ configId: 'pid_mdoc', claims: ['family_name'], protocol: 'annex-d', target: 'web' }) })).json();
+    const reqUri = new URL(build.walletPresent).searchParams.get('request_uri');
+    const presentUrl = '/present?request_uri=' + encodeURIComponent(reqUri);
+
+    // 1) No cookie (browser withheld it cross-site): must NOT dead-end on 保有なし.
+    //    Must return a same-site bounce that re-requests /present with _b=1, and must
+    //    NOT mint/Set-Cookie a fresh empty sid (that would cement the wrong session).
+    const noCookie = await app.request(presentUrl);
+    const noCookieHtml = await noCookie.text();
+    assert.doesNotMatch(noCookieHtml, /保有していません/, 'no-cookie hit must bounce, not dead-end');
+    assert.match(noCookieHtml, /location\.replace/, 'must emit a same-site self-redirect');
+    assert.match(noCookieHtml, /_b=1/, 'bounce target carries the _b=1 marker');
+    assert.equal(noCookie.headers.get('set-cookie'), null, 'must not mint a fresh empty sid before the bounce');
+
+    // 2) Bounce landed but cookie STILL absent (genuinely no session): must terminate,
+    //    not loop. Falls through to the honest "保有していません".
+    const bouncedNoCookie = await app.request(presentUrl + '&_b=1');
+    const bouncedHtml = await bouncedNoCookie.text();
+    assert.doesNotMatch(bouncedHtml, /location\.replace/, 'must not bounce again (no infinite loop)');
+    assert.match(bouncedHtml, /保有していません/, 'with no session, honestly report none');
+
+    // 3) Cookie present (same-site bounce succeeded / cross-site cookie rode along):
+    //    presents normally. Both with and without _b=1.
+    for (const url of [presentUrl, presentUrl + '&_b=1']) {
+      const ok = await (await app.request(url, { headers: { cookie } })).text();
+      assert.match(ok, /この内容で提示/, `cookie present -> presents (${url})`);
+      assert.doesNotMatch(ok, /保有していません/);
+    }
+  } finally {
+    await new Promise((r) => issuer.close(r));
+    await new Promise((r) => verifier.close(r));
+  }
+});
+
 test('KV session: a transient read miss must NOT rotate the cookie nor wipe stored VCs', async () => {
   const IP = 8988, WP = 8989;
   const ISSUER = `http://127.0.0.1:${IP}`, WALLET = `http://127.0.0.1:${WP}`;
