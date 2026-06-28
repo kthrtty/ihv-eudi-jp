@@ -34,13 +34,17 @@ const CSS = `
   .top.issuer .role{color:#1C3F94;background:#EAEFFA;border:1px solid #D4DEF5}
   .top.verifier .role{color:#9E3A3A;background:#F6ECEC;border:1px solid #E7D6D6}
   .top.wallet .role{color:#2E7D6B;background:#E8F2EF;border:1px solid #D2E5DF}
-  .wrap{max-width:560px;margin:6vh auto;padding:0 18px}
+  .wrap{width:100%;max-width:560px;margin:6vh auto;padding:0 18px}
+  .wrap.mid{max-width:820px}
+  .wrap.wide{max-width:1140px}
+  @media(max-width:640px){.wrap{margin:4vh auto}}
   .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:26px}
   .eyebrow{font-size:12px;letter-spacing:.18em;color:var(--civic);font-weight:700}
   h1{font-size:20px;margin:.3rem 0 1rem}
   .req{background:#f7f9fc;border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:18px;font-size:14px}
   .req .k{color:var(--muted);font-size:12px}
   .req b{color:var(--civic)}
+  .req .mono,.req span.mono,.urlbox{overflow-wrap:anywhere;word-break:break-word}
   .users{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-top:8px}
   .seal{width:72px;height:72px;display:grid;place-items:center;border-radius:50%;background:#fff;color:var(--seal);
     border:2px solid var(--seal);box-shadow:inset 0 0 0 2px #fff,inset 0 0 0 3px var(--seal-soft);font-weight:700;font-size:28px}
@@ -60,8 +64,11 @@ const CSS = `
   .step{display:inline-block;font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:2px 10px;margin-bottom:10px}
 `;
 const FONTS = '<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">';
-export const shell = (title, body, { brand = 'デジタル資格証発行ポータル', sub = 'AUTHORIZATION SERVER', role = 'issuer' } = {}) => `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>${FONTS}<style>${CSS}</style></head>
-<body><header class="top ${role}"><span class="tag"></span><div><b>${esc(brand)}</b><small>${esc(sub)}</small></div><span class="role">${role === 'verifier' ? '検証者 · VERIFIER' : role === 'wallet' ? 'ウォレット · WALLET' : '発行者 · ISSUER'}</span></header><div class="wrap">${body}</div></body></html>`;
+export const shell = (title, body, { brand = 'デジタル資格証発行ポータル', sub = 'AUTHORIZATION SERVER', role = 'issuer', width = 'narrow' } = {}) => {
+  const cls = width === 'wide' ? 'wrap wide' : width === 'mid' ? 'wrap mid' : 'wrap';
+  return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>${FONTS}<style>${CSS}</style></head>
+<body><header class="top ${role}"><span class="tag"></span><div><b>${esc(brand)}</b><small>${esc(sub)}</small></div><span class="role">${role === 'verifier' ? '検証者 · VERIFIER' : role === 'wallet' ? 'ウォレット · WALLET' : '発行者 · ISSUER'}</span></header><div class="${cls}">${body}</div></body></html>`;
+};
 
 /** AS consent + passwordless login screen shown by GET /authorize when no session. */
 export function renderConsent(q, users, requested) {
@@ -272,13 +279,14 @@ function appHeaderHtml(user) {
     </header>`;
 }
 
-/** Page shell with IHV header (user may be null). */
-export function appShell(title, body, user = null) {
+/** Page shell with IHV header (user may be null). `width`: 'narrow'|'mid'|'wide'. */
+export function appShell(title, body, user = null, { width = 'narrow' } = {}) {
+  const cls = width === 'wide' ? 'wrap wide' : width === 'mid' ? 'wrap mid' : 'wrap';
   return `<!doctype html><html lang="ja"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <title>${esc(title)} — IHV 発行ポータル</title>${FONTS}<style>${CSS}</style>
   </head><body style="background:var(--paper);min-height:100vh">
-    ${appHeaderHtml(user)}<div class="wrap">${body}</div>
+    ${appHeaderHtml(user)}<div class="${cls}">${body}</div>
   </body></html>`;
 }
 
@@ -456,11 +464,11 @@ export function renderVcSelect(user, groups) {
       .actions{display:flex;gap:10px;margin-top:18px}
       .btn.ghost{background:#fff;color:var(--civic);border:1px solid var(--line)}
       .btn.ghost:hover{background:#f7f9fc}
-      .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
-      .json{background:#0E1A2B;color:#D7E0EE;border-radius:10px;padding:14px;font-size:11.5px;line-height:1.5;overflow:auto;max-height:420px;font-family:"IBM Plex Mono",monospace;white-space:pre}
+      .grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,320px);gap:16px;margin-top:16px;align-items:start}
+      .json{background:#0E1A2B;color:#D7E0EE;border-radius:10px;padding:14px;font-size:11.5px;line-height:1.5;overflow:auto;max-width:100%;max-height:480px;font-family:"IBM Plex Mono",monospace;white-space:pre}
       .hidden{display:none}
       @media(max-width:720px){.grid2{grid-template-columns:1fr}}
-    </style>`, user);
+    </style>`, user, { width: 'wide' });
 }
 
 /** Issuance history ledger page (account menu → 発行履歴). */
@@ -526,7 +534,7 @@ export function renderHistory(user, issuances) {
       .revoke{font:inherit;font-size:13px;padding:6px 16px;border-radius:8px;cursor:pointer;border:1px solid #E2B4AE;color:#C8453C;background:#fff}
       .revoke.on:hover{background:#FBE9E7}
       .revoke:disabled{opacity:.4;cursor:default;border-color:var(--line);color:var(--muted)}
-    </style>`, user);
+    </style>`, user, { width: 'wide' });
 }
 
 /** Account settings page (account menu → アカウント設定): edit persona data. */
