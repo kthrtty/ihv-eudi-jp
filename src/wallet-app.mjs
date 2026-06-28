@@ -39,8 +39,8 @@ function resolvePresentation(request, creds) {
       const cc = catalog.credential_configurations_supported[cr.configId];
       return cr.format === q.format && (isMdoc ? cc?.doctype === want : cc?.vct === want);
     });
-    // requested claim wire-names = last path segment (mdoc element / sd-jwt key)
-    const reqClaims = (q.claims || []).map((cl) => cl.path[cl.path.length - 1]);
+    // requested claims: wire-name (last path segment) + required/optional marker
+    const reqClaims = (q.claims || []).map((cl) => ({ wire: cl.path[cl.path.length - 1], optional: !!cl.optional }));
     return { dcqlId: q.id, format: q.format, isMdoc, want, matches, reqClaims };
   });
 }
@@ -382,21 +382,27 @@ function presentConsent({ request, plan, have, held = [] }) {
       <div style="margin-top:6px">同じ種別でも <b>mdoc / SD-JWT の形式が一致</b>している必要があります。該当形式での発行を受けてください。</div>
     </div>`;
 
-  // ---- one card per requested credential (query): pick credential + claims
-  const claimRow = (q, cred, wire, active) => {
+  // ---- one card per requested credential (query): pick credential + claims.
+  // Required (DCQL-verified) claims are locked ON; optional ones are holder opt-in.
+  const claimRow = (q, cred, cl, active) => {
+    const wire = cl.wire, required = !cl.optional;
     const valRaw = cred.claims?.[wire];
     const has = valRaw !== undefined && valRaw !== '';
     const val = has ? String(valRaw) : '（保有なし）';
-    return `<label class="crow${has ? '' : ' missing'}">
+    const checked = has && required;           // required held -> always disclosed
+    const disabled = !has || !active;          // can't disclose what you don't hold
+    const tag = required ? '<span class="rtag req">必須</span>' : '<span class="rtag opt">任意</span>';
+    const lock = required ? ' onclick="if(this.dataset.req)event.preventDefault()"' : '';
+    return `<label class="crow${has ? '' : ' missing'}${required ? ' locked' : ''}">
       <input type="checkbox" name="disclose:${esc(q.dcqlId)}" value="${esc(wire)}"
-        data-q="${esc(q.dcqlId)}" data-key="${esc(wire)}" data-val="${esc(val)}"
-        ${has ? 'checked' : 'disabled'} ${active ? '' : 'disabled'}>
+        data-q="${esc(q.dcqlId)}" data-key="${esc(wire)}" data-val="${esc(val)}" ${required ? 'data-req="1"' : ''}
+        ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}${lock}>
       <span class="cbx"></span>
-      <span class="cl-main"><span class="cl-k">${esc(wire)}</span><span class="cl-v">${esc(val)}</span></span>
+      <span class="cl-main"><span class="cl-k">${esc(wire)} ${tag}</span><span class="cl-v">${esc(val)}</span></span>
     </label>`;
   };
   const credBlock = (q, cred, active) => `<div class="cblock" data-q="${esc(q.dcqlId)}" data-cred="${esc(cred.id)}" ${active ? '' : 'hidden'}>
-      ${q.reqClaims.map((w) => claimRow(q, cred, w, active)).join('')}
+      ${q.reqClaims.map((cl) => claimRow(q, cred, cl, active)).join('')}
     </div>`;
   const qCard = (q) => {
     const first = q.matches[0];
@@ -429,9 +435,9 @@ function presentConsent({ request, plan, have, held = [] }) {
         <div class="bar">
           <div class="count" id="count"></div>
           <button class="btn" type="submit">この内容で提示（暗号化して送信）</button>
-          <div class="mini" id="minall">↺ 必要最小限だけにする</div>
+          <div class="mini" id="minall">↺ 任意項目をすべて外す（必須のみ）</div>
         </div>
-        <div class="hint">チェックを外した項目は vp_token に含まれず、提示先に渡りません。提示は OID4VP を <b>HTTPS リダイレクト</b>（direct_post.jwt）で実行します。</div>
+        <div class="hint"><b class="rtag req">必須</b>は提示先が要求し検証に必要な項目で、常に開示されます。<b class="rtag opt">任意</b>はあなたが選んで追加開示できる項目です。外した任意項目は vp_token に含まれません。提示は OID4VP を <b>HTTPS リダイレクト</b>（direct_post.jwt）で実行します。</div>
       </form>`
     : `<div class="card">${notHeld}</div>`;
 
@@ -480,6 +486,11 @@ const PRESENT_STYLE = `<style>
   .crow input:checked+.cbx{background:#2E7D6B;border-color:#2E7D6B}
   .crow input:checked+.cbx::after{content:"";position:absolute;left:7px;top:3px;width:5px;height:10px;border:solid #fff;border-width:0 2.5px 2.5px 0;transform:rotate(45deg)}
   .crow.missing{opacity:.5;cursor:not-allowed}
+  .crow.locked{cursor:default}
+  .crow.locked input:checked+.cbx{background:#9aa7b6;border-color:#9aa7b6}
+  .rtag{display:inline-block;font-size:10px;font-weight:700;border-radius:5px;padding:0 5px;vertical-align:middle;line-height:1.5}
+  .rtag.req{color:#1C3F94;background:#e7edf9;border:1px solid #c9d6ef}
+  .rtag.opt{color:#246154;background:#E8F2EF;border:1px solid #D2E5DF}
   .cl-main{flex:1;min-width:0}
   .cl-k{display:block;font-size:11px;color:var(--muted)}
   .cl-v{display:block;font-size:14px;font-weight:600;margin-top:1px;word-break:break-all}
@@ -520,7 +531,7 @@ const PRESENT_JS = `<script>
     refresh();
   });
   document.getElementById('minall').addEventListener('click',function(){
-    activeBoxes().forEach(function(b){ b.checked=false; }); refresh();
+    activeBoxes().forEach(function(b){ if(!b.dataset.req) b.checked=false; }); refresh();
   });
   refresh();
 })();

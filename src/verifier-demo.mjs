@@ -78,22 +78,42 @@ export function renderVerifyConsole(groups = []) {
         $('t-web').style.opacity = annexC ? '.4' : '1';
         if (annexC && target() === 'web') $('t-dcapi').querySelector('input').checked = true;
       }
+      // each claim is tri-state: 除外 / 必須(DCQLで要求・検証必須) / 任意(holderが選択可)
       function renderClaims() {
         const c = cur();
-        claimsEl.innerHTML = c.claims.map((k) =>
-          '<label class="ck"><input type="checkbox" value="'+k+'" '+(DEFAULT.includes(k)?'checked':'')+'> '+k+'</label>').join('');
+        claimsEl.innerHTML = c.claims.map((k) => {
+          const v = DEFAULT.includes(k) ? 'req' : 'off';
+          return '<div class="ckrow"><span class="ckname">'+k+'</span>'+
+            '<div class="seg3" data-claim="'+k+'">'+
+              '<button type="button" data-v="off"'+(v==='off'?' class="on"':'')+'>除外</button>'+
+              '<button type="button" data-v="req"'+(v==='req'?' class="on"':'')+'>必須</button>'+
+              '<button type="button" data-v="opt">任意</button>'+
+            '</div></div>';
+        }).join('');
         $('protoc').disabled = !isMdoc(c);
         if (!isMdoc(c)) document.querySelector('input[value="annex-d"]').checked = true;
         syncTargets(); updateCount(); reset();
       }
-      function selected() { return [...claimsEl.querySelectorAll('input:checked')].map((i) => i.value); }
-      function updateCount() { $('csel').textContent = '（' + selected().length + ' / ' + cur().claims.length + ' 項目）'; }
+      function states() {
+        const req = [], opt = [];
+        claimsEl.querySelectorAll('.seg3').forEach((seg) => {
+          const v = seg.querySelector('button.on') ? seg.querySelector('button.on').dataset.v : 'off';
+          if (v === 'req') req.push(seg.dataset.claim); else if (v === 'opt') opt.push(seg.dataset.claim);
+        });
+        return { req, opt };
+      }
+      function updateCount() { const s = states(); $('csel').textContent = '（必須 ' + s.req.length + ' ・ 任意 ' + s.opt.length + '）'; }
       function reset() { $('reqbox').classList.add('hidden'); $('result').innerHTML = ''; built = null; }
       function err(m) { $('result').innerHTML = '<div class="hint" style="color:#9E3A3A">'+m+'</div>'; }
 
-      claimsEl.addEventListener('change', updateCount);
-      $('all').onclick = () => { claimsEl.querySelectorAll('input').forEach((i) => i.checked = true); updateCount(); };
-      $('none').onclick = () => { claimsEl.querySelectorAll('input').forEach((i) => i.checked = false); updateCount(); };
+      claimsEl.addEventListener('click', (e) => {
+        const b = e.target.closest('.seg3 button'); if (!b) return;
+        b.parentNode.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+        updateCount();
+      });
+      function setAll(v) { claimsEl.querySelectorAll('.seg3').forEach((seg) => seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === v))); updateCount(); }
+      $('all').onclick = () => setAll('req');
+      $('none').onclick = () => setAll('off');
       // single-select credential cards: clicking a format chip picks that configId
       function selectCfg(cfg, chip) {
         document.querySelectorAll('.vcs-chip.on').forEach((c) => c.classList.remove('on'));
@@ -109,13 +129,13 @@ export function renderVerifyConsole(groups = []) {
 
       // ---- build the request for the chosen target (returns built or null) ----
       async function doBuild() {
-        const claims = selected();
-        if (!claims.length) { err('少なくとも1項目を選択してください'); return null; }
+        const { req: claims, opt: optional } = states();
+        if (!claims.length) { err('必須項目を1つ以上選択してください（任意のみの要求はできません）'); return null; }
         const tgt = target();
         const path = tgt === 'selftest' ? '/demo/verify/prepare' : '/vp/build';
         const body = tgt === 'selftest'
-          ? { configId: selCfg, claims, protocol: proto() }
-          : { configId: selCfg, claims, protocol: proto(), target: tgt };
+          ? { configId: selCfg, claims, optional, protocol: proto() }
+          : { configId: selCfg, claims, optional, protocol: proto(), target: tgt };
         const d = await (await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
         if (d.error) { err(d.error); return null; }
         built = { target: tgt, ...d };
@@ -196,8 +216,14 @@ export function renderVerifyConsole(groups = []) {
       .radios label{display:flex;align-items:center;gap:8px}
       .claimbar{display:flex;gap:8px;margin-bottom:8px}
       .mini{font:inherit;font-size:12px;padding:3px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;cursor:pointer}
-      .claims{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px 14px;max-height:210px;overflow:auto;padding:10px;border:1px solid var(--line);border-radius:10px}
-      .ck{font-size:13px;display:flex;align-items:center;gap:7px}
+      .claims{display:flex;flex-direction:column;gap:4px;max-height:300px;overflow:auto;padding:8px;border:1px solid var(--line);border-radius:10px}
+      .ckrow{display:flex;align-items:center;gap:10px;padding:4px 4px}
+      .ckname{flex:1;min-width:0;font-size:13px;font-family:"IBM Plex Mono",monospace;word-break:break-all}
+      .seg3{display:flex;gap:3px;background:#eef2f1;border:1px solid var(--line);border-radius:9px;padding:3px;flex:none}
+      .seg3 button{font:inherit;font-size:11.5px;font-weight:700;padding:5px 9px;border:none;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer}
+      .seg3 button[data-v="req"].on{background:var(--civic);color:#fff}
+      .seg3 button[data-v="opt"].on{background:#E8F2EF;color:#246154;box-shadow:inset 0 0 0 1px #D2E5DF}
+      .seg3 button[data-v="off"].on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(14,26,43,.12)}
       .actions{display:flex;gap:8px;margin-top:16px}
       .btn.ghost{background:#fff;color:var(--civic);border:1px solid var(--line)}
       .btn.ghost:hover{background:#f7f9fc}
