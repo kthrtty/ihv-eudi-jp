@@ -9,7 +9,7 @@ import { VerifierService } from './verifier.mjs';
 import { buildDelivery, offerByValueUri, offerByReferenceUri, offerQrSvg } from './offer.mjs';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { shell, renderConsent, renderAuthStart, renderCallback, renderOfferAuthcode, completeIssuance, pkce, authorizeUrl, renderLogin, appShell, renderConsentScreen, renderVcSelect, groupCatalog, renderHistory, renderAccount } from './authcode-demo.mjs';
-import { renderVerifyConsole, renderWebVerify, renderWebVerifyResult } from './verifier-demo.mjs';
+import { renderVerifyConsole, renderWebVerify, renderWebVerifyResult, renderVerifyHistory } from './verifier-demo.mjs';
 import { createWallet } from './wallet.mjs';
 import { allConfigIds, configInfo } from './issuer.mjs';
 
@@ -293,6 +293,30 @@ export function createVerifierApp(opts = {}) {
   const putResult  = (txn, result) => v.store.set(`vpres:${txn}`, result, 600);
   const getResult  = (txn) => v.store.get(`vpres:${txn}`);
 
+  // GLOBAL presentation history (no per-holder session — a single shared log of every
+  // presentation this Verifier verified). Stored as one capped list under `vphist`.
+  // Read-modify-write on a single KV key: fine for a demo's low concurrency (a busy
+  // RP would use Durable Objects / D1 to avoid lost updates).
+  const HIST_KEY = 'vphist', HIST_MAX = 50, HIST_TTL = 60 * 60 * 24 * 30; // 30 days
+  const recordHistory = async (request, result, via) => {
+    try {
+      const creds = (request?.dcql_query?.credentials || []).map((q) => ({
+        format: q.format,
+        type: q.format === 'mso_mdoc' ? q.meta?.doctype_value : q.meta?.vct_values?.[0],
+      }));
+      const claims = Object.assign({}, ...(result?.results || []).map((r) => r.claims || {}));
+      const entry = {
+        at: new Date().toISOString(), via, valid: !!result?.valid,
+        creds, claims: Object.fromEntries(Object.entries(claims).map(([k, x]) => [k, fmtClaim(x)])),
+        errors: result?.errors || [],
+      };
+      const list = (await v.store.get(HIST_KEY)) || [];
+      list.unshift(entry);
+      await v.store.set(HIST_KEY, list.slice(0, HIST_MAX), HIST_TTL);
+    } catch { /* history is best-effort; never break a verification on a log failure */ }
+  };
+  const getHistory = async () => (await v.store.get(HIST_KEY)) || [];
+
   // GET / -> the unified verify console (selective disclosure + JSON + protocol
   // + present-target dispatch). The old static DC-API page is superseded.
   app.get('/', (c) => c.redirect('/verifier', 302));
@@ -309,6 +333,7 @@ export function createVerifierApp(opts = {}) {
     return val;
   };
   app.get('/verifier', (c) => c.html(renderVerifyConsole(groupCatalog(allConfigIds().map(configInfo)))));
+  app.get('/verifier/history', async (c) => c.html(renderVerifyHistory(await getHistory())));
   app.get('/demo/verify/catalog', (c) => c.json(allConfigIds().map(configInfo)));
   app.post('/demo/verify/prepare', async (c) => {
     try {
@@ -336,6 +361,7 @@ export function createVerifierApp(opts = {}) {
       const wallet = createWallet(d.wallet);
       const encryptedResponse = await wallet.respond(d.request);
       const result = await v.verifyResponse({ transactionId: d.transactionId, encryptedResponse });
+      await recordHistory(d.request, result, 'console');
       const first = (result.results || [])[0] || {};
       const claims = Object.fromEntries(Object.entries(first.claims || {}).map(([k, val]) => [k, fmtClaim(val)]));
       const holder = first.holder && typeof first.holder === 'object' ? `${first.holder.x || ''}`.slice(0, 32) : first.holder;
@@ -400,6 +426,7 @@ export function createVerifierApp(opts = {}) {
       const body = await c.req.parseBody();
       const result = await v.verifyResponse({ transactionId: txn, encryptedResponse: body.response });
       await putResult(txn, result);
+      await recordHistory(await getRequest(txn), result, 'web');
       return c.json({ redirect_uri: `${verifierOrigin}/oid4vp/result/${txn}` }); // direct_post.jwt
     } catch (e) { return fail(c, e); }
   });

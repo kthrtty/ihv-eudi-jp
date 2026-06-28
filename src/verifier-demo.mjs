@@ -25,7 +25,8 @@ export function renderVerifyConsole(groups = []) {
   }).join('');
   return shell('検証者コンソール', `
     <div class="card">
-      <div class="step">検証要求ビルダー · OpenID4VP / DCQL</div>
+      <div class="step" style="display:flex;align-items:center;justify-content:space-between">検証要求ビルダー · OpenID4VP / DCQL
+        <a href="/verifier/history" style="font-weight:700;color:var(--verify);text-decoration:none">提示履歴 →</a></div>
       <h1>提示を要求するクレデンシャルと項目を選ぶ</h1>
 
       <label class="lbl">クレデンシャル（発行者が提示可能なものから選択 — カードの形式をクリック）</label>
@@ -273,9 +274,66 @@ export function renderWebVerifyResult(result) {
       <div class="muted" style="font-size:12px;margin:12px 0 4px">開示されたクレーム</div>
       <table class="cl">${rows}</table>
       ${result?.errors?.length ? `<div class="hint" style="color:#9E3A3A">${result.errors.join('; ')}</div>` : ''}
+      <div class="navrow">
+        <a class="btn ghost" href="/verifier">検証ポータルトップへ</a>
+        <a class="btn ghost" href="/verifier/history">提示履歴を見る</a>
+      </div>
     </div>
     <style>.checks{display:grid;gap:6px;margin-top:8px}.ck2{font-size:13px}.cok{color:var(--verify);font-weight:700}.cng{color:var(--muted)}
     table.cl{width:100%;border-collapse:collapse;font-size:13px}table.cl td{padding:7px 8px;border-bottom:1px solid var(--line)}table.cl td:first-child{color:var(--muted)}
+    .navrow{display:flex;gap:10px;margin-top:18px}.navrow .btn{flex:1;text-align:center}
     .pill{display:inline-block;font-size:12px;background:#f7f9fc;border:1px solid var(--line);border-radius:999px;padding:2px 9px;margin:2px}</style>`,
+    { brand: 'クレデンシャル検証ポータル', sub: 'VERIFIER', role: 'verifier' });
+}
+
+/** Global presentation history — one shared log of every presentation this Verifier
+ *  verified (no per-holder session). Newest first. */
+export function renderVerifyHistory(entries = []) {
+  const esc = (s) => String(s).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+  const fmtAt = (iso) => { try { return new Date(iso).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', hour12: false }); } catch { return iso; } };
+  const credLine = (creds = []) => creds.map((cr) =>
+    `<span class="pill">${esc(cr.type || '?')} · ${cr.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT'}</span>`).join(' ') || '<span class="muted">—</span>';
+  const claimRows = (claims = {}) => {
+    const ks = Object.keys(claims);
+    if (!ks.length) return '';
+    return `<table class="cl">${ks.map((k) => `<tr><td>${esc(k)}</td><td>${esc(claims[k])}</td></tr>`).join('')}</table>`;
+  };
+  const card = (e) => `
+    <div class="hcard">
+      <div class="hh">
+        <span class="badge ${e.valid ? 'bok' : 'bng'}">${e.valid ? '✓ 検証成功' : '✗ 検証失敗'}</span>
+        <span class="via">${e.via === 'console' ? 'コンソール' : 'Web ウォレット'}</span>
+        <span class="at">${esc(fmtAt(e.at))}</span>
+      </div>
+      <div class="hbody">
+        <div class="hk">提示されたクレデンシャル</div>
+        <div class="hcreds">${credLine(e.creds)}</div>
+        ${Object.keys(e.claims || {}).length ? `<div class="hk" style="margin-top:9px">開示されたクレーム</div>${claimRows(e.claims)}` : ''}
+        ${e.errors?.length ? `<div class="hint" style="color:#9E3A3A;margin-top:8px">${esc(e.errors.join('; '))}</div>` : ''}
+      </div>
+    </div>`;
+  const body = entries.length
+    ? entries.map(card).join('')
+    : '<div class="muted" style="padding:8px 2px">まだ提示を受け取っていません。</div>';
+  return shell('提示履歴', `
+    <div class="card">
+      <div class="step">提示履歴 — グローバル（全提示の共有ログ）</div>
+      <h1 style="font-size:18px;margin:6px 0 4px">この検証者が受け取った提示</h1>
+      <div class="muted" style="font-size:12px;margin-bottom:12px">ホルダー単位のセッションは保持しません。直近 ${entries.length} 件（最大 50 件）。</div>
+      ${body}
+      <div class="navrow"><a class="btn ghost" href="/verifier">検証ポータルトップへ</a></div>
+    </div>
+    <style>
+    .hcard{border:1px solid var(--line);border-radius:12px;margin-top:10px;overflow:hidden}
+    .hh{display:flex;align-items:center;gap:9px;padding:10px 14px;background:#f7f9fc;border-bottom:1px solid var(--line)}
+    .badge{font-size:12px;font-weight:700;border-radius:999px;padding:2px 10px}
+    .bok{background:#E7F3EE;color:var(--verify)}.bng{background:#FBE9E7;color:#9E3A3A}
+    .via{font-size:12px;color:var(--muted)}.at{font-size:12px;color:var(--muted);margin-left:auto}
+    .hbody{padding:12px 14px}.hk{font-size:11px;color:var(--muted);margin-bottom:4px}
+    .hcreds{display:flex;flex-wrap:wrap;gap:4px}
+    .pill{display:inline-block;font-size:12px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:2px 9px}
+    table.cl{width:100%;border-collapse:collapse;font-size:13px;margin-top:4px}
+    table.cl td{padding:6px 8px;border-bottom:1px solid var(--line)}table.cl td:first-child{color:var(--muted);width:42%;word-break:break-all}
+    .navrow{display:flex;gap:10px;margin-top:18px}.navrow .btn{flex:1;text-align:center}</style>`,
     { brand: 'クレデンシャル検証ポータル', sub: 'VERIFIER', role: 'verifier' });
 }

@@ -355,6 +355,47 @@ test('present cross-site cookie defense: no wsid -> same-site bounce (not 保有
   }
 });
 
+test('verifier global history: a completed web presentation is logged and shown at /verifier/history', async () => {
+  const IP = 8993, VP = 8994, WP = 8995;
+  const ISSUER = `http://127.0.0.1:${IP}`, VERIF = `http://127.0.0.1:${VP}`, WALLET = `http://127.0.0.1:${WP}`;
+  const issuer = serve({ fetch: createApp({ credentialIssuer: ISSUER }).fetch, port: IP });
+  const verifier = serve({ fetch: createVerifierApp({ verifierOrigin: VERIF, walletOrigin: WALLET, issuerUrl: ISSUER }).fetch, port: VP });
+  try {
+    const store = fakeKvStore();
+    const wallet = createWalletApp({ walletOrigin: WALLET, issuerUrl: ISSUER, store });
+
+    // history is empty before any presentation
+    const empty = await (await fetch(`${VERIF}/verifier/history`)).text();
+    assert.match(empty, /まだ提示を受け取っていません/);
+
+    // issue pid_sdjwt into the wallet
+    const offerId = (await (await fetch(`${ISSUER}/offer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ credential_configuration_ids: ['pid_sdjwt'] }) })).json()).offer_id;
+    const add = await wallet.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${offerId}`));
+    const cookie = cookieOf(add);
+
+    // verifier builds a web request, wallet consents and confirms (discloses family_name)
+    const build = await (await fetch(`${VERIF}/vp/build`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ configId: 'pid_sdjwt', claims: ['family_name'], protocol: 'annex-d', target: 'web' }) })).json();
+    const reqUri = new URL(build.walletPresent).searchParams.get('request_uri');
+    await wallet.request('/present?request_uri=' + encodeURIComponent(reqUri), { headers: { cookie } });
+    const confirm = await wallet.request('/present/confirm', {
+      method: 'POST', headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ 'disclose:q1': 'family_name' }).toString(), redirect: 'manual',
+    });
+    assert.equal(confirm.status, 302, 'a successful confirm redirects to the verifier result page');
+
+    // the global history now lists the verified presentation
+    const hist = await (await fetch(`${VERIF}/verifier/history`)).text();
+    assert.match(hist, /検証成功/, 'history shows the successful verification');
+    assert.match(hist, /family_name/, 'history shows the disclosed claim');
+    assert.match(hist, /山田/, 'history shows the disclosed value');
+    assert.match(hist, /SD-JWT/, 'history shows the credential format');
+    assert.doesNotMatch(hist, /まだ提示を受け取っていません/);
+  } finally {
+    await new Promise((r) => issuer.close(r));
+    await new Promise((r) => verifier.close(r));
+  }
+});
+
 test('KV session: a transient read miss must NOT rotate the cookie nor wipe stored VCs', async () => {
   const IP = 8988, WP = 8989;
   const ISSUER = `http://127.0.0.1:${IP}`, WALLET = `http://127.0.0.1:${WP}`;
