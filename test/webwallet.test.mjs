@@ -260,6 +260,16 @@ test('web wallet present: holding vaccine_mdoc, a vaccine_SDJWT request is not h
   }
 });
 
+test('wallet cookie is SameSite=None; Secure so it survives the cross-site redirect to /present', async () => {
+  const app = createWalletApp({ walletOrigin: 'https://web-wallet.example' });
+  const res = await app.request('/');
+  const sc = res.headers.get('set-cookie') || '';
+  assert.match(sc, /wsid=/);
+  assert.match(sc, /SameSite=None/i);
+  assert.match(sc, /Secure/i);
+  assert.match(sc, /HttpOnly/i);
+});
+
 test('KV session: VCs added persist and BOTH formats are presentable from another isolate (not 保有なし)', async () => {
   const IP = 8985, VP = 8986, WP = 8987;
   const ISSUER = `http://127.0.0.1:${IP}`, VERIF = `http://127.0.0.1:${VP}`, WALLET = `http://127.0.0.1:${WP}`;
