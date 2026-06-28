@@ -1,7 +1,7 @@
 // OID4VCI 1.0 (Final) issuer protocol core, framework-agnostic, on top of mint().
 // Pre-authorized code flow + Nonce Endpoint + jwt key-proof verification.
 // State lives in an injectable store (in-memory here; swap for Workers KV on deploy).
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomInt } from 'node:crypto';
 import { jwtVerify, importJWK, decodeProtectedHeader } from 'jose';
 import { mint, verify as verifyCredential, catalog, personaClaims } from './issuer.mjs';
 import { StatusListService } from './status.mjs';
@@ -157,6 +157,11 @@ export class IssuerService {
   async createOffer(credentialConfigurationIds, { txCode, grant = 'pre-authorized_code' } = {}) {
     const ids = [].concat(credentialConfigurationIds);
     for (const id of ids) if (!catalog.credential_configurations_supported[id]) throw httpErr(400, 'invalid_request', `unknown config ${id}`);
+    // tx_code (PIN): `true` => issuer generates a fresh random PIN per offer; an
+    // explicit string/number is used verbatim (golden/interop tests); falsy = none.
+    let pin = null;
+    if (txCode === true) pin = String(randomInt(0, 10000)).padStart(4, '0');
+    else if (txCode != null && txCode !== false && txCode !== '') pin = String(txCode);
     let grants = {}, preAuthorizedCode = null, issuerState = null;
     if (grant === 'authorization_code' || grant === 'both') {
       issuerState = tok();
@@ -165,9 +170,9 @@ export class IssuerService {
     }
     if (grant !== 'authorization_code') {
       preAuthorizedCode = tok();
-      await this.store.set(`pac:${preAuthorizedCode}`, { ids, txCode: txCode ?? null, used: false });
+      await this.store.set(`pac:${preAuthorizedCode}`, { ids, txCode: pin, used: false });
       const g = { 'pre-authorized_code': preAuthorizedCode };
-      if (txCode) g.tx_code = { input_mode: 'numeric', length: String(txCode).length };
+      if (pin) g.tx_code = { input_mode: 'numeric', length: pin.length };
       grants[PRE_AUTH_GRANT] = g;
     }
     const credential_offer = {
@@ -177,7 +182,7 @@ export class IssuerService {
     };
     const offerId = tok();
     await this.store.set(`offer:${offerId}`, credential_offer, 600); // for by-reference retrieval
-    return { credential_offer, preAuthorizedCode, issuerState, offerId, offerUri: `${this.credentialIssuer}/offer/${offerId}` };
+    return { credential_offer, preAuthorizedCode, issuerState, offerId, offerUri: `${this.credentialIssuer}/offer/${offerId}`, txCode: pin };
   }
 
   /** Resolve a by-reference offer (served at the credential_offer_uri). */
