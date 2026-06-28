@@ -335,6 +335,20 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
 
   // OID4VP presentation (redirect / direct_post.jwt): fetch request -> consent
   app.get('/present', async (c) => {
+    // --- Cross-site cookie defense (Safari ITP / SameSite) ---
+    // The Verifier->wallet hop is CROSS-SITE (verifier.* and web-wallet.* are
+    // distinct registrable domains: workers.dev is on the Public Suffix List).
+    // A SameSite=Lax host cookie *should* ride a top-level GET, but Safari's ITP can
+    // still withhold it when the navigation's INITIATOR is another site — so the
+    // wallet loads with no wsid, finds an empty session, and shows "保有: なし"
+    // even though the VCs are right there on the home page. Fix: if no wsid arrived,
+    // bounce ONCE through a SAME-SITE self-redirect (initiator = the wallet itself),
+    // which reliably re-attaches the host cookie. Do this BEFORE loadSession mints a
+    // fresh (empty) sid — otherwise the bounce would carry that new empty session.
+    if (!getCookie(c, 'wsid') && c.req.query('_b') !== '1') {
+      const ru = c.req.query('request_uri') || '';
+      return c.html(bouncePage(`/present?request_uri=${encodeURIComponent(ru)}&_b=1`));
+    }
     const s = await loadSession(c);
     try {
       const request = await (await doFetch(c.req.query('request_uri'))).json();
@@ -388,6 +402,24 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
 }
 
 const WALLET = { brand: 'IHV ウェブウォレット', sub: 'WEB WALLET', role: 'wallet' };
+
+// Same-site re-entry page. Served by the wallet origin, so the immediate
+// location.replace() to `to` is a SAME-SITE navigation (initiator = wallet),
+// which re-attaches the SameSite=Lax host cookie that a cross-site initiator
+// (the Verifier) may have caused the browser to withhold. <meta refresh> and a
+// manual link are JS-less fallbacks.
+function bouncePage(to) {
+  const t = esc(to);
+  return `<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="0;url=${t}">
+<title>ウォレットを開いています…</title>
+<style>body{font-family:system-ui,-apple-system,sans-serif;background:#f4f5f7;color:#2E7D6B;
+display:grid;place-items:center;height:100vh;margin:0}.c{text-align:center}</style></head>
+<body><div class="c"><p>ウォレットを開いています…</p>
+<p><a href="${t}">開かない場合はこちら</a></p></div>
+<script>location.replace(${JSON.stringify(to)});</script></body></html>`;
+}
 
 function presentConsent({ request, plan, have, held = [] }) {
   const v = verifierLabel(request);
