@@ -92,11 +92,13 @@ test('Optional claims: required claims are enforced by satisfies; optional ones 
   // family_name required, given_name optional
   const mkReq = () => v.createRequest({ specs: [{ id: 'pid', configId: 'pid_mdoc', claims: ['family_name'], optional: ['given_name'] }] });
 
-  // DCQL marks the optional claim
+  // optionality is expressed with STANDARD claim_sets (no vendor `optional` flag)
   const { request: rq } = await mkReq();
-  const cls = rq.dcql_query.credentials[0].claims;
-  assert.equal(cls.find((c) => c.path[1] === 'family_name').optional, undefined);
-  assert.equal(cls.find((c) => c.path[1] === 'given_name').optional, true);
+  const q0 = rq.dcql_query.credentials[0];
+  assert.equal(q0.claims.some((c) => 'optional' in c), false, 'no non-standard optional flag');
+  const idOf = (wire) => q0.claims.find((c) => c.path[1] === wire).id;
+  // preferred set has both; fallback set has only the required claim
+  assert.deepEqual(q0.claim_sets, [[idOf('family_name'), idOf('given_name')], [idOf('family_name')]]);
 
   // holder discloses ONLY the required claim -> still valid (optional not enforced)
   const a = await mkReq();

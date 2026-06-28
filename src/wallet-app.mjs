@@ -39,8 +39,14 @@ function resolvePresentation(request, creds) {
       const cc = catalog.credential_configurations_supported[cr.configId];
       return cr.format === q.format && (isMdoc ? cc?.doctype === want : cc?.vct === want);
     });
-    // requested claims: wire-name (last path segment) + required/optional marker
-    const reqClaims = (q.claims || []).map((cl) => ({ wire: cl.path[cl.path.length - 1], optional: !!cl.optional }));
+    // requested claims: wire-name + required/optional, derived from standard DCQL
+    // claim_sets — claims common to every set are required, the rest are optional.
+    // (No claim_sets => every claim is required.)
+    const sets = q.claim_sets;
+    const reqClaims = (q.claims || []).map((cl) => ({
+      wire: cl.path[cl.path.length - 1],
+      optional: sets?.length ? !sets.every((set) => set.includes(cl.id)) : false,
+    }));
     return { dcqlId: q.id, format: q.format, isMdoc, want, matches, reqClaims };
   });
 }
