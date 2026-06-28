@@ -547,6 +547,7 @@ export function renderAccount(user) {
         <form method="POST" action="/account">
           ${f('姓', 'family', user.family)}
           ${f('名', 'given', user.given)}
+          ${f('肩書き・属性（ヘッダ表示）', 'desc', user.desc)}
           ${f('生年月日', 'birth', user.birth)}
           ${f('住所', 'address', user.address)}
           ${f('本籍', 'honseki', user.honseki)}

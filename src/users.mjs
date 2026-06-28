@@ -47,7 +47,7 @@ export function createUserStore() {
       const u = users.get(id);
       if (!u) return null;
       // only allow known persona fields to be edited
-      for (const k of ['family', 'given', 'family_kana', 'given_kana', 'birth', 'sex', 'address', 'honseki']) {
+      for (const k of ['family', 'given', 'family_kana', 'given_kana', 'birth', 'sex', 'address', 'honseki', 'desc']) {
         if (k in patch) u[k] = patch[k];
       }
       return { ...u };
