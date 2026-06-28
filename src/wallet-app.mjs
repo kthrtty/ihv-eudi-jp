@@ -10,6 +10,7 @@ import { getCookie, setCookie } from 'hono/cookie';
 import { randomBytes } from 'node:crypto';
 import { createWallet } from './wallet.mjs';
 import { verify as verifyCredential } from './issuer.mjs';
+import { resolveForWallet } from './dcql.mjs';
 import { shell, pkce } from './authcode-demo.mjs';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
@@ -243,9 +244,18 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
       s.present = { request };
       await saveSession(s);
       const claims = (request.dcql_query?.credentials || []).flatMap((q) => (q.claims || []).map((cl) => cl.path[cl.path.length - 1]));
-      const have = s.creds.some((cr) => request.dcql_query.credentials.some((q) =>
-        (q.meta?.doctype_value && cr.configId.endsWith('_mdoc')) || (q.meta?.vct_values && cr.configId.endsWith('_sdjwt'))));
-      return c.html(presentConsent({ request, claims, have }));
+      // Accurate fulfillment check: can the wallet actually resolve this request?
+      // (matches by BOTH format AND doctype/vct — same logic used at present time)
+      let have = true;
+      try { resolveForWallet(request.dcql_query, s.wallet); } catch { have = false; }
+      // describe the requested credential(s) (format + doctype/vct) and what's held,
+      // so a format/type mismatch is explained rather than "you have nothing".
+      const reqs = (request.dcql_query?.credentials || []).map((q) => ({
+        fmt: q.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT',
+        id: q.format === 'mso_mdoc' ? (q.meta?.doctype_value || '') : (q.meta?.vct_values?.[0] || ''),
+      }));
+      const held = s.creds.map((cr) => ({ configId: cr.configId, fmt: cr.configId.endsWith('_mdoc') ? 'mdoc' : 'SD-JWT' }));
+      return c.html(presentConsent({ request, claims, have, reqs, held }));
     } catch (e) {
       return c.html(shell('ウォレット', `<div class="card"><h1>提示要求の取得に失敗</h1><div class="hint" style="color:#9E3A3A">${esc(e.message)}</div></div>`, WALLET));
     }
@@ -274,20 +284,32 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
 
 const WALLET = { brand: 'IHV ウェブウォレット', sub: 'WEB WALLET', role: 'wallet' };
 
-function presentConsent({ request, claims, have }) {
+function presentConsent({ request, claims, have, reqs = [], held = [] }) {
   const pills = claims.map((k) => `<span class="pill">${esc(k)}</span>`).join(' ');
+  const reqLine = reqs.map((r) => `${esc(r.id || '?')}（${esc(r.fmt)}）`).join('、');
+  const heldLine = held.length
+    ? held.map((h) => `${esc(h.configId)}（${esc(h.fmt)}）`).join('、')
+    : 'なし';
+  const notHeld = `
+    <div class="hint" style="color:#9E3A3A;margin-top:12px">
+      要求された形式・種別のクレデンシャルを保有していません。<br>
+      <b>要求</b>: ${reqLine || '—'}<br>
+      <b>保有</b>: ${heldLine}
+      <div style="margin-top:6px">同じ種別でも <b>mdoc / SD-JWT の形式が一致</b>している必要があります。該当形式での発行を受けてください。</div>
+    </div>`;
   return shell('提示の確認', `
     <div class="card">
       <div class="step">OID4VP 提示要求（Verifier から）</div>
       <h1>この情報を提示しますか？</h1>
       <div class="req">
         <div class="k">要求元（client_id）</div><b class="mono" style="font-size:12px">${esc(request.client_id)}</b>
+        <div class="k" style="margin-top:8px">要求クレデンシャル</div><div style="margin-top:2px;font-size:13px">${esc(reqLine || '—')}</div>
         <div class="k" style="margin-top:8px">要求項目（これだけを開示）</div><div style="margin-top:4px">${pills}</div>
         <div class="k mono" style="margin-top:8px;font-size:11px">direct_post.jwt → ${esc(request.response_uri)}</div>
       </div>
       ${have
       ? `<form method="POST" action="/present/confirm" style="text-align:center;margin-top:12px"><button class="btn" type="submit">提示する（暗号化して送信）</button></form>`
-      : `<div class="hint" style="color:#9E3A3A">該当するクレデンシャルを保有していません。先に発行を受けてください。</div>`}
+      : notHeld}
       <div class="hint" style="margin-top:10px">提示は OID4VP を <b>HTTPS リダイレクト</b>で実行します（ネイティブ DC API 不使用）。</div>
     </div>${STYLE}
     <style>.pill{display:inline-block;font-size:12px;background:#f1f5f4;border:1px solid var(--line);border-radius:999px;padding:2px 9px;margin:2px}</style>`, WALLET);

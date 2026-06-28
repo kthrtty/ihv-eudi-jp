@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { serve } from '@hono/node-server';
-import { createApp } from '../src/app.mjs';
+import { createApp, createVerifierApp } from '../src/app.mjs';
 import { createWalletApp } from '../src/wallet-app.mjs';
 
 test('web wallet: pre-auth issuance over HTTPS (cross-origin)', async () => {
@@ -121,4 +121,43 @@ test('web wallet: wrong PIN surfaces a clear error (not undefined[0])', async ()
     assert.match(html, /取得に失敗/);
     assert.doesNotMatch(html, /reading '0'/);
   } finally { await new Promise((r) => issuer.close(r)); }
+});
+
+test('web wallet present: holding vaccine_mdoc, a vaccine_SDJWT request is not held; vaccine_mdoc request is', async () => {
+  const IP = 8940, VP = 8941, WP = 8942;
+  const ISSUER = `http://127.0.0.1:${IP}`, VERIF = `http://127.0.0.1:${VP}`, WALLET = `http://127.0.0.1:${WP}`;
+  const issuer = serve({ fetch: createApp({ credentialIssuer: ISSUER }).fetch, port: IP });
+  const verifier = serve({ fetch: createVerifierApp({ verifierOrigin: VERIF, walletOrigin: WALLET, issuerUrl: ISSUER }).fetch, port: VP });
+  try {
+    // wallet holds vaccine_mdoc (mdoc format) only
+    const made = await (await fetch(`${ISSUER}/offer`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ credential_configuration_ids: ['vaccine_mdoc'] }),
+    })).json();
+    const wallet = createWalletApp({ walletOrigin: WALLET });
+    const add = await wallet.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${made.offer_id}`));
+    const cookie = add.headers.get('set-cookie').split(';')[0];
+
+    const buildReq = async (configId) => {
+      const d = await (await fetch(`${VERIF}/vp/build`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ configId, claims: ['vaccine_type'], protocol: 'annex-d', target: 'web' }),
+      })).json();
+      return new URL(d.walletPresent).searchParams.get('request_uri');
+    };
+    const present = async (requestUri) =>
+      (await wallet.request('/present?request_uri=' + encodeURIComponent(requestUri), { headers: { cookie } })).text();
+
+    // SD-JWT vaccine request -> format mismatch -> NOT held
+    const sd = await present(await buildReq('vaccine_sdjwt'));
+    assert.match(sd, /保有していません/);
+    assert.doesNotMatch(sd, /提示する（暗号化/);
+
+    // mdoc vaccine request -> match -> held (present button shown)
+    const md = await present(await buildReq('vaccine_mdoc'));
+    assert.match(md, /提示する（暗号化/);
+  } finally {
+    await new Promise((r) => issuer.close(r));
+    await new Promise((r) => verifier.close(r));
+  }
 });
