@@ -473,16 +473,20 @@ export function renderVcSelect(user, groups) {
         return d;
       }
       function showResult(d, withQr) {
+        // JSON step: build the Credential Offer (the URI is already created) and
+        // show ONLY the JSON. Issue step: also reveal the QR + URI together.
         $('offerjson').textContent = JSON.stringify(d.credential_offer, null, 2);
-        const mode = document.querySelector('input[name=delivery]:checked').value;
-        const uri = mode === 'value' ? d.delivery.by_value_uri : d.delivery.by_reference_uri;
-        $('offeruri').textContent = uri;
         if (withQr) {
+          const mode = document.querySelector('input[name=delivery]:checked').value;
+          const uri = mode === 'value' ? d.delivery.by_value_uri : d.delivery.by_reference_uri;
           const svg = mode === 'value' ? d.delivery.by_value_qr_svg : d.delivery.by_reference_qr_svg;
+          $('offeruri').textContent = uri;
           $('qrbox').innerHTML = svg ? '<img alt="offer QR" style="width:200px;height:200px" src="data:image/svg+xml;utf8,' + encodeURIComponent(svg) + '">' : '';
           $('qrcard').classList.remove('hidden');
+          $('out').classList.remove('jsononly');
         } else {
-          $('qrbox').innerHTML = '<div class="hint">「発行」を押すと QR を生成します。</div>';
+          $('qrcard').classList.add('hidden');   // JSON only
+          $('out').classList.add('jsononly');
         }
         $('out').classList.remove('hidden');
       }
@@ -493,10 +497,13 @@ export function renderVcSelect(user, groups) {
       .sect{background:#fff;border:1px solid var(--line);border-left:4px solid var(--verify);border-radius:10px;padding:14px 18px;font-size:13px;color:var(--muted);letter-spacing:.04em}
       .sect b{color:var(--ink);font-weight:700}
       .h2{font-size:20px;margin:24px 0 6px;font-weight:700}
-      .vcgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(248px,1fr));gap:14px}
-      /* selection uses outline (never affects layout) so content never shifts */
-      .vccard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:12px;transition:background .12s}
-      .vccard.sel{background:#f4f7fd;outline:2px solid var(--civic);outline-offset:-1px}
+      .vcgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(296px,1fr));gap:14px}
+      /* The selection ring is drawn on an absolutely-positioned ::after overlay,
+         so it never participates in the card's box model: no resize, no shift,
+         and no overlap with neighbouring cards. */
+      .vccard{position:relative;width:100%;min-width:0;box-sizing:border-box;background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:12px;transition:background .12s}
+      .vccard.sel{background:#f4f7fd}
+      .vccard.sel::after{content:"";position:absolute;inset:0;border-radius:14px;box-shadow:0 0 0 2px var(--civic) inset;pointer-events:none}
       .vcmain{min-width:0;flex:1}
       .vcart{flex-shrink:0}
       .vcicon{display:block;height:78px;width:auto;filter:drop-shadow(0 5px 12px rgba(14,26,43,.18))}
@@ -516,6 +523,7 @@ export function renderVcSelect(user, groups) {
       .btn.ghost{background:#fff;color:var(--civic);border:1px solid var(--line)}
       .btn.ghost:hover{background:#f7f9fc}
       .grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,320px);gap:16px;margin-top:16px;align-items:start}
+      #out.jsononly .grid2{grid-template-columns:minmax(0,1fr)}
       .json{background:#0E1A2B;color:#D7E0EE;border-radius:10px;padding:14px;font-size:11.5px;line-height:1.5;overflow:auto;max-width:100%;max-height:480px;font-family:"IBM Plex Mono",monospace;white-space:pre}
       .hidden{display:none}
       @media(max-width:720px){.grid2{grid-template-columns:1fr}}
