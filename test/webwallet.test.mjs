@@ -6,6 +6,7 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { createApp, createVerifierApp } from '../src/app.mjs';
 import { createWalletApp } from '../src/wallet-app.mjs';
+import { renderVerifyHistory } from '../src/verifier-demo.mjs';
 import { kvStore } from '../src/oid4vci.mjs';
 
 // A fake Cloudflare KV (string store) wrapped by the real kvStore codec, with a
@@ -394,6 +395,20 @@ test('verifier global history: a completed web presentation is logged and shown 
     await new Promise((r) => issuer.close(r));
     await new Promise((r) => verifier.close(r));
   }
+});
+
+test('verifier history: a card shows only 4 claims; the rest fold into a <details> accordion', () => {
+  const claims = Object.fromEntries(['a', 'b', 'c', 'd', 'e', 'f'].map((k, i) => [k, `v${i}`]));
+  const html = renderVerifyHistory([{ at: new Date().toISOString(), via: 'web', valid: true, creds: [{ format: 'dc+sd-jwt', type: 'urn:jp:pid:1' }], claims, errors: [] }]);
+  assert.match(html, /<details class="more">/, 'extra claims fold into an accordion');
+  assert.match(html, /ほか 2 項目を表示/, '6 claims -> 4 shown + 2 folded');
+  // first 4 keys are above the fold (before <details>), last 2 inside it
+  const [above, below] = html.split('<details');
+  for (const k of ['>a<', '>b<', '>c<', '>d<']) assert.ok(above.includes(k), `${k} above the fold`);
+  for (const k of ['>e<', '>f<']) assert.ok(below.includes(k), `${k} inside the accordion`);
+  // 4-or-fewer claims: no accordion
+  const few = renderVerifyHistory([{ at: new Date().toISOString(), via: 'web', valid: true, creds: [], claims: { a: '1', b: '2' }, errors: [] }]);
+  assert.doesNotMatch(few, /<details class="more">/);
 });
 
 test('KV session: a transient read miss must NOT rotate the cookie nor wipe stored VCs', async () => {
