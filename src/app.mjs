@@ -312,7 +312,7 @@ export function createVerifierApp(opts = {}) {
   app.get('/demo/verify/catalog', (c) => c.json(allConfigIds().map(configInfo)));
   app.post('/demo/verify/prepare', async (c) => {
     try {
-      const { configId, claims, protocol } = await c.req.json();
+      const { configId, claims, optional = [], protocol } = await c.req.json();
       if (!claims || !claims.length) return c.json({ error: '少なくとも1項目を選択してください' }, 400);
       // mint a fresh credential from the issuer into an ephemeral wallet
       const wallet = createWallet();
@@ -322,7 +322,7 @@ export function createVerifierApp(opts = {}) {
       });
       const { credential_offer } = await offerRes.json();
       await wallet.receive({ request: issuerFetch, offer: credential_offer, credentialIssuer: issuerUrl });
-      const { transactionId, request } = await v.createRequest({ specs: [{ id: 'q1', configId, claims }], protocol });
+      const { transactionId, request } = await v.createRequest({ specs: [{ id: 'q1', configId, claims, optional }], protocol });
       const demoId = Math.random().toString(36).slice(2);
       await v.store.set(`vdemo:${demoId}`, { wallet: wallet.serialize(), request, transactionId }, 600);
       setCookie(c, 'vdemo', demoId, { httpOnly: true, sameSite: 'Lax', path: '/' });
@@ -354,9 +354,9 @@ export function createVerifierApp(opts = {}) {
   // wallet deep link. Used by the verify console to drive REAL wallets.
   app.post('/vp/build', async (c) => {
     try {
-      const { configId, claims, protocol = 'annex-d', target = 'dcapi' } = await c.req.json();
-      if (!claims || !claims.length) return c.json({ error: '少なくとも1項目を選択してください' }, 400);
-      const specs = [{ id: 'q1', configId, claims }];
+      const { configId, claims, optional = [], protocol = 'annex-d', target = 'dcapi' } = await c.req.json();
+      if (!claims || !claims.length) return c.json({ error: '必須項目を1つ以上選択してください' }, 400);
+      const specs = [{ id: 'q1', configId, claims, optional }];
       if (target === 'web') {
         if (protocol === 'annex-c') return c.json({ error: 'Annex C はネイティブウォレット（DC API）専用です' }, 400);
         const { transactionId, request } = await v.createRequest({ specs, transport: 'redirect', responseUriBase: `${verifierOrigin}/oid4vp/response` });

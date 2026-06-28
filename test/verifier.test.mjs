@@ -85,6 +85,32 @@ test('Selective disclosure: respond(request, selection) discloses only the holde
   assert.equal(r.results[0].claims.birth_date, undefined, 'birth_date withheld');
 });
 
+test('Optional claims: required claims are enforced by satisfies; optional ones are not', async () => {
+  const wallet = await walletWith(['pid_mdoc']);
+  const v = new VerifierService();
+  const credId = wallet.list()[0].id;
+  // family_name required, given_name optional
+  const mkReq = () => v.createRequest({ specs: [{ id: 'pid', configId: 'pid_mdoc', claims: ['family_name'], optional: ['given_name'] }] });
+
+  // DCQL marks the optional claim
+  const { request: rq } = await mkReq();
+  const cls = rq.dcql_query.credentials[0].claims;
+  assert.equal(cls.find((c) => c.path[1] === 'family_name').optional, undefined);
+  assert.equal(cls.find((c) => c.path[1] === 'given_name').optional, true);
+
+  // holder discloses ONLY the required claim -> still valid (optional not enforced)
+  const a = await mkReq();
+  const ra = await v.verifyResponse({ transactionId: a.transactionId, encryptedResponse: await wallet.respond(a.request, { pid: { credentialId: credId, disclose: ['family_name'] } }) });
+  assert.equal(ra.valid, true, ra.errors.join(';'));
+  assert.equal(ra.results[0].claims.given_name, undefined);
+
+  // holder opts in to the optional claim too -> valid and present
+  const b = await mkReq();
+  const rb = await v.verifyResponse({ transactionId: b.transactionId, encryptedResponse: await wallet.respond(b.request, { pid: { credentialId: credId, disclose: ['family_name', 'given_name'] } }) });
+  assert.equal(rb.valid, true, rb.errors.join(';'));
+  assert.equal(rb.results[0].claims.given_name, '太郎');
+});
+
 test('Request advertises a human-readable client_name (提示先 label source)', async () => {
   const v = new VerifierService({ clientName: '○○クリニック' });
   const { request } = await v.createRequest({
