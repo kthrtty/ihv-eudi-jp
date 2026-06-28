@@ -456,6 +456,9 @@ export function renderVcSelect(user, groups) {
           const cfg = chip.dataset.cfg;
           if (selected.has(cfg)) { selected.delete(cfg); chip.classList.remove('on'); }
           else { selected.add(cfg); chip.classList.add('on'); }
+          // highlight the whole card when any of its formats is selected
+          const card = chip.closest('.vccard');
+          card.classList.toggle('sel', !!card.querySelector('.fmtchip.on'));
           $('selcount').textContent = selected.size;
         };
       });
@@ -491,7 +494,8 @@ export function renderVcSelect(user, groups) {
       .sect b{color:var(--ink);font-weight:700}
       .h2{font-size:20px;margin:24px 0 6px;font-weight:700}
       .vcgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(248px,1fr));gap:14px}
-      .vccard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:12px}
+      .vccard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:12px;transition:border-color .12s,box-shadow .12s,background .12s}
+      .vccard.sel{border-color:var(--civic);box-shadow:0 0 0 2px var(--civic) inset;background:#f4f7fd}
       .vcmain{min-width:0;flex:1}
       .vcart{flex-shrink:0}
       .vcicon{display:block;height:78px;width:auto;filter:drop-shadow(0 5px 12px rgba(14,26,43,.18))}
