@@ -22,7 +22,12 @@ test('web wallet: pre-auth issuance over HTTPS (cross-origin)', async () => {
     const addRes = await wallet.request('/add?credential_offer_uri=' + encodeURIComponent(offerUri));
     assert.equal(addRes.status, 200);
     const cookie = addRes.headers.get('set-cookie').split(';')[0];
-    assert.match(await addRes.text(), /保管しました/);
+    const receipt = await addRes.text();
+    assert.match(receipt, /保管しました/);
+    // the issuance receipt renders STATIC cards (no modal exists on this page),
+    // so they must not carry the modal-opening click or the "show all" link
+    assert.doesNotMatch(receipt, /openCred\(/);
+    assert.doesNotMatch(receipt, /すべての属性・JSON を表示/);
 
     const creds = await (await wallet.request('/creds', { headers: { cookie } })).json();
     assert.equal(creds.length, 1);

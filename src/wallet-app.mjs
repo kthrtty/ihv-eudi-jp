@@ -536,18 +536,26 @@ function credJsonRepr(c) {
     : { format: 'dc+sd-jwt', vct: cc.vct, claims: c.claims || {} };
 }
 
-// card: issuer-style icon + up to 4 representative claims; whole card opens the modal
-function credCard(c) {
+// card: issuer-style icon + up to 4 representative claims. On the wallet home the
+// whole card opens the detail modal; on the issuance receipt it is static (no modal
+// is rendered there), so `interactive:false` drops the click + the "show all" link.
+function credCard(c, { interactive = true } = {}) {
   const entries = Object.entries(c.claims || {});
   const rows = entries.slice(0, 4).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('');
   const extra = entries.length - Math.min(entries.length, 4);
   const name = typeName(credType(c.configId));
-  return `<div class="held" role="button" tabindex="0" onclick="openCred('${esc(c.id)}')" onkeydown="if(event.key==='Enter')openCred('${esc(c.id)}')">
+  const open = interactive
+    ? ` role="button" tabindex="0" onclick="openCred('${esc(c.id)}')" onkeydown="if(event.key==='Enter'){event.preventDefault();openCred('${esc(c.id)}')}"`
+    : '';
+  const more = interactive
+    ? `<div class="held-more">▤ すべての属性・JSON を表示${extra > 0 ? ` ＋${extra}項目` : ''} →</div>`
+    : (extra > 0 ? `<div class="held-more static">ほか ${extra} 項目</div>` : '');
+  return `<div class="held${interactive ? '' : ' static'}"${open}>
     <div class="hd"><span class="hd-ic">${typeIcon(credType(c.configId))}</span>
       <span class="hd-t"><b>${esc(name)}</b><small>${esc(c.configId)}</small></span>
       <span class="fmt">${c.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT'}</span></div>
     <table class="cl">${rows}</table>
-    <div class="held-more">▤ すべての属性・JSON を表示${extra > 0 ? ` ＋${extra}項目` : ''} →</div></div>`;
+    ${more}</div>`;
 }
 
 // bottom-sheet modal per credential: 属性 / JSON segment + delete (-> confirm dialog)
@@ -585,10 +593,11 @@ const DELETE_CONFIRM = `<div class="vc-confirm" id="delConfirm" hidden>
   </div></div>`;
 
 const VC_MODAL_STYLE = `<style>
-  .held{cursor:pointer;transition:box-shadow .12s,border-color .12s}
-  .held:hover{border-color:#cfdbe6;box-shadow:0 2px 10px rgba(14,26,43,.06)}
+  .held:not(.static){cursor:pointer;transition:box-shadow .12s,border-color .12s}
+  .held:not(.static):hover{border-color:#cfdbe6;box-shadow:0 2px 10px rgba(14,26,43,.06)}
   .held:focus-visible{outline:2px solid #2E7D6B;outline-offset:2px}
   .held-more{margin-top:10px;font-size:12px;color:#2E7D6B;font-weight:700}
+  .held-more.static{color:var(--muted);font-weight:600}
   .vcsheet,.vc-confirm{position:fixed;inset:0;z-index:50;display:flex}
   .vcsheet[hidden],.vc-confirm[hidden]{display:none}
   .vcsheet{align-items:flex-end}.vc-confirm{align-items:center;justify-content:center;padding:24px}
@@ -598,9 +607,9 @@ const VC_MODAL_STYLE = `<style>
   .sheet .mh .vcicon{width:42px;height:auto}
   .sheet .mh-nm{font-weight:700;font-size:15px}
   .sheet .mh-x{margin-left:auto;font-size:22px;line-height:1;color:var(--muted);background:none;border:none;cursor:pointer;padding:0 4px}
-  .seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:12px 18px 0}
-  .seg button{flex:1;font:inherit;font-size:12.5px;font-weight:700;padding:9px;border:none;background:#fff;color:var(--muted);cursor:pointer}
-  .seg button.on{background:#E8F2EF;color:#246154}
+  .seg{display:flex;gap:4px;background:#EEF2F1;border:1px solid var(--line);border-radius:11px;padding:4px;margin:12px 18px 0}
+  .seg button{flex:1;font:inherit;font-size:12.5px;font-weight:700;line-height:1;padding:9px 8px;border:none;border-radius:8px;background:transparent;color:var(--muted);cursor:pointer}
+  .seg button.on{background:#fff;color:#246154;box-shadow:0 1px 2px rgba(14,26,43,.12)}
   .mc{padding:14px 18px 18px;overflow:auto}
   .dfull .r{display:flex;justify-content:space-between;gap:12px;padding:9px 2px;font-size:13.5px;border-bottom:1px solid #f0f3f8}
   .dfull .r:last-child{border-bottom:none}
@@ -737,7 +746,7 @@ function holderKeyPage(jwk, pem, thumbprint, credCount) {
 function added(s, recs, grant) {
   const list = Array.isArray(recs) ? recs : [recs];
   const newCreds = s.creds.slice(-list.length);
-  const cards = newCreds.map(credCard).join('');
+  const cards = newCreds.map((c) => credCard(c, { interactive: false })).join('');
   const title = list.length === 1 ? esc(list[0].configId) : `${list.length} 件のクレデンシャル`;
   return shell('発行完了', `
     <div class="card">
