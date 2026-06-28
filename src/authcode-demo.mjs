@@ -317,33 +317,56 @@ export function renderConsentScreen(q, user, requested) {
 
 // Curated display names + short descriptions per credential type (matches the
 // card tiles in the issuer portal). Keyed by the type prefix of the configId.
-// c1/c2: material-design gradient; glyph: an emoji evoking the credential type.
+// c1/c2: material-design gradient; glyph: emoji; shape: 'card' (landscape ID
+// card) or 'paper' (portrait certificate sheet).
 const TYPE_META = {
-  pid:           { name: 'PID（写真付き身分証）',     desc: '基本四情報＋顔写真',    c1: '#3949AB', c2: '#283593', glyph: '🪪' },
-  juminhyo:      { name: '住民票（EAA）',             desc: '住所・世帯情報',        c1: '#00897B', c2: '#00695C', glyph: '🏠' },
-  qualification: { name: '国家資格（EAA）',           desc: '医師・行政書士 等',     c1: '#8E24AA', c2: '#6A1B9A', glyph: '🎓' },
-  koseki:        { name: '戸籍謄本（EAA）',           desc: '本籍・続柄・親子関係',  c1: '#6D4C41', c2: '#4E342E', glyph: '📜' },
-  tax:           { name: '課税証明書（EAA）',         desc: '所得・課税額',          c1: '#2E7D32', c2: '#1B5E20', glyph: '🧾' },
-  single:        { name: '独身証明書（EAA）',         desc: '婚姻状況の証明',        c1: '#D81B60', c2: '#AD1457', glyph: '💍' },
-  disaster:      { name: '罹災証明書（EAA）',         desc: '被害程度の証明',        c1: '#F4511E', c2: '#D84315', glyph: '🏚️' },
-  vaccine:       { name: 'ワクチン接種証明書（EAA）', desc: '接種記録',              c1: '#039BE5', c2: '#0277BD', glyph: '💉' },
+  pid:           { name: 'PID（写真付き身分証）',     desc: '基本四情報＋顔写真',    c1: '#3949AB', c2: '#283593', glyph: '🪪', shape: 'card' },
+  qualification: { name: '国家資格（EAA）',           desc: '医師・行政書士 等',     c1: '#8E24AA', c2: '#6A1B9A', glyph: '🎓', shape: 'card' },
+  juminhyo:      { name: '住民票（EAA）',             desc: '住所・世帯情報',        c1: '#00897B', c2: '#00695C', glyph: '🏠', shape: 'paper' },
+  koseki:        { name: '戸籍謄本（EAA）',           desc: '本籍・続柄・親子関係',  c1: '#6D4C41', c2: '#4E342E', glyph: '📜', shape: 'paper' },
+  tax:           { name: '課税証明書（EAA）',         desc: '所得・課税額',          c1: '#2E7D32', c2: '#1B5E20', glyph: '🧾', shape: 'paper' },
+  single:        { name: '独身証明書（EAA）',         desc: '婚姻状況の証明',        c1: '#D81B60', c2: '#AD1457', glyph: '💍', shape: 'paper' },
+  disaster:      { name: '罹災証明書（EAA）',         desc: '被害程度の証明',        c1: '#F4511E', c2: '#D84315', glyph: '🏚️', shape: 'paper' },
+  vaccine:       { name: 'ワクチン接種証明書（EAA）', desc: '接種記録',              c1: '#039BE5', c2: '#0277BD', glyph: '💉', shape: 'paper' },
 };
 const fmtLabel = (format) => (format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT');
 
-/** A small credential-card-shaped icon (IC chip + glyph + name band), themed per type. */
-function typeIcon(type) {
-  const m = TYPE_META[type] || { c1: '#607D8B', c2: '#455A64', glyph: '📄' };
-  return `<svg class="vcicon" width="84" height="106" viewBox="0 0 84 106" aria-hidden="true">
+const SEAL = '#C8453C'; // reserved 実印 red — used as the certificate stamp
+
+/** Landscape ID-card icon (photo + IC chip + name lines), themed per type. */
+function cardIcon(type, m) {
+  return `<svg class="vcicon" width="118" height="100" viewBox="0 0 118 100" aria-hidden="true">
     <defs><linearGradient id="g-${esc(type)}" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="${m.c1}"/><stop offset="1" stop-color="${m.c2}"/></linearGradient></defs>
-    <rect x="2" y="2" width="80" height="102" rx="13" fill="url(#g-${esc(type)})"/>
-    <rect x="13" y="16" width="18" height="13" rx="3" fill="#fff" opacity=".9"/>
-    <rect x="15.5" y="20.5" width="13" height="1.6" rx=".8" fill="${m.c2}" opacity=".55"/>
-    <rect x="15.5" y="24" width="13" height="1.6" rx=".8" fill="${m.c2}" opacity=".55"/>
-    <text x="50" y="58" font-size="30" text-anchor="middle" dominant-baseline="central">${m.glyph}</text>
-    <rect x="13" y="84" width="40" height="5" rx="2.5" fill="#fff" opacity=".55"/>
-    <rect x="13" y="92" width="26" height="5" rx="2.5" fill="#fff" opacity=".35"/>
+    <rect x="2" y="14" width="114" height="72" rx="11" fill="url(#g-${esc(type)})"/>
+    <rect x="13" y="28" width="30" height="40" rx="5" fill="#fff" opacity=".93"/>
+    <text x="28" y="49" font-size="19" text-anchor="middle" dominant-baseline="central">${m.glyph}</text>
+    <rect x="55" y="29" width="15" height="11" rx="2.5" fill="#fff" opacity=".85"/>
+    <rect x="55" y="50" width="48" height="5" rx="2.5" fill="#fff" opacity=".6"/>
+    <rect x="55" y="60" width="34" height="5" rx="2.5" fill="#fff" opacity=".4"/>
   </svg>`;
+}
+
+/** Portrait certificate-sheet icon (colored header + text lines + red seal). */
+function paperIcon(type, m) {
+  return `<svg class="vcicon" width="78" height="104" viewBox="0 0 78 104" aria-hidden="true">
+    <defs><linearGradient id="g-${esc(type)}" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="${m.c1}"/><stop offset="1" stop-color="${m.c2}"/></linearGradient></defs>
+    <rect x="8" y="3" width="62" height="98" rx="8" fill="#fff" stroke="#e3e6ec"/>
+    <path d="M8,27 L8,11 Q8,3 16,3 L62,3 Q70,3 70,11 L70,27 Z" fill="url(#g-${esc(type)})"/>
+    <text x="39" y="15.5" font-size="14" text-anchor="middle" dominant-baseline="central">${m.glyph}</text>
+    <rect x="16" y="40" width="46" height="4.5" rx="2.2" fill="#dfe3ea"/>
+    <rect x="16" y="50" width="46" height="4.5" rx="2.2" fill="#dfe3ea"/>
+    <rect x="16" y="60" width="30" height="4.5" rx="2.2" fill="#dfe3ea"/>
+    <circle cx="55" cy="82" r="11" fill="${SEAL}" fill-opacity=".08" stroke="${SEAL}" stroke-width="2"/>
+    <circle cx="55" cy="82" r="6.5" fill="none" stroke="${SEAL}" stroke-width="1.3" opacity=".85"/>
+  </svg>`;
+}
+
+/** Per-type icon: landscape card for ID-style creds, portrait sheet for certs. */
+function typeIcon(type) {
+  const m = TYPE_META[type] || { c1: '#607D8B', c2: '#455A64', glyph: '📄', shape: 'paper' };
+  return m.shape === 'card' ? cardIcon(type, m) : paperIcon(type, m);
 }
 
 /** Group flat configInfo list into per-type cards: { type, name, desc, formats:[{configId,label}] }. */
