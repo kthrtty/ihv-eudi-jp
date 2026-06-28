@@ -293,10 +293,20 @@ export function renderVerifyHistory(entries = []) {
   const fmtAt = (iso) => { try { return new Date(iso).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', hour12: false }); } catch { return iso; } };
   const credLine = (creds = []) => creds.map((cr) =>
     `<span class="pill">${esc(cr.type || '?')} · ${cr.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT'}</span>`).join(' ') || '<span class="muted">—</span>';
+  const row = (claims, k) => `<tr><td>${esc(k)}</td><td>${esc(claims[k])}</td></tr>`;
+  // Show the first 4 claims; fold the rest into a JS-less <details> accordion so a
+  // many-claim presentation doesn't make the card excessively tall.
   const claimRows = (claims = {}) => {
     const ks = Object.keys(claims);
     if (!ks.length) return '';
-    return `<table class="cl">${ks.map((k) => `<tr><td>${esc(k)}</td><td>${esc(claims[k])}</td></tr>`).join('')}</table>`;
+    const head = ks.slice(0, 4), rest = ks.slice(4);
+    const headTable = `<table class="cl">${head.map((k) => row(claims, k)).join('')}</table>`;
+    if (!rest.length) return headTable;
+    return `${headTable}
+      <details class="more">
+        <summary>ほか ${rest.length} 項目を表示</summary>
+        <table class="cl">${rest.map((k) => row(claims, k)).join('')}</table>
+      </details>`;
   };
   const card = (e) => `
     <div class="hcard">
@@ -334,6 +344,11 @@ export function renderVerifyHistory(entries = []) {
     .pill{display:inline-block;font-size:12px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:2px 9px}
     table.cl{width:100%;border-collapse:collapse;font-size:13px;margin-top:4px}
     table.cl td{padding:6px 8px;border-bottom:1px solid var(--line)}table.cl td:first-child{color:var(--muted);width:42%;word-break:break-all}
+    .more>summary{list-style:none;cursor:pointer;font-size:12px;font-weight:700;color:var(--verify);padding:7px 2px 2px;user-select:none}
+    .more>summary::-webkit-details-marker{display:none}
+    .more>summary::before{content:"▸ ";font-size:10px}
+    .more[open]>summary::before{content:"▾ "}
+    .more[open]>summary{color:var(--muted)}
     .navrow{display:flex;gap:10px;margin-top:18px}.navrow .btn{flex:1;text-align:center}</style>`,
     { brand: 'クレデンシャル検証ポータル', sub: 'VERIFIER', role: 'verifier' });
 }
