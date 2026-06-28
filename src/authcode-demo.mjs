@@ -464,8 +464,6 @@ export function renderVcSelect(user, groups) {
   }).join('');
   return appShell('クレデンシャルを発行する', `
     <div style="margin-top:24px">
-      <div class="sect">SESSION <b>${esc(`${user.family} ${user.given}`)}</b> さんとして発行できます</div>
-
       <h2 class="h2">発行できるクレデンシャル</h2>
       <div class="hint" style="margin:0 0 14px">カードの形式チップ（mdoc / SD-JWT）をクリックで複数選択できます。複数種別・複数形式をまとめて1つのオファーに含められます。</div>
       <div class="vcgrid">${cards}</div>
