@@ -25,7 +25,7 @@ async function issueInto(configId) {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ credential_configuration_ids: [configId] }),
   })).json();
-  const rec = await wallet.receive({ request: app.request.bind(app), offer: offerRes.credential_offer, credentialIssuer: ISSUER });
+  const [rec] = await wallet.receive({ request: app.request.bind(app), offer: offerRes.credential_offer, credentialIssuer: ISSUER });
   return { wallet, id: rec.id };
 }
 const verifierNonce = () => Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString('base64url');

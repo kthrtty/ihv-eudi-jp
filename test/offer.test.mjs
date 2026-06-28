@@ -59,7 +59,7 @@ test('delivery round-trip: by-VALUE URI drives a real issuance', async () => {
   const parsed = parseOfferUri(made.delivery.by_value_uri);
   assert.equal(parsed.mode, 'value');
   const wallet = createWallet();
-  const rec = await wallet.receive({ request: app.request.bind(app), offer: parsed.offer, credentialIssuer: ISSUER });
+  const [rec] = await wallet.receive({ request: app.request.bind(app), offer: parsed.offer, credentialIssuer: ISSUER });
   assert.equal(rec.format, 'mso_mdoc');
 });
 
@@ -73,7 +73,7 @@ test('delivery round-trip: by-REFERENCE URI is fetched then drives issuance', as
   assert.equal(parsed.mode, 'reference');
   const offer = await (await app.request(new URL(parsed.offerUri).pathname)).json();
   const wallet = createWallet();
-  const rec = await wallet.receive({ request: app.request.bind(app), offer, credentialIssuer: ISSUER });
+  const [rec] = await wallet.receive({ request: app.request.bind(app), offer, credentialIssuer: ISSUER });
   assert.equal(rec.format, 'dc+sd-jwt');
 });
 
@@ -100,4 +100,48 @@ test('tx_code: offer advertises a numeric transaction code input', async () => {
   const grant = made.credential_offer.grants['urn:ietf:params:oauth:grant-type:pre-authorized_code'];
   assert.equal(grant.tx_code.input_mode, 'numeric');
   assert.equal(grant.tx_code.length, 4);
+});
+
+test('receive: multi-credential offer issues EVERY credential (array of recs)', async () => {
+  const made = await (await app.request('/offer', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ credential_configuration_ids: ['juminhyo_sdjwt', 'single_sdjwt'] }),
+  })).json();
+  const wallet = createWallet();
+  const recs = await wallet.receive({ request: app.request.bind(app), offer: made.credential_offer, credentialIssuer: ISSUER });
+  assert.equal(recs.length, 2);
+  assert.deepEqual(recs.map((r) => r.configId).sort(), ['juminhyo_sdjwt', 'single_sdjwt']);
+  assert.equal(wallet.list().length, 2); // both stored
+});
+
+test('receive: tx_code-protected offer needs the PIN; correct PIN issues, wrong PIN errors', async () => {
+  const made = await (await app.request('/offer', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'], tx_code: '4921' }),
+  })).json();
+  const offer = made.credential_offer;
+
+  // no PIN -> token rejected -> clear error (not "reading '0'")
+  await assert.rejects(
+    createWallet().receive({ request: app.request.bind(app), offer, credentialIssuer: ISSUER }),
+    (e) => !/reading '0'/.test(e.message),
+  );
+
+  // wrong PIN -> rejected
+  const made2 = await (await app.request('/offer', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'], tx_code: '4921' }),
+  })).json();
+  await assert.rejects(
+    createWallet().receive({ request: app.request.bind(app), offer: made2.credential_offer, credentialIssuer: ISSUER, txCode: '0000' }),
+  );
+
+  // correct PIN -> issued
+  const made3 = await (await app.request('/offer', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'], tx_code: '4921' }),
+  })).json();
+  const recs = await createWallet().receive({ request: app.request.bind(app), offer: made3.credential_offer, credentialIssuer: ISSUER, txCode: '4921' });
+  assert.equal(recs.length, 1);
+  assert.equal(recs[0].configId, 'pid_mdoc');
 });
