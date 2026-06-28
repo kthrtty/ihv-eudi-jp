@@ -135,10 +135,16 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
         return c.html(grantChoiceScreen(configId, issuerBase));
       }
       if (hasPreAuth) {
-        const rec = await s.wallet.receive({ request: httpTo(issuerBase), offer, credentialIssuer: issuerBase });
-        await record(s, rec);
+        const txMeta = grants['urn:ietf:params:oauth:grant-type:pre-authorized_code'].tx_code;
+        if (txMeta) { // offer requires a PIN — collect it before exchanging
+          s.pending = { offer, configId, issuerBase };
+          await saveSession(s);
+          return c.html(pinScreen(offer, txMeta));
+        }
+        const recs = await s.wallet.receive({ request: httpTo(issuerBase), offer, credentialIssuer: issuerBase });
+        for (const r of recs) await record(s, r);
         await saveSession(s);
-        return c.html(added(s, configId, 'pre-authorized_code'));
+        return c.html(added(s, recs, 'pre-authorized_code'));
       }
       if (hasAuthCode) {
         const { verifier, challenge, state } = pkce();
@@ -167,11 +173,13 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     const grants = offer.grants || {};
     try {
       if (chosen === 'pre-authorized_code') {
-        const rec = await s.wallet.receive({ request: httpTo(issuerBase), offer, credentialIssuer: issuerBase });
-        await record(s, rec);
+        const txMeta = grants['urn:ietf:params:oauth:grant-type:pre-authorized_code'].tx_code;
+        if (txMeta) { await saveSession(s); return c.html(pinScreen(offer, txMeta)); } // s.pending already set
+        const recs = await s.wallet.receive({ request: httpTo(issuerBase), offer, credentialIssuer: issuerBase });
+        for (const r of recs) await record(s, r);
         s.pending = null;
         await saveSession(s);
-        return c.html(added(s, configId, 'pre-authorized_code'));
+        return c.html(added(s, recs, 'pre-authorized_code'));
       }
       if (chosen === 'authorization_code') {
         const { verifier, challenge, state } = pkce();
@@ -190,6 +198,23 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     }
   });
 
+  // tx_code (PIN) submit for a pre-authorized_code offer that requires it
+  app.post('/add/pin', async (c) => {
+    const s = await loadSession(c);
+    const f = await c.req.parseBody();
+    const { offer, issuerBase } = s.pending || {};
+    if (!offer) return c.html(shell('ウォレット', `<div class="card"><h1>セッションが切れました</h1><a href="/">戻る</a></div>`, WALLET));
+    try {
+      const recs = await s.wallet.receive({ request: httpTo(issuerBase), offer, credentialIssuer: issuerBase, txCode: f.tx_code });
+      for (const r of recs) await record(s, r);
+      s.pending = null;
+      await saveSession(s);
+      return c.html(added(s, recs, 'pre-authorized_code'));
+    } catch (e) {
+      return c.html(shell('ウォレット', `<div class="card"><h1>取得に失敗</h1><div class="hint" style="color:#9E3A3A">${esc(e.message)}</div><div style="margin-top:12px"><a class="btn" href="/">ウォレットに戻る</a></div></div>`, WALLET));
+    }
+  });
+
 
   // OID4VCI redirect callback: exchange the authorization code, then issue
   app.get('/oidc/cb', async (c) => {
@@ -204,7 +229,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
       s.pending = null;
       await record(s, rec);
       await saveSession(s);
-      return c.html(added(s, p.configId, 'authorization_code'));
+      return c.html(added(s, [rec], 'authorization_code'));
     } catch (e) {
       return c.html(shell('ウォレット', `<div class="card"><h1>発行に失敗</h1><div class="hint" style="color:#9E3A3A">${esc(e.message)}</div></div>`, WALLET));
     }
@@ -340,16 +365,38 @@ function home(s, issuerUrl, verifierUrl) {
     </style>`, { ...WALLET, width: 'mid' });
 }
 
-function added(s, configId, grant) {
-  const c = s.creds[s.creds.length - 1];
+function added(s, recs, grant) {
+  const list = Array.isArray(recs) ? recs : [recs];
+  const newCreds = s.creds.slice(-list.length);
+  const cards = newCreds.map(credCard).join('');
+  const title = list.length === 1 ? esc(list[0].configId) : `${list.length} 件のクレデンシャル`;
   return shell('発行完了', `
     <div class="card">
       <div class="step">OID4VCI（${esc(grant)}）で受領</div>
       <div class="ok">✓ クレデンシャルをウォレットに保管しました</div>
-      <h1 style="font-size:18px">${esc(configId)}</h1>
-      ${credCard(c)}
+      <h1 style="font-size:18px">${title}</h1>
+      ${cards}
       <div style="margin-top:14px"><a class="btn" href="/">ウォレットを開く</a></div>
       <div class="hint" style="margin-top:10px">この発行は OID4VCI を <b>HTTPS リダイレクト</b>で実行しました（ネイティブ DC API 不使用）。</div>
+    </div>${STYLE}`, WALLET);
+}
+
+function pinScreen(offer, txMeta) {
+  const ids = offer.credential_configuration_ids.join('、');
+  const len = txMeta?.length || 4;
+  return shell('PIN 入力', `
+    <div class="card">
+      <div class="step">OID4VCI — pre-authorized_code（tx_code）</div>
+      <h1>取引コード（PIN）を入力</h1>
+      <div class="hint">このオファーは発行者の PIN を要求しています。発行者から提示された ${esc(String(len))} 桁の番号を入力してください。</div>
+      <div class="hint" style="margin-top:6px">対象: <span class="mono">${esc(ids)}</span></div>
+      <form method="POST" action="/add/pin" style="margin-top:14px">
+        <input name="tx_code" inputmode="numeric" autocomplete="one-time-code" maxlength="${esc(String(len))}"
+          placeholder="${'•'.repeat(len)}" required
+          style="font:inherit;font-size:20px;letter-spacing:.4em;text-align:center;width:100%;box-sizing:border-box;padding:.6rem;border-radius:.5rem;border:1px solid #aaa">
+        <div style="margin-top:12px"><button class="btn" type="submit">この PIN で取得する</button></div>
+      </form>
+      <div style="margin-top:12px"><a href="/">← キャンセル</a></div>
     </div>${STYLE}`, WALLET);
 }
 

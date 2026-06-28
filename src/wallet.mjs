@@ -57,6 +57,9 @@ export function createWallet(snapshot = null) {
       method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ credential_configuration_id: configId, proofs: { jwt: [proof] } }),
     })).json();
+    if (!credRes.credentials || !credRes.credentials[0]) {
+      throw new Error(credRes.error_description || credRes.error || 'credential issuance failed');
+    }
     const wire = credRes.credentials[0].credential;
     const format = configId.endsWith('_mdoc') ? 'mso_mdoc' : 'dc+sd-jwt';
     const credential = format === 'mso_mdoc' ? new Uint8Array(Buffer.from(wire, 'base64url')) : wire;
@@ -66,15 +69,22 @@ export function createWallet(snapshot = null) {
   }
 
   return {
-    /** OID4VCI pre-authorized_code flow. */
-    async receive({ request, offer, credentialIssuer }) {
-      const configId = offer.credential_configuration_ids[0];
+    /** OID4VCI pre-authorized_code flow. Issues EVERY credential the offer lists
+     *  and returns an array of records. `txCode` is the PIN when the offer's
+     *  pre-authorized_code grant advertises a tx_code. */
+    async receive({ request, offer, credentialIssuer, txCode = null }) {
+      const ids = offer.credential_configuration_ids;
       const preAuth = offer.grants[PRE_AUTH_GRANT]['pre-authorized_code'];
+      const params = { grant_type: PRE_AUTH_GRANT, 'pre-authorized_code': preAuth };
+      if (txCode != null && txCode !== '') params.tx_code = String(txCode);
       const tokenRes = await (await request('/token', {
         method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ grant_type: PRE_AUTH_GRANT, 'pre-authorized_code': preAuth }).toString(),
+        body: new URLSearchParams(params).toString(),
       })).json();
-      return finish(request, tokenRes.access_token, configId, credentialIssuer);
+      if (!tokenRes.access_token) throw new Error(tokenRes.error_description || tokenRes.error || 'token exchange failed');
+      const recs = [];
+      for (const configId of ids) recs.push(await finish(request, tokenRes.access_token, configId, credentialIssuer));
+      return recs;
     },
 
     /** OID4VCI authorization_code flow with PKCE, tied to a signed-in session.
