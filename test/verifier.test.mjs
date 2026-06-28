@@ -84,6 +84,18 @@ test('Verifier regression: juminhyo (mdoc) residence_address whose mdoc element 
   assert.equal(r.results[0].claims.resident_address, '東京都千代田区1-1-1');
 });
 
+test('Verifier regression: PID (mdoc) residence_address also maps to resident_address element', async () => {
+  // PID shares the same key/element divergence as juminhyo (the only two configs that do).
+  const wallet = await walletWith(['pid_mdoc']);
+  const v = new VerifierService();
+  const { transactionId, request } = await v.createRequest({
+    specs: [{ id: 'pid', configId: 'pid_mdoc', claims: ['family_name', 'residence_address'] }],
+  });
+  const r = await v.verifyResponse({ transactionId, encryptedResponse: await wallet.respond(request) });
+  assert.equal(r.valid, true, r.errors.join(';'));
+  assert.equal(r.results[0].claims.resident_address, '東京都千代田区1-1-1');
+});
+
 test('Verifier JWE: response is encrypted (not plaintext) and needs the RP key', async () => {
   const wallet = await walletWith(['pid_sdjwt']);
   const v = new VerifierService();
