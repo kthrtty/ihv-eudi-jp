@@ -104,9 +104,19 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
   app.get('/add', async (c) => {
     const s = await loadSession(c);
     try {
+      // The pasted value may be a deep link (openid-credential-offer://?...) that
+      // itself carries credential_offer / credential_offer_uri, OR a plain URI/JSON.
+      let byVal = c.req.query('credential_offer');
+      let byRef = c.req.query('credential_offer_uri');
+      const raw = (byVal || byRef || '').trim();
+      if (/^openid-credential-offer:\/\//i.test(raw)) {
+        const q = new URL(raw).searchParams;
+        byVal = q.get('credential_offer'); byRef = q.get('credential_offer_uri');
+      } else if (byRef && byRef.trim().startsWith('{')) {
+        byVal = byRef; byRef = null; // a JSON offer was pasted into the URI field
+      }
+
       let offer;
-      const byVal = c.req.query('credential_offer');
-      const byRef = c.req.query('credential_offer_uri');
       if (byVal) offer = JSON.parse(byVal);
       else if (byRef) offer = await (await doFetch(byRef)).json();
       else return c.html(shell('ウォレット', `<div class="card"><h1>オファーがありません</h1><div class="hint">credential_offer / credential_offer_uri を付けて開いてください。</div></div>`, WALLET));
