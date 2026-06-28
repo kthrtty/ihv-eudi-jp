@@ -490,11 +490,11 @@ export function renderVcSelect(user, groups) {
       .sect{background:#fff;border:1px solid var(--line);border-left:4px solid var(--verify);border-radius:10px;padding:14px 18px;font-size:13px;color:var(--muted);letter-spacing:.04em}
       .sect b{color:var(--ink);font-weight:700}
       .h2{font-size:20px;margin:24px 0 6px;font-weight:700}
-      .vcgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:16px}
-      .vccard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px 20px;display:flex;align-items:center;gap:16px}
+      .vcgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(248px,1fr));gap:14px}
+      .vccard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:12px}
       .vcmain{min-width:0;flex:1}
       .vcart{flex-shrink:0}
-      .vcicon{display:block;filter:drop-shadow(0 6px 14px rgba(14,26,43,.18))}
+      .vcicon{display:block;height:78px;width:auto;filter:drop-shadow(0 5px 12px rgba(14,26,43,.18))}
       .vctype{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--muted);margin-bottom:6px}
       .vcname{font-size:17px;font-weight:700;margin-bottom:6px}
       .vcdesc{font-size:13px;color:var(--muted);margin-bottom:14px}
