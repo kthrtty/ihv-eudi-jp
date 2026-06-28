@@ -364,7 +364,7 @@ function paperIcon(type, m) {
 }
 
 /** Per-type icon: landscape card for ID-style creds, portrait sheet for certs. */
-function typeIcon(type) {
+export function typeIcon(type) {
   const m = TYPE_META[type] || { c1: '#607D8B', c2: '#455A64', glyph: '📄', shape: 'paper' };
   return m.shape === 'card' ? cardIcon(type, m) : paperIcon(type, m);
 }
