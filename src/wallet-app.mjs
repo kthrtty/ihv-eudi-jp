@@ -546,6 +546,7 @@ const PRESENT_STYLE = `<style>
   .cl-main{flex:1;min-width:0}
   .cl-k{display:block;font-size:11px;color:var(--muted)}
   .cl-v{display:block;font-size:14px;font-weight:600;margin-top:1px;word-break:break-all}
+  #prevCard{margin-top:12px}
   .prev{background:#0E1A2B;color:#cfe6dd;border-radius:10px;padding:13px 14px;margin:8px 0 0;font-family:ui-monospace,monospace;font-size:12px;line-height:1.7;white-space:pre-wrap;word-break:break-all;overflow:auto}
   .bar{position:sticky;bottom:0;background:#fff;border:1px solid var(--line);border-radius:14px;padding:13px 16px;margin-top:12px}
   .count{font-size:12.5px;color:var(--muted);margin-bottom:10px;text-align:center}
