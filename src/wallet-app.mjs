@@ -79,31 +79,38 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
   });
 
   // Load the session. With a KV store (Workers) ALWAYS read KV — the per-isolate
-  // `mem` cache must never be a read source there, or an isolate that once cached
-  // an older snapshot keeps serving it after another isolate updates KV (VCs appear
-  // to vanish on whichever isolate handles /present). `mem` is only the store for
-  // local single-isolate runs/tests that have no KV. Sets the cookie on access.
+  // `mem` cache must never be a read source there (a stale cached snapshot would be
+  // served after another isolate updated KV). `mem` is only for local single-isolate
+  // runs/tests with no KV.
+  //
+  // CRITICAL: never rotate an existing wsid cookie. KV is eventually consistent, so a
+  // read may transiently miss a session that actually exists. If we minted a new sid
+  // on that miss, the user's real session (still under the old sid) would be orphaned
+  // forever and their VCs would "vanish". Instead we keep the cookie's sid stable and
+  // mark the empty session `_volatile`, so saveSession won't clobber the real data and
+  // the next (consistent) read recovers it.
   const loadSession = async (c) => {
     let sid = getCookie(c, 'wsid');
-    if (sid && store) {
+    const hadCookie = !!sid;
+    if (!sid) sid = rand();
+    setWsidCookie(c, sid);            // stable sid; refresh maxAge
+    if (store) {
       const snap = await store.get(`wsess:${sid}`);
-      if (snap) {
-        setWsidCookie(c, sid); // refresh cookie maxAge on access
-        return { wallet: createWallet(snap.wallet), creds: snap.creds || [], pending: snap.pending || null, present: snap.present || null, _sid: sid };
-      }
-    } else if (sid && mem.has(sid)) {
-      setWsidCookie(c, sid);
-      return mem.get(sid);
+      if (snap) return { wallet: createWallet(snap.wallet), creds: snap.creds || [], pending: snap.pending || null, present: snap.present || null, _sid: sid };
+      return { wallet: createWallet(), creds: [], pending: null, present: null, _sid: sid, _volatile: hadCookie };
     }
-    sid = rand();
+    if (mem.has(sid)) return mem.get(sid);
     const s = { wallet: createWallet(), creds: [], pending: null, present: null, _sid: sid };
-    if (!store) mem.set(sid, s);
-    setWsidCookie(c, sid);
+    mem.set(sid, s);
     return s;
   };
   // Persist the session to KV (no-op without a store, e.g. local Node single-isolate).
+  // Never overwrite a (possibly real) KV session with a transiently-empty one: if the
+  // session is volatile (loaded from a cookie that missed KV) and still has no creds,
+  // skip the write so a propagation lag can't wipe the user's credentials.
   const saveSession = async (s) => {
     if (!store || !s?._sid) return;
+    if (s._volatile && (!s.creds || s.creds.length === 0)) return;
     await store.set(`wsess:${s._sid}`, {
       wallet: s.wallet.serialize(), creds: s.creds, pending: s.pending ?? null, present: s.present ?? null,
     }, SESSION_TTL);
@@ -116,7 +123,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     s.creds.push({ ...rec, claims: Object.fromEntries(Object.entries(claims).map(([k, v]) => [k, fmt(v)])) });
   };
 
-  app.get('/', async (c) => { const s = await loadSession(c); await saveSession(s); return c.html(home(s, issuerUrl, verifierUrl)); });
+  app.get('/', async (c) => { const s = await loadSession(c); return c.html(home(s, issuerUrl, verifierUrl)); }); // view-only: don't persist (avoids clobbering on a transient KV miss)
   app.get('/creds', async (c) => { const s = await loadSession(c); return c.json(s.creds.map(({ id, configId, format }) => ({ id, configId, format }))); });
 
   // Reset (initialize) the wallet: drop all stored VCs and the device-bound key.
