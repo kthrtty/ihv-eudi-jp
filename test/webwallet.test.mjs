@@ -3,6 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { serve } from '@hono/node-server';
+import { Hono } from 'hono';
 import { createApp, createVerifierApp } from '../src/app.mjs';
 import { createWalletApp } from '../src/wallet-app.mjs';
 
@@ -170,7 +171,7 @@ test('web wallet: /dev/holder-key shows the public JWK + thumbprint', async () =
   const first = await wallet.request('/');
   const cookie = first.headers.get('set-cookie').split(';')[0];
   const html = await (await wallet.request('/dev/holder-key', { headers: { cookie } })).text();
-  assert.match(html, /ホルダー束縛鍵/);
+  assert.match(html, /ホルダーバインディング鍵/);
   assert.match(html, /kty/); // JWK is HTML-escaped (&quot;kty&quot;), so match loosely
   assert.match(html, /EC/);
   assert.match(html, /P-256/);
@@ -228,5 +229,79 @@ test('web wallet present: holding vaccine_mdoc, a vaccine_SDJWT request is not h
   } finally {
     await new Promise((r) => issuer.close(r));
     await new Promise((r) => verifier.close(r));
+  }
+});
+
+test('web wallet /present/confirm: a Verifier error (no redirect_uri) shows an error page, never redirects to /present/undefined', async () => {
+  const IP = 8946, VP = 8947, SP = 8948, WP = 8949;
+  const ISSUER = `http://127.0.0.1:${IP}`, VERIF = `http://127.0.0.1:${VP}`, STUB = `http://127.0.0.1:${SP}`, WALLET = `http://127.0.0.1:${WP}`;
+  const issuer = serve({ fetch: createApp({ credentialIssuer: ISSUER }).fetch, port: IP });
+  const verifier = serve({ fetch: createVerifierApp({ verifierOrigin: VERIF, walletOrigin: WALLET, issuerUrl: ISSUER }).fetch, port: VP });
+  // stub Verifier: serves a genuine request but rewires response_uri to itself and
+  // returns HTTP 500 with no redirect_uri (mimics an expired/unknown transaction)
+  let genuineRequest = null;
+  const stub = new Hono();
+  stub.get('/req', (c) => c.json({ ...genuineRequest, response_uri: `${STUB}/resp` }));
+  stub.post('/resp', (c) => c.json({ error: 'unknown transaction' }, 500));
+  const stubSrv = serve({ fetch: stub.fetch, port: SP });
+  try {
+    // issue juminhyo_mdoc into the wallet
+    const made = await (await fetch(`${ISSUER}/offer`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ credential_configuration_ids: ['juminhyo_mdoc'] }),
+    })).json();
+    const wallet = createWalletApp({ walletOrigin: WALLET, issuerUrl: ISSUER });
+    const add = await wallet.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${made.offer_id}`));
+    const cookie = add.headers.get('set-cookie').split(';')[0];
+
+    // get a genuine redirect request from the real verifier
+    const build = await (await fetch(`${VERIF}/vp/build`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ configId: 'juminhyo_mdoc', claims: ['family_name'], protocol: 'annex-d', target: 'web' }),
+    })).json();
+    const realReqUri = new URL(build.walletPresent).searchParams.get('request_uri');
+    genuineRequest = await (await fetch(realReqUri)).json();
+
+    // wallet fetches the stub's request (response_uri -> stub /resp), shows consent
+    const consent = await wallet.request('/present?request_uri=' + encodeURIComponent(`${STUB}/req`), { headers: { cookie } });
+    assert.match(await consent.text(), /提示する（暗号化/);
+
+    // confirm: stub returns 500 with no redirect_uri -> wallet must NOT 302 to undefined
+    const confirm = await wallet.request('/present/confirm', { method: 'POST', headers: { cookie }, redirect: 'manual' });
+    assert.equal(confirm.status, 200);                  // an error page, not a redirect
+    assert.notEqual(confirm.headers.get('location'), 'undefined');
+    const html = await confirm.text();
+    assert.match(html, /提示に失敗/);
+    assert.match(html, /HTTP 500|unknown transaction/);
+  } finally {
+    await new Promise((r) => issuer.close(r));
+    await new Promise((r) => verifier.close(r));
+    await new Promise((r) => stubSrv.close(r));
+  }
+});
+
+test('web wallet /present/confirm: a request without response_uri errors instead of crashing', async () => {
+  const IP = 8951, SP = 8952, WP = 8953;
+  const ISSUER = `http://127.0.0.1:${IP}`, STUB = `http://127.0.0.1:${SP}`, WALLET = `http://127.0.0.1:${WP}`;
+  const issuer = serve({ fetch: createApp({ credentialIssuer: ISSUER }).fetch, port: IP });
+  // stub serves a request with NO response_uri (e.g. a DC API request misrouted here)
+  const stub = new Hono();
+  stub.get('/req', (c) => c.json({ client_id: 'x', dcql_query: { credentials: [{ id: 'q1', format: 'mso_mdoc', meta: { doctype_value: 'jp.go.juminhyo.1' }, claims: [{ path: ['jp.go.juminhyo.1', 'family_name'] }] }] } }));
+  const stubSrv = serve({ fetch: stub.fetch, port: SP });
+  try {
+    const made = await (await fetch(`${ISSUER}/offer`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ credential_configuration_ids: ['juminhyo_mdoc'] }),
+    })).json();
+    const wallet = createWalletApp({ walletOrigin: WALLET, issuerUrl: ISSUER });
+    const add = await wallet.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${made.offer_id}`));
+    const cookie = add.headers.get('set-cookie').split(';')[0];
+    await wallet.request('/present?request_uri=' + encodeURIComponent(`${STUB}/req`), { headers: { cookie } });
+    const confirm = await wallet.request('/present/confirm', { method: 'POST', headers: { cookie }, redirect: 'manual' });
+    assert.equal(confirm.status, 200);
+    assert.match(await confirm.text(), /response_uri がありません/);
+  } finally {
+    await new Promise((r) => issuer.close(r));
+    await new Promise((r) => stubSrv.close(r));
   }
 });

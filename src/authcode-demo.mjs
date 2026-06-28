@@ -631,7 +631,7 @@ export function renderHistory(user, issuances) {
       <div class="card" style="padding:0;overflow:hidden">
         <table class="hist">
           <thead><tr>
-            <th>クレデンシャル</th><th>形式</th><th>発行日時</th><th>有効期限</th><th>状態</th><th>失効理由</th><th>束縛鍵</th><th></th>
+            <th>クレデンシャル</th><th>形式</th><th>発行日時</th><th>有効期限</th><th>状態</th><th>失効理由</th><th>バインド鍵</th><th></th>
           </tr></thead>
           <tbody>${rows || '<tr><td colspan="8" class="muted" style="text-align:center;padding:28px">発行記録がありません。</td></tr>'}</tbody>
         </table>
