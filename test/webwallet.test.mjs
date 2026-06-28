@@ -123,6 +123,60 @@ test('web wallet: wrong PIN surfaces a clear error (not undefined[0])', async ()
   } finally { await new Promise((r) => issuer.close(r)); }
 });
 
+test('web wallet: wsid cookie is persistent (Max-Age) and Secure', async () => {
+  const wallet = createWalletApp({ walletOrigin: 'https://wallet.example' });
+  const res = await wallet.request('/');
+  const setCookie = res.headers.get('set-cookie');
+  assert.match(setCookie, /wsid=/);
+  assert.match(setCookie, /Max-Age=\d{5,}/i); // not a session cookie
+  assert.match(setCookie, /Secure/i);
+  assert.match(setCookie, /HttpOnly/i);
+});
+
+test('web wallet: /reset clears stored credentials (and rotates the holder key)', async () => {
+  const PORT = 8944;
+  const ISSUER = `http://127.0.0.1:${PORT}`;
+  const issuer = serve({ fetch: createApp({ credentialIssuer: ISSUER }).fetch, port: PORT });
+  try {
+    const made = await (await fetch(`${ISSUER}/offer`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'] }),
+    })).json();
+    const wallet = createWalletApp({ walletOrigin: 'https://wallet.example', issuerUrl: ISSUER });
+    const add = await wallet.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${made.offer_id}`));
+    const cookie = add.headers.get('set-cookie').split(';')[0];
+
+    let creds = await (await wallet.request('/creds', { headers: { cookie } })).json();
+    assert.equal(creds.length, 1);
+
+    // capture holder key before reset
+    const keyBefore = await (await wallet.request('/dev/holder-key', { headers: { cookie } })).text();
+    const thumbBefore = keyBefore.match(/SHA-256）<\/div>\s*<div class="keybox mono"[^>]*>([^<]+)/)?.[1];
+
+    const reset = await wallet.request('/reset', { method: 'POST', headers: { cookie }, redirect: 'manual' });
+    assert.equal(reset.status, 302);
+
+    creds = await (await wallet.request('/creds', { headers: { cookie } })).json();
+    assert.equal(creds.length, 0); // VCs cleared
+
+    const keyAfter = await (await wallet.request('/dev/holder-key', { headers: { cookie } })).text();
+    const thumbAfter = keyAfter.match(/SHA-256）<\/div>\s*<div class="keybox mono"[^>]*>([^<]+)/)?.[1];
+    assert.ok(thumbBefore && thumbAfter && thumbBefore !== thumbAfter); // key rotated
+  } finally { await new Promise((r) => issuer.close(r)); }
+});
+
+test('web wallet: /dev/holder-key shows the public JWK + thumbprint', async () => {
+  const wallet = createWalletApp({ walletOrigin: 'https://wallet.example' });
+  const first = await wallet.request('/');
+  const cookie = first.headers.get('set-cookie').split(';')[0];
+  const html = await (await wallet.request('/dev/holder-key', { headers: { cookie } })).text();
+  assert.match(html, /ホルダー束縛鍵/);
+  assert.match(html, /kty/); // JWK is HTML-escaped (&quot;kty&quot;), so match loosely
+  assert.match(html, /EC/);
+  assert.match(html, /P-256/);
+  assert.match(html, /Thumbprint/);
+});
+
 test('web wallet wallet-initiated: /request?cfg builds an authorize-URL preview (no redirect, no QR)', async () => {
   const ISSUER = 'https://issuer.example';
   const wallet = createWalletApp({ walletOrigin: 'https://wallet.example', issuerUrl: ISSUER });
