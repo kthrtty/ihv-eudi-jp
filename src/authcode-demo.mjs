@@ -573,8 +573,8 @@ export function renderVcSelect(user, groups) {
       .fmtchip.on{background:var(--civic);color:#fff;border-color:var(--civic)}
       .optrow{display:flex;align-items:center;gap:16px;margin-bottom:14px}
       .optlbl{font-size:12px;color:var(--muted);font-weight:700;width:140px;flex-shrink:0}
-      .sel{font:inherit;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;min-width:280px}
-      .radios{display:flex;gap:18px;flex-wrap:wrap;font-size:13.5px}
+      .sel{font:inherit;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;width:280px;max-width:100%}
+      .radios{display:flex;gap:18px;flex-wrap:wrap;font-size:13.5px;min-width:0}
       .radios label,.inline{display:flex;align-items:center;gap:7px}
       .actions{display:flex;gap:10px;margin-top:18px}
       .btn.ghost{background:#fff;color:var(--civic);border:1px solid var(--line)}
@@ -583,7 +583,14 @@ export function renderVcSelect(user, groups) {
       #out.jsononly .grid2{grid-template-columns:minmax(0,1fr)}
       .json{background:#0E1A2B;color:#D7E0EE;border-radius:10px;padding:14px;font-size:11.5px;line-height:1.5;overflow:auto;max-width:100%;max-height:480px;font-family:"IBM Plex Mono",monospace;white-space:pre}
       .hidden{display:none}
-      @media(max-width:720px){.grid2{grid-template-columns:1fr}}
+      @media(max-width:720px){.grid2{grid-template-columns:minmax(0,1fr)}}
+      @media(max-width:640px){
+        .optrow{flex-direction:column;align-items:stretch;gap:6px}
+        .optlbl{width:auto}
+        .sel{width:100%}
+        .actions{flex-wrap:wrap}
+        .actions .btn{flex:1 1 auto;text-align:center}
+      }
     </style>
     ${renderClaimsModal(groups)}`, user, { width: 'wide' });
 }
