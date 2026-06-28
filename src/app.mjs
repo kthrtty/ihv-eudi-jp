@@ -61,7 +61,7 @@ export function createApp(opts = {}) {
     if (!user) return c.redirect('/login?next=/account', 302);
     const f = await c.req.parseBody();
     svc.updateUser(user.id, {
-      family: f.family, given: f.given, birth: f.birth, address: f.address, honseki: f.honseki,
+      family: f.family, given: f.given, desc: f.desc, birth: f.birth, address: f.address, honseki: f.honseki,
     });
     return c.redirect('/account', 302);
   });
