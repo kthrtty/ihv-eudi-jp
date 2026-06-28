@@ -123,6 +123,21 @@ test('web wallet: wrong PIN surfaces a clear error (not undefined[0])', async ()
   } finally { await new Promise((r) => issuer.close(r)); }
 });
 
+test('web wallet wallet-initiated: /request?cfg builds an authorize-URL preview (no redirect, no QR)', async () => {
+  const ISSUER = 'https://issuer.example';
+  const wallet = createWalletApp({ walletOrigin: 'https://wallet.example', issuerUrl: ISSUER });
+  // step 2: a config is chosen -> preview page (200), not a 302 redirect
+  const res = await wallet.request('/request?cfg=pid_mdoc&issuer=' + encodeURIComponent(ISSUER));
+  assert.equal(res.status, 200);
+  const html = await res.text();
+  // shows the generated authorization request URL + a button to proceed
+  assert.match(html, /認可要求 URL/);
+  assert.match(html, /scope=pid_mdoc/);
+  assert.match(html, /code_challenge_method=S256/);
+  assert.match(html, new RegExp(`href="${ISSUER}/authorize`));
+  assert.doesNotMatch(html, /<svg/); // no QR code
+});
+
 test('web wallet present: holding vaccine_mdoc, a vaccine_SDJWT request is not held; vaccine_mdoc request is', async () => {
   const IP = 8940, VP = 8941, WP = 8942;
   const ISSUER = `http://127.0.0.1:${IP}`, VERIF = `http://127.0.0.1:${VP}`, WALLET = `http://127.0.0.1:${WP}`;

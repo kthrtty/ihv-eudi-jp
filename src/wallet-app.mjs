@@ -83,7 +83,8 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
         return c.html(shell('ウォレット', `<div class="card"><h1>発行者へ接続できません</h1><div class="hint" style="color:#9E3A3A">${esc(e.message)}</div></div>`, WALLET));
       }
     }
-    // Start PKCE auth-code (wallet-initiated: scope= instead of issuer_state=)
+    // Build the PKCE auth-code request (wallet-initiated: scope= not issuer_state=).
+    // We DON'T redirect immediately — show the generated request URL + a button.
     const s = await loadSession(c);
     const { verifier, challenge, state } = pkce();
     const redirectUri = walletOrigin + '/oidc/cb';
@@ -94,7 +95,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
       code_challenge: challenge, code_challenge_method: 'S256',
       scope: configId, state,
     }).toString();
-    return c.redirect(url, 302);
+    return c.html(authRequestPreview({ url, configId, issuerBase: iss }));
   });
 
   // Issuer-initiated pre-auth: paste/scan credential offer URI
@@ -367,9 +368,7 @@ function home(s, issuerUrl, verifierUrl) {
         <a class="hublink small" href="${esc(issuerUrl2)}/">発行者トップ</a>
         <a class="hublink small" href="${esc(issuerUrl2)}/login">発行者ログイン</a>
         <a class="hublink small" href="${esc(verifierUrl)}/verifier">検証コンソール（Verifier）</a>
-        <a class="hublink small" href="${esc(issuerUrl2)}/demo/authcode">Auth-Code デモ（Issuer 側・wallet 起点）</a>
-        <a class="hublink small" href="${esc(issuerUrl2)}/demo/offer-authcode">Issuer 起点オファー生成＋QR（認可コード）</a>
-        <a class="hublink small" href="${esc(verifierUrl)}/">Verifier トップ</a>
+        <a class="hublink small" href="${esc(issuerUrl2)}/demo/offer-authcode">発行者起点オファー デモ（Issuer 側）</a>
         <a class="hublink small" href="${esc(issuerUrl2)}/issuances">発行台帳</a>
         <a class="hublink small" href="${esc(issuerUrl2)}/users">ユーザー一覧 (API)</a>
       </div>
@@ -425,18 +424,34 @@ function requestPicker(configs, issuerBase) {
   const opts = configs.map((id) => `<option value="${esc(id)}">${esc(id)}</option>`).join('');
   return shell('クレデンシャル取得', `
     <div class="card">
-      <div class="step">発行者: ${esc(issuerBase)}</div>
-      <h1>認可コードフローで取得</h1>
-      <div class="hint">クレデンシャル種別を選択して「取得する」を押すと、発行者のログインページへ移動します。
-        ログイン後、このウォレットにクレデンシャルが発行されます。</div>
+      <div class="step">STEP 1 / ウォレット起点 — 認可コード（PKCE）</div>
+      <h1>取得するクレデンシャルを選ぶ</h1>
+      <div class="hint">発行者: <span class="mono">${esc(issuerBase)}</span><br>
+        種別を選んで「認可要求を生成」を押すと、ウォレットが PKCE 付きの認可要求 URL を組み立てます。</div>
       <form method="GET" action="/request" style="margin-top:14px">
         <input type="hidden" name="issuer" value="${esc(issuerBase)}" />
         <select name="cfg" style="font:inherit;padding:.5rem;border-radius:.4rem;border:1px solid #aaa;width:100%;max-width:320px">${opts}</select>
         <div style="margin-top:10px">
-          <button class="btn" type="submit">取得する（認可コード + PKCE）</button>
+          <button class="btn" type="submit">認可要求を生成</button>
         </div>
       </form>
       <div style="margin-top:12px"><a href="/">← ウォレットに戻る</a></div>
+    </div>${STYLE}`, WALLET);
+}
+
+function authRequestPreview({ url, configId, issuerBase }) {
+  return shell('認可要求の確認', `
+    <div class="card">
+      <div class="step">STEP 2 / Authorization Request（scope=${esc(configId)}）</div>
+      <h1>認可要求 URL を確認</h1>
+      <div class="hint">ウォレットが生成した PKCE 付きの認可要求です。下のボタンで発行者の認可エンドポイントへ移動します。
+        ログイン・同意のうえ、このウォレットにクレデンシャルが発行されます。</div>
+      <div class="urlbox mono">${esc(url)}</div>
+      <div style="text-align:center;margin-top:6px">
+        <a class="btn" href="${esc(url)}">認可へ進む（発行者へ移動）</a>
+      </div>
+      <div class="hint" style="margin-top:10px">発行者: <span class="mono">${esc(issuerBase)}</span> / redirect_uri はこのウォレットの <span class="mono">/oidc/cb</span></div>
+      <div style="margin-top:12px"><a href="/request">← 種別を選び直す</a>　<a href="/">ウォレットに戻る</a></div>
     </div>${STYLE}`, WALLET);
 }
 
