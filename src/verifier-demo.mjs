@@ -23,8 +23,15 @@ export function renderVerifyConsole() {
 
       <label class="lbl">プロトコル</label>
       <div class="radios">
-        <label><input type="radio" name="proto" value="annex-d" checked> Annex D · OID4VP/HAIP（JWE）</label>
-        <label><input type="radio" name="proto" value="annex-c" id="protoc"> Annex C · org-iso-mdoc（HPKE, mdoc専用）</label>
+        <label><input type="radio" name="proto" value="annex-d" checked> Annex D · OID4VP/HAIP（JWE）— Web/ネイティブ両対応</label>
+        <label><input type="radio" name="proto" value="annex-c" id="protoc"> Annex C · org-iso-mdoc（HPKE, mdoc専用）— ネイティブのみ</label>
+      </div>
+
+      <label class="lbl">提示先（どのウォレットに要求するか）</label>
+      <div class="radios" id="targets">
+        <label id="t-web"><input type="radio" name="target" value="web" checked> Web ウォレット（OID4VP リダイレクト）— Annex D のみ</label>
+        <label id="t-dcapi"><input type="radio" name="target" value="dcapi"> ネイティブウォレット（DC API）</label>
+        <label id="t-self"><input type="radio" name="target" value="selftest"> 自己テスト（発行者からテストVCを取得して即検証）</label>
       </div>
 
       <label class="lbl">開示を要求する項目（選択的開示）<span id="csel" class="muted"></span></label>
@@ -44,45 +51,93 @@ export function renderVerifyConsole() {
     </div>
     <script>
       const CHECKS = ${JSON.stringify(CHECKS)};
+      const DCAPI_PROTOCOLS = ['openid4vp-v1-unsigned', 'org-iso-mdoc'];
       const $ = (id) => document.getElementById(id);
-      let catalog = [];
+      let catalog = [], built = null;
       const cfgEl = $('cfg'), claimsEl = $('claims');
       const cur = () => catalog.find((c) => c.configId === cfgEl.value);
       const isMdoc = (c) => c.format === 'mso_mdoc';
       const DEFAULT = ['family_name', 'given_name', 'age_over_18'];
+      const proto = () => document.querySelector('input[name=proto]:checked').value;
+      const target = () => document.querySelector('input[name=target]:checked').value;
 
+      function syncTargets() {
+        // Annex C is native-only: disable the Web wallet target.
+        const annexC = proto() === 'annex-c';
+        $('t-web').querySelector('input').disabled = annexC;
+        $('t-web').style.opacity = annexC ? '.4' : '1';
+        if (annexC && target() === 'web') $('t-dcapi').querySelector('input').checked = true;
+      }
       function renderClaims() {
         const c = cur();
         claimsEl.innerHTML = c.claims.map((k) =>
           '<label class="ck"><input type="checkbox" value="'+k+'" '+(DEFAULT.includes(k)?'checked':'')+'> '+k+'</label>').join('');
         $('protoc').disabled = !isMdoc(c);
         if (!isMdoc(c)) document.querySelector('input[value="annex-d"]').checked = true;
-        updateCount(); reset();
+        syncTargets(); updateCount(); reset();
       }
       function selected() { return [...claimsEl.querySelectorAll('input:checked')].map((i) => i.value); }
-      function proto() { return document.querySelector('input[name=proto]:checked').value; }
       function updateCount() { $('csel').textContent = '（' + selected().length + ' / ' + cur().claims.length + ' 項目）'; }
-      function reset() { $('reqbox').classList.add('hidden'); $('result').innerHTML = ''; $('present').disabled = true; }
+      function reset() { $('reqbox').classList.add('hidden'); $('result').innerHTML = ''; $('present').disabled = true; built = null; }
+      function err(m) { $('result').innerHTML = '<div class="hint" style="color:#9E3A3A">'+m+'</div>'; }
 
       claimsEl.addEventListener('change', updateCount);
       $('all').onclick = () => { claimsEl.querySelectorAll('input').forEach((i) => i.checked = true); updateCount(); };
       $('none').onclick = () => { claimsEl.querySelectorAll('input').forEach((i) => i.checked = false); updateCount(); };
       cfgEl.onchange = renderClaims;
+      document.querySelectorAll('input[name=proto]').forEach((r) => r.onchange = () => { syncTargets(); reset(); });
+      document.querySelectorAll('input[name=target]').forEach((r) => r.onchange = reset);
 
+      // ---- 要求を生成（JSON）: build the request for the chosen target ----
       $('build').onclick = async () => {
-        const body = { configId: cfgEl.value, claims: selected(), protocol: proto() };
-        const d = await (await fetch('/demo/verify/prepare', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
-        if (d.error) { $('result').innerHTML = '<div class="hint" style="color:#9E3A3A">'+d.error+'</div>'; return; }
+        const claims = selected();
+        if (!claims.length) { err('少なくとも1項目を選択してください'); return; }
+        const tgt = target();
+        const path = tgt === 'selftest' ? '/demo/verify/prepare' : '/vp/build';
+        const body = tgt === 'selftest'
+          ? { configId: cfgEl.value, claims, protocol: proto() }
+          : { configId: cfgEl.value, claims, protocol: proto(), target: tgt };
+        const d = await (await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
+        if (d.error) { err(d.error); return; }
+        built = { target: tgt, ...d };
         $('reqjson').textContent = JSON.stringify(d.request, null, 2);
         $('reqbox').classList.remove('hidden');
         $('present').disabled = false;
         $('result').innerHTML = '';
+        $('present').textContent = tgt === 'web' ? 'Web ウォレットに要求 →' : '提示を要求';
       };
+
+      // ---- 提示を要求: dispatch per target ----
       $('present').onclick = async () => {
+        if (!built) return;
+        if (built.target === 'web') { window.location.href = built.walletPresent; return; }
+        if (built.target === 'selftest') return runSelfTest();
+        return runDcApi();
+      };
+
+      async function runSelfTest() {
         $('present').disabled = true; $('present').textContent = '提示中…';
         const d = await (await fetch('/demo/verify/present', { method: 'POST' })).json();
         $('present').textContent = '提示を要求';
-        if (d.error) { $('result').innerHTML = '<div class="hint" style="color:#9E3A3A">'+d.error+'</div>'; return; }
+        if (d.error) { err(d.error); return; }
+        showResult(d);
+      }
+      async function runDcApi() {
+        if (typeof window.DigitalCredential === 'undefined' || !DigitalCredential.userAgentAllowsProtocol?.(built.dcProtocol)) {
+          err('このブラウザ／OS は DC API（' + built.dcProtocol + '）に未対応です。Annex D + Web ウォレットをお試しください。');
+          return;
+        }
+        $('present').disabled = true; $('present').textContent = 'ウォレット呼び出し中…';
+        try {
+          const credential = await navigator.credentials.get({ mediation: 'required', digital: { requests: [{ protocol: built.dcProtocol, data: built.request }] } });
+          const data = credential.data ?? credential;
+          const encryptedResponse = typeof data === 'string' ? data : (data.response ?? JSON.stringify(data));
+          const d = await (await fetch('/vp/verify', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ transactionId: built.transactionId, encryptedResponse }) })).json();
+          showResult(d);
+        } catch (e) { err('DC API エラー: ' + (e?.message ?? e)); }
+        $('present').disabled = false; $('present').textContent = '提示を要求';
+      }
+      function showResult(d) {
         const rows = Object.entries(d.claims || {}).map(([k, v]) => '<tr><td>'+k+'</td><td>'+v+'</td></tr>').join('');
         const checks = CHECKS.map((l) => '<div class="ck2"><span class="'+(d.valid?'cok':'cng')+'">'+(d.valid?'✓':'—')+'</span> '+l+'</div>').join('');
         $('result').innerHTML =
@@ -93,7 +148,7 @@ export function renderVerifyConsole() {
           '<table class="cl">'+rows+'</table>'+
           (d.holder ? '<div class="hint mono" style="font-size:11px">holder: '+String(d.holder).slice(0,40)+'…</div>' : '')+
           (d.errors && d.errors.length ? '<div class="hint" style="color:#9E3A3A">'+d.errors.join('; ')+'</div>' : '');
-      };
+      }
 
       (async () => {
         catalog = await (await fetch('/demo/verify/catalog')).json();

@@ -118,7 +118,11 @@ test('Verifier HTTP app: /vp/request -> wallet -> /vp/verify, and serves DC API 
   })).json();
   assert.equal(result.valid, true, result.errors?.join(';'));
 
-  const page = await vapp.request('/');
+  // / redirects to the unified console; the console drives DC API (native) too
+  const root = await vapp.request('/');
+  assert.equal(root.status, 302);
+  assert.equal(root.headers.get('location'), '/verifier');
+  const page = await vapp.request('/verifier');
   assert.equal(page.status, 200);
   assert.match(await page.text(), /navigator\.credentials\.get/);
 });
