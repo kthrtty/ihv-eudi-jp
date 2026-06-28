@@ -72,22 +72,26 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     httpOnly: true, sameSite: 'Lax', secure: true, path: '/', maxAge: SESSION_TTL,
   });
 
-  // Load the session: in-memory cache → KV snapshot → fresh. Sets cookie on new.
+  // Load the session. With a KV store (Workers) ALWAYS read KV — the per-isolate
+  // `mem` cache must never be a read source there, or an isolate that once cached
+  // an older snapshot keeps serving it after another isolate updates KV (VCs appear
+  // to vanish on whichever isolate handles /present). `mem` is only the store for
+  // local single-isolate runs/tests that have no KV. Sets the cookie on access.
   const loadSession = async (c) => {
     let sid = getCookie(c, 'wsid');
-    if (sid && mem.has(sid)) { setWsidCookie(c, sid); return mem.get(sid); } // refresh cookie maxAge
     if (sid && store) {
       const snap = await store.get(`wsess:${sid}`);
       if (snap) {
-        const s = { wallet: createWallet(snap.wallet), creds: snap.creds || [], pending: snap.pending || null, present: snap.present || null, _sid: sid };
-        mem.set(sid, s);
         setWsidCookie(c, sid); // refresh cookie maxAge on access
-        return s;
+        return { wallet: createWallet(snap.wallet), creds: snap.creds || [], pending: snap.pending || null, present: snap.present || null, _sid: sid };
       }
+    } else if (sid && mem.has(sid)) {
+      setWsidCookie(c, sid);
+      return mem.get(sid);
     }
     sid = rand();
     const s = { wallet: createWallet(), creds: [], pending: null, present: null, _sid: sid };
-    mem.set(sid, s);
+    if (!store) mem.set(sid, s);
     setWsidCookie(c, sid);
     return s;
   };
