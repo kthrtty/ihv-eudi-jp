@@ -74,13 +74,15 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
   const doFetch = boundFetch ?? fetch;
 
   // Persistent wallet cookie so the session (and its VCs) survives browser restarts.
-  // SameSite=None (with Secure) is REQUIRED: the OID4VP redirect lands on /present
-  // via a cross-site top-level navigation from the Verifier origin (under the
-  // *.workers.dev public suffix, web-wallet.* and verifier.* are different sites),
-  // and Lax cookies are dropped on that hop in some browsers (notably iOS Safari),
-  // leaving /present with no session => "保有: なし".
+  // SameSite=Lax (NOT None): the OID4VP redirect into /present is a cross-site
+  // *top-level GET navigation*, for which Lax cookies ARE sent — so Lax suffices to
+  // carry the session across the Verifier->wallet hop. We deliberately avoid None
+  // because it would also attach the cookie to cross-site POSTs, exposing the
+  // wallet's mutating endpoints (/present/confirm, /add, /reset, /cred/:id/delete)
+  // to CSRF. (The earlier "保有: なし" was a server-side session bug — KV transcript
+  // corruption + cookie rotation on a transient KV miss — not a SameSite issue.)
   const setWsidCookie = (c, sid) => setCookie(c, 'wsid', sid, {
-    httpOnly: true, sameSite: 'None', secure: true, path: '/', maxAge: SESSION_TTL,
+    httpOnly: true, sameSite: 'Lax', secure: true, path: '/', maxAge: SESSION_TTL,
   });
 
   // Load the session. With a KV store (Workers) ALWAYS read KV — the per-isolate
