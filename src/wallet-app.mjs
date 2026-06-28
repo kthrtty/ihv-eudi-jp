@@ -332,9 +332,9 @@ function home(s, issuerUrl, verifierUrl) {
       <div class="step">提示・検証</div>
       <h1 style="font-size:16px;margin-bottom:10px">クレデンシャルを提示する</h1>
       <div class="hubgrid">
-        <a class="hublink" href="${esc(verifierUrl)}/demo/webverify">
+        <a class="hublink" href="${esc(verifierUrl)}/">
           <div class="hub-icon">✅</div>
-          <div><b>OID4VP リダイレクト検証</b><br><span class="hub-sub">Verifier コンソールへ移動 → 提示要求 → 提示</span></div>
+          <div><b>検証コンソールで提示</b><br><span class="hub-sub">Verifier トップへ移動 → 種別・項目・提示先を選んで要求 → 提示</span></div>
         </a>
       </div>
     </div>
@@ -348,7 +348,6 @@ function home(s, issuerUrl, verifierUrl) {
         <a class="hublink small" href="${esc(issuerUrl2)}/demo/authcode">Auth-Code デモ（Issuer 側・wallet 起点）</a>
         <a class="hublink small" href="${esc(issuerUrl2)}/demo/offer-authcode">Issuer 起点オファー生成＋QR（認可コード）</a>
         <a class="hublink small" href="${esc(verifierUrl)}/">Verifier トップ</a>
-        <a class="hublink small" href="${esc(verifierUrl)}/demo/webverify">Verifier OID4VP リダイレクト</a>
         <a class="hublink small" href="${esc(issuerUrl2)}/issuances">発行台帳</a>
         <a class="hublink small" href="${esc(issuerUrl2)}/users">ユーザー一覧 (API)</a>
       </div>
