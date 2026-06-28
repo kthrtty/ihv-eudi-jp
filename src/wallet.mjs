@@ -118,6 +118,7 @@ export function createWallet(snapshot = null) {
 
     list() { return [...store.values()].map(({ id, configId, format }) => ({ id, configId, format })); },
     get(id) { return store.get(id); },
+    remove(id) { return store.delete(id); }, // forget a single stored credential
 
     /** Snapshot the wallet (holder key + stored creds) for KV persistence. */
     serialize() { return { holderKeyPem, holderJwk, seq, store: [...store.values()].map(dumpCred) }; },
