@@ -494,8 +494,9 @@ export function renderVcSelect(user, groups) {
       .sect b{color:var(--ink);font-weight:700}
       .h2{font-size:20px;margin:24px 0 6px;font-weight:700}
       .vcgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(248px,1fr));gap:14px}
-      .vccard{background:#fff;border:2px solid var(--line);border-radius:14px;padding:13px 15px;display:flex;align-items:center;gap:12px;transition:border-color .12s,background .12s}
-      .vccard.sel{border-color:var(--civic);background:#f4f7fd}
+      /* selection uses outline (never affects layout) so content never shifts */
+      .vccard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:12px;transition:background .12s}
+      .vccard.sel{background:#f4f7fd;outline:2px solid var(--civic);outline-offset:-1px}
       .vcmain{min-width:0;flex:1}
       .vcart{flex-shrink:0}
       .vcicon{display:block;height:78px;width:auto;filter:drop-shadow(0 5px 12px rgba(14,26,43,.18))}
