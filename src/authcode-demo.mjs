@@ -589,7 +589,9 @@ export function renderVcSelect(user, groups) {
       .fmtchip.on{background:var(--civic);color:#fff;border-color:var(--civic)}
       .optrow{display:flex;align-items:center;gap:16px;margin-bottom:14px}
       .optlbl{font-size:12px;color:var(--muted);font-weight:700;width:140px;flex-shrink:0}
-      .sel{font:inherit;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;width:280px;max-width:100%}
+      /* scope to the <select> element: a bare .sel also matched selected .vccard
+         (which toggles a 'sel' class), shrinking the chosen card to width:280px */
+      select.sel{font:inherit;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;width:280px;max-width:100%}
       .radios{display:flex;gap:18px;flex-wrap:wrap;font-size:13.5px;min-width:0}
       .radios label,.inline{display:flex;align-items:center;gap:7px}
       .actions{display:flex;gap:10px;margin-top:18px}
@@ -603,7 +605,7 @@ export function renderVcSelect(user, groups) {
       @media(max-width:640px){
         .optrow{flex-direction:column;align-items:stretch;gap:6px}
         .optlbl{width:auto}
-        .sel{width:100%}
+        select.sel{width:100%}
         .actions{flex-wrap:wrap}
         .actions .btn{flex:1 1 auto;text-align:center}
       }
