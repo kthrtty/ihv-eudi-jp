@@ -30,11 +30,22 @@ const CSS = `
   .top .tag{width:10px;height:24px;border-radius:3px;background:var(--civic)}
   .top.verifier .tag{background:#9E3A3A}
   .top.wallet .tag{background:#2E7D6B}
-  .top b{font-weight:700}.top small{display:block;font-size:11px;color:var(--muted);letter-spacing:.16em}
+  .top>div{min-width:0}
+  .top b{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+  .top small{display:block;font-size:11px;color:var(--muted);letter-spacing:.16em}
   .top .role{margin-left:auto;font-size:12px;font-weight:700;letter-spacing:.04em;padding:5px 11px;border-radius:999px;white-space:nowrap}
   .top.issuer .role{color:#1C3F94;background:#EAEFFA;border:1px solid #D4DEF5}
   .top.verifier .role{color:#9E3A3A;background:#F6ECEC;border:1px solid #E7D6D6}
   .top.wallet .role{color:#2E7D6B;background:#E8F2EF;border:1px solid #D2E5DF}
+  /* issuer (appShell) header brand truncation */
+  .ah-brand{min-width:0}.ah-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* 案A: on narrow screens, collapse to avatar-only + hide brand sub-labels */
+  @media(max-width:560px){
+    .top small{display:none}
+    .ah-sub{display:none}
+    .ah-name{display:none}
+    .ah-pill{padding:4px 6px !important}
+  }
   .wrap{width:100%;max-width:560px;margin:6vh auto;padding:0 18px}
   .wrap.mid{max-width:820px}
   .wrap.wide{max-width:1140px}
@@ -247,8 +258,8 @@ function appHeaderHtml(user, dev = false) {
   if (!user) return `
     <header style="background:#fff;border-bottom:1px solid #DCE3ED;padding:0 24px;display:flex;align-items:center;height:60px;gap:12px">
       <span style="width:4px;height:28px;border-radius:2px;background:#1C3F94;flex-shrink:0;display:block"></span>
-      <div><div style="font-size:16px;font-weight:700;color:#0E1A2B;line-height:1.2">IHV 発行ポータル</div>
-        <div style="font-size:10px;letter-spacing:.14em;color:#5B6B82">CREDENTIAL ISSUER</div></div>
+      <div class="ah-brand"><div class="ah-title" style="font-size:16px;font-weight:700;color:#0E1A2B;line-height:1.2">IHV 発行ポータル</div>
+        <div class="ah-sub" style="font-size:10px;letter-spacing:.14em;color:#5B6B82">CREDENTIAL ISSUER</div></div>
       ${dev ? `<div style="margin-left:auto">${devBtn}</div>` : ''}
     </header>`;
   const initial = esc(user.surname[0] ?? user.family[0]);
@@ -258,15 +269,15 @@ function appHeaderHtml(user, dev = false) {
   return `
     <header style="background:#fff;border-bottom:1px solid #DCE3ED;padding:0 24px;display:flex;align-items:center;height:60px;gap:12px">
       <span style="width:4px;height:28px;border-radius:2px;background:#1C3F94;flex-shrink:0;display:block"></span>
-      <div><div style="font-size:16px;font-weight:700;color:#0E1A2B;line-height:1.2">IHV 発行ポータル</div>
-        <div style="font-size:10px;letter-spacing:.14em;color:#5B6B82">CREDENTIAL ISSUER</div></div>
+      <div class="ah-brand"><div class="ah-title" style="font-size:16px;font-weight:700;color:#0E1A2B;line-height:1.2">IHV 発行ポータル</div>
+        <div class="ah-sub" style="font-size:10px;letter-spacing:.14em;color:#5B6B82">CREDENTIAL ISSUER</div></div>
       <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
         ${devBtn}
         <details style="position:relative">
-          <summary style="list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;padding:5px 14px 5px 6px;border:1px solid #DCE3ED;border-radius:999px;background:#fff">
+          <summary class="ah-pill" style="list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;padding:5px 14px 5px 6px;border:1px solid #DCE3ED;border-radius:999px;background:#fff">
             <span style="width:36px;height:36px;border-radius:50%;border:2px solid #C8453C;color:#C8453C;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0">${initial}</span>
-            <div style="text-align:left"><div style="font-size:14px;font-weight:600;line-height:1.3">${name}</div>${desc}</div>
-            <span style="font-size:11px;color:#5B6B82;margin-left:2px">▾</span>
+            <div class="ah-name" style="text-align:left"><div style="font-size:14px;font-weight:600;line-height:1.3">${name}</div>${desc}</div>
+            <span class="ah-name" style="font-size:11px;color:#5B6B82;margin-left:2px">▾</span>
           </summary>
           <div style="position:absolute;right:0;top:calc(100% + 6px);background:#fff;border:1px solid #DCE3ED;border-radius:12px;min-width:230px;box-shadow:0 6px 24px rgba(14,26,43,.12);z-index:10;padding:6px">
             <div style="display:flex;align-items:center;gap:12px;padding:12px 14px 14px">
