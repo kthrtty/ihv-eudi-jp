@@ -96,7 +96,7 @@ export function renderVerifyConsole(groups = []) {
       </div>
 
       <label class="lbl">開示を要求する項目（選択的開示）<span id="csel" class="muted"></span></label>
-      <div class="claimbar"><button type="button" id="all" class="mini">全選択</button><button type="button" id="none" class="mini">全解除</button></div>
+      <div class="claimbar"><button type="button" id="alloff" class="mini">全除外</button><button type="button" id="allreq" class="mini">全必須</button><button type="button" id="allopt" class="mini">全任意</button></div>
       <div id="claims" class="claims"></div>
 
       <div class="actions">
@@ -163,8 +163,9 @@ export function renderVerifyConsole(groups = []) {
         updateCount();
       });
       function setAll(v) { claimsEl.querySelectorAll('.seg3').forEach((seg) => seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === v))); updateCount(); }
-      $('all').onclick = () => setAll('req');
-      $('none').onclick = () => setAll('off');
+      $('alloff').onclick = () => setAll('off');
+      $('allreq').onclick = () => setAll('req');
+      $('allopt').onclick = () => setAll('opt');
       // single-select credential cards: clicking a format chip picks that configId
       function selectCfg(cfg, chip) {
         document.querySelectorAll('.vcs-chip.on').forEach((c) => c.classList.remove('on'));
