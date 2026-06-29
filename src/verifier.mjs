@@ -9,6 +9,7 @@ import { annexDSessionTranscript, annexCSessionTranscript, oid4vpRedirectSession
 import { fromB64url } from './cbor.mjs';
 import { decryptResponse, calculateJwkThumbprint } from './jwe.mjs';
 import { buildDcql, satisfies } from './dcql.mjs';
+import { rawVpRepr } from './vpdebug.mjs';
 import { verifyStatus } from './status.mjs';
 import { memoryStore } from './oid4vci.mjs';
 
@@ -161,7 +162,8 @@ export class VerifierService {
         try { const st = await verifyStatus(r.status, this.statusResolver); if (st.revoked) errors.push(`${q.id}: credential revoked`); }
         catch (e) { errors.push(`${q.id}: status check failed: ${e.message}`); }
       }
-      return { valid: errors.length === 0, results: [{ dcqlId: q.id, claims: r.claims, holder: r.holder }], linkedSameHolder: null, errors };
+      const raw = rawVpRepr({ format: 'mso_mdoc', bytes: deviceResponse });
+      return { valid: errors.length === 0, results: [{ dcqlId: q.id, claims: r.claims, holder: r.holder, raw }], linkedSameHolder: null, errors };
     }
 
     // ---- Annex D : JWE-decrypt the OID4VP vp_token ----
@@ -193,7 +195,8 @@ export class VerifierService {
         } catch (e) { errors.push(`${q.id}: status check failed: ${e.message}`); }
       }
       if (r.holder) holder = r.holder;
-      results.push({ dcqlId: q.id, claims: r.claims, holder: r.holder });
+      const raw = rawVpRepr({ format: q.format, wire: presented });
+      results.push({ dcqlId: q.id, claims: r.claims, holder: r.holder, raw });
     }
 
     // session linking: same holder across the linked sequence

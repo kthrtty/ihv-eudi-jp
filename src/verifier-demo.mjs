@@ -12,6 +12,56 @@ const CHECKS = [
   '失効なし（Token Status List）',
 ];
 
+const escj = (s) => String(s).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+
+// ---- raw vp_token (JSON view) shared by the result page and the history page ----
+// One presented credential's raw token, with the CBOR→JSON disclosure note.
+function rawPanel(raw) {
+  if (!raw) return '';
+  const fmt = raw.format === 'mso_mdoc' ? 'mdoc DeviceResponse（CBOR→JSON）' : 'SD-JWT VC';
+  const json = escj(JSON.stringify(raw.json ?? {}, null, 2));
+  const compact = raw.compact
+    ? `<details class="rawc"><summary>on-the-wire（${raw.format === 'mso_mdoc' ? 'base64url(CBOR)' : 'compact serialization'}）を表示</summary><pre class="djson">${escj(raw.compact)}</pre></details>`
+    : '';
+  return `<div class="rawblk">
+    <div class="rawfmt">${escj(fmt)}</div>
+    <div class="rawnote">ⓘ ${escj(raw.note || '')}</div>
+    <pre class="djson">${json}</pre>${compact}
+  </div>`;
+}
+const rawPanels = (raws = []) => (raws.length ? raws.map(rawPanel).join('') : '<div class="muted" style="padding:8px 2px">生 VP データがありません。</div>');
+
+// iOS-style 2-way segment toggling a key-value panel and a raw-JSON panel. Multiple
+// instances per page are fine — VP_SEG_JS uses event delegation scoped to .vpseg.
+function vpSeg(kvHtml, jsonHtml) {
+  return `<div class="vpseg">
+    <div class="vseg"><button type="button" class="vseg-b on" data-t="kv">キーバリュー</button><button type="button" class="vseg-b" data-t="json">VP（JSON）</button></div>
+    <div class="vseg-p" data-p="kv">${kvHtml}</div>
+    <div class="vseg-p" data-p="json" hidden>${jsonHtml}</div>
+  </div>`;
+}
+const VP_SEG_JS = `<script>
+document.addEventListener('click', function (e) {
+  var b = e.target.closest && e.target.closest('.vpseg > .vseg .vseg-b'); if (!b) return;
+  var w = b.closest('.vpseg');
+  w.querySelectorAll(':scope > .vseg .vseg-b').forEach(function (x) { x.classList.toggle('on', x === b); });
+  var t = b.dataset.t;
+  w.querySelectorAll(':scope > .vseg-p').forEach(function (p) { p.hidden = p.dataset.p !== t; });
+});
+</script>`;
+const VP_SEG_CSS = `
+  .vseg{display:flex;gap:4px;background:#EEF2F1;border:1px solid var(--line);border-radius:11px;padding:4px;margin:10px 0 0}
+  .vseg-b{flex:1;font:inherit;font-size:13px;font-weight:700;border:0;background:none;color:var(--muted);border-radius:8px;padding:7px 0;cursor:pointer}
+  .vseg-b.on{background:#fff;color:var(--verify);box-shadow:0 1px 3px rgba(14,26,43,.12)}
+  .vseg-p{margin-top:10px}
+  .rawblk+.rawblk{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
+  .rawfmt{font-size:12px;font-weight:700;color:var(--verify)}
+  .rawnote{font-size:11px;color:var(--muted);margin:3px 0 6px;line-height:1.6}
+  .djson{background:#0E1A2B;color:#cfe6dd;border-radius:10px;padding:12px 13px;margin:0;font-family:ui-monospace,monospace;font-size:11.5px;line-height:1.6;white-space:pre;overflow:auto;max-height:440px}
+  .rawc{margin-top:8px}.rawc>summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--muted)}
+  .rawc>summary::-webkit-details-marker{display:none}.rawc[open]>summary{margin-bottom:6px}
+  .rawc .djson{max-height:220px;white-space:pre-wrap;word-break:break-all}`;
+
 export function renderVerifyConsole(groups = []) {
   const cfgCards = groups.map((g) => {
     const chips = g.formats.map((f) =>
@@ -261,19 +311,20 @@ export function renderWebVerify({ request, requestUri, walletPresent }) {
 /** Verifier result page after the web wallet posts the encrypted vp_token. */
 export function renderWebVerifyResult(result) {
   const ok = result && result.valid;
-  const first = (result?.results || [])[0] || {};
-  const rows = Object.entries(first.claims || {}).map(([k, v]) =>
-    `<tr><td>${k}</td><td>${v instanceof Object ? JSON.stringify(v) : v}</td></tr>`).join('');
+  const claims = Object.assign({}, ...(result?.results || []).map((r) => r.claims || {}));
+  const rows = Object.entries(claims).map(([k, v]) =>
+    `<tr><td>${escj(k)}</td><td>${escj(v instanceof Object ? JSON.stringify(v) : v)}</td></tr>`).join('');
   const checks = ['発行者署名', 'ホルダーバインディング', 'nonce・origin', 'DCQL 充足', '失効なし']
     .map((l) => `<div class="ck2"><span class="${ok ? 'cok' : 'cng'}">${ok ? '✓' : '—'}</span> ${l}</div>`).join('');
+  const raws = (result?.results || []).map((r) => r.raw).filter(Boolean);
+  const kvHtml = `<div class="muted" style="font-size:12px;margin:0 0 4px">開示されたクレーム</div><table class="cl">${rows}</table>`;
   return shell('検証結果', `
     <div class="card">
       <div class="step">OID4VP リダイレクト · 検証結果</div>
       ${ok ? '<div class="ok">✓ Web ウォレットからの提示を検証しました</div>' : '<div style="color:#9E3A3A;font-weight:700">✗ 検証に失敗しました</div>'}
       <div class="checks">${checks}</div>
-      <div class="muted" style="font-size:12px;margin:12px 0 4px">開示されたクレーム</div>
-      <table class="cl">${rows}</table>
-      ${result?.errors?.length ? `<div class="hint" style="color:#9E3A3A">${result.errors.join('; ')}</div>` : ''}
+      ${vpSeg(kvHtml, rawPanels(raws))}
+      ${result?.errors?.length ? `<div class="hint" style="color:#9E3A3A">${escj(result.errors.join('; '))}</div>` : ''}
       <div class="navrow">
         <a class="btn ghost" href="/verifier">検証ポータルトップへ</a>
         <a class="btn ghost" href="/verifier/history">提示履歴を見る</a>
@@ -282,7 +333,7 @@ export function renderWebVerifyResult(result) {
     <style>.checks{display:grid;gap:6px;margin-top:8px}.ck2{font-size:13px}.cok{color:var(--verify);font-weight:700}.cng{color:var(--muted)}
     table.cl{width:100%;border-collapse:collapse;font-size:13px}table.cl td{padding:7px 8px;border-bottom:1px solid var(--line)}table.cl td:first-child{color:var(--muted)}
     .navrow{display:flex;gap:10px;margin-top:18px}.navrow .btn{flex:1;text-align:center}
-    .pill{display:inline-block;font-size:12px;background:#f7f9fc;border:1px solid var(--line);border-radius:999px;padding:2px 9px;margin:2px}</style>`,
+    .pill{display:inline-block;font-size:12px;background:#f7f9fc;border:1px solid var(--line);border-radius:999px;padding:2px 9px;margin:2px}${VP_SEG_CSS}</style>${VP_SEG_JS}`,
     { brand: 'クレデンシャル検証ポータル', sub: 'VERIFIER', role: 'verifier' });
 }
 
@@ -318,7 +369,10 @@ export function renderVerifyHistory(entries = []) {
       <div class="hbody">
         <div class="hk">提示されたクレデンシャル</div>
         <div class="hcreds">${credLine(e.creds)}</div>
-        ${Object.keys(e.claims || {}).length ? `<div class="hk" style="margin-top:9px">開示されたクレーム</div>${claimRows(e.claims)}` : ''}
+        ${vpSeg(
+          (Object.keys(e.claims || {}).length ? `<div class="hk">開示されたクレーム</div>${claimRows(e.claims)}` : '<div class="muted" style="font-size:12px">開示クレームなし</div>'),
+          rawPanels(e.raws || []),
+        )}
         ${e.errors?.length ? `<div class="hint" style="color:#9E3A3A;margin-top:8px">${esc(e.errors.join('; '))}</div>` : ''}
       </div>
     </div>`;
@@ -349,6 +403,6 @@ export function renderVerifyHistory(entries = []) {
     .more>summary::before{content:"▸ ";font-size:10px}
     .more[open]>summary::before{content:"▾ "}
     .more[open]>summary{color:var(--muted)}
-    .navrow{display:flex;gap:10px;margin-top:18px}.navrow .btn{flex:1;text-align:center}</style>`,
+    .navrow{display:flex;gap:10px;margin-top:18px}.navrow .btn{flex:1;text-align:center}${VP_SEG_CSS}</style>${VP_SEG_JS}`,
     { brand: 'クレデンシャル検証ポータル', sub: 'VERIFIER', role: 'verifier' });
 }

@@ -308,6 +308,8 @@ export function createVerifierApp(opts = {}) {
       const entry = {
         at: new Date().toISOString(), via, valid: !!result?.valid,
         creds, claims: Object.fromEntries(Object.entries(claims).map(([k, x]) => [k, fmtClaim(x)])),
+        // raw vp_token (signatures incl.) per presented credential — for the JSON view
+        raws: (result?.results || []).map((r) => r.raw).filter(Boolean),
         errors: result?.errors || [],
       };
       const list = (await v.store.get(HIST_KEY)) || [];
