@@ -221,7 +221,7 @@ test('web wallet wallet-initiated: /request?cfg builds an authorize-URL preview 
   assert.match(html, /scope=pid_mdoc/);
   assert.match(html, /code_challenge_method=S256/);
   assert.match(html, new RegExp(`href="${ISSUER}/authorize`));
-  assert.doesNotMatch(html, /<svg/); // no QR code
+  assert.doesNotMatch(html, /shape-rendering="crispEdges"|class="qr"/); // no QR code (the dev-console icon is a separate <svg>)
 });
 
 test('web wallet present: holding vaccine_mdoc, a vaccine_SDJWT request is not held; vaccine_mdoc request is', async () => {
@@ -356,6 +356,49 @@ test('present cross-site cookie defense: no wsid -> same-site bounce (not 保有
     await new Promise((r) => issuer.close(r));
     await new Promise((r) => verifier.close(r));
   }
+});
+
+test('web wallet developer console: OID4VCI calls are captured at /dev/log with sensitive values masked', async () => {
+  const IP = 8996, WP = 8997;
+  const ISSUER = `http://127.0.0.1:${IP}`, WALLET = `http://127.0.0.1:${WP}`;
+  const issuer = serve({ fetch: createApp({ credentialIssuer: ISSUER }).fetch, port: IP });
+  try {
+    const store = fakeKvStore();
+    const wallet = createWalletApp({ walletOrigin: WALLET, issuerUrl: ISSUER, store });
+    // issue with a tx_code so the PIN appears in the /token request
+    const made = await (await fetch(`${ISSUER}/offer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'], tx_code: true }) })).json();
+    const add = await wallet.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${made.offer_id}`));
+    const cookie = cookieOf(add);
+    await wallet.request('/add/pin', { method: 'POST', headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ tx_code: made.tx_code }).toString() });
+
+    const { entries } = await (await wallet.request('/dev/log')).json();
+    const eps = entries.map((e) => e.ep);
+    assert.ok(eps.some((e) => e.startsWith('/token')), 'logged /token');
+    assert.ok(eps.some((e) => e.startsWith('/credential')), 'logged /credential');
+
+    const token = entries.find((e) => e.ep.startsWith('/token'));
+    // request body: pre-authorized_code + tx_code are masked, grant_type is not
+    assert.match(JSON.stringify(token.reqBody['pre-authorized_code']), /…|••••/);
+    assert.match(JSON.stringify(token.reqBody.tx_code), /••••/);
+    assert.equal(token.reqBody.grant_type, 'urn:ietf:params:oauth:grant-type:pre-authorized_code');
+    // response body: access_token masked, expires_in untouched
+    assert.match(String(token.resBody.access_token), /…|••••/);
+    assert.ok(!/eyJ[\w-]{20,}/.test(JSON.stringify(token)), 'no full JWT leaks into the log');
+
+    const cred = entries.find((e) => e.ep.startsWith('/credential'));
+    const authH = cred.reqHeaders.find((h) => h[0].toLowerCase() === 'authorization');
+    assert.ok(authH && authH[2] === 1 && /Bearer /.test(authH[1]), 'Authorization header masked, Bearer kept');
+  } finally {
+    await new Promise((r) => issuer.close(r));
+  }
+});
+
+test('web wallet pages carry the developer-console toggle + widget (dev mode)', async () => {
+  const wallet = createWalletApp({ walletOrigin: 'https://web-wallet.example' });
+  const html = await (await wallet.request('/')).text();
+  assert.match(html, /id="devToggle"/);
+  assert.match(html, /id="devDrawer"/);
+  assert.match(html, /開発者コンソール/);
 });
 
 test('verifier global history: a completed web presentation is logged and shown at /verifier/history', async () => {

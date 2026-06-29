@@ -284,7 +284,7 @@ export function renderVerifyConsole(groups = []) {
       .checks{display:grid;gap:6px;margin-top:8px}.ck2{font-size:13px}
       .cok{color:var(--verify);font-weight:700}.cng{color:var(--muted)}
     </style>
-    ${renderClaimsModal(groups)}`, { brand: 'クレデンシャル検証ポータル', sub: 'VERIFIER', role: 'verifier', width: 'mid' });
+    ${renderClaimsModal(groups)}`, { brand: 'クレデンシャル検証ポータル', sub: 'VERIFIER', role: 'verifier', width: 'mid', dev: true });
 }
 
 const claimNames = (request) => (request.dcql_query?.credentials || [])
@@ -306,7 +306,7 @@ export function renderWebVerify({ request, requestUri, walletPresent }) {
       <div style="text-align:center;margin-top:12px"><a class="btn" id="present" href="${walletPresent}">Web ウォレットで提示する</a></div>
       <div class="hint">request は <span class="mono">request_uri</span> で参照配信（DC API 不使用）：<span class="mono" style="font-size:11px">${requestUri}</span></div>
     </div>
-    <style>.pill{display:inline-block;font-size:12px;background:#f7f9fc;border:1px solid var(--line);border-radius:999px;padding:2px 9px;margin:2px}</style>`, { brand: 'クレデンシャル検証ポータル', sub: 'VERIFIER', role: 'verifier' });
+    <style>.pill{display:inline-block;font-size:12px;background:#f7f9fc;border:1px solid var(--line);border-radius:999px;padding:2px 9px;margin:2px}</style>`, { brand: 'クレデンシャル検証ポータル', sub: 'VERIFIER', role: 'verifier', dev: true });
 }
 
 /** Verifier result page after the web wallet posts the encrypted vp_token. */
@@ -335,7 +335,7 @@ export function renderWebVerifyResult(result) {
     table.cl{width:100%;border-collapse:collapse;font-size:13px}table.cl td{padding:7px 8px;border-bottom:1px solid var(--line)}table.cl td:first-child{color:var(--muted)}
     .navrow{display:flex;gap:10px;margin-top:18px}.navrow .btn{flex:1;text-align:center}
     .pill{display:inline-block;font-size:12px;background:#f7f9fc;border:1px solid var(--line);border-radius:999px;padding:2px 9px;margin:2px}${VP_SEG_CSS}</style>${VP_SEG_JS}`,
-    { brand: 'クレデンシャル検証ポータル', sub: 'VERIFIER', role: 'verifier' });
+    { brand: 'クレデンシャル検証ポータル', sub: 'VERIFIER', role: 'verifier', dev: true });
 }
 
 /** Global presentation history — one shared log of every presentation this Verifier
@@ -405,5 +405,5 @@ export function renderVerifyHistory(entries = []) {
     .more[open]>summary::before{content:"▾ "}
     .more[open]>summary{color:var(--muted)}
     .navrow{display:flex;gap:10px;margin-top:18px}.navrow .btn{flex:1;text-align:center}${VP_SEG_CSS}</style>${VP_SEG_JS}`,
-    { brand: 'クレデンシャル検証ポータル', sub: 'VERIFIER', role: 'verifier' });
+    { brand: 'クレデンシャル検証ポータル', sub: 'VERIFIER', role: 'verifier', dev: true });
 }
