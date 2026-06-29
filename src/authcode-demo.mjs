@@ -6,6 +6,7 @@
 import { generateKeyPairSync, randomBytes, createHash } from 'node:crypto';
 import { SignJWT, importPKCS8 } from 'jose';
 import { catalog } from './issuer.mjs';
+import { devToggleHtml, devWidgetHtml } from './devlog.mjs';
 import { verify as verifyCredential } from './issuer.mjs';
 import { offerQrSvg } from './offer.mjs';
 
@@ -64,10 +65,12 @@ const CSS = `
   .step{display:inline-block;font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:2px 10px;margin-bottom:10px}
 `;
 const FONTS = '<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">';
-export const shell = (title, body, { brand = 'デジタル資格証発行ポータル', sub = 'AUTHORIZATION SERVER', role = 'issuer', width = 'narrow' } = {}) => {
+export const shell = (title, body, { brand = 'デジタル資格証発行ポータル', sub = 'AUTHORIZATION SERVER', role = 'issuer', width = 'narrow', dev = false } = {}) => {
   const cls = width === 'wide' ? 'wrap wide' : width === 'mid' ? 'wrap mid' : 'wrap';
+  const roleBadge = `<span class="role">${role === 'verifier' ? '検証者 · VERIFIER' : role === 'wallet' ? 'ウォレット · WALLET' : '発行者 · ISSUER'}</span>`;
+  const right = dev ? `<span class="dev-hdr-right">${devToggleHtml()}${roleBadge}</span>` : roleBadge;
   return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>${FONTS}<style>${CSS}</style></head>
-<body><header class="top ${role}"><span class="tag"></span><div><b>${esc(brand)}</b><small>${esc(sub)}</small></div><span class="role">${role === 'verifier' ? '検証者 · VERIFIER' : role === 'wallet' ? 'ウォレット · WALLET' : '発行者 · ISSUER'}</span></header><div class="${cls}">${body}</div></body></html>`;
+<body><header class="top ${role}"><span class="tag"></span><div><b>${esc(brand)}</b><small>${esc(sub)}</small></div>${right}</header><div class="${cls}">${body}</div>${dev ? devWidgetHtml() : ''}</body></html>`;
 };
 
 /** AS consent + passwordless login screen shown by GET /authorize when no session. */
@@ -239,12 +242,14 @@ export function renderLogin(users, next = '/', { note = null } = {}) {
 }
 
 /** App header with logged-in user avatar + logout dropdown. */
-function appHeaderHtml(user) {
+function appHeaderHtml(user, dev = false) {
+  const devBtn = dev ? devToggleHtml() : '';
   if (!user) return `
     <header style="background:#fff;border-bottom:1px solid #DCE3ED;padding:0 24px;display:flex;align-items:center;height:60px;gap:12px">
       <span style="width:4px;height:28px;border-radius:2px;background:#1C3F94;flex-shrink:0;display:block"></span>
       <div><div style="font-size:16px;font-weight:700;color:#0E1A2B;line-height:1.2">IHV 発行ポータル</div>
         <div style="font-size:10px;letter-spacing:.14em;color:#5B6B82">CREDENTIAL ISSUER</div></div>
+      ${dev ? `<div style="margin-left:auto">${devBtn}</div>` : ''}
     </header>`;
   const initial = esc(user.surname[0] ?? user.family[0]);
   const name = esc(`${user.family} ${user.given}`);
@@ -255,7 +260,8 @@ function appHeaderHtml(user) {
       <span style="width:4px;height:28px;border-radius:2px;background:#1C3F94;flex-shrink:0;display:block"></span>
       <div><div style="font-size:16px;font-weight:700;color:#0E1A2B;line-height:1.2">IHV 発行ポータル</div>
         <div style="font-size:10px;letter-spacing:.14em;color:#5B6B82">CREDENTIAL ISSUER</div></div>
-      <div style="margin-left:auto">
+      <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
+        ${devBtn}
         <details style="position:relative">
           <summary style="list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;padding:5px 14px 5px 6px;border:1px solid #DCE3ED;border-radius:999px;background:#fff">
             <span style="width:36px;height:36px;border-radius:50%;border:2px solid #C8453C;color:#C8453C;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0">${initial}</span>
@@ -280,13 +286,13 @@ function appHeaderHtml(user) {
 }
 
 /** Page shell with IHV header (user may be null). `width`: 'narrow'|'mid'|'wide'. */
-export function appShell(title, body, user = null, { width = 'narrow' } = {}) {
+export function appShell(title, body, user = null, { width = 'narrow', dev = true } = {}) {
   const cls = width === 'wide' ? 'wrap wide' : width === 'mid' ? 'wrap mid' : 'wrap';
   return `<!doctype html><html lang="ja"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <title>${esc(title)} — IHV 発行ポータル</title>${FONTS}<style>${CSS}</style>
   </head><body style="background:var(--paper);min-height:100vh">
-    ${appHeaderHtml(user)}<div class="${cls}">${body}</div>
+    ${appHeaderHtml(user, dev)}<div class="${cls}">${body}</div>${dev ? devWidgetHtml() : ''}
   </body></html>`;
 }
 
