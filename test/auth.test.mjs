@@ -8,9 +8,20 @@ import { createApp } from '../src/app.mjs';
 import { createWallet } from '../src/wallet.mjs';
 import { IssuerService, httpErr } from '../src/oid4vci.mjs';
 import { verify as verifyCredential, allConfigIds, configInfo } from '../src/issuer.mjs';
-import { renderVcSelect, groupCatalog } from '../src/authcode-demo.mjs';
+import { renderVcSelect, groupCatalog, renderHistory } from '../src/authcode-demo.mjs';
 
 const ISSUER = 'https://issuer.ihv.example';
+
+test('issuer history renders timestamps in JST (Asia/Tokyo), aligned with the verifier', () => {
+  const html = renderHistory(null, [{
+    idx: 0, configId: 'pid_mdoc', format: 'mso_mdoc', holder: 'x.y', revoked: false,
+    issued_at: '2026-06-29T00:30:00.000Z',   // UTC 00:30 -> JST 09:30
+    expires_at: '2027-06-29T00:30:00.000Z',
+  }]);
+  assert.match(html, /2026-06-29 09:30/, 'issued_at shown in JST (+9h)');
+  assert.doesNotMatch(html, /2026-06-29 00:30/, 'must not show the UTC time');
+  assert.match(html, /発行日時 \(JST\)/, 'column labels JST explicitly');
+});
 
 test('issuer VC-select: the 280px width rule targets <select>, so a selected .vccard is not shrunk', () => {
   const html = renderVcSelect(null, groupCatalog(allConfigIds().map(configInfo)));
