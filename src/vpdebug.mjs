@@ -81,3 +81,23 @@ export function rawVpRepr({ format, wire = null, bytes = null }) {
     };
   } catch (e) { return { format: 'dc+sd-jwt', note: 'SD-JWT 分解に失敗', compact: wire ?? null, json: { error: String(e?.message || e) } }; }
 }
+
+/** Same as rawVpRepr but phrased for a credential AS STORED in the wallet (mdoc is an
+ *  IssuerSigned structure, not a DeviceResponse; the SD-JWT has no KB-JWT yet). */
+export function storedCredRepr({ format, wire = null, bytes = null }) {
+  if (format === 'mso_mdoc') {
+    try {
+      const buf = bytes ?? new Uint8Array(Buffer.from(wire, 'base64url'));
+      return {
+        format, note: 'mdoc クレデンシャル（ISO 18013-5 IssuerSigned）は CBOR バイナリ。そのまま表示できないため CBOR を JSON に変換して表示しています（bstr は hex、#6.24 内の IssuerSignedItem をデコード）。',
+        compact: wire ?? null, json: cborToJson(cborDecodeMap(buf)),
+      };
+    } catch (e) { return { format, note: 'CBOR デコードに失敗', compact: wire ?? null, json: { error: String(e?.message || e) } }; }
+  }
+  try {
+    return {
+      format: 'dc+sd-jwt', note: 'SD-JWT VC は compact serialization（JWT~開示~…）。各部はそのまま JSON（再エンコードなし、署名は base64url）。保管中は KB-JWT を付けず、提示時に生成します。',
+      compact: wire ?? null, json: sdJwtToJson(wire),
+    };
+  } catch (e) { return { format: 'dc+sd-jwt', note: 'SD-JWT 分解に失敗', compact: wire ?? null, json: { error: String(e?.message || e) } }; }
+}

@@ -497,12 +497,17 @@ test('web wallet home: VC cards show ≤4 attrs + a modal with 属性/JSON segme
     await wallet.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${await mk('juminhyo_sdjwt')}`), { headers: { cookie } });
 
     const home = await (await wallet.request('/', { headers: { cookie } })).text();
-    assert.match(home, /すべての属性・JSON を表示/);     // card opens a modal
-    assert.match(home, /class="seg"/);                    // segment (属性/JSON), not tabs
-    assert.match(home, /data-pan="json"/);
-    assert.match(home, /class="djson"/);                  // JSON representation present
-    assert.match(home, /mso_mdoc/);                        // mdoc JSON repr (HTML-escaped)
-    assert.match(home, /namespaces/);
+    assert.match(home, /すべての属性・生データ を表示/);  // card opens a modal
+    assert.match(home, /class="seg"/);                    // segment (属性/生データ), not tabs
+    assert.match(home, /data-pan="raw"/);
+    assert.match(home, /class="djson"/);                  // raw representation present
+    // mdoc 生データ = the stored IssuerSigned decoded from CBOR to JSON
+    assert.match(home, /nameSpaces/);                     // CBOR-decoded structure
+    assert.match(home, /issuerAuth/);
+    assert.match(home, /_cbor\(#6\.24\)/);                // embedded CBOR decoded
+    assert.match(home, /CBOR を JSON に変換/);            // the conversion is stated
+    // SD-JWT 生データ = decomposed compact serialization (signature exposed)
+    assert.match(home, /signature_b64url/);
     assert.match(home, /class="vc-del"/);                 // delete lives in the modal
     // a PID card shows at most 4 representative attr rows on the card face
     const firstCard = home.split('held-more')[0];

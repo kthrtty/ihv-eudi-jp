@@ -12,6 +12,7 @@ import { createWallet } from './wallet.mjs';
 import { verify as verifyCredential } from './issuer.mjs';
 import { shell, pkce, typeIcon, typeName } from './authcode-demo.mjs';
 import { catalog } from './issuer.mjs';
+import { storedCredRepr } from './vpdebug.mjs';
 
 // type prefix of a configId (pid_mdoc -> pid) for the issuer-matched icon
 const credType = (configId) => String(configId || '').replace(/_(mdoc|sdjwt)$/, '');
@@ -595,15 +596,6 @@ const delGlyph = (sz = 20) => `<svg width="${sz}" height="${sz}" viewBox="0 0 20
   <rect x="2.6" y="2.6" width="14.8" height="14.8" rx="3.6" fill="none" stroke="#C8453C" stroke-width="1.7"/>
   <path d="M7 7 L13 13 M13 7 L7 13" stroke="#C8453C" stroke-width="1.9" stroke-linecap="round"/></svg>`;
 
-/** A wallet-local JSON representation of a stored credential, built from the
- *  decoded claims + catalog metadata (mdoc -> docType/namespaces, SD-JWT -> vct/claims). */
-function credJsonRepr(c) {
-  const cc = catalog.credential_configurations_supported[c.configId] || {};
-  return c.format === 'mso_mdoc'
-    ? { format: 'mso_mdoc', docType: cc.doctype, namespaces: { [cc.doctype]: c.claims || {} } }
-    : { format: 'dc+sd-jwt', vct: cc.vct, claims: c.claims || {} };
-}
-
 // card: issuer-style icon + up to 4 representative claims. On the wallet home the
 // whole card opens the detail modal; on the issuance receipt it is static (no modal
 // is rendered there), so `interactive:false` drops the click + the "show all" link.
@@ -616,7 +608,7 @@ function credCard(c, { interactive = true } = {}) {
     ? ` role="button" tabindex="0" onclick="openCred('${esc(c.id)}')" onkeydown="if(event.key==='Enter'){event.preventDefault();openCred('${esc(c.id)}')}"`
     : '';
   const more = interactive
-    ? `<div class="held-more">▤ すべての属性・JSON を表示${extra > 0 ? ` ＋${extra}項目` : ''} →</div>`
+    ? `<div class="held-more">▤ すべての属性・生データ を表示${extra > 0 ? ` ＋${extra}項目` : ''} →</div>`
     : (extra > 0 ? `<div class="held-more static">ほか ${extra} 項目</div>` : '');
   return `<div class="held${interactive ? '' : ' static'}"${open}>
     <div class="hd"><span class="hd-ic">${typeIcon(credType(c.configId))}</span>
@@ -626,12 +618,20 @@ function credCard(c, { interactive = true } = {}) {
     ${more}</div>`;
 }
 
-// bottom-sheet modal per credential: 属性 / JSON segment + delete (-> confirm dialog)
-function credModal(c) {
+// bottom-sheet modal per credential: 属性 / 生データ segment + delete (-> confirm dialog).
+// 生データ shows the credential AS STORED — SD-JWT decomposed, or mdoc CBOR->JSON
+// (with a note that CBOR can't be shown verbatim and is converted to JSON).
+function credModal(c, raw) {
   const name = typeName(credType(c.configId));
   const entries = Object.entries(c.claims || {});
   const full = entries.map(([k, v]) => `<div class="r"><span class="dk">${esc(k)}</span><span class="dv">${esc(v)}</span></div>`).join('');
-  const json = JSON.stringify(credJsonRepr(c), null, 2);
+  const isMdoc = c.format === 'mso_mdoc';
+  const fmtLabel = isMdoc ? 'mdoc IssuerSigned（nameSpaces + issuerAuth）' : 'SD-JWT VC（JWT + 開示）';
+  const rawJson = raw ? esc(JSON.stringify(raw.json ?? {}, null, 2)) : '（生データを取得できませんでした）';
+  const noteBanner = raw?.note ? `<div class="cbor-note">ⓘ ${esc(raw.note)}</div>` : '';
+  const compact = raw?.compact
+    ? `<details class="rawc"><summary>オンワイヤ（${isMdoc ? 'base64url(CBOR)' : 'compact serialization'}）を表示</summary><pre class="djson small">${esc(raw.compact)}</pre></details>`
+    : '';
   return `<div class="vcsheet" id="cm-${esc(c.id)}" hidden>
     <div class="vc-scrim" onclick="closeCred('${esc(c.id)}')"></div>
     <div class="sheet">
@@ -639,10 +639,10 @@ function credModal(c) {
         <button type="button" class="mh-x" onclick="closeCred('${esc(c.id)}')" aria-label="閉じる">×</button></div>
       <div class="seg">
         <button type="button" class="on" data-pan="attr">属性（全${entries.length}件）</button>
-        <button type="button" data-pan="json">JSON</button></div>
+        <button type="button" data-pan="raw">生データ</button></div>
       <div class="mc">
         <div class="pan pan-attr"><div class="dfull">${full}</div></div>
-        <div class="pan pan-json" hidden><pre class="djson">${esc(json)}</pre></div></div>
+        <div class="pan pan-raw" hidden>${noteBanner}<div class="rawfmt">${esc(fmtLabel)}</div><pre class="djson">${rawJson}</pre>${compact}</div></div>
       <div class="mfoot"><button type="button" class="vc-del" onclick="askDelete('${esc(c.id)}','${esc(name)}')">${delGlyph()}<span>このクレデンシャルを削除</span></button></div>
     </div></div>`;
 }
@@ -696,6 +696,13 @@ const VC_MODAL_STYLE = `<style>
   .dfull .r:last-child{border-bottom:none}
   .dfull .dk{color:var(--muted)}.dfull .dv{font-weight:600;text-align:right;word-break:break-all}
   .djson{background:#0E1A2B;color:#cfe6dd;border-radius:10px;padding:14px;margin:0;font-family:ui-monospace,monospace;font-size:11.5px;line-height:1.65;white-space:pre;overflow:auto}
+  .djson.small{font-size:11px;max-height:120px;white-space:pre-wrap;word-break:break-all;margin-top:6px}
+  .cbor-note{background:#FFF7E6;border:1px solid #F2D98B;color:#7a5b13;border-radius:9px;padding:9px 11px;font-size:11.5px;line-height:1.6;margin-bottom:10px}
+  .rawfmt{font-size:11px;font-weight:700;color:#246154;margin-bottom:6px}
+  .rawc{margin-top:8px}
+  .rawc>summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--muted);list-style:none}
+  .rawc>summary::-webkit-details-marker{display:none}
+  .rawc>summary::before{content:"▸ ";font-size:10px}.rawc[open]>summary::before{content:"▾ "}
   .mfoot{padding:12px 18px 18px;border-top:1px solid var(--line)}
   .vc-del{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;background:#fff;color:#C8453C;border:1px solid #E2B4AE;border-radius:11px;padding:13px;font:inherit;font-size:14px;font-weight:700;cursor:pointer}
   .vc-del:hover{background:#FBE9E7}
@@ -722,8 +729,7 @@ const VC_MODAL_JS = `<script>
       var b=e.target.closest('button[data-pan]');if(!b)return;
       seg.querySelectorAll('button').forEach(function(x){x.classList.toggle('on',x===b);});
       var sheet=seg.parentNode;
-      sheet.querySelector('.pan-attr').hidden=b.dataset.pan!=='attr';
-      sheet.querySelector('.pan-json').hidden=b.dataset.pan!=='json';
+      sheet.querySelectorAll('.pan').forEach(function(p){p.hidden=!p.classList.contains('pan-'+b.dataset.pan);});
     });
   });
 </script>`;
@@ -736,7 +742,16 @@ function home(s, issuerUrl, verifierUrl) {
   const resetBtn = s.creds.length
     ? `<button type="button" class="reset-btn" onclick="askReset()">初期化</button>`
     : '';
-  const modals = s.creds.map(credModal).join('') + (s.creds.length ? DELETE_CONFIRM + RESET_CONFIRM : '');
+  // raw stored credential (mdoc CBOR->JSON / SD-JWT decomposed) for the modal's 生データ tab
+  const rawOf = (c) => {
+    try {
+      const cred = s.wallet.get(c.id)?.credential;
+      if (cred == null) return null;
+      const wire = c.format === 'mso_mdoc' ? Buffer.from(cred).toString('base64url') : cred;
+      return storedCredRepr({ format: c.format, wire });
+    } catch { return null; }
+  };
+  const modals = s.creds.map((c) => credModal(c, rawOf(c))).join('') + (s.creds.length ? DELETE_CONFIRM + RESET_CONFIRM : '');
   return shell('ウェブウォレット', `
     <div class="card">
       <div class="step">保管中のクレデンシャル</div>
