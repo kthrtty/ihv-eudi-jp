@@ -315,7 +315,10 @@ export function createVerifierApp(opts = {}) {
       await v.store.set(HIST_KEY, list.slice(0, HIST_MAX), HIST_TTL);
     } catch { /* history is best-effort; never break a verification on a log failure */ }
   };
-  const getHistory = async () => (await v.store.get(HIST_KEY)) || [];
+  // newest-first by presentation time. Entries are unshifted in order, but sort
+  // explicitly so a KV lost-update / reorder can never surface them out of order.
+  const getHistory = async () =>
+    ((await v.store.get(HIST_KEY)) || []).sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
 
   // GET / -> the unified verify console (selective disclosure + JSON + protocol
   // + present-target dispatch). The old static DC-API page is superseded.

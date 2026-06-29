@@ -374,23 +374,29 @@ test('verifier global history: a completed web presentation is logged and shown 
     const add = await wallet.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${offerId}`));
     const cookie = cookieOf(add);
 
-    // verifier builds a web request, wallet consents and confirms (discloses family_name)
-    const build = await (await fetch(`${VERIF}/vp/build`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ configId: 'pid_sdjwt', claims: ['family_name'], protocol: 'annex-d', target: 'web' }) })).json();
-    const reqUri = new URL(build.walletPresent).searchParams.get('request_uri');
-    await wallet.request('/present?request_uri=' + encodeURIComponent(reqUri), { headers: { cookie } });
-    const confirm = await wallet.request('/present/confirm', {
-      method: 'POST', headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ 'disclose:q1': 'family_name' }).toString(), redirect: 'manual',
-    });
-    assert.equal(confirm.status, 302, 'a successful confirm redirects to the verifier result page');
+    // verifier builds a web request, wallet consents and confirms a chosen claim
+    const present = async (claim) => {
+      const build = await (await fetch(`${VERIF}/vp/build`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ configId: 'pid_sdjwt', claims: [claim], protocol: 'annex-d', target: 'web' }) })).json();
+      const reqUri = new URL(build.walletPresent).searchParams.get('request_uri');
+      await wallet.request('/present?request_uri=' + encodeURIComponent(reqUri), { headers: { cookie } });
+      const confirm = await wallet.request('/present/confirm', {
+        method: 'POST', headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ [`disclose:q1`]: claim }).toString(), redirect: 'manual',
+      });
+      assert.equal(confirm.status, 302, 'a successful confirm redirects to the verifier result page');
+    };
+    await present('family_name');                 // discloses 山田
+    await new Promise((r) => setTimeout(r, 5));    // ensure a distinct timestamp
+    await present('given_name');                   // discloses 太郎 (newer)
 
-    // the global history now lists the verified presentation
+    // the global history now lists both verified presentations
     const hist = await (await fetch(`${VERIF}/verifier/history`)).text();
     assert.match(hist, /検証成功/, 'history shows the successful verification');
-    assert.match(hist, /family_name/, 'history shows the disclosed claim');
-    assert.match(hist, /山田/, 'history shows the disclosed value');
     assert.match(hist, /SD-JWT/, 'history shows the credential format');
     assert.doesNotMatch(hist, /まだ提示を受け取っていません/);
+    // newest-first: the later presentation (given_name -> 太郎) appears before 山田
+    assert.ok(hist.indexOf('太郎') >= 0 && hist.indexOf('山田') >= 0, 'both values present');
+    assert.ok(hist.indexOf('太郎') < hist.indexOf('山田'), 'history is sorted newest-first (descending)');
   } finally {
     await new Promise((r) => issuer.close(r));
     await new Promise((r) => verifier.close(r));
