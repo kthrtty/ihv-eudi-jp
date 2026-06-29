@@ -6,7 +6,9 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { createApp, createVerifierApp } from '../src/app.mjs';
 import { createWalletApp } from '../src/wallet-app.mjs';
-import { renderVerifyHistory } from '../src/verifier-demo.mjs';
+import { renderVerifyHistory, renderVerifyConsole } from '../src/verifier-demo.mjs';
+import { allConfigIds, configInfo } from '../src/issuer.mjs';
+import { groupCatalog } from '../src/authcode-demo.mjs';
 import { kvStore } from '../src/oid4vci.mjs';
 
 // A fake Cloudflare KV (string store) wrapped by the real kvStore codec, with a
@@ -405,6 +407,15 @@ test('verifier global history: a completed web presentation is logged and shown 
     await new Promise((r) => issuer.close(r));
     await new Promise((r) => verifier.close(r));
   }
+});
+
+test('verify console: claim bulk buttons are tri-state (全除外/全必須/全任意), matching the 除外/必須/任意 segments', () => {
+  const html = renderVerifyConsole(groupCatalog(allConfigIds().map(configInfo)));
+  for (const [id, label] of [['alloff', '全除外'], ['allreq', '全必須'], ['allopt', '全任意']]) {
+    assert.match(html, new RegExp(`id="${id}"`), `${id} button present`);
+    assert.ok(html.includes(label), `${label} label present`);
+  }
+  assert.ok(!html.includes('全選択') && !html.includes('全解除'), 'old 2-state buttons removed');
 });
 
 test('verifier history: a card shows only 4 claims; the rest fold into a <details> accordion', () => {
