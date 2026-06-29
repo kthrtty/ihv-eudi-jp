@@ -616,7 +616,9 @@ export function renderVcSelect(user, groups) {
 /** Issuance history ledger page (account menu → 発行履歴). */
 export function renderHistory(user, issuances) {
   const short = (holder) => 'sha256:' + createHash('sha256').update(String(holder)).digest('hex').slice(0, 8);
-  const dt = (iso) => { try { return iso ? new Date(iso).toISOString().slice(0, 16).replace('T', ' ') : '—'; } catch { return '—'; } };
+  // JST (Asia/Tokyo): the verifier history is shown in JST, so align the issuer
+  // ledger too. Japan has no DST, so a fixed +9h offset is exact and ICU-independent.
+  const dt = (iso) => { try { return iso ? new Date(Date.parse(iso) + 9 * 3600e3).toISOString().slice(0, 16).replace('T', ' ') : '—'; } catch { return '—'; } };
   const rows = issuances.map((e) => {
     const type = (TYPE_META[e.configId.replace(/_(mdoc|sdjwt)$/, '')]?.name || e.configId).replace(/（.*）/, '');
     const fmt = e.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT';
@@ -649,7 +651,7 @@ export function renderHistory(user, issuances) {
       <div class="card" style="padding:0;overflow:hidden">
         <table class="hist">
           <thead><tr>
-            <th>クレデンシャル</th><th>形式</th><th>発行日時</th><th>有効期限</th><th>状態</th><th>失効理由</th><th>バインド鍵</th><th></th>
+            <th>クレデンシャル</th><th>形式</th><th>発行日時 (JST)</th><th>有効期限 (JST)</th><th>状態</th><th>失効理由</th><th>バインド鍵</th><th></th>
           </tr></thead>
           <tbody>${rows || '<tr><td colspan="8" class="muted" style="text-align:center;padding:28px">発行記録がありません。</td></tr>'}</tbody>
         </table>

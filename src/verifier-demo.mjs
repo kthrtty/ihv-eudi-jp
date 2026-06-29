@@ -313,7 +313,7 @@ export function renderVerifyHistory(entries = []) {
       <div class="hh">
         <span class="badge ${e.valid ? 'bok' : 'bng'}">${e.valid ? '✓ 検証成功' : '✗ 検証失敗'}</span>
         <span class="via">${e.via === 'console' ? 'コンソール' : 'Web ウォレット'}</span>
-        <span class="at">${esc(fmtAt(e.at))}</span>
+        <span class="at">${esc(fmtAt(e.at))} JST</span>
       </div>
       <div class="hbody">
         <div class="hk">提示されたクレデンシャル</div>
