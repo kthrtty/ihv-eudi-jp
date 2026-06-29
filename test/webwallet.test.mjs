@@ -397,6 +397,10 @@ test('verifier global history: a completed web presentation is logged and shown 
     // newest-first: the later presentation (given_name -> 太郎) appears before 山田
     assert.ok(hist.indexOf('太郎') >= 0 && hist.indexOf('山田') >= 0, 'both values present');
     assert.ok(hist.indexOf('太郎') < hist.indexOf('山田'), 'history is sorted newest-first (descending)');
+    // key-value <-> VP(JSON) segment with the raw vp_token (signatures incl.)
+    assert.match(hist, /VP（JSON）/, 'history offers a JSON view');
+    assert.match(hist, /signature_b64url/, 'JSON view exposes the raw SD-JWT signature');
+    assert.match(hist, /disclosures/, 'JSON view shows decoded disclosures');
   } finally {
     await new Promise((r) => issuer.close(r));
     await new Promise((r) => verifier.close(r));

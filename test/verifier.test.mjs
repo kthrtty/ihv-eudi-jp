@@ -302,5 +302,22 @@ test('redirect transport (web wallet): mdoc & sd-jwt verify over direct_post.jwt
     const out = await v.verifyResponse({ transactionId, encryptedResponse: resp });
     assert.ok(out.valid, `${cfg}: ${out.errors?.join()}`);
     assert.equal(out.results[0].claims.family_name, '山田');
+
+    // the verifier now also exposes the raw vp_token (signatures incl.) for inspection
+    const raw = out.results[0].raw;
+    assert.ok(raw, `${cfg}: raw vp present`);
+    assert.equal(typeof raw.compact, 'string');
+    if (cfg === 'pid_mdoc') {
+      assert.equal(raw.format, 'mso_mdoc');
+      assert.match(raw.note, /CBOR.*JSON/, 'mdoc note states the CBOR->JSON conversion');
+      assert.ok(raw.json.documents, 'DeviceResponse decoded to JSON with documents[]');
+      // a byte string (e.g. the COSE signature) is rendered as {_bstr_hex}
+      assert.match(JSON.stringify(raw.json), /_bstr_hex/, 'byte strings shown as hex');
+    } else {
+      assert.equal(raw.format, 'dc+sd-jwt');
+      assert.ok(raw.json.sd_jwt.signature_b64url, 'SD-JWT signature exposed');
+      assert.ok(Array.isArray(raw.json.disclosures), 'disclosures decoded');
+      assert.ok(raw.json.kb_jwt?.signature_b64url, 'KB-JWT signature exposed');
+    }
   }
 });
