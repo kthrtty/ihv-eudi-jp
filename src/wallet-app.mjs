@@ -13,6 +13,7 @@ import { verify as verifyCredential } from './issuer.mjs';
 import { shell, pkce, typeIcon, typeName } from './authcode-demo.mjs';
 import { catalog } from './issuer.mjs';
 import { storedCredRepr } from './vpdebug.mjs';
+import { recordingFetch, getLog } from './devlog.mjs';
 
 // type prefix of a configId (pid_mdoc -> pid) for the issuer-matched icon
 const credType = (configId) => String(configId || '').replace(/_(mdoc|sdjwt)$/, '');
@@ -71,8 +72,10 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
   const SESSION_TTL = 60 * 60 * 24 * 30; // 30 days — wallet contents persist long-term
 
   // Use Service Binding-aware fetch when available (Workers production/dev),
-  // fall back to global fetch() in local Node.js server and unit tests.
-  const doFetch = boundFetch ?? fetch;
+  // fall back to global fetch() in local Node.js server and unit tests. When a store
+  // is present, wrap it so the developer console can show every OID4VCI/OID4VP call.
+  const baseFetch = boundFetch ?? fetch;
+  const doFetch = store ? recordingFetch(baseFetch, store, 'wallet') : baseFetch;
 
   // Persistent wallet cookie so the session (and its VCs) survives browser restarts.
   // SameSite=Lax (NOT None): the OID4VP redirect into /present is a cross-site
@@ -133,6 +136,8 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
 
   app.get('/', async (c) => { const s = await loadSession(c); return c.html(home(s, issuerUrl, verifierUrl)); }); // view-only: don't persist (avoids clobbering on a transient KV miss)
   app.get('/creds', async (c) => { const s = await loadSession(c); return c.json(s.creds.map(({ id, configId, format }) => ({ id, configId, format }))); });
+  // developer console: the OID4VCI/OID4VP calls this wallet made (masked, newest-first)
+  app.get('/dev/log', async (c) => c.json({ entries: await getLog(store, 'wallet') }));
 
   // Reset (initialize) the wallet: drop all stored VCs and the device-bound key.
   app.post('/reset', async (c) => {
@@ -402,7 +407,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
   return app;
 }
 
-const WALLET = { brand: 'IHV ウェブウォレット', sub: 'WEB WALLET', role: 'wallet' };
+const WALLET = { brand: 'IHV ウェブウォレット', sub: 'WEB WALLET', role: 'wallet', dev: true };
 
 // Same-site re-entry page. Served by the wallet origin, so the immediate
 // location.replace() to `to` is a SAME-SITE navigation (initiator = wallet),

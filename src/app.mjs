@@ -10,6 +10,7 @@ import { buildDelivery, offerByValueUri, offerByReferenceUri, offerQrSvg } from 
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { shell, renderConsent, renderAuthStart, renderCallback, renderOfferAuthcode, completeIssuance, pkce, authorizeUrl, renderLogin, appShell, renderConsentScreen, renderVcSelect, groupCatalog, renderHistory, renderAccount } from './authcode-demo.mjs';
 import { renderVerifyConsole, renderWebVerify, renderWebVerifyResult, renderVerifyHistory } from './verifier-demo.mjs';
+import { captureInbound, getLog } from './devlog.mjs';
 import { createWallet } from './wallet.mjs';
 import { allConfigIds, configInfo } from './issuer.mjs';
 
@@ -25,6 +26,10 @@ export function createApp(opts = {}) {
   const { issuerHtml = null, verifierPki = null, statusPki = null, ...svcOpts } = opts;
   const svc = new IssuerService({ ...svcOpts, statusPki });
   const app = new Hono();
+
+  // Developer console: log the inbound OID4VCI exchanges (masked).
+  app.use('*', captureInbound(svc.store, (p) => /^\/(token|nonce|credential|offer)(\/|$)/.test(p), 'issuer'));
+  app.get('/dev/log', async (c) => c.json({ entries: await getLog(svc.store, 'issuer') }));
 
   const fail = (c, e) => c.json({ error: e.oauthError || 'server_error', error_description: e.description || e.message }, e.status || 500);
 
@@ -284,6 +289,9 @@ export function createVerifierApp(opts = {}) {
     statusResolver: rest.statusResolver ?? (async () => (await issuerFetch('/status-lists/0')).text()),
   });
   const app = new Hono();
+  // Developer console: log the inbound OID4VP exchanges (masked).
+  app.use('*', captureInbound(v.store, (p) => /^\/(oid4vp\/(request|response)|vp\/(build|verify)|demo\/verify\/(prepare|present))/.test(p), 'verifier'));
+  app.get('/dev/log', async (c) => c.json({ entries: await getLog(v.store, 'verifier') }));
   const fail = (c, e) => c.json({ error: e.message }, e.status || 500);
   // OID4VP request objects (by-reference) and results live in the shared store so
   // they survive across Cloudflare isolates (in-memory Maps would 404 on a
