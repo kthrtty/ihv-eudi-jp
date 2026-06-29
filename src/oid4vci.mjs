@@ -276,7 +276,10 @@ export class IssuerService {
   /** Issuer's own issuance ledger (history). Never includes presentation data. */
   async issuances() {
     await this._loadState();
-    return this.issuanceLog.map((e) => ({ ...e, revoked: this.statusList.isRevoked(e.idx), revocation: this.statusList.reasonFor(e.idx) }));
+    // newest first — the ledger is appended chronologically, so sort by issued_at desc
+    return this.issuanceLog
+      .map((e) => ({ ...e, revoked: this.statusList.isRevoked(e.idx), revocation: this.statusList.reasonFor(e.idx) }))
+      .sort((a, b) => (a.issued_at < b.issued_at ? 1 : a.issued_at > b.issued_at ? -1 : 0));
   }
 
   async #verifyProof(proofJwt) {

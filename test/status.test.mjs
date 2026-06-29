@@ -89,3 +89,17 @@ test('end-to-end revocation: issue -> valid -> revoke -> verifier rejects', asyn
   assert.equal(after.issuances[0].revoked, true);
   assert.equal(after.issuances[0].revocation.reason, 'lost_device');
 });
+
+test('issuer issuance ledger is returned newest-first (issued_at desc)', async () => {
+  const svc = new IssuerService({ credentialIssuer: 'https://issuer.ihv.example' });
+  // ledger entries appended out of chronological order (idx must be a valid bit index)
+  svc.issuanceLog = [
+    { idx: 0, issued_at: '2026-06-01T00:00:00.000Z', configId: 'pid_mdoc' },
+    { idx: 1, issued_at: '2026-06-29T12:00:00.000Z', configId: 'pid_sdjwt' },
+    { idx: 2, issued_at: '2026-06-15T08:30:00.000Z', configId: 'juminhyo_mdoc' },
+  ];
+  const list = await svc.issuances();
+  assert.deepEqual(list.map((e) => e.issued_at), [
+    '2026-06-29T12:00:00.000Z', '2026-06-15T08:30:00.000Z', '2026-06-01T00:00:00.000Z',
+  ]);
+});
