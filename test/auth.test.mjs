@@ -7,9 +7,19 @@ import { createHash } from 'node:crypto';
 import { createApp } from '../src/app.mjs';
 import { createWallet } from '../src/wallet.mjs';
 import { IssuerService, httpErr } from '../src/oid4vci.mjs';
-import { verify as verifyCredential } from '../src/issuer.mjs';
+import { verify as verifyCredential, allConfigIds, configInfo } from '../src/issuer.mjs';
+import { renderVcSelect, groupCatalog } from '../src/authcode-demo.mjs';
 
 const ISSUER = 'https://issuer.ihv.example';
+
+test('issuer VC-select: the 280px width rule targets <select>, so a selected .vccard is not shrunk', () => {
+  const html = renderVcSelect(null, groupCatalog(allConfigIds().map(configInfo)));
+  // The card's selected state toggles a 'sel' class, but so was the <select>'s class.
+  // The width:280px rule must be scoped to the element, not a bare .sel (which also
+  // matched .vccard.sel and shrank the chosen card).
+  assert.match(html, /select\.sel\{[^}]*width:280px/);
+  assert.doesNotMatch(html, /[^a-z.]\.sel\{[^}]*width:280px/m); // no bare .sel width rule
+});
 const b64url = (b) => Buffer.from(b).toString('base64url');
 const s256 = (s) => b64url(createHash('sha256').update(Buffer.from(s, 'ascii')).digest());
 
