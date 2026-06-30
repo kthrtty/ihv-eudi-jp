@@ -27,13 +27,20 @@ export function createApp(opts = {}) {
   const svc = new IssuerService({ ...svcOpts, statusPki });
   const app = new Hono();
 
+  // Resolve the public issuer base URL: an explicitly configured value (ISSUER_URL —
+  // authoritative when behind an LB/proxy) takes priority; otherwise derive it from
+  // the live request origin so metadata reflects the actual running domain (no fixed
+  // placeholder). `svcOpts.credentialIssuer` is undefined when ISSUER_URL is unset.
+  const configuredIssuer = svcOpts.credentialIssuer;
+  const issuerBase = (c) => configuredIssuer || new URL(c.req.url).origin;
+
   // Developer console: log the inbound OID4VCI exchanges (masked).
   app.use('*', captureInbound(svc.store, (p) => /^\/(token|nonce|credential|offer)(\/|$)/.test(p), 'issuer'));
   app.get('/dev/log', async (c) => c.json({ entries: await getLog(svc.store, 'issuer') }));
 
   const fail = (c, e) => c.json({ error: e.oauthError || 'server_error', error_description: e.description || e.message }, e.status || 500);
 
-  app.get('/.well-known/openid-credential-issuer', (c) => c.json(svc.metadata()));
+  app.get('/.well-known/openid-credential-issuer', (c) => c.json(svc.metadata(issuerBase(c))));
 
   // Issuer portal top — requires login; shows VC selection / offer creation
   app.get('/', async (c) => {

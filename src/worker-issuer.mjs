@@ -47,7 +47,9 @@ export default {
       if (pki) setPki(pki.issuer); // inject into issuer.mjs module scope
       app = createApp({
         store: env.IHV_KV ? kvStore(env.IHV_KV) : undefined,
-        credentialIssuer: env.ISSUER_URL || 'https://issuer.kthrtty.workers.dev',
+        // ISSUER_URL is authoritative (LB/proxy); when unset, metadata derives the
+        // base from the live request origin (see createApp issuerBase).
+        credentialIssuer: env.ISSUER_URL || undefined,
         statusPki: pki?.statusPki ?? null,
         verifierPki: pki?.verifierPki ?? null,
       });
