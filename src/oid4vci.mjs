@@ -150,13 +150,18 @@ export class IssuerService {
   }
 
   // ---- 12.2 Issuer Metadata (.well-known/openid-credential-issuer) ----
-  metadata() {
+  // All issuer URLs are derived from `base` so nothing is a fixed value: the route
+  // resolves base = configured ISSUER_URL (authoritative, e.g. behind an LB) else the
+  // live request origin. `authorization_servers` must be overridden too — it would
+  // otherwise leak the static catalog placeholder.
+  metadata(base = this.credentialIssuer) {
     return {
       ...catalog,
-      credential_issuer: this.credentialIssuer,
-      credential_endpoint: `${this.credentialIssuer}/credential`,
-      nonce_endpoint: `${this.credentialIssuer}/nonce`,
-      token_endpoint: `${this.credentialIssuer}/token`,
+      credential_issuer: base,
+      authorization_servers: [base],
+      credential_endpoint: `${base}/credential`,
+      nonce_endpoint: `${base}/nonce`,
+      token_endpoint: `${base}/token`,
     };
   }
 

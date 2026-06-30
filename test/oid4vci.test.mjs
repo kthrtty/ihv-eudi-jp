@@ -44,6 +44,23 @@ test('OID4VCI: issuer metadata advertises endpoints + 6 configs', async () => {
   assert.equal(Object.keys(md.credential_configurations_supported).length, 16);
 });
 
+test('OID4VCI: metadata URLs derive from the configured base — authorization_servers too (not the static placeholder)', async () => {
+  const a = createApp({ credentialIssuer: 'https://issuer.example.org' });
+  const md = await (await a.request('/.well-known/openid-credential-issuer')).json();
+  assert.equal(md.credential_issuer, 'https://issuer.example.org');
+  assert.deepEqual(md.authorization_servers, ['https://issuer.example.org']);
+  assert.equal(md.credential_endpoint, 'https://issuer.example.org/credential');
+  assert.equal(md.token_endpoint, 'https://issuer.example.org/token');
+});
+
+test('OID4VCI: with no configured ISSUER_URL, metadata reflects the live request origin', async () => {
+  const a = createApp(); // no credentialIssuer -> derive from the request
+  const md = await (await a.request('https://run.example.net/.well-known/openid-credential-issuer')).json();
+  assert.equal(md.credential_issuer, 'https://run.example.net');
+  assert.deepEqual(md.authorization_servers, ['https://run.example.net']);
+  assert.equal(md.nonce_endpoint, 'https://run.example.net/nonce');
+});
+
 for (const configId of ['pid_mdoc', 'pid_sdjwt', 'qualification_mdoc', 'juminhyo_sdjwt']) {
   test(`OID4VCI: full pre-auth flow issues ${configId} bound to holder key`, async () => {
     const h = holder();
