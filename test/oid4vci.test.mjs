@@ -53,6 +53,35 @@ test('OID4VCI: metadata URLs derive from the configured base — authorization_s
   assert.equal(md.token_endpoint, 'https://issuer.example.org/token');
 });
 
+test('OID4VCI: AS metadata (RFC 8414) + openid-configuration alias', async () => {
+  const as = await (await app.request('/.well-known/oauth-authorization-server')).json();
+  assert.equal(as.issuer, ISSUER);
+  assert.equal(as.token_endpoint, `${ISSUER}/token`);
+  assert.equal(as.authorization_endpoint, `${ISSUER}/authorize`);
+  assert.equal(as.jwks_uri, `${ISSUER}/jwks`);
+  assert.deepEqual(as.code_challenge_methods_supported, ['S256']);
+  assert.ok(as.grant_types_supported.includes('urn:ietf:params:oauth:grant-type:pre-authorized_code'));
+  // openid-configuration is a superset alias (adds OIDC fields), not required by OID4VCI
+  const oc = await (await app.request('/.well-known/openid-configuration')).json();
+  assert.equal(oc.issuer, ISSUER);
+  assert.ok(oc.id_token_signing_alg_values_supported);
+  // Issuer Metadata now advertises authorization_endpoint too
+  const md = await (await app.request('/.well-known/openid-credential-issuer')).json();
+  assert.equal(md.authorization_endpoint, `${ISSUER}/authorize`);
+});
+
+test('OID4VCI: /jwks publishes issuer signing public keys (kid + x5c; trust stays x5c)', async () => {
+  const jw = await (await app.request('/jwks')).json();
+  assert.ok(jw.keys.length >= 2, 'has keys');
+  const k = jw.keys[0];
+  assert.equal(k.kty, 'EC');
+  assert.equal(k.crv, 'P-256');
+  assert.equal(k.use, 'sig');
+  assert.ok(k.kid && k.x && k.y, 'public key material + kid');
+  assert.ok(Array.isArray(k.x5c) && k.x5c.length >= 1, 'x5c chain present');
+  assert.ok(!('d' in k), 'no private key material leaks');
+});
+
 test('OID4VCI: with no configured ISSUER_URL, metadata reflects the live request origin', async () => {
   const a = createApp(); // no credentialIssuer -> derive from the request
   const md = await (await a.request('https://run.example.net/.well-known/openid-credential-issuer')).json();
