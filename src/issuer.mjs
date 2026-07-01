@@ -165,6 +165,33 @@ export async function verify(configId, credential) {
   return verifySdJwtVc(credential, { trustedIssuerCaDer });
 }
 
+/** Issuer signing-key JWK Set (for jwks_uri discovery). Collects the public key of
+ *  every credential-signing certificate — mdoc DSC + SD-JWT issuer leaf, per ref —
+ *  as an ES256 JWK with a `kid` and the x5c chain. TRUST still rests on x5c/PKI; this
+ *  set is a convenience for kid-based key discovery, not a new trust root. */
+export async function jwks() {
+  const refs = [...new Set(Object.values(schemas).map((s) => s.issuer_ref))];
+  const keys = [];
+  const jwkFromDer = (d, kid, x5cChain) => {
+    const jwk = new X509Certificate(d).publicKey.export({ format: 'jwk' });
+    return { ...jwk, use: 'sig', alg: 'ES256', kid, x5c: x5cChain.map((x) => Buffer.from(x).toString('base64')) };
+  };
+  const der = (v) => (v instanceof Uint8Array || Buffer.isBuffer(v) ? new X509Certificate(v).raw : v);
+  for (const ref of refs) {
+    try {
+      const dsc = _pki?.mdoc?.[ref]?.cert ?? await diskDer(`pki/mdoc/dsc/${ref}.crt`);
+      const iaca = _pki?.mdoc?.iaca ?? await diskDer('pki/mdoc/iaca/iaca.crt');
+      keys.push(jwkFromDer(der(dsc), `mdoc-dsc-${ref}`, [der(dsc), der(iaca)]));
+    } catch { /* skip refs without an mdoc DSC */ }
+    try {
+      const leaf = _pki?.sdjwt?.[ref]?.cert ?? await diskDer(`pki/sdjwt/${ref}.crt`);
+      const ca = _pki?.sdjwt?.caCert ?? await diskDer('pki/sdjwt/issuer-ca.crt');
+      keys.push(jwkFromDer(der(leaf), `sdjwt-${ref}`, [der(leaf), der(ca)]));
+    } catch { /* skip refs without an SD-JWT issuer cert */ }
+  }
+  return { keys };
+}
+
 export const allConfigIds = () => Object.keys(catalog.credential_configurations_supported);
 
 /** Map a persona onto the identity claims of a credential (per-user data). */

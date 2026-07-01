@@ -303,7 +303,7 @@ export function appShell(title, body, user = null, { width = 'narrow', dev = tru
     <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <title>${esc(title)} — IHV 発行ポータル</title>${FONTS}<style>${CSS}</style>
   </head><body style="background:var(--paper);min-height:100vh">
-    ${appHeaderHtml(user, dev)}<div class="${cls}">${body}</div>${dev ? devWidgetHtml() : ''}
+    ${appHeaderHtml(user, dev)}<div class="${cls}">${body}</div>${dev ? devWidgetHtml('', { endpoints: true }) : ''}
   </body></html>`;
 }
 

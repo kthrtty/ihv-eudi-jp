@@ -12,7 +12,7 @@ import { shell, renderConsent, renderAuthStart, renderCallback, renderOfferAuthc
 import { renderVerifyConsole, renderWebVerify, renderWebVerifyResult, renderVerifyHistory } from './verifier-demo.mjs';
 import { captureInbound, getLog } from './devlog.mjs';
 import { createWallet } from './wallet.mjs';
-import { allConfigIds, configInfo } from './issuer.mjs';
+import { allConfigIds, configInfo, jwks as issuerJwks } from './issuer.mjs';
 
 // Lazy HTML loader for Node.js — not called in Workers (html string passed explicitly).
 async function loadHtml(rel) {
@@ -35,12 +35,44 @@ export function createApp(opts = {}) {
   const issuerBase = (c) => configuredIssuer || new URL(c.req.url).origin;
 
   // Developer console: log the inbound OID4VCI exchanges (masked).
-  app.use('*', captureInbound(svc.store, (p) => /^\/(token|nonce|credential|offer)(\/|$)/.test(p), 'issuer'));
+  app.use('*', captureInbound(svc.store, (p) => /^\/(token|nonce|credential|offer|jwks|\.well-known|status-lists)(\/|$)/.test(p), 'issuer'));
   app.get('/dev/log', async (c) => c.json({ entries: await getLog(svc.store, 'issuer') }));
+  // Endpoint inventory for the developer console's エンドポイント tab. Metadata-returning
+  // endpoints carry their current value; operational ones list method/path/desc only.
+  app.get('/dev/endpoints', async (c) => {
+    const base = issuerBase(c);
+    const jwksVal = await issuerJwks().catch(() => ({ keys: [] }));
+    return c.json({ endpoints: [
+      { method: 'GET', path: '/.well-known/openid-credential-issuer', grp: 'メタデータ', desc: 'Issuer Metadata（OID4VCI §12）', value: svc.metadata(base) },
+      { method: 'GET', path: '/.well-known/oauth-authorization-server', grp: 'メタデータ', desc: 'AS Metadata（RFC 8414）', value: svc.asMetadata(base) },
+      { method: 'GET', path: '/jwks', grp: 'メタデータ', desc: '署名鍵の JWK Set（trust は x5c）', value: jwksVal },
+      { method: 'POST', path: '/token', grp: 'OID4VCI', desc: 'Token EP — access_token 発行' },
+      { method: 'POST', path: '/nonce', grp: 'OID4VCI', desc: 'Nonce EP — c_nonce 発行' },
+      { method: 'POST', path: '/credential', grp: 'OID4VCI', desc: 'Credential EP — VC 発行' },
+      { method: 'GET', path: '/authorize', grp: 'OAuth', desc: '認可 EP（PKCE / 同意）' },
+      { method: 'POST', path: '/offer', grp: '管理', desc: 'Credential Offer 生成' },
+      { method: 'GET', path: '/status-lists/1', grp: 'メタデータ', desc: 'Token Status List（失効）' },
+    ] });
+  });
 
   const fail = (c, e) => c.json({ error: e.oauthError || 'server_error', error_description: e.description || e.message }, e.status || 500);
 
   app.get('/.well-known/openid-credential-issuer', (c) => c.json(svc.metadata(issuerBase(c))));
+  // OAuth AS metadata (RFC 8414) — OID4VCI's normative AS discovery document.
+  app.get('/.well-known/oauth-authorization-server', (c) => c.json(svc.asMetadata(issuerBase(c))));
+  // OpenID Configuration — optional superset alias (NOT required by OID4VCI); provided
+  // for wallets that fall back to it. Adds the OIDC-only advertised fields on top.
+  app.get('/.well-known/openid-configuration', (c) => {
+    const base = issuerBase(c);
+    return c.json({
+      ...svc.asMetadata(base),
+      subject_types_supported: ['public'],
+      id_token_signing_alg_values_supported: ['ES256'],
+      scopes_supported: ['openid'],
+    });
+  });
+  // Issuer signing-key JWK Set (kid-based discovery; trust remains x5c/PKI).
+  app.get('/jwks', async (c) => { try { return c.json(await issuerJwks()); } catch (e) { return fail(c, e); } });
 
   // Issuer portal top — requires login; shows VC selection / offer creation
   app.get('/', async (c) => {
@@ -297,8 +329,12 @@ export function createVerifierApp(opts = {}) {
   });
   const app = new Hono();
   // Developer console: log the inbound OID4VP exchanges (masked).
-  app.use('*', captureInbound(v.store, (p) => /^\/(oid4vp\/(request|response)|vp\/(build|verify)|demo\/verify\/(prepare|present))/.test(p), 'verifier'));
+  app.use('*', captureInbound(v.store, (p) => /^\/(oid4vp\/(request|response)|vp\/(build|verify)|demo\/verify\/(prepare|present)|client-metadata|jwks|\.well-known)/.test(p), 'verifier'));
   app.get('/dev/log', async (c) => c.json({ entries: await getLog(v.store, 'verifier') }));
+  // Hosted RP metadata (also embedded inline in requests). Enables a client_metadata_uri
+  // reference and lets wallets fetch the RP response-encryption key out-of-band.
+  app.get('/client-metadata', async (c) => { await v._ensurePki(); return c.json(v.clientMetadata()); });
+  app.get('/jwks', async (c) => { await v._ensurePki(); return c.json(v.jwksSet()); });
   const fail = (c, e) => c.json({ error: e.message }, e.status || 500);
   // OID4VP request objects (by-reference) and results live in the shared store so
   // they survive across Cloudflare isolates (in-memory Maps would 404 on a

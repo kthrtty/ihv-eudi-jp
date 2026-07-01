@@ -41,6 +41,22 @@ export class VerifierService {
     this.trustedIssuerCaDer = caDer;
   }
 
+  /** RP response-encryption public key set (ECDH-ES). Served at the hosted /jwks and
+   *  embedded inline in client_metadata. */
+  jwksSet() { return { keys: [{ ...this.encJwk, use: 'enc', alg: 'ECDH-ES', kid: 'rp-enc-1' }] }; }
+
+  /** RP client_metadata (OpenID4VP). Embedded inline in requests today; also served at
+   *  the hosted /client-metadata so a `client_metadata_uri` reference is possible. */
+  clientMetadata() {
+    return {
+      client_name: this.clientName,
+      jwks: this.jwksSet(),
+      authorization_encrypted_response_alg: 'ECDH-ES',
+      authorization_encrypted_response_enc: 'A128GCM',
+      vp_formats_supported: { 'dc+sd-jwt': { 'sd-jwt_alg_values': ['ES256'], 'kb-jwt_alg_values': ['ES256'] }, mso_mdoc: { alg: ['ES256'] } },
+    };
+  }
+
   async _ensurePki() {
     if (this.encPrivatePem) return;
     // Node.js fallback — never reached in Workers (PKI injected via constructor)
@@ -101,13 +117,7 @@ export class VerifierService {
         response_uri: respUri,
         nonce,
         dcql_query,
-        client_metadata: {
-          client_name: this.clientName,
-          jwks: { keys: [{ ...this.encJwk, use: 'enc', alg: 'ECDH-ES' }] },
-          authorization_encrypted_response_alg: 'ECDH-ES',
-          authorization_encrypted_response_enc: 'A128GCM',
-          vp_formats_supported: { 'dc+sd-jwt': { 'sd-jwt_alg_values': ['ES256'], 'kb-jwt_alg_values': ['ES256'] }, mso_mdoc: { alg: ['ES256'] } },
-        },
+        client_metadata: this.clientMetadata(),
       };
       return { transactionId, request };
     }

@@ -61,11 +61,19 @@ const headerPairs = (h) => {
   return Object.entries(h);
 };
 
+/** Classify an endpoint into a devlog group. Discovery/metadata (well-known, jwks,
+ *  client-metadata, status-lists) is its own group so it can be filtered apart. */
+export function grpOf(ep) {
+  if (/\.well-known|\/jwks|client-metadata|status-lists/i.test(ep)) return 'メタデータ';
+  if (/oid4vp|\/vp\/|verify|presentation/i.test(ep)) return 'OID4VP';
+  return 'OID4VCI';
+}
+
 /** Build a masked log entry from a raw exchange. */
 export function buildEntry({ dir, method, ep, status, grp, note, reqHeaders, reqBody, reqCT, resHeaders, resBody, resCT }) {
   return {
     ts: new Date().toISOString(), dir, method, ep, status: status ?? null,
-    grp: grp || (/oid4vp|\/vp\/|verify|presentation/i.test(String(ep)) ? 'OID4VP' : 'OID4VCI'), note: note || null,
+    grp: grp || grpOf(String(ep)), note: note || null,
     reqHeaders: maskHeaders(headerPairs(reqHeaders)),
     reqBody: maskBody(parseBody(reqBody, reqCT)),
     resHeaders: maskHeaders(headerPairs(resHeaders)),
@@ -140,19 +148,25 @@ const CONSOLE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
 export const devToggleHtml = () =>
   `<button type="button" id="devToggle" class="dev-toggle" aria-pressed="false" title="開発者コンソール（クリックで表示）">${CONSOLE_ICON}</button>`;
 
-/** Bottom-drawer widget + styles + JS. `origin` is where GET /dev/log lives (''=same). */
-export const devWidgetHtml = (origin = '') => `
+/** Bottom-drawer widget + styles + JS. `origin` is where GET /dev/log lives (''=same).
+ *  `endpoints:true` adds an エンドポイント tab that fetches GET /dev/endpoints. */
+export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
 <div id="devDrawer" class="dev-drawer" hidden>
   <div class="dev-dh"><span class="dev-ic">${CONSOLE_ICON}</span><b>開発者コンソール</b><span class="dev-sub">OID4VCI / OID4VP</span>
     <button type="button" class="dev-x" onclick="window.__dev.close()">×</button></div>
+  ${endpoints ? `<div class="dev-tabs"><button class="dev-tab on" data-tab="log">通信ログ</button><button class="dev-tab" data-tab="ep">エンドポイント</button></div>` : ''}
+  <div class="dev-pane" data-pane="log">
   <div class="dev-legend">🔒 機微情報は値のみ部分マスク（先頭＋長さ＋末尾）。キーと構造は保持。</div>
   <div class="dev-filters">
     <button class="dev-chip on" data-f="all">すべて</button>
+    <button class="dev-chip" data-f="メタデータ">メタデータ</button>
     <button class="dev-chip" data-f="OID4VCI">OID4VCI</button>
     <button class="dev-chip" data-f="OID4VP">OID4VP</button>
     <button class="dev-chip dev-reload" onclick="window.__dev.load()">⟳ 更新</button>
   </div>
   <div id="devRows" class="dev-rows"></div>
+  </div>
+  ${endpoints ? `<div class="dev-pane" data-pane="ep" hidden><div class="dev-legend">この発行者が公開する API。メタデータ系は<b>現在の値</b>を併記（GET は「開く ↗」でログに記録）。</div><div id="devEps" class="dev-rows"></div></div>` : ''}
 </div>
 <style>
   .dev-hdr-right{margin-left:auto;display:flex;align-items:center;gap:10px}
@@ -167,7 +181,19 @@ export const devWidgetHtml = (origin = '') => `
   .dev-drawer[hidden]{display:none}
   .dev-dh{display:flex;align-items:center;gap:8px;padding:13px 16px;border-bottom:1px solid var(--line,#E3E8EF);font-size:14px}
   .dev-dh .dev-sub{color:var(--muted,#5B6B82);font-size:11px;font-weight:600}.dev-dh .dev-x{margin-left:auto;border:0;background:none;font-size:20px;color:var(--muted,#5B6B82);cursor:pointer}
+  .dev-tabs{display:flex;gap:4px;padding:8px 14px 0;border-bottom:1px solid var(--line,#E3E8EF)}
+  .dev-tab{font:inherit;font-size:12px;font-weight:700;padding:8px 14px;border:0;border-radius:8px 8px 0 0;color:var(--muted,#5B6B82);background:none;cursor:pointer}
+  .dev-tab.on{background:#0E1A2B;color:#fff}
+  .dev-pane{display:flex;flex-direction:column;min-height:0;overflow:auto}
   .dev-legend{font-size:11px;color:#7a5b13;background:#FFF7E6;border:1px solid #F2D98B;border-radius:8px;padding:6px 10px;margin:10px 16px 0}
+  .dev-ep{border:1px solid var(--line,#E3E8EF);border-radius:10px;padding:10px 12px;margin-top:8px}
+  .dev-ep.meta{border-color:#F2D98B;background:#FFFDF6}
+  .dev-ep-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .dev-ep-path{font-family:ui-monospace,monospace;font-size:12px;color:#0E1A2B}
+  .dev-ep-desc{font-size:11px;color:var(--muted,#5B6B82);margin-top:5px}
+  .dev-ep-go{margin-left:auto;font-size:11px;font-weight:700;color:#1C3F94;cursor:pointer;text-decoration:none}
+  .dev-ep-val{margin-top:8px;border-top:1px dashed #ECD9A0;padding-top:7px}
+  .dev-ep-vh{font-size:10.5px;font-weight:700;color:#7a5b13;margin-bottom:4px}
   .dev-filters{display:flex;gap:6px;padding:10px 16px 4px;flex-wrap:wrap}
   .dev-chip{font:inherit;font-size:11px;font-weight:700;border:1px solid var(--line,#E3E8EF);border-radius:999px;padding:4px 11px;color:var(--muted,#5B6B82);background:#fff;cursor:pointer}
   .dev-chip.on{background:#0E1A2B;color:#fff;border-color:#0E1A2B}
@@ -229,6 +255,21 @@ export const devWidgetHtml = (origin = '') => `
       state.entries=d.entries||[];render();
     }).catch(function(){});
   }
+  function renderEps(d){
+    var el=document.getElementById('devEps');if(!el)return;
+    var eps=(d&&d.endpoints)||[];
+    el.innerHTML=eps.map(function(e){
+      var meta=e.value!==undefined&&e.value!==null;
+      var go=e.method==='GET'?'<a class="dev-ep-go" href="'+esc(e.path)+'" target="_blank" rel="noopener">開く ↗</a>':'';
+      var mp='<span class="dev-mp '+e.method+'">'+e.method+'</span>';
+      var gc='<span class="dev-grp">'+esc(e.grp||'')+'</span>';
+      var val=meta?'<div class="dev-ep-val"><div class="dev-ep-vh">現在の値</div><pre class="dev-code">'+esc(typeof e.value==='string'?e.value:JSON.stringify(e.value,null,2))+'</pre></div>':'';
+      return '<div class="dev-ep'+(meta?' meta':'')+'"><div class="dev-ep-top">'+mp+'<span class="dev-ep-path">'+esc(e.path)+'</span>'+gc+go+'</div><div class="dev-ep-desc">'+esc(e.desc||'')+'</div>'+val+'</div>';
+    }).join('');
+  }
+  function loadEps(){
+    fetch(ORIGIN+'/dev/endpoints',{credentials:'include'}).then(function(r){return r.json();}).then(renderEps).catch(function(){});
+  }
   function setIcon(open){
     var t=document.getElementById('devToggle');if(t){t.classList.toggle('on',open);t.setAttribute('aria-pressed',open);}
   }
@@ -246,6 +287,12 @@ export const devWidgetHtml = (origin = '') => `
     document.querySelectorAll('.dev-chip[data-f]').forEach(function(c){c.onclick=function(){
       document.querySelectorAll('.dev-chip[data-f]').forEach(function(x){x.classList.toggle('on',x===c);});
       state.filter=c.dataset.f;render();
+    };});
+    // tab switching (通信ログ / エンドポイント), if the endpoints tab is present
+    document.querySelectorAll('.dev-tab[data-tab]').forEach(function(t){t.onclick=function(){
+      document.querySelectorAll('.dev-tab[data-tab]').forEach(function(x){x.classList.toggle('on',x===t);});
+      document.querySelectorAll('.dev-pane[data-pane]').forEach(function(p){p.hidden=p.dataset.pane!==t.dataset.tab;});
+      if(t.dataset.tab==='ep')loadEps();
     };});
   });
 })();

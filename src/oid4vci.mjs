@@ -159,9 +159,31 @@ export class IssuerService {
       ...catalog,
       credential_issuer: base,
       authorization_servers: [base],
+      authorization_endpoint: `${base}/authorize`,
       credential_endpoint: `${base}/credential`,
       nonce_endpoint: `${base}/nonce`,
       token_endpoint: `${base}/token`,
+    };
+  }
+
+  // ---- OAuth 2.0 Authorization Server Metadata (RFC 8414) ----
+  // OID4VCI's normative AS discovery document (NOT OpenID Connect). We are a plain
+  // OAuth AS: opaque access tokens (nothing signed), so no id_token/userinfo. jwks_uri
+  // is advertised for discovery; the JWK Set is the issuer's credential-signing public
+  // keys (trust remains x5c). `openid-configuration` is offered only as an optional
+  // superset alias (see the route) — it is not required by OID4VCI.
+  asMetadata(base = this.credentialIssuer) {
+    return {
+      issuer: base,
+      authorization_endpoint: `${base}/authorize`,
+      token_endpoint: `${base}/token`,
+      jwks_uri: `${base}/jwks`,
+      response_types_supported: ['code'],
+      response_modes_supported: ['query'],
+      grant_types_supported: ['authorization_code', PRE_AUTH_GRANT],
+      token_endpoint_auth_methods_supported: ['none'],
+      code_challenge_methods_supported: ['S256'],
+      'pre-authorized_grant_anonymous_access_supported': true,
     };
   }
 

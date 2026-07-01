@@ -3,7 +3,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createApp, createVerifierApp } from '../src/app.mjs';
 import { createWallet } from '../src/wallet.mjs';
-import { partialMask, maskBody, maskHeaders, buildEntry } from '../src/devlog.mjs';
+import { partialMask, maskBody, maskHeaders, buildEntry, grpOf } from '../src/devlog.mjs';
+
+test('grpOf: discovery endpoints classify as メタデータ', () => {
+  assert.equal(grpOf('/.well-known/oauth-authorization-server'), 'メタデータ');
+  assert.equal(grpOf('/jwks'), 'メタデータ');
+  assert.equal(grpOf('/client-metadata'), 'メタデータ');
+  assert.equal(grpOf('/status-lists/1'), 'メタデータ');
+  assert.equal(grpOf('/oid4vp/request/x'), 'OID4VP');
+  assert.equal(grpOf('/token'), 'OID4VCI');
+});
 
 test('partialMask: reveals head+len+tail for long, hides short (PIN -> 桁)', () => {
   assert.equal(partialMask('4821'), '••••（4桁）');
@@ -62,6 +71,17 @@ test('issuer /dev/log captures inbound OID4VCI (token/credential) with masking',
   const token = entries.find((e) => e.ep.startsWith('/token'));
   assert.match(String(token.resBody.access_token), /…|••••/);
   assert.ok(!/eyJ[\w-]{20,}/.test(JSON.stringify(entries)), 'no full JWT leaks');
+});
+
+test('verifier hosted /client-metadata + /jwks expose the RP enc key (matches inline)', async () => {
+  const v = createVerifierApp({ verifierOrigin: 'https://verifier.example', walletOrigin: 'https://wallet.example', issuerUrl: 'https://issuer.example' });
+  const cm = await (await v.request('/client-metadata')).json();
+  assert.equal(cm.authorization_encrypted_response_alg, 'ECDH-ES');
+  assert.equal(cm.jwks.keys[0].use, 'enc');
+  const jw = await (await v.request('/jwks')).json();
+  assert.equal(jw.keys[0].use, 'enc');
+  assert.equal(jw.keys[0].kid, cm.jwks.keys[0].kid);
+  assert.ok(!('d' in jw.keys[0]), 'no private key leaks');
 });
 
 test('verifier /dev/log captures inbound OID4VP (request/response)', async () => {
