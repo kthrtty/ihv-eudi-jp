@@ -528,10 +528,7 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
           <div class="eyebrow">ウォレットへの受け渡し</div>
           <!-- wide: QR left / actions right. narrow: stacked & centered -->
           <div class="handoff" id="wletrow">
-            <div class="qrside">
-              <div id="qrbox"></div>
-              <div class="qrcap">別の端末のウォレットは<br>QR を読み取り</div>
-            </div>
+            <div class="qrside"><div id="qrbox"></div></div>
             <div class="btnside">
               <a class="act primary" id="opendevice" href="#">
                 <span class="act-ic">📱</span>
@@ -549,6 +546,7 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
                 <span class="act-ch">›</span>
               </button>
             </div>
+            <div class="qrcap">別の端末のウォレットは QR を読み取り</div>
           </div>
           <!-- 技術情報は既定で畳む: JSON と生URIは開発者向け -->
           <details class="jsonfold" id="jsonfold">
@@ -640,14 +638,20 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       .optfold[open]>summary{margin-bottom:10px}
       .jsonfold{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
       .jsonfold[open]>summary{margin-bottom:8px}
-      /* hand-off: QR left, action-list rows right; stacks & centers under 640px.
+      /* hand-off: a centered grid pairing the QR with the action-list rows.
+         - the PAIR is centered inside the card (justify-content:center), so the
+           QR no longer hugs the left edge and both sides get symmetric margins
+         - the caption lives in its own grid ROW under the QR, so row 1 vertically
+           centers the QR image against the button stack exactly (the caption's
+           height no longer skews the centering)
          Rows (icon + left-aligned title/description + chevron) read naturally at
          any width — unlike centered full-width buttons, they never look stretched. */
-      .handoff{display:flex;gap:26px;align-items:center;margin-top:6px}
-      .qrside{flex:none;text-align:center}
+      .handoff{display:grid;grid-template-columns:auto minmax(0,480px);column-gap:34px;row-gap:8px;
+        justify-content:center;align-items:center;margin-top:6px}
+      .qrside{grid-column:1;grid-row:1}
       .qrside #qrbox img{display:block}
-      .qrcap{font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5}
-      .btnside{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px;max-width:480px}
+      .qrcap{grid-column:1;grid-row:2;text-align:center;font-size:11px;color:var(--muted);line-height:1.5}
+      .btnside{grid-column:2;grid-row:1;min-width:0;display:flex;flex-direction:column;gap:8px}
       .act{display:flex;align-items:center;gap:12px;padding:11px 14px;border:1px solid var(--line);border-radius:12px;
         background:#fff;text-decoration:none;color:var(--ink);cursor:pointer;font:inherit;text-align:left;width:100%;transition:all .12s}
       .act:hover{border-color:#aebbd3;background:#f7f9fc;transform:translateY(-1px)}
@@ -659,8 +663,10 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       .act-tx small{font-size:11px;color:var(--muted)}
       .act-ch{color:var(--muted);font-size:20px;flex:none;line-height:1}
       @media(max-width:640px){
-        .handoff{flex-direction:column;gap:14px}
-        .btnside{width:100%;max-width:none}
+        .handoff{grid-template-columns:1fr;justify-items:center;row-gap:6px}
+        .qrside{grid-column:1;grid-row:1}
+        .qrcap{grid-column:1;grid-row:2;margin-bottom:8px}
+        .btnside{grid-column:1;grid-row:3;width:100%}
       }
       .pinbanner{background:#fff;border:1px solid var(--line);border-left:4px solid var(--seal);border-radius:10px;padding:14px 18px;margin-bottom:14px;text-align:center}
       .pin-k{font-size:12px;color:var(--muted);letter-spacing:.04em}
