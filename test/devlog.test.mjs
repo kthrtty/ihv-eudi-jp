@@ -73,6 +73,20 @@ test('issuer /dev/log captures inbound OID4VCI (token/credential) with masking',
   assert.ok(!/eyJ[\w-]{20,}/.test(JSON.stringify(entries)), 'no full JWT leaks');
 });
 
+test('verifier /dev/client-log beacon lands in /dev/log (observe a manually-operated wallet)', async () => {
+  const v = createVerifierApp({ verifierOrigin: 'https://verifier.example', walletOrigin: 'https://wallet.example', issuerUrl: 'https://issuer.example' });
+  await v.request('/dev/client-log', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phase: 'dispatch', protocol: 'openid4vp-v1-unsigned', ua: 'Android', dcSupported: true, request: { client_id: 'x509_san_dns:verifier.example' } }) });
+  await v.request('/dev/client-log', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ phase: 'error', protocol: 'openid4vp-v1-unsigned', error: 'NotAllowedError' }) });
+  const { entries } = await (await v.request('/dev/log')).json();
+  const disp = entries.find((e) => /dispatch/.test(e.ep));
+  const errEntry = entries.find((e) => /error/.test(e.ep));
+  assert.ok(disp && disp.grp === 'OID4VP', 'dispatch beacon captured as OID4VP');
+  assert.match(disp.note, /DigitalCredential: 対応/);
+  assert.equal(disp.reqBody.client_id, 'x509_san_dns:verifier.example');
+  assert.ok(errEntry && errEntry.status === 'ERR', 'error beacon captured');
+  assert.match(errEntry.note, /NotAllowedError/);
+});
+
 test('verifier hosted /client-metadata + /jwks expose the RP enc key (matches inline)', async () => {
   const v = createVerifierApp({ verifierOrigin: 'https://verifier.example', walletOrigin: 'https://wallet.example', issuerUrl: 'https://issuer.example' });
   const cm = await (await v.request('/client-metadata')).json();
