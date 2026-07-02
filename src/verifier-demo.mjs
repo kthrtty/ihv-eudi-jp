@@ -244,7 +244,16 @@ export function renderVerifyConsole(groups = []) {
         $('present').disabled = false; $('present').textContent = '提示を要求';
       }
       function showResult(d) {
-        const rows = Object.entries(d.claims || {}).map(([k, v]) => '<tr><td>'+k+'</td><td>'+v+'</td></tr>').join('');
+        // verifyResponse returns claims/holder nested under results[], not top-level.
+        const claims = Object.assign({}, ...((d.results || []).map((r) => r.claims || {})));
+        const holderRaw = (d.results || []).map((r) => r.holder).find(Boolean) || d.holder;
+        // holder is the binding public key (mdoc deviceKey / SD-JWT cnf.jwk) as a JWK.
+        // Show the same x.y handle the server uses for same-holder linking, not [object Object].
+        const holder = holderRaw && typeof holderRaw === 'object'
+          ? (holderRaw.x != null ? holderRaw.x + (holderRaw.y != null ? '.' + holderRaw.y : '') : JSON.stringify(holderRaw))
+          : holderRaw;
+        const fmt = (v) => (v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v));
+        const rows = Object.entries(claims).map(([k, v]) => '<tr><td>'+k+'</td><td>'+fmt(v)+'</td></tr>').join('');
         const checks = CHECKS.map((l) => '<div class="ck2"><span class="'+(d.valid?'cok':'cng')+'">'+(d.valid?'✓':'—')+'</span> '+l+'</div>').join('');
         $('result').innerHTML =
           '<div class="eyebrow" style="margin-top:6px">検証結果（VC 受領後）</div>'+
@@ -252,7 +261,7 @@ export function renderVerifyConsole(groups = []) {
           '<div class="checks">'+checks+'</div>'+
           '<div class="muted" style="font-size:12px;margin:12px 0 4px">開示されたクレーム（要求した項目のみ）</div>'+
           '<table class="cl">'+rows+'</table>'+
-          (d.holder ? '<div class="hint mono" style="font-size:11px">holder: '+String(d.holder).slice(0,40)+'…</div>' : '')+
+          (holder ? '<div class="hint mono" style="font-size:11px">holder: '+String(holder).slice(0,40)+'…</div>' : '')+
           (d.errors && d.errors.length ? '<div class="hint" style="color:#9E3A3A">'+d.errors.join('; ')+'</div>' : '');
       }
 
@@ -377,7 +386,7 @@ export function renderVerifyHistory(entries = []) {
     <div class="hcard">
       <div class="hh">
         <span class="badge ${e.valid ? 'bok' : 'bng'}">${e.valid ? '✓ 検証成功' : '✗ 検証失敗'}</span>
-        <span class="via">${e.via === 'console' ? 'コンソール' : 'Web ウォレット'}</span>
+        <span class="via">${e.via === 'console' ? 'コンソール' : e.via === 'dcapi' ? 'DC API（ネイティブ）' : 'Web ウォレット'}</span>
         <span class="at">${esc(fmtAt(e.at))} JST</span>
       </div>
       <div class="hbody">

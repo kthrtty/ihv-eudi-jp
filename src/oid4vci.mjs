@@ -177,6 +177,10 @@ export class IssuerService {
       issuer: base,
       authorization_endpoint: `${base}/authorize`,
       token_endpoint: `${base}/token`,
+      // RFC 9126 PAR. Multipaz の ProvisioningModel は AS メタデータに
+      // pushed_authorization_request_endpoint が string で存在することを必須とする。
+      pushed_authorization_request_endpoint: `${base}/par`,
+      require_pushed_authorization_requests: false,
       jwks_uri: `${base}/jwks`,
       response_types_supported: ['code'],
       response_modes_supported: ['query'],
@@ -185,6 +189,22 @@ export class IssuerService {
       code_challenge_methods_supported: ['S256'],
       'pre-authorized_grant_anonymous_access_supported': true,
     };
+  }
+
+  // ---- 5b. Pushed Authorization Request (RFC 9126) ----
+  // Store the pushed authorization params and hand back an opaque request_uri.
+  // Not consumed on resolve (a login round-trip re-reads it); TTL handles cleanup.
+  async par(params = {}) {
+    if (params.response_type !== 'code') throw httpErr(400, 'invalid_request', 'response_type=code required');
+    const { request_uri, ...rest } = params; // a client MUST NOT push a request_uri
+    const ref = tok();
+    await this.store.set(`par:${ref}`, { ...rest }, 300);
+    return { request_uri: `urn:ietf:params:oauth:request_uri:${ref}`, expires_in: 300 };
+  }
+
+  async resolvePar(requestUri) {
+    const ref = String(requestUri || '').split(':').pop();
+    return ref ? this.store.get(`par:${ref}`) : null;
   }
 
   // ---- 4. Credential Offer (pre-authorized_code | authorization_code | both) ----

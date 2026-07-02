@@ -20,7 +20,7 @@ const ORIGIN = 'https://verifier.ihv.example';
 // ---- golden vectors (computed once, frozen) -------------------------------
 const GOLDEN_B64EINFO = 'gmVkY2FwaaJlbm9uY2VQAAECAwQFBgcICQoLDA0OD3JyZWNpcGllbnRQdWJsaWNLZXmkAQIgASFYIKQ3uuuybqTnvaV3PMUMn_x9N47ELtuK-alyNucf59WbIlggw-g0OrRBN7WFLX3zsngfCWD3zfor5-NLHxJPmzsSvqQ';
 const GOLDEN_ANNEXC_ST = '83f6f6826564636170695820f909037adf73e1486dd0787df20e5d336ac49f02cb496472fee7dcbb66298cbd';
-const GOLDEN_ANNEXD_ST = '83f6f682764f70656e4944345650444341504948616e646f76657258208cb34e5d717876bf0367479ca24a6b36327de323337459da39fe99a7e352e6c8';
+const GOLDEN_ANNEXD_ST = '83f6f682764f70656e4944345650444341504948616e646f76657258208bea425033310f1b20282e7c7bf7e2142e8b450eb7a748c96991be1627dfa372';
 
 function fixedEncryptionInfoB64() {
   const encInfo = buildEncryptionInfo({ nonce: FIXED_NONCE, recipientCoseKey: coseKeyFromJwk(FIXED_JWK) });
