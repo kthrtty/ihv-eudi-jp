@@ -61,6 +61,9 @@ test('OID4VCI: AS metadata (RFC 8414) + openid-configuration alias', async () =>
   assert.equal(as.jwks_uri, `${ISSUER}/jwks`);
   assert.deepEqual(as.code_challenge_methods_supported, ['S256']);
   assert.ok(as.grant_types_supported.includes('urn:ietf:params:oauth:grant-type:pre-authorized_code'));
+  // RFC 9126 PAR endpoint MUST be advertised as a string (Multipaz requires it)
+  assert.equal(typeof as.pushed_authorization_request_endpoint, 'string');
+  assert.equal(as.pushed_authorization_request_endpoint, `${ISSUER}/par`);
   // openid-configuration is a superset alias (adds OIDC fields), not required by OID4VCI
   const oc = await (await app.request('/.well-known/openid-configuration')).json();
   assert.equal(oc.issuer, ISSUER);
@@ -68,6 +71,42 @@ test('OID4VCI: AS metadata (RFC 8414) + openid-configuration alias', async () =>
   // Issuer Metadata now advertises authorization_endpoint too
   const md = await (await app.request('/.well-known/openid-credential-issuer')).json();
   assert.equal(md.authorization_endpoint, `${ISSUER}/authorize`);
+});
+
+test('OID4VCI: PAR (RFC 9126) round-trips a pushed request into /authorize → code', async () => {
+  // issuer-initiated authorization_code offer supplies the issuer_state
+  const off = await (await J('/offer', { credential_configuration_ids: ['pid_mdoc'], grant: 'authorization_code' })).json();
+  const issuerState = off.credential_offer.grants.authorization_code.issuer_state;
+  // a browser session (Multipaz opens a custom tab; here we log in programmatically)
+  const login = await (await J('/login', { user_id: 'u_yamada' })).json();
+  const sessionId = login.session_id;
+  // push the authorization request
+  const parRes = await FORM('/par', {
+    response_type: 'code', client_id: 'wallet-app', redirect_uri: 'https://wallet.example/cb',
+    code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM', code_challenge_method: 'S256',
+    issuer_state: issuerState, state: 'xyz',
+  });
+  assert.equal(parRes.status, 201);
+  const par = await parRes.json();
+  assert.match(par.request_uri, /^urn:ietf:params:oauth:request_uri:/);
+  assert.ok(par.expires_in > 0);
+  // /authorize with only client_id + request_uri (params come from the pushed record)
+  const authRes = await app.request('/authorize?' + new URLSearchParams({ client_id: 'wallet-app', request_uri: par.request_uri }).toString(), {
+    headers: { 'x-session-id': sessionId },
+  });
+  assert.equal(authRes.status, 302);
+  const loc = new URL(authRes.headers.get('location'));
+  assert.equal(loc.origin + loc.pathname, 'https://wallet.example/cb');
+  assert.ok(loc.searchParams.get('code'), 'authorization code issued');
+  assert.equal(loc.searchParams.get('state'), 'xyz');
+});
+
+test('OID4VCI: /authorize rejects an unknown request_uri', async () => {
+  const login = await (await J('/login', { user_id: 'u_yamada' })).json();
+  const res = await app.request('/authorize?' + new URLSearchParams({ request_uri: 'urn:ietf:params:oauth:request_uri:nope' }).toString(), {
+    headers: { 'x-session-id': login.session_id },
+  });
+  assert.equal(res.status, 400);
 });
 
 test('OID4VCI: /jwks publishes issuer signing public keys (kid + x5c; trust stays x5c)', async () => {
@@ -88,6 +127,17 @@ test('OID4VCI: with no configured ISSUER_URL, metadata reflects the live request
   assert.equal(md.credential_issuer, 'https://run.example.net');
   assert.deepEqual(md.authorization_servers, ['https://run.example.net']);
   assert.equal(md.nonce_endpoint, 'https://run.example.net/nonce');
+});
+
+test('OID4VCI: /credential accepts the DPoP auth scheme (Multipaz/HAIP), not only Bearer', async () => {
+  const h = holder();
+  const { accessToken, c_nonce } = await authorize('pid_mdoc');
+  const proof = await makeProof(h, { nonce: c_nonce });
+  const res = await J('/credential', { credential_configuration_id: 'pid_mdoc', proofs: { jwt: [proof] } },
+    { authorization: `DPoP ${accessToken}` });
+  const data = await res.json();
+  assert.equal(res.status, 200, JSON.stringify(data));
+  assert.ok(data.credentials[0].credential, 'credential issued under DPoP scheme');
 });
 
 for (const configId of ['pid_mdoc', 'pid_sdjwt', 'qualification_mdoc', 'juminhyo_sdjwt']) {

@@ -35,7 +35,7 @@ export function createApp(opts = {}) {
   const issuerBase = (c) => configuredIssuer || new URL(c.req.url).origin;
 
   // Developer console: log the inbound OID4VCI exchanges (masked).
-  app.use('*', captureInbound(svc.store, (p) => /^\/(token|nonce|credential|offer|jwks|\.well-known|status-lists)(\/|$)/.test(p), 'issuer'));
+  app.use('*', captureInbound(svc.store, (p) => /^\/(token|par|nonce|credential|offer|jwks|\.well-known|status-lists)(\/|$)/.test(p), 'issuer'));
   app.get('/dev/log', async (c) => c.json({ entries: await getLog(svc.store, 'issuer') }));
   // Endpoint inventory for the developer console's エンドポイント tab. Metadata-returning
   // endpoints carry their current value; operational ones list method/path/desc only.
@@ -46,6 +46,7 @@ export function createApp(opts = {}) {
       { method: 'GET', path: '/.well-known/openid-credential-issuer', grp: 'メタデータ', desc: 'Issuer Metadata（OID4VCI §12）', value: svc.metadata(base) },
       { method: 'GET', path: '/.well-known/oauth-authorization-server', grp: 'メタデータ', desc: 'AS Metadata（RFC 8414）', value: svc.asMetadata(base) },
       { method: 'GET', path: '/jwks', grp: 'メタデータ', desc: '署名鍵の JWK Set（trust は x5c）', value: jwksVal },
+      { method: 'POST', path: '/par', grp: 'OAuth', desc: 'Pushed Authorization Request（RFC 9126）' },
       { method: 'POST', path: '/token', grp: 'OID4VCI', desc: 'Token EP — access_token 発行' },
       { method: 'POST', path: '/nonce', grp: 'OID4VCI', desc: 'Nonce EP — c_nonce 発行' },
       { method: 'POST', path: '/credential', grp: 'OID4VCI', desc: 'Credential EP — VC 発行' },
@@ -146,6 +147,15 @@ export function createApp(opts = {}) {
     } catch (e) { return fail(c, e); }
   });
 
+  // Pushed Authorization Request (RFC 9126). Returns 201 with a request_uri the
+  // wallet then passes to /authorize. Required by Multipaz's ProvisioningModel.
+  app.post('/par', async (c) => {
+    try {
+      const form = await c.req.parseBody();
+      return c.json(await svc.par(form), 201);
+    } catch (e) { return fail(c, e); }
+  });
+
   // ---- passwordless session ----
   const sid = (c) => c.req.header('x-session-id') || getCookie(c, 'sid');
   // GET /login — simple user picker for browser access (sets session, redirects to /)
@@ -180,10 +190,18 @@ export function createApp(opts = {}) {
 
   // ---- authorization endpoint (authorization_code + PKCE) ----
   app.get('/authorize', async (c) => {
+    // RFC 9126: if the request was pushed, hydrate the params from the request_uri.
+    let q = c.req.query();
+    if (q.request_uri) {
+      const pushed = await svc.resolvePar(q.request_uri);
+      if (!pushed) return fail(c, { status: 400, oauthError: 'invalid_request', description: 'unknown or expired request_uri' });
+      q = { ...pushed, ...(q.client_id ? { client_id: q.client_id } : {}) };
+    }
     const sessionId = sid(c);
     const user = sessionId ? await svc.sessionUser(sessionId) : null;
     if (!user) {
-      // No session — redirect to login, carrying the full authorize URL as `next`
+      // No session — redirect to login, carrying the full authorize URL as `next`.
+      // The original query (incl. request_uri) round-trips; PAR isn't consumed on resolve.
       const next = '/authorize?' + new URLSearchParams(c.req.query()).toString();
       return c.redirect('/login?' + new URLSearchParams({ next }).toString(), 302);
     }
@@ -191,12 +209,11 @@ export function createApp(opts = {}) {
     // immediate redirect with the code — no UI consent step needed.
     if (c.req.header('x-session-id')) {
       try {
-        const { redirect } = await svc.authorize({ sessionId, ...c.req.query() });
+        const { redirect } = await svc.authorize({ sessionId, ...q });
         return c.redirect(redirect, 302);
       } catch (e) { return fail(c, e); }
     }
     // Browser with cookie session — show the explicit consent screen
-    const q = c.req.query();
     const ids = await svc.requestedIds(q);
     const md = svc.metadata().credential_configurations_supported;
     const name = ids.map((id) => (md[id]?.display?.find((d) => d.locale === 'ja-JP') || md[id]?.display?.[0])?.name || id).join('、');
@@ -281,7 +298,11 @@ export function createApp(opts = {}) {
   app.post('/credential', async (c) => {
     try {
       const auth = c.req.header('authorization') || '';
-      const accessToken = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+      // OID4VCI/HAIP: Multipaz presents the access token under the DPoP scheme
+      // (RFC 9449), not Bearer. Our tokens are opaque bearer strings (not DPoP-bound),
+      // so accept the token value under either scheme. (DPoP proof binding: TODO.)
+      const m = /^(?:Bearer|DPoP) +(.+)$/.exec(auth);
+      const accessToken = m ? m[1].trim() : null;
       const body = await c.req.json();
       const res = await svc.credential({ accessToken, body });
       c.header('Cache-Control', 'no-store');
@@ -469,14 +490,21 @@ export function createVerifierApp(opts = {}) {
       }
       // native DC API (Annex C or D)
       const { transactionId, request } = await v.createRequest({ specs, protocol });
+      await putRequest(transactionId, request); // so /vp/verify can record history
       const dcProtocol = request.protocol === 'org-iso-mdoc' ? 'org-iso-mdoc' : 'openid4vp-v1-unsigned';
       return c.json({ transactionId, request, target, dcProtocol });
     } catch (e) { return c.json({ error: e.message }, 400); }
   });
 
-  // POST /vp/verify {transactionId, encryptedResponse} -> verification result
+  // POST /vp/verify {transactionId, encryptedResponse} -> verification result.
+  // Real DC API (native wallet) presentations land here — record them to history too.
   app.post('/vp/verify', async (c) => {
-    try { return c.json(await v.verifyResponse(await c.req.json())); } catch (e) { return fail(c, e); }
+    try {
+      const body = await c.req.json();
+      const result = await v.verifyResponse(body);
+      if (body.transactionId) await recordHistory(await getRequest(body.transactionId), result, 'dcapi');
+      return c.json(result);
+    } catch (e) { return fail(c, e); }
   });
 
   // ---- OID4VP over HTTPS redirects (web wallet, no DC API) ----

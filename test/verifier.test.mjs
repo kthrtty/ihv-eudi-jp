@@ -233,6 +233,51 @@ test('Verifier HTTP app: /vp/request -> wallet -> /vp/verify, and serves DC API 
   assert.equal(page.status, 200);
   assert.match(await page.text(), /navigator\.credentials\.get/);
 });
+test('Verifier: native DC API /vp/verify records to global history (newest-first) and returns claims under results[]', async () => {
+  const { createVerifierApp } = await import('../src/app.mjs');
+  const vapp = createVerifierApp();
+
+  // history starts empty
+  assert.match(await (await vapp.request('/verifier/history')).text(), /まだ提示を受け取っていません/);
+
+  const build = async (configId, claim) => (await (await vapp.request('/vp/build', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ configId, claims: [claim], protocol: 'annex-d', target: 'dcapi' }),
+  })).json());
+  const verify = async (transactionId, encryptedResponse) => (await (await vapp.request('/vp/verify', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ transactionId, encryptedResponse }),
+  })).json());
+
+  // present #1: pid_mdoc/family_name
+  const w1 = await walletWith(['pid_mdoc']);
+  const b1 = await build('pid_mdoc', 'family_name');
+  assert.equal(b1.dcProtocol, 'openid4vp-v1-unsigned', 'native Annex D advertises the unsigned DC API protocol');
+  const r1 = await verify(b1.transactionId, await w1.respond(b1.request));
+  assert.equal(r1.valid, true, r1.errors?.join(';'));
+  // the console render reads claims from results[] (not a top-level d.claims)
+  assert.ok(r1.results?.[0]?.claims && 'family_name' in r1.results[0].claims, 'disclosed claims live under results[].claims');
+
+  // present #2: qualification_mdoc/qualification_name (a later presentation)
+  const w2 = await walletWith(['qualification_mdoc']);
+  const b2 = await build('qualification_mdoc', 'qualification_name');
+  const r2 = await verify(b2.transactionId, await w2.respond(b2.request));
+  assert.equal(r2.valid, true, r2.errors?.join(';'));
+
+  // both DC API presentations are now in the global history, newest first
+  const html = await (await vapp.request('/verifier/history')).text();
+  assert.match(html, /family_name/, 'presentation #1 recorded');
+  assert.match(html, /qualification_name/, 'presentation #2 recorded');
+  assert.match(html, /DC API（ネイティブ）/, 'via label reflects the native DC API path');
+  assert.ok(html.indexOf('qualification_name') < html.indexOf('family_name'), 'newest (qualification) appears before older (pid)');
+});
+
+test('Verifier console page reads verification claims from results[] (regression: not top-level d.claims)', async () => {
+  const { createVerifierApp } = await import('../src/app.mjs');
+  const page = await (await createVerifierApp().request('/verifier')).text();
+  assert.match(page, /d\.results \|\| \[\]/, 'showResult flattens claims from results[]');
+});
+
 test('Verifier scenario C negative: linked presentation from a DIFFERENT holder fails', async () => {
   const walletA = await walletWith(['pid_mdoc']);
   const walletB = await walletWith(['qualification_mdoc']); // different wallet => different holder key

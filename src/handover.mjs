@@ -43,8 +43,13 @@ export async function annexCOpen({ suite, recipientKey, enc, info, cipherText, a
 
 // ---- Annex D : OpenID4VPDCAPIHandover -------------------------------------
 export function annexDSessionTranscript({ origin, nonce, jwkThumbprint }) {
-  // SessionTranscript = [null, null, ["OpenID4VPDCAPIHandover", SHA256(CBOR([origin,nonce,jwkThumbprint]))]]
-  const handoverDataBytes = sha256(cborEncode([origin, nonce, jwkThumbprint]));
+  // SessionTranscript = [null, null, ["OpenID4VPDCAPIHandover", SHA256(CBOR(OpenID4VPDCAPIHandoverInfo))]]
+  // OpenID4VPDCAPIHandoverInfo = [origin(tstr), nonce(tstr), jwk_thumbprint(bstr)].
+  // jwk_thumbprint MUST be the RAW SHA-256 thumbprint bytes (bstr) — not jose's
+  // base64url string. Encoding it as tstr silently mismatched Multipaz's transcript
+  // (device signature invalid) even though our own wallet<->verifier agreed. (M6)
+  const tp = typeof jwkThumbprint === 'string' ? new Uint8Array(Buffer.from(jwkThumbprint, 'base64url')) : jwkThumbprint;
+  const handoverDataBytes = sha256(cborEncode([origin, nonce, tp]));
   return cborEncode([null, null, ['OpenID4VPDCAPIHandover', handoverDataBytes]]);
 }
 
