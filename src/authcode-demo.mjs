@@ -533,11 +533,21 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
               <div class="qrcap">別の端末のウォレットは<br>QR を読み取り</div>
             </div>
             <div class="btnside">
-              <div class="grplbl">この端末で受け取る（コピー&ペースト不要）</div>
-              <a class="btn wlet" id="opendevice" href="#">📱 この端末のウォレットで開く</a>
-              <a class="btn wlet ghost3" id="openweb" href="#" target="_blank" rel="noopener">🌐 Web ウォレットに追加</a>
-              <div class="grplbl" style="margin-top:10px">その他のウォレットへ手動で渡す</div>
-              <button type="button" class="btn wlet ghost3" id="copyoffer">📋 オファーをコピー</button>
+              <a class="act primary" id="opendevice" href="#">
+                <span class="act-ic">📱</span>
+                <span class="act-tx"><b>この端末のウォレットで開く</b><small>ネイティブウォレットが起動します（コピー&ペースト不要）</small></span>
+                <span class="act-ch">›</span>
+              </a>
+              <a class="act" id="openweb" href="#" target="_blank" rel="noopener">
+                <span class="act-ic">🌐</span>
+                <span class="act-tx"><b>Web ウォレットに追加</b><small>ブラウザのウォレットで受け取ります</small></span>
+                <span class="act-ch">›</span>
+              </a>
+              <button type="button" class="act" id="copyoffer">
+                <span class="act-ic">📋</span>
+                <span class="act-tx"><b>オファーをコピー</b><small>その他のウォレットへ手動で渡す場合に</small></span>
+                <span class="act-ch">›</span>
+              </button>
             </div>
           </div>
           <!-- 技術情報は既定で畳む: JSON と生URIは開発者向け -->
@@ -604,14 +614,14 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
           } else { $('openweb').style.display = 'none'; }
           // manual hand-off: copy the offer deep link for any other wallet
           $('copyoffer').onclick = async () => {
-            const b = $('copyoffer'); const t = '📋 オファーをコピー';
+            const ttl = $('copyoffer').querySelector('b'), sub = $('copyoffer').querySelector('small');
             try {
               await navigator.clipboard.writeText(uri);
-              b.textContent = '✓ コピーしました';
+              ttl.textContent = '✓ コピーしました'; sub.textContent = 'オファーのURIをクリップボードに入れました';
             } catch (e) {
-              b.textContent = '✗ コピー不可 — JSON内のURIを手動選択してください';
+              ttl.textContent = '✗ コピーできませんでした'; sub.textContent = '下の開発者向け表示からURIを手動選択してください';
             }
-            setTimeout(() => { b.textContent = t; }, 2200);
+            setTimeout(() => { ttl.textContent = 'オファーをコピー'; sub.textContent = 'その他のウォレットへ手動で渡す場合に'; }, 2400);
           };
         } else {
           $('offeruri').textContent = d.delivery?.offer_uri || '';
@@ -630,18 +640,27 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       .optfold[open]>summary{margin-bottom:10px}
       .jsonfold{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
       .jsonfold[open]>summary{margin-bottom:8px}
-      /* hand-off: QR left, action stack right; stacks & centers under 640px */
-      .handoff{display:flex;gap:24px;align-items:center;margin-top:6px}
+      /* hand-off: QR left, action-list rows right; stacks & centers under 640px.
+         Rows (icon + left-aligned title/description + chevron) read naturally at
+         any width — unlike centered full-width buttons, they never look stretched. */
+      .handoff{display:flex;gap:26px;align-items:center;margin-top:6px}
       .qrside{flex:none;text-align:center}
       .qrside #qrbox img{display:block}
       .qrcap{font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5}
-      .btnside{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}
-      .grplbl{font-size:11px;color:var(--muted);font-weight:700;letter-spacing:.03em}
-      .btn.wlet{display:block;width:100%;text-align:center;font-size:13.5px}
-      .btn.wlet.ghost3{background:#fff;color:var(--civic);border:1px solid var(--line)}
+      .btnside{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px;max-width:480px}
+      .act{display:flex;align-items:center;gap:12px;padding:11px 14px;border:1px solid var(--line);border-radius:12px;
+        background:#fff;text-decoration:none;color:var(--ink);cursor:pointer;font:inherit;text-align:left;width:100%;transition:all .12s}
+      .act:hover{border-color:#aebbd3;background:#f7f9fc;transform:translateY(-1px)}
+      .act.primary{background:#f4f7fd;border-color:#c9d6ef}
+      .act.primary:hover{border-color:var(--civic)}
+      .act-ic{font-size:20px;flex:none}
+      .act-tx{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.45}
+      .act-tx b{font-size:13.5px}
+      .act-tx small{font-size:11px;color:var(--muted)}
+      .act-ch{color:var(--muted);font-size:20px;flex:none;line-height:1}
       @media(max-width:640px){
-        .handoff{flex-direction:column;gap:12px}
-        .btnside{width:100%}
+        .handoff{flex-direction:column;gap:14px}
+        .btnside{width:100%;max-width:none}
       }
       .pinbanner{background:#fff;border:1px solid var(--line);border-left:4px solid var(--seal);border-radius:10px;padding:14px 18px;margin-bottom:14px;text-align:center}
       .pin-k{font-size:12px;color:var(--muted);letter-spacing:.04em}
