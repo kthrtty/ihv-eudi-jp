@@ -215,8 +215,16 @@ export function renderVerifyConsole(groups = []) {
         if (d.error) { err(d.error); return; }
         showResult(d);
       }
+      // Beacon a DC API phase to the verifier so a manually-operated wallet (Android
+      // emulator etc.) is observable in the developer console / GET /dev/log, including
+      // failures that never reach the server.
+      function beacon(payload) {
+        try { fetch('/dev/client-log', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload), keepalive: true }); } catch (e) {}
+      }
       async function runDcApi() {
-        if (typeof window.DigitalCredential === 'undefined' || !DigitalCredential.userAgentAllowsProtocol?.(built.dcProtocol)) {
+        const dcSupported = typeof window.DigitalCredential !== 'undefined' && !!DigitalCredential.userAgentAllowsProtocol?.(built.dcProtocol);
+        beacon({ phase: 'dispatch', protocol: built.dcProtocol, ua: navigator.userAgent, dcSupported, request: built.request });
+        if (!dcSupported) {
           err('このブラウザ／OS は DC API（' + built.dcProtocol + '）に未対応です。Annex D + Web ウォレットをお試しください。');
           return;
         }
@@ -225,9 +233,14 @@ export function renderVerifyConsole(groups = []) {
           const credential = await navigator.credentials.get({ mediation: 'required', digital: { requests: [{ protocol: built.dcProtocol, data: built.request }] } });
           const data = credential.data ?? credential;
           const encryptedResponse = typeof data === 'string' ? data : (data.response ?? JSON.stringify(data));
+          beacon({ phase: 'wallet-response', protocol: built.dcProtocol, response: typeof data === 'string' ? { raw: data.slice(0, 400) } : data });
           const d = await (await fetch('/vp/verify', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ transactionId: built.transactionId, encryptedResponse }) })).json();
+          beacon({ phase: 'verify-result', protocol: built.dcProtocol, response: { valid: d.valid, errors: d.errors } });
           showResult(d);
-        } catch (e) { err('DC API エラー: ' + (e?.message ?? e)); }
+        } catch (e) {
+          beacon({ phase: 'error', protocol: built.dcProtocol, ua: navigator.userAgent, error: String(e?.name ? e.name + ': ' + e.message : (e?.message ?? e)) });
+          err('DC API エラー: ' + (e?.message ?? e));
+        }
         $('present').disabled = false; $('present').textContent = '提示を要求';
       }
       function showResult(d) {

@@ -10,7 +10,7 @@ import { buildDelivery, offerByValueUri, offerByReferenceUri, offerQrSvg } from 
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { shell, renderConsent, renderAuthStart, renderCallback, renderOfferAuthcode, completeIssuance, pkce, authorizeUrl, renderLogin, appShell, renderConsentScreen, renderVcSelect, groupCatalog, renderHistory, renderAccount } from './authcode-demo.mjs';
 import { renderVerifyConsole, renderWebVerify, renderWebVerifyResult, renderVerifyHistory } from './verifier-demo.mjs';
-import { captureInbound, getLog } from './devlog.mjs';
+import { captureInbound, getLog, pushLog, buildEntry } from './devlog.mjs';
 import { createWallet } from './wallet.mjs';
 import { allConfigIds, configInfo, jwks as issuerJwks } from './issuer.mjs';
 
@@ -331,6 +331,26 @@ export function createVerifierApp(opts = {}) {
   // Developer console: log the inbound OID4VP exchanges (masked).
   app.use('*', captureInbound(v.store, (p) => /^\/(oid4vp\/(request|response)|vp\/(build|verify)|demo\/verify\/(prepare|present)|client-metadata|jwks|\.well-known)/.test(p), 'verifier'));
   app.get('/dev/log', async (c) => c.json({ entries: await getLog(v.store, 'verifier') }));
+  // Client-side beacon: the verify console posts each DC API phase (dispatch/success/
+  // error) here so a manually-operated wallet (e.g. an Android emulator) is observable
+  // in /dev/log — including failures that never reach the server (wallet rejects the
+  // request). Body: { phase, protocol, ua, dcSupported, request?, response?, error? }.
+  app.post('/dev/client-log', async (c) => {
+    try {
+      const b = await c.req.json().catch(() => ({}));
+      const phase = b.phase || 'dcapi';
+      const entry = buildEntry({
+        dir: 'out', method: 'JS', ep: `DC API · ${phase}${b.protocol ? ` (${b.protocol})` : ''}`,
+        status: b.error ? 'ERR' : 'OK', grp: 'OID4VP',
+        note: [b.ua && `UA: ${b.ua}`, b.dcSupported != null && `DigitalCredential: ${b.dcSupported ? '対応' : '未対応'}`, b.error && `error: ${b.error}`].filter(Boolean).join(' / '),
+        reqHeaders: [], reqBody: b.request ?? null, reqCT: 'application/json',
+        resHeaders: [], resBody: b.response ?? (b.error ? { error: b.error } : null), resCT: 'application/json',
+      });
+      const p = pushLog(v.store, entry, 'verifier');
+      if (c.executionCtx?.waitUntil) c.executionCtx.waitUntil(p); else await p;
+      return c.json({ ok: true });
+    } catch (e) { return c.json({ ok: false, error: e.message }, 200); }
+  });
   // Hosted RP metadata (also embedded inline in requests). Enables a client_metadata_uri
   // reference and lets wallets fetch the RP response-encryption key out-of-band.
   app.get('/client-metadata', async (c) => { await v._ensurePki(); return c.json(v.clientMetadata()); });
