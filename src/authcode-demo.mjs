@@ -486,32 +486,36 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       <div class="hint" style="margin:0 0 14px">カードの形式チップ（mdoc / SD-JWT）をクリックで複数選択できます。複数種別・複数形式をまとめて1つのオファーに含められます。</div>
       <div class="vcgrid">${cards}</div>
 
-      <h2 class="h2" style="margin-top:28px">クレデンシャルオファリングのオプション</h2>
-      <div class="card">
-        <div class="optrow">
-          <div class="optlbl">グラント（発行フロー）</div>
-          <select id="grant" class="sel">
-            <option value="pre-authorized_code">Pre-Auth グラント（認可不要・即交換）</option>
-            <option value="authorization_code">Authorization Code グラント（認可あり）</option>
-            <option value="both">両方（ウォレットが選択）</option>
-          </select>
-        </div>
-        <div class="optrow">
-          <div class="optlbl">受け渡し</div>
-          <div class="radios">
-            <label><input type="radio" name="delivery" value="reference" checked> by reference（URI は取得先のみ／QR 向き）</label>
-            <label><input type="radio" name="delivery" value="value"> by value（オファー本体を URI に埋め込み）</label>
-          </div>
-        </div>
-        <div class="optrow">
-          <div class="optlbl">tx_code</div>
-          <label class="inline"><input type="checkbox" id="txcode"> PIN を要求（Pre-Auth のみ・発行時に動的生成）</label>
-        </div>
-        <div class="actions">
-          <button class="btn ghost" id="showjson">オファリング JSON を表示</button>
+      <div class="card" style="margin-top:20px">
+        <div class="actions" style="margin-top:0;align-items:center;gap:14px">
           <button class="btn" id="issue">発行（オファーを生成）</button>
+          <span id="selnote" class="hint" style="margin-top:0">選択中: <b id="selcount">0</b> 構成</span>
         </div>
-        <div id="selnote" class="hint" style="margin-top:10px">選択中: <b id="selcount">0</b> 構成</div>
+        <details class="optfold">
+          <summary>⚙ 発行オプション（開発者向け）— 既定: Pre-Auth グラント / by reference / PIN なし</summary>
+          <div class="optrow">
+            <div class="optlbl">グラント（発行フロー）</div>
+            <select id="grant" class="sel">
+              <option value="pre-authorized_code" selected>Pre-Auth グラント（認可不要・即交換）</option>
+              <option value="authorization_code">Authorization Code グラント（認可あり）</option>
+              <option value="both">両方（ウォレットが選択）</option>
+            </select>
+          </div>
+          <div class="optrow">
+            <div class="optlbl">受け渡し</div>
+            <div class="radios">
+              <label><input type="radio" name="delivery" value="reference" checked> by reference（URI は取得先のみ／QR 向き）</label>
+              <label><input type="radio" name="delivery" value="value"> by value（オファー本体を URI に埋め込み）</label>
+            </div>
+          </div>
+          <div class="optrow">
+            <div class="optlbl">tx_code</div>
+            <label class="inline"><input type="checkbox" id="txcode"> PIN を要求（Pre-Auth のみ・発行時に動的生成）</label>
+          </div>
+          <div class="actions" style="margin-top:8px">
+            <button class="btn ghost" id="showjson">オファリング JSON を表示（発行せずプレビュー）</button>
+          </div>
+        </details>
       </div>
 
       <div id="out" class="hidden">
@@ -610,6 +614,12 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       $('issue').onclick = async (e) => { e.preventDefault(); const d = await buildOffer(true); if (d) showResult(d, true); };
     </script>
     <style>
+      .optfold{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+      .optfold>summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--muted);list-style:none;user-select:none}
+      .optfold>summary::-webkit-details-marker{display:none}
+      .optfold>summary::before{content:"▸ ";font-size:10px}
+      .optfold[open]>summary::before{content:"▾ "}
+      .optfold[open]>summary{margin-bottom:10px}
       .wletrow{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
       .btn.wlet{flex:1;text-align:center;font-size:13px;min-width:0}
       .btn.wlet.ghost3{background:#fff;color:var(--civic);border:1px solid var(--line)}
