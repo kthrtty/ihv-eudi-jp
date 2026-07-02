@@ -60,7 +60,13 @@ const fmt = (v) => {
   if (v == null) return '';
   if (v instanceof Date) return v.toISOString().slice(0, 10);
   if (v instanceof Uint8Array || Buffer.isBuffer(v)) return `(${v.length} bytes)`;
-  if (typeof v === 'object') return 'value' in v ? String(v.value) : JSON.stringify(v);
+  if (Array.isArray(v)) return v.map(fmt).join('／');
+  if (typeof v === 'object') {
+    if ('value' in v) return String(v.value);
+    // 世帯員レコード（住民票 household_members）は「氏名（続柄）」で圧縮表示
+    if (v.relationship_to_head) return `${v.family_name ?? ''} ${v.given_name ?? ''}（${v.relationship_to_head}）`;
+    return JSON.stringify(v);
+  }
   return v;
 };
 
@@ -451,12 +457,18 @@ function presentConsent({ request, plan, have, held = [] }) {
     const disabled = !has || !active;          // can't disclose what you don't hold
     const tag = required ? '<span class="rtag req">必須</span>' : '<span class="rtag opt">任意</span>';
     const lock = required ? ' onclick="if(this.dataset.req)event.preventDefault()"' : '';
+    // 世帯全員記載（household_members）は選択開示の単位が「世帯まるごと」——
+    // 開示の意思決定点であるこの同意画面で、誰の情報が送られるかを明示する
+    // （eIDAS2 の設計思想上、開示内容の告知はウォレットの責務）。
+    const hhWarn = wire === 'household_members' && has
+      ? `<div class="hh-warn">⚠ 世帯全員の氏名・生年月日・続柄が送信されます: ${esc(val)}（一部の世帯員のみの開示はできません）</div>`
+      : '';
     return `<label class="crow${has ? '' : ' missing'}${required ? ' locked' : ''}">
       <input type="checkbox" name="disclose:${esc(q.dcqlId)}" value="${esc(wire)}"
         data-q="${esc(q.dcqlId)}" data-key="${esc(wire)}" data-val="${esc(val)}" ${required ? 'data-req="1"' : ''}
         ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}${lock}>
       <span class="cbx"></span>
-      <span class="cl-main"><span class="cl-k">${esc(wire)} ${tag}</span><span class="cl-v">${esc(val)}</span></span>
+      <span class="cl-main"><span class="cl-k">${esc(wire)} ${tag}</span><span class="cl-v">${esc(val)}</span>${hhWarn}</span>
     </label>`;
   };
   const credBlock = (q, cred, active) => `<div class="cblock" data-q="${esc(q.dcqlId)}" data-cred="${esc(cred.id)}" ${active ? '' : 'hidden'}>
@@ -511,13 +523,17 @@ function presentConsent({ request, plan, have, held = [] }) {
           <div class="rp-sub mono">${esc(rpHost || request.client_id)}</div>
         </div>
       </div>
-      <div class="rp-src">ラベル取得元: <code>${esc(v.src)}</code></div>
+      ${request.purpose ? `<div class="rp-purpose"><b>利用目的</b>${esc(request.purpose)}</div>` : ''}
+      <div class="rp-src">ラベル取得元: <code>${esc(v.src)}</code>${request.purpose ? ' ・ 利用目的: <code>request.purpose（デモ拡張）</code>' : ''}</div>
     </div>
     ${body}${STYLE}${PRESENT_STYLE}${have ? PRESENT_JS : ''}`, WALLET);
 }
 
 const PRESENT_STYLE = `<style>
   .rpcard h1{font-size:18px;margin:6px 0 12px}
+  .hh-warn{font-size:11.5px;color:#8a6d1a;background:#FCF7E8;border:1px solid #EFE2B8;border-radius:8px;padding:6px 9px;margin-top:5px;line-height:1.6}
+  .rp-purpose{background:#F3F8F6;border:1px solid #D2E5DF;border-radius:9px;padding:8px 12px;font-size:12.5px;margin-top:8px}
+  .rp-purpose b{display:block;font-size:11px;color:var(--muted);letter-spacing:.06em}
   .rp{display:flex;gap:11px;align-items:center;background:#f7f9fc;border:1px solid var(--line);border-radius:11px;padding:12px 14px}
   .rp-ic{width:34px;height:34px;border-radius:9px;background:#9E3A3A;flex:none}
   .rp-k{font-size:11px;color:var(--muted)}

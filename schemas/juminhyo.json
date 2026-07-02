@@ -189,6 +189,27 @@
       }
     },
     {
+      "key": "household_members",
+      "type": "array",
+      "display": {
+        "ja": "世帯員（続柄付き）",
+        "en": "Household members"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": true,
+      "sensitive": true,
+      "mdoc": {
+        "namespace": "jp.go.juminhyo.1",
+        "element": "household_members"
+      },
+      "sdjwt": {
+        "path": [
+          "household_members"
+        ]
+      }
+    },
+    {
       "key": "date_of_moving_in",
       "type": "full-date",
       "display": {

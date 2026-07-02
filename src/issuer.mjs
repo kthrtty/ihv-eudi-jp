@@ -52,6 +52,12 @@ const SAMPLE = {
     family_name: '山田', given_name: '太郎', birth_date: '1990-01-15', sex: 1,
     residence_address: '東京都千代田区1-1-1', municipality: '千代田区',
     head_of_household_name: '山田 太郎', relationship_to_head: '世帯主',
+    // 世帯全員記載（続柄付き）— guardianship デモ（子ども口座/親権者同意）が
+    // 「親自身の住民票」で子との続柄を証明するために使う
+    household_members: [
+      { family_name: '山田', given_name: '太郎', birth_date: '1990-01-15', relationship_to_head: '世帯主' },
+      { family_name: '山田', given_name: '莉子', birth_date: '2015-06-10', relationship_to_head: '子' },
+    ],
     date_of_moving_in: '2015-04-01', previous_address: '神奈川県横浜市西区2-2-2',
     domicile: '東京都千代田区', residence_card_code: '12345678901', certificate_number: 'JU-0001',
     issuing_authority: '千代田区長', issuance_date: '2026-06-01', expiry_date: '2026-09-01',
@@ -109,6 +115,14 @@ const sdjwtValue = (type, v) => {
   return v;
 };
 
+/** true iff the subject born on `birth` (YYYY-MM-DD) is at least `years` old today. */
+const ageAtLeast = (birth, years) => {
+  const b = new Date(birth);
+  if (Number.isNaN(b.getTime())) return undefined;
+  const cutoff = new Date(b.getFullYear() + years, b.getMonth(), b.getDate());
+  return Date.now() >= cutoff.getTime();
+};
+
 /** mint(configId, { holderJwk, claims?, status? }) -> { configId, format, credential, ... } */
 export async function mint(configId, { holderJwk, claims, status } = {}) {
   const cfg = catalog.credential_configurations_supported[configId];
@@ -116,6 +130,15 @@ export async function mint(configId, { holderJwk, claims, status } = {}) {
   const { credId } = splitConfig(configId);
   const schema = schemas[credId];
   const data = { ...SAMPLE[credId], ...(claims || {}) };
+  // age_over_NN claims (ISO 18013-5 allows any NN; 18 and 20 coexist like on a
+  // real mDL) are DERIVED from birth_date at issuance so persona birth-date edits
+  // can never contradict a hardcoded flag.
+  if (data.birth_date) {
+    for (const c of schema.claims) {
+      const m = /^age_over_(\d+)$/.exec(c.key);
+      if (m) data[c.key] = ageAtLeast(data.birth_date, Number(m[1]));
+    }
+  }
   const ref = schema.issuer_ref;
 
   if (cfg.format === 'mso_mdoc') {
@@ -217,5 +240,18 @@ export function configInfo(configId) {
   const { credId } = splitConfig(configId);
   const schema = schemas[credId];
   const d = cfg.display?.find((x) => x.locale === 'ja-JP') || cfg.display?.[0];
-  return { configId, name: d?.name || configId, format: cfg.format, claims: schema.claims.map((c) => c.key) };
+  return {
+    configId, name: d?.name || configId, format: cfg.format,
+    claims: schema.claims.map((c) => c.key),
+    // ja labels straight from the schema bundle (family_name -> 姓 …); used by the
+    // scenario demo / result pages so lay users never see raw claim keys. Keyed by
+    // BOTH the schema key and the mdoc wire element name (they differ for e.g.
+    // residence_address -> resident_address, and verified mdoc claims come back
+    // under the wire name).
+    claimLabels: Object.fromEntries(schema.claims.flatMap((c) => {
+      const label = c.display?.ja || c.key;
+      const el = c.mdoc?.element;
+      return el && el !== c.key ? [[c.key, label], [el, label]] : [[c.key, label]];
+    })),
+  };
 }

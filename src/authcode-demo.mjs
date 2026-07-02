@@ -176,6 +176,7 @@ export async function renderOfferAuthcode({ offer, offerUri, authorizeUrl, confi
       <h1>発行者がオファーQRを提示</h1>
       <p style="font-size:13.5px;color:var(--muted);margin-top:-6px">オファーは <b>issuer_state</b> だけを運びます（認可コードは含みません）。ウォレットが受け取り、issuer_state 付きで認可要求を始めます。</p>
       <img class="qr" alt="credential offer QR" src="data:image/svg+xml;utf8,${encodeURIComponent(qr)}">
+      <div style="text-align:center;margin-top:4px"><a href="${esc(offerDeepLink)}" style="font-size:12.5px;font-weight:700;color:var(--civic);text-decoration:none">📱 この端末のウォレットで開く（QRの代わり）</a></div>
       <div class="req mono" style="font-size:12px"><div class="k">credential_offer.grants</div>${esc(JSON.stringify(offer.grants))}</div>
       <div style="text-align:center;margin-top:10px"><a class="btn" id="open" href="${esc(authorizeUrl)}">ウォレットの動作を再現（認可へ進む）</a></div>
       <div class="hint">要求クレデンシャル: <b>${esc(dispName(configId))}</b> / 配送: by reference（<span class="mono">credential_offer_uri</span>）</div>
@@ -464,7 +465,7 @@ export function groupCatalog(configs) {
 
 /** Issuer portal top page: card tiles (multi-select type+format) + offer options
  *  + JSON-preview and issue buttons. Fully client-side against POST /offer. */
-export function renderVcSelect(user, groups) {
+export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
   const cards = groups.map((g) => {
     const chips = g.formats.map((f) =>
       `<button type="button" class="fmtchip" data-cfg="${esc(f.configId)}">${esc(f.label)}</button>`).join('');
@@ -527,6 +528,12 @@ export function renderVcSelect(user, groups) {
           <div class="card" id="qrcard">
             <div class="eyebrow">配送 / QR</div>
             <div id="qrbox" style="text-align:center"></div>
+            <div class="wletrow" id="wletrow">
+              <a class="btn wlet" id="opendevice" href="#">📱 この端末のウォレットで開く</a>
+              <a class="btn wlet ghost3" id="openweb" href="#" target="_blank" rel="noopener">🌐 Web ウォレットに追加</a>
+              <button type="button" class="btn wlet ghost3" id="copyoffer">📋 オファーをコピー</button>
+            </div>
+            <div class="hint" style="margin-top:6px">QR は別端末のウォレット用。同じ端末で受け取るときは上のリンクから（コピー&ペースト不要）。コピーは他のウォレットへ手動で渡す場合に。</div>
             <div class="k mono" style="font-size:11px;word-break:break-all;margin-top:8px" id="offeruri"></div>
           </div>
         </div>
@@ -568,6 +575,29 @@ export function renderVcSelect(user, groups) {
           const svg = mode === 'value' ? d.delivery.by_value_qr_svg : d.delivery.by_reference_qr_svg;
           $('offeruri').textContent = uri;
           $('qrbox').innerHTML = svg ? '<img alt="offer QR" style="width:200px;height:200px" src="data:image/svg+xml;utf8,' + encodeURIComponent(svg) + '">' : '';
+          // same-device hand-off — no copy & paste:
+          //  - native wallet via the custom scheme (openid-credential-offer://),
+          //    which OS-registered wallets (e.g. Multipaz) handle directly
+          //  - web wallet via its /add endpoint (accepts the same query params)
+          $('opendevice').href = uri;
+          const WALLET = ${JSON.stringify(walletOrigin)};
+          if (WALLET) {
+            $('openweb').href = WALLET + '/add?' + (mode === 'value'
+              ? 'credential_offer=' + encodeURIComponent(JSON.stringify(d.credential_offer))
+              : 'credential_offer_uri=' + encodeURIComponent(d.delivery.offer_uri));
+            $('openweb').style.display = '';
+          } else { $('openweb').style.display = 'none'; }
+          // manual hand-off: copy the offer deep link for any other wallet
+          $('copyoffer').onclick = async () => {
+            const b = $('copyoffer'); const t = '📋 オファーをコピー';
+            try {
+              await navigator.clipboard.writeText(uri);
+              b.textContent = '✓ コピーしました';
+            } catch (e) {
+              b.textContent = '✗ コピー不可 — 下のURIを手動選択してください';
+            }
+            setTimeout(() => { b.textContent = t; }, 2200);
+          };
           $('qrcard').classList.remove('hidden');
           $('out').classList.remove('jsononly');
         } else {
@@ -580,6 +610,9 @@ export function renderVcSelect(user, groups) {
       $('issue').onclick = async (e) => { e.preventDefault(); const d = await buildOffer(true); if (d) showResult(d, true); };
     </script>
     <style>
+      .wletrow{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+      .btn.wlet{flex:1;text-align:center;font-size:13px;min-width:0}
+      .btn.wlet.ghost3{background:#fff;color:var(--civic);border:1px solid var(--line)}
       .pinbanner{background:#fff;border:1px solid var(--line);border-left:4px solid var(--seal);border-radius:10px;padding:14px 18px;margin-bottom:14px;text-align:center}
       .pin-k{font-size:12px;color:var(--muted);letter-spacing:.04em}
       .pin-v{font-family:"IBM Plex Mono",monospace;font-size:34px;font-weight:700;letter-spacing:.18em;color:var(--seal);margin:6px 0}
@@ -698,15 +731,28 @@ export function renderHistory(user, issuances) {
     </style>`, user, { width: 'wide' });
 }
 
-/** Account settings page (account menu → アカウント設定): edit persona data. */
+/** Account settings page (account menu → アカウント設定): edit persona data,
+ *  including the 世帯員 (household members) that feed the 住民票's
+ *  household_members claim (guardianship scenarios read the 続柄 from it). */
 export function renderAccount(user) {
   const f = (label, name, val) => `
     <label style="display:block;margin-bottom:14px">
       <div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:6px">${esc(label)}</div>
       <input name="${name}" value="${esc(val ?? '')}" style="font:inherit;width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:8px;box-sizing:border-box">
     </label>`;
+  // one household-member row (indexed field names hh_<i>_<field>; empty-name rows
+  // are dropped server-side, which is also how 削除 works with JS disabled)
+  const memberRow = (m = {}, i = 0) => `
+    <div class="hh-row" data-i="${i}">
+      <input name="hh_${i}_family" value="${esc(m.family ?? '')}" placeholder="姓" aria-label="世帯員の姓">
+      <input name="hh_${i}_given" value="${esc(m.given ?? '')}" placeholder="名" aria-label="世帯員の名">
+      <input name="hh_${i}_birth" value="${esc(m.birth ?? '')}" placeholder="生年月日 (YYYY-MM-DD)" aria-label="世帯員の生年月日">
+      <input name="hh_${i}_rel" value="${esc(m.rel ?? '')}" placeholder="続柄（子・妻など）" list="rels" aria-label="世帯員の続柄">
+      <button type="button" class="hh-del" title="この世帯員を削除">✕</button>
+    </div>`;
+  const members = user.household || [];
   return appShell('アカウント設定', `
-    <div style="margin-top:24px;max-width:560px">
+    <div style="margin-top:24px;max-width:640px">
       <div style="display:flex;align-items:center;justify-content:space-between">
         <h1 style="font-size:22px;margin:0">アカウント設定</h1>
         <a href="/" style="color:var(--civic);text-decoration:none;font-size:14px">← 発行に戻る</a>
@@ -720,10 +766,41 @@ export function renderAccount(user) {
           ${f('生年月日', 'birth', user.birth)}
           ${f('住所', 'address', user.address)}
           ${f('本籍', 'honseki', user.honseki)}
-          <button type="submit" class="btn" style="margin-top:6px">保存する</button>
+
+          <div style="border-top:1px solid var(--line);margin:18px 0 14px"></div>
+          <div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:4px">世帯員（家族）</div>
+          <div class="hint" style="margin:0 0 10px">住民票（世帯全員・続柄記載）の <span class="mono">household_members</span> に「本人（世帯主）＋ここに登録した世帯員」が記載されます。続柄が「子」の世帯員は、子ども口座開設・親権者同意シナリオの親子関係確認に使われます。</div>
+          <datalist id="rels"><option value="子"><option value="長男"><option value="長女"><option value="妻"><option value="夫"><option value="母"><option value="父"></datalist>
+          <div id="hh-rows">${members.map((m, i) => memberRow(m, i)).join('')}</div>
+          <button type="button" class="btn ghost2" id="hh-add" style="margin:4px 0 14px">＋ 世帯員を追加</button>
+
+          <button type="submit" class="btn" style="margin-top:6px;display:block">保存する</button>
         </form>
       </div>
-    </div>`, user);
+    </div>
+    <style>
+      .hh-row{display:grid;grid-template-columns:1fr 1fr 1.4fr 1.2fr auto;gap:6px;margin-bottom:8px;border:1px solid var(--line);border-radius:10px;padding:8px}
+      .hh-row input{font:inherit;font-size:13px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;min-width:0}
+      .hh-del{font:inherit;border:1px solid var(--line);background:#fff;color:var(--muted);border-radius:8px;padding:0 10px;cursor:pointer}
+      .hh-del:hover{color:#9E3A3A;border-color:#E7D6D6}
+      .btn.ghost2{background:#fff;color:var(--civic);border:1px solid var(--line)}
+      @media(max-width:560px){.hh-row{grid-template-columns:1fr 1fr;grid-auto-rows:auto}}
+    </style>
+    <script>
+      (function () {
+        var rows = document.getElementById('hh-rows');
+        var seq = ${members.length};
+        document.getElementById('hh-add').onclick = function () {
+          var d = document.createElement('div');
+          d.innerHTML = ${JSON.stringify(memberRow({}, 0))}.replaceAll('hh_0_', 'hh_' + seq + '_');
+          rows.appendChild(d.firstElementChild);
+          seq++;
+        };
+        rows.addEventListener('click', function (e) {
+          if (e.target.classList.contains('hh-del')) e.target.closest('.hh-row').remove();
+        });
+      })();
+    </script>`, user);
 }
 
 /** Build a wallet authorization request URL (optionally carrying issuer_state). */

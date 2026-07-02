@@ -81,6 +81,53 @@ test('maintenance: editing user data changes subsequent issuance', async () => {
   assert.equal(after.given_name, '太郎');
 });
 
+test('household: persona 世帯員 land in the 住民票 household_members (self as 世帯主 + members)', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+  const claims = await issueAsUser(app, 'u_suzuki', 'juminhyo_mdoc');
+  assert.equal(claims.head_of_household_name, '鈴木 一郎', 'head is the persona, not the SAMPLE');
+  assert.equal(claims.relationship_to_head, '世帯主');
+  const hm = claims.household_members;
+  assert.equal(hm.length, 3, 'self + 2 registered members');
+  assert.deepEqual(hm[0], { family_name: '鈴木', given_name: '一郎', birth_date: '1975-12-20', relationship_to_head: '世帯主' });
+  assert.ok(hm.find((m) => m.given_name === '桃子' && m.relationship_to_head === '子'), '住民票表記の続柄「子」');
+});
+
+test('household: a member without children yields a household of one (no SAMPLE leak)', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+  const claims = await issueAsUser(app, 'u_sato', 'juminhyo_mdoc');
+  assert.equal(claims.head_of_household_name, '佐藤 花子');
+  assert.equal(claims.household_members.length, 1, 'only the persona herself');
+  assert.ok(!JSON.stringify(claims.household_members).includes('莉子'), 'no leakage of another persona’s child');
+});
+
+test('household maintenance: /account form (hh_* rows) updates the household; empty-name rows drop', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+  const login = await (await app.request('/login', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ user_id: 'u_tanaka' }),
+  })).json();
+  const sid = login.session_id;
+  // the account page renders the household section
+  const page = await (await app.request('/account', { headers: { 'x-session-id': sid, cookie: `sid=${sid}` } })).text();
+  assert.match(page, /世帯員（家族）/);
+  // add one child + one empty row (the empty row must be dropped)
+  await app.request('/account', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: `sid=${sid}` },
+    body: new URLSearchParams({
+      family: '田中', given: '美咲', desc: '学生', birth: '2002-04-10', address: '大阪府大阪市北区梅田1-1', honseki: '大阪府大阪市北区梅田1番',
+      hh_0_family: '田中', hh_0_given: '蓮', hh_0_birth: '2024-01-05', hh_0_rel: '子',
+      hh_1_family: '', hh_1_given: '', hh_1_birth: '', hh_1_rel: '',
+    }).toString(),
+  });
+  const u = await (await app.request('/users/u_tanaka')).json();
+  assert.equal(u.household.length, 1);
+  assert.deepEqual(u.household[0], { family: '田中', given: '蓮', birth: '2024-01-05', rel: '子' });
+  // …and the next 住民票 issuance carries the new member
+  const claims = await issueAsUser(app, 'u_tanaka', 'juminhyo_mdoc');
+  assert.ok(claims.household_members.find((m) => m.given_name === '蓮' && m.relationship_to_head === '子'));
+});
+
 test('session lifecycle: /session reflects login and logout', async () => {
   const app = createApp({ credentialIssuer: ISSUER });
   const login = await (await app.request('/login', {

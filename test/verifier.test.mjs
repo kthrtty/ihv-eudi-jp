@@ -27,6 +27,79 @@ async function walletWith(configIds) {
   return wallet;
 }
 
+// ---- failure paths (QA review): every one must fail SAFELY as {valid:false},
+// never a thrown 500, and with a diagnosable error string. ----
+
+test('verifyResponse: unknown transactionId fails safely (no throw)', async () => {
+  const v = new VerifierService();
+  const r = await v.verifyResponse({ transactionId: 'no-such-txn', encryptedResponse: 'x.y.z.a.b' });
+  assert.equal(r.valid, false);
+  assert.deepEqual(r.errors, ['unknown transaction']);
+});
+
+test('verifyResponse: corrupt/foreign JWE fails safely as "response decryption failed"', async () => {
+  const wallet = await walletWith(['pid_mdoc']);
+  const v = new VerifierService();
+  const { transactionId, request } = await v.createRequest({ specs: [{ id: 'pid', configId: 'pid_mdoc', claims: ['family_name'] }] });
+  const jwe = await wallet.respond(request);
+  const tampered = jwe.slice(0, -8) + 'AAAAAAAA'; // break the tag
+  const r = await v.verifyResponse({ transactionId, encryptedResponse: tampered });
+  assert.equal(r.valid, false);
+  assert.match(r.errors[0], /response decryption failed/);
+});
+
+test('verifyResponse: withholding a REQUIRED claim fails as "DCQL not satisfied"', async () => {
+  const wallet = await walletWith(['pid_mdoc']);
+  const v = new VerifierService();
+  const { transactionId, request } = await v.createRequest({
+    specs: [{ id: 'pid', configId: 'pid_mdoc', claims: ['family_name', 'given_name'] }],
+  });
+  // the holder discloses only family_name although given_name is required
+  const selection = { pid: { credentialId: wallet.list()[0].id, disclose: ['family_name'] } };
+  const r = await v.verifyResponse({ transactionId, encryptedResponse: await wallet.respond(request, selection) });
+  assert.equal(r.valid, false);
+  assert.ok(r.errors.some((e) => /DCQL not satisfied/.test(e)), r.errors.join(';'));
+});
+
+test('createRequest: Annex C rejects multi-credential specs instead of silently verifying only the first', async () => {
+  const v = new VerifierService();
+  await assert.rejects(
+    v.createRequest({
+      protocol: 'annex-c',
+      specs: [
+        { id: 'a', configId: 'pid_mdoc', claims: ['family_name'] },
+        { id: 'b', configId: 'vaccine_mdoc', claims: ['disease'] },
+      ],
+    }),
+    /single credential/,
+  );
+});
+
+test('verifyResponse: statusResolver outage fails CLOSED ("status check failed"), not open', async () => {
+  const wallet = await walletWith(['pid_mdoc']);
+  const v = new VerifierService({ statusResolver: async () => { throw new Error('status list unreachable'); } });
+  const { transactionId, request } = await v.createRequest({ specs: [{ id: 'pid', configId: 'pid_mdoc', claims: ['family_name'] }] });
+  const r = await v.verifyResponse({ transactionId, encryptedResponse: await wallet.respond(request) });
+  assert.equal(r.valid, false, 'a presentation whose revocation state cannot be checked is NOT valid');
+  assert.ok(r.errors.some((e) => /status check failed/.test(e)), r.errors.join(';'));
+});
+
+test('XSS regression: history render escapes hostile claim values; console script escapes before innerHTML', async () => {
+  const { renderVerifyHistory, renderVerifyConsole } = await import('../src/verifier-demo.mjs');
+  const hostile = '<img src=x onerror=alert(1)>';
+  const html = renderVerifyHistory([{
+    at: new Date().toISOString(), via: 'dcapi', valid: true,
+    creds: [{ format: 'mso_mdoc', type: hostile }],
+    claims: { [hostile]: hostile }, raws: [], errors: [hostile],
+  }]);
+  assert.ok(!html.includes(hostile), 'hostile markup neutralised in history');
+  assert.ok(html.includes('&lt;img'), 'escaped, not dropped');
+  const page = renderVerifyConsole([]);
+  assert.match(page, /esc\(fmt\(v\)\)/, 'claim values escaped in showResult');
+  assert.match(page, /esc\(m\)/, 'error text escaped in err()');
+  assert.match(page, /esc\(d\.errors\.join/, 'verify errors escaped');
+});
+
 test('Verifier scenario A: PID single (mdoc) over DCQL + JWE', async () => {
   const wallet = await walletWith(['pid_mdoc']);
   const v = new VerifierService();
@@ -225,11 +298,15 @@ test('Verifier HTTP app: /vp/request -> wallet -> /vp/verify, and serves DC API 
   })).json();
   assert.equal(result.valid, true, result.errors?.join(';'));
 
-  // / redirects to the unified console; the console drives DC API (native) too
+  // / redirects to the scenario demo landing; the expert builder (which drives
+  // DC API natively) moved to /verifier/builder.
   const root = await vapp.request('/');
   assert.equal(root.status, 302);
   assert.equal(root.headers.get('location'), '/verifier');
-  const page = await vapp.request('/verifier');
+  const home = await vapp.request('/verifier');
+  assert.equal(home.status, 200);
+  assert.match(await home.text(), /シナリオ/);
+  const page = await vapp.request('/verifier/builder');
   assert.equal(page.status, 200);
   assert.match(await page.text(), /navigator\.credentials\.get/);
 });
@@ -272,9 +349,47 @@ test('Verifier: native DC API /vp/verify records to global history (newest-first
   assert.ok(html.indexOf('qualification_name') < html.indexOf('family_name'), 'newest (qualification) appears before older (pid)');
 });
 
+test('Verifier: /vp/build accepts multi-credential specs[] and the full present->verify round-trip succeeds', async () => {
+  const { createVerifierApp } = await import('../src/app.mjs');
+  const vapp = createVerifierApp();
+  const wallet = await walletWith(['pid_mdoc', 'vaccine_mdoc']); // one holder, two credentials
+
+  const b = await (await vapp.request('/vp/build', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      specs: [
+        { id: 'pid', configId: 'pid_mdoc', claims: ['family_name', 'given_name', 'birth_date'] },
+        { id: 'vac', configId: 'vaccine_mdoc', claims: ['disease', 'dose_number', 'vaccination_date'] },
+      ],
+      protocol: 'annex-d', target: 'dcapi',
+    }),
+  })).json();
+  assert.ok(!b.error, b.error);
+  assert.equal(b.request.dcql_query.credentials.length, 2, 'two DCQL credential queries');
+
+  const r = await (await vapp.request('/vp/verify', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ transactionId: b.transactionId, encryptedResponse: await wallet.respond(b.request) }),
+  })).json();
+  assert.equal(r.valid, true, r.errors?.join(';'));
+  const byId = Object.fromEntries(r.results.map((x) => [x.dcqlId, x.claims]));
+  assert.ok('family_name' in byId.pid, 'PID claims disclosed');
+  assert.ok('dose_number' in byId.vac, 'vaccine claims disclosed');
+});
+
+test('Verifier: /vp/build rejects specs with an empty claims list', async () => {
+  const { createVerifierApp } = await import('../src/app.mjs');
+  const vapp = createVerifierApp();
+  const res = await vapp.request('/vp/build', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ specs: [{ id: 'pid', configId: 'pid_mdoc', claims: [] }] }),
+  });
+  assert.equal(res.status, 400);
+});
+
 test('Verifier console page reads verification claims from results[] (regression: not top-level d.claims)', async () => {
   const { createVerifierApp } = await import('../src/app.mjs');
-  const page = await (await createVerifierApp().request('/verifier')).text();
+  const page = await (await createVerifierApp().request('/verifier/builder')).text();
   assert.match(page, /d\.results \|\| \[\]/, 'showResult flattens claims from results[]');
 });
 

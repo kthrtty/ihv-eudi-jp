@@ -3,6 +3,19 @@
 // (Annex D OID4VP/JWE or Annex C org-iso-mdoc/HPKE), and which claims to request
 // (selective disclosure). Shows the actual request JSON, then the verified result.
 import { shell, typeIcon, renderClaimsModal } from './authcode-demo.mjs';
+import { allConfigIds, configInfo } from './issuer.mjs';
+
+// union ja-label map across every config (family_name -> 姓 …). Keys that repeat
+// across schemas carry the same meaning/label, so a flat union is safe and saves
+// a doctype->configId reverse lookup on history entries (which lack configId).
+let LABELS = null;
+const claimLabel = (k) => {
+  if (!LABELS) {
+    LABELS = {};
+    for (const id of allConfigIds()) Object.assign(LABELS, configInfo(id).claimLabels || {});
+  }
+  return LABELS[k] || k;
+};
 
 const CHECKS = [
   '発行者署名（issuerAuth / COSE_Sign1）',
@@ -75,9 +88,11 @@ export function renderVerifyConsole(groups = []) {
   }).join('');
   return shell('検証者コンソール', `
     <div class="card">
-      <div class="step" style="display:flex;align-items:center;justify-content:space-between">検証要求ビルダー · OpenID4VP / DCQL
+      <div class="step" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <span><a href="/verifier" style="color:inherit;text-decoration:none">← シナリオデモ</a> ｜ 検証要求ビルダー · OpenID4VP / DCQL</span>
         <a href="/verifier/history" style="font-weight:700;color:var(--verify);text-decoration:none">提示履歴 →</a></div>
       <h1>提示を要求するクレデンシャルと項目を選ぶ</h1>
+      <div class="muted" style="font-size:12px;margin-bottom:4px">開発者向け: プロトコル・提示先・要求項目を自由に組んで実ウォレットへ提示要求できます。一般向けは <a href="/verifier">シナリオデモ</a> へ。</div>
 
       <label class="lbl">クレデンシャル（発行者が提示可能なものから選択 — カードの形式をクリック）</label>
       <div class="vcsel">${cfgCards}</div>
@@ -92,7 +107,9 @@ export function renderVerifyConsole(groups = []) {
       <div class="radios" id="targets">
         <label id="t-web"><input type="radio" name="target" value="web" checked> Web ウォレット（OID4VP リダイレクト）— Annex D のみ</label>
         <label id="t-dcapi"><input type="radio" name="target" value="dcapi"> ネイティブウォレット（DC API）</label>
-        <label id="t-self"><input type="radio" name="target" value="selftest"> 自己テスト（発行者からテストVCを取得して即検証）</label>
+      </div>
+      <div class="radios" style="margin-top:6px">
+        <label id="t-self" class="dbg"><input type="radio" name="target" value="selftest"> ⚙ デバッグ: 自己テスト（発行者からテストVCを取得して即検証）</label>
       </div>
 
       <label class="lbl">開示を要求する項目（選択的開示）<span id="csel" class="muted"></span></label>
@@ -104,10 +121,10 @@ export function renderVerifyConsole(groups = []) {
         <button class="btn" id="present">提示を要求</button>
       </div>
 
-      <div id="reqbox" class="hidden">
-        <div class="eyebrow">提示要求（Verifier → Wallet に渡す JSON）</div>
+      <details id="reqbox" class="hidden reqfold">
+        <summary class="eyebrow" style="cursor:pointer">提示要求（Verifier → Wallet に渡す JSON）を表示</summary>
         <pre id="reqjson" class="json"></pre>
-      </div>
+      </details>
       <div id="result"></div>
     </div>
     <script>
@@ -118,7 +135,10 @@ export function renderVerifyConsole(groups = []) {
       const claimsEl = $('claims');
       const cur = () => catalog.find((c) => c.configId === selCfg);
       const isMdoc = (c) => c.format === 'mso_mdoc';
-      const DEFAULT = ['family_name', 'given_name', 'age_over_18'];
+      // sensible defaults: names required; age_over_18 OPTIONAL so the tri-state
+      // (holder may withhold) is demonstrated out of the box
+      const DEFAULT_REQ = ['family_name', 'given_name'];
+      const DEFAULT_OPT = ['age_over_18'];
       const proto = () => document.querySelector('input[name=proto]:checked').value;
       const target = () => document.querySelector('input[name=target]:checked').value;
 
@@ -133,12 +153,12 @@ export function renderVerifyConsole(groups = []) {
       function renderClaims() {
         const c = cur();
         claimsEl.innerHTML = c.claims.map((k) => {
-          const v = DEFAULT.includes(k) ? 'req' : 'off';
+          const v = DEFAULT_REQ.includes(k) ? 'req' : DEFAULT_OPT.includes(k) ? 'opt' : 'off';
           return '<div class="ckrow"><span class="ckname">'+k+'</span>'+
             '<div class="seg3" data-claim="'+k+'">'+
               '<button type="button" data-v="off"'+(v==='off'?' class="on"':'')+'>除外</button>'+
               '<button type="button" data-v="req"'+(v==='req'?' class="on"':'')+'>必須</button>'+
-              '<button type="button" data-v="opt">任意</button>'+
+              '<button type="button" data-v="opt"'+(v==='opt'?' class="on"':'')+'>任意</button>'+
             '</div></div>';
         }).join('');
         $('protoc').disabled = !isMdoc(c);
@@ -155,7 +175,10 @@ export function renderVerifyConsole(groups = []) {
       }
       function updateCount() { const s = states(); $('csel').textContent = '（必須 ' + s.req.length + ' ・ 任意 ' + s.opt.length + '）'; }
       function reset() { $('reqbox').classList.add('hidden'); $('result').innerHTML = ''; built = null; }
-      function err(m) { $('result').innerHTML = '<div class="hint" style="color:#9E3A3A">'+m+'</div>'; }
+      // Escape BEFORE any innerHTML: claim values come from an external wallet
+      // (untrusted input on the native DC API path) and errors may echo them.
+      const esc = (s) => String(s).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+      function err(m) { $('result').innerHTML = '<div class="hint" style="color:#9E3A3A">'+esc(m)+'</div>'; }
 
       claimsEl.addEventListener('click', (e) => {
         const b = e.target.closest('.seg3 button'); if (!b) return;
@@ -197,8 +220,8 @@ export function renderVerifyConsole(groups = []) {
         $('present').textContent = tgt === 'web' ? 'Web ウォレットに要求 →' : '提示を要求';
         return built;
       }
-      // 要求を生成（JSON）: just build + preview.
-      $('build').onclick = () => doBuild();
+      // 要求を生成（JSON）: build + open the (default-folded) JSON preview.
+      $('build').onclick = async () => { if (await doBuild()) $('reqbox').open = true; };
 
       // ---- 提示を要求: auto-build if needed, then dispatch per target ----
       $('present').onclick = async () => {
@@ -253,16 +276,17 @@ export function renderVerifyConsole(groups = []) {
           ? (holderRaw.x != null ? holderRaw.x + (holderRaw.y != null ? '.' + holderRaw.y : '') : JSON.stringify(holderRaw))
           : holderRaw;
         const fmt = (v) => (v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v));
-        const rows = Object.entries(claims).map(([k, v]) => '<tr><td>'+k+'</td><td>'+fmt(v)+'</td></tr>').join('');
+        const rows = Object.entries(claims).map(([k, v]) => '<tr><td>'+esc(k)+'</td><td>'+esc(fmt(v))+'</td></tr>').join('');
         const checks = CHECKS.map((l) => '<div class="ck2"><span class="'+(d.valid?'cok':'cng')+'">'+(d.valid?'✓':'—')+'</span> '+l+'</div>').join('');
         $('result').innerHTML =
           '<div class="eyebrow" style="margin-top:6px">検証結果（VC 受領後）</div>'+
           (d.valid ? '<div class="ok">✓ 提示を受領・検証しました</div>' : '<div style="color:#9E3A3A;font-weight:700">✗ 検証に失敗しました</div>')+
           '<div class="checks">'+checks+'</div>'+
+          (d.sameHolderAcrossCreds != null ? '<div class="ck2"><span class="'+(d.sameHolderAcrossCreds?'cok':'cng')+'">'+(d.sameHolderAcrossCreds?'✓':'✗')+'</span> 複数クレデンシャルが同一ウォレット鍵にバインド</div>' : '')+
           '<div class="muted" style="font-size:12px;margin:12px 0 4px">開示されたクレーム（要求した項目のみ）</div>'+
           '<table class="cl">'+rows+'</table>'+
-          (holder ? '<div class="hint mono" style="font-size:11px">holder: '+String(holder).slice(0,40)+'…</div>' : '')+
-          (d.errors && d.errors.length ? '<div class="hint" style="color:#9E3A3A">'+d.errors.join('; ')+'</div>' : '');
+          (holder ? '<div class="hint mono" style="font-size:11px">holder: '+esc(String(holder).slice(0,40))+'…</div>' : '')+
+          (d.errors && d.errors.length ? '<div class="hint" style="color:#9E3A3A">'+esc(d.errors.join('; '))+'</div>' : '');
       }
 
       (async () => {
@@ -299,6 +323,11 @@ export function renderVerifyConsole(groups = []) {
       .seg3 button[data-v="opt"].on{background:#E8F2EF;color:#246154;box-shadow:inset 0 0 0 1px #D2E5DF}
       .seg3 button[data-v="off"].on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(14,26,43,.12)}
       .actions{display:flex;gap:8px;margin-top:16px}
+      .dbg{color:var(--muted);font-size:12.5px}
+      .reqfold>summary::-webkit-details-marker{display:none}
+      .reqfold>summary{list-style:none}
+      .reqfold>summary::before{content:"▸ ";font-size:10px}
+      .reqfold[open]>summary::before{content:"▾ "}
       .btn.ghost{background:#fff;color:var(--civic);border:1px solid var(--line)}
       .btn.ghost:hover{background:#f7f9fc}
       .json{background:#0E1A2B;color:#D7E0EE;border-radius:10px;padding:14px;font-size:11.5px;line-height:1.5;overflow:auto;max-height:340px;font-family:"IBM Plex Mono",monospace;white-space:pre}
@@ -367,7 +396,7 @@ export function renderVerifyHistory(entries = []) {
   const fmtAt = (iso) => { try { return new Date(iso).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', hour12: false }); } catch { return iso; } };
   const credLine = (creds = []) => creds.map((cr) =>
     `<span class="pill">${esc(cr.type || '?')} · ${cr.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT'}</span>`).join(' ') || '<span class="muted">—</span>';
-  const row = (claims, k) => `<tr><td>${esc(k)}</td><td>${esc(claims[k])}</td></tr>`;
+  const row = (claims, k) => `<tr><td>${esc(claimLabel(k))} <span class="rawk">${esc(k)}</span></td><td>${esc(claims[k])}</td></tr>`;
   // Show the first 4 claims; fold the rest into a JS-less <details> accordion so a
   // many-claim presentation doesn't make the card excessively tall.
   const claimRows = (claims = {}) => {
@@ -382,20 +411,29 @@ export function renderVerifyHistory(entries = []) {
         <table class="cl">${rest.map((k) => row(claims, k)).join('')}</table>
       </details>`;
   };
+  const viaLabel = (via) => (via === 'console' ? 'コンソール' : via === 'dcapi' ? 'DC API（ネイティブ）' : 'Web ウォレット');
+  // Prefer per-credential attribution when 2+ credentials were presented — the flat
+  // merge drops colliding keys (family_name on both the PID and the 住民票).
+  const claimsBlock = (e) => {
+    const by = (e.claimsByCred || []).filter((b) => Object.keys(b.claims || {}).length);
+    if (by.length >= 2) {
+      return by.map((b) => `<div class="hk" style="margin-top:6px">開示されたクレーム — <span class="mono">${esc(b.dcqlId)}</span></div>${claimRows(b.claims)}`).join('');
+    }
+    return Object.keys(e.claims || {}).length
+      ? `<div class="hk">開示されたクレーム</div>${claimRows(e.claims)}`
+      : '<div class="muted" style="font-size:12px">開示クレームなし</div>';
+  };
   const card = (e) => `
     <div class="hcard">
       <div class="hh">
         <span class="badge ${e.valid ? 'bok' : 'bng'}">${e.valid ? '✓ 検証成功' : '✗ 検証失敗'}</span>
-        <span class="via">${e.via === 'console' ? 'コンソール' : e.via === 'dcapi' ? 'DC API（ネイティブ）' : 'Web ウォレット'}</span>
+        <span class="via">${esc(viaLabel(e.via))}</span>
         <span class="at">${esc(fmtAt(e.at))} JST</span>
       </div>
       <div class="hbody">
         <div class="hk">提示されたクレデンシャル</div>
         <div class="hcreds">${credLine(e.creds)}</div>
-        ${vpSeg(
-          (Object.keys(e.claims || {}).length ? `<div class="hk">開示されたクレーム</div>${claimRows(e.claims)}` : '<div class="muted" style="font-size:12px">開示クレームなし</div>'),
-          rawPanels(e.raws || []),
-        )}
+        ${vpSeg(claimsBlock(e), rawPanels(e.raws || []))}
         ${e.errors?.length ? `<div class="hint" style="color:#9E3A3A;margin-top:8px">${esc(e.errors.join('; '))}</div>` : ''}
       </div>
     </div>`;
@@ -404,7 +442,8 @@ export function renderVerifyHistory(entries = []) {
     : '<div class="muted" style="padding:8px 2px">まだ提示を受け取っていません。</div>';
   return shell('提示履歴', `
     <div class="card">
-      <div class="step">提示履歴 — グローバル（全提示の共有ログ）</div>
+      <div class="step" style="display:flex;align-items:center;justify-content:space-between;gap:10px">提示履歴 — グローバル（全提示の共有ログ）
+        <a href="/verifier" style="font-weight:700;color:var(--verify);text-decoration:none">← 検証ポータルトップへ</a></div>
       <h1 style="font-size:18px;margin:6px 0 4px">この検証者が受け取った提示</h1>
       <div class="muted" style="font-size:12px;margin-bottom:12px">ホルダー単位のセッションは保持しません。直近 ${entries.length} 件（最大 50 件）。</div>
       ${body}
@@ -421,6 +460,7 @@ export function renderVerifyHistory(entries = []) {
     .pill{display:inline-block;font-size:12px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:2px 9px}
     table.cl{width:100%;border-collapse:collapse;font-size:13px;margin-top:4px}
     table.cl td{padding:6px 8px;border-bottom:1px solid var(--line)}table.cl td:first-child{color:var(--muted);width:42%;word-break:break-all}
+    .rawk{display:block;font-family:"IBM Plex Mono",monospace;font-size:10px;opacity:.6}
     .more>summary{list-style:none;cursor:pointer;font-size:12px;font-weight:700;color:var(--verify);padding:7px 2px 2px;user-select:none}
     .more>summary::-webkit-details-marker{display:none}
     .more>summary::before{content:"▸ ";font-size:10px}
