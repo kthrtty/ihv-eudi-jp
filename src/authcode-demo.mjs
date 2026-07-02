@@ -526,13 +526,20 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
         </div>
         <div class="card" id="qrcard">
           <div class="eyebrow">ウォレットへの受け渡し</div>
-          <div id="qrbox" style="text-align:center"></div>
-          <div class="wletrow" id="wletrow">
-            <a class="btn wlet" id="opendevice" href="#">📱 この端末のウォレットで開く</a>
-            <a class="btn wlet ghost3" id="openweb" href="#" target="_blank" rel="noopener">🌐 Web ウォレットに追加</a>
-            <button type="button" class="btn wlet ghost3" id="copyoffer">📋 オファーをコピー</button>
+          <!-- wide: QR left / actions right. narrow: stacked & centered -->
+          <div class="handoff" id="wletrow">
+            <div class="qrside">
+              <div id="qrbox"></div>
+              <div class="qrcap">別の端末のウォレットは<br>QR を読み取り</div>
+            </div>
+            <div class="btnside">
+              <div class="grplbl">この端末で受け取る（コピー&ペースト不要）</div>
+              <a class="btn wlet" id="opendevice" href="#">📱 この端末のウォレットで開く</a>
+              <a class="btn wlet ghost3" id="openweb" href="#" target="_blank" rel="noopener">🌐 Web ウォレットに追加</a>
+              <div class="grplbl" style="margin-top:10px">その他のウォレットへ手動で渡す</div>
+              <button type="button" class="btn wlet ghost3" id="copyoffer">📋 オファーをコピー</button>
+            </div>
           </div>
-          <div class="hint" style="margin-top:6px">QR は別端末のウォレット用。同じ端末で受け取るときは上のリンクから（コピー&ペースト不要）。</div>
           <!-- 技術情報は既定で畳む: JSON と生URIは開発者向け -->
           <details class="jsonfold" id="jsonfold">
             <summary>Credential Offer（JSON）と URI を表示（開発者向け）</summary>
@@ -623,9 +630,19 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       .optfold[open]>summary{margin-bottom:10px}
       .jsonfold{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
       .jsonfold[open]>summary{margin-bottom:8px}
-      .wletrow{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
-      .btn.wlet{flex:1;text-align:center;font-size:13px;min-width:0}
+      /* hand-off: QR left, action stack right; stacks & centers under 640px */
+      .handoff{display:flex;gap:24px;align-items:center;margin-top:6px}
+      .qrside{flex:none;text-align:center}
+      .qrside #qrbox img{display:block}
+      .qrcap{font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5}
+      .btnside{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}
+      .grplbl{font-size:11px;color:var(--muted);font-weight:700;letter-spacing:.03em}
+      .btn.wlet{display:block;width:100%;text-align:center;font-size:13.5px}
       .btn.wlet.ghost3{background:#fff;color:var(--civic);border:1px solid var(--line)}
+      @media(max-width:640px){
+        .handoff{flex-direction:column;gap:12px}
+        .btnside{width:100%}
+      }
       .pinbanner{background:#fff;border:1px solid var(--line);border-left:4px solid var(--seal);border-radius:10px;padding:14px 18px;margin-bottom:14px;text-align:center}
       .pin-k{font-size:12px;color:var(--muted);letter-spacing:.04em}
       .pin-v{font-family:"IBM Plex Mono",monospace;font-size:34px;font-weight:700;letter-spacing:.18em;color:var(--seal);margin:6px 0}
