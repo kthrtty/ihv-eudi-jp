@@ -524,22 +524,21 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
           <div class="pin-v" id="pinval">––––</div>
           <div class="pin-note">この PIN はオファー生成のたびに動的生成されます。発行者が利用者へ別経路で伝える想定です。</div>
         </div>
-        <div class="grid2">
-          <div class="card">
-            <div class="eyebrow">Credential Offer（JSON）</div>
+        <div class="card" id="qrcard">
+          <div class="eyebrow">ウォレットへの受け渡し</div>
+          <div id="qrbox" style="text-align:center"></div>
+          <div class="wletrow" id="wletrow">
+            <a class="btn wlet" id="opendevice" href="#">📱 この端末のウォレットで開く</a>
+            <a class="btn wlet ghost3" id="openweb" href="#" target="_blank" rel="noopener">🌐 Web ウォレットに追加</a>
+            <button type="button" class="btn wlet ghost3" id="copyoffer">📋 オファーをコピー</button>
+          </div>
+          <div class="hint" style="margin-top:6px">QR は別端末のウォレット用。同じ端末で受け取るときは上のリンクから（コピー&ペースト不要）。</div>
+          <!-- 技術情報は既定で畳む: JSON と生URIは開発者向け -->
+          <details class="jsonfold" id="jsonfold">
+            <summary>Credential Offer（JSON）と URI を表示（開発者向け）</summary>
             <pre id="offerjson" class="json"></pre>
-          </div>
-          <div class="card" id="qrcard">
-            <div class="eyebrow">配送 / QR</div>
-            <div id="qrbox" style="text-align:center"></div>
-            <div class="wletrow" id="wletrow">
-              <a class="btn wlet" id="opendevice" href="#">📱 この端末のウォレットで開く</a>
-              <a class="btn wlet ghost3" id="openweb" href="#" target="_blank" rel="noopener">🌐 Web ウォレットに追加</a>
-              <button type="button" class="btn wlet ghost3" id="copyoffer">📋 オファーをコピー</button>
-            </div>
-            <div class="hint" style="margin-top:6px">QR は別端末のウォレット用。同じ端末で受け取るときは上のリンクから（コピー&ペースト不要）。コピーは他のウォレットへ手動で渡す場合に。</div>
             <div class="k mono" style="font-size:11px;word-break:break-all;margin-top:8px" id="offeruri"></div>
-          </div>
+          </details>
         </div>
       </div>
     </div>
@@ -568,11 +567,16 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
         return d;
       }
       function showResult(d, withQr) {
-        // JSON step: build the Credential Offer (the URI is already created) and
-        // show ONLY the JSON. Issue step: also reveal the QR + URI together.
+        // Issue step (withQr=true): the hand-off card is the ONLY thing revealed —
+        // QR + wallet links. JSON/URI stay folded (dev-only, inside #jsonfold).
+        // Dev preview (withQr=false, from the options fold): open the JSON fold,
+        // hide the hand-off UI (no QR was generated).
         $('offerjson').textContent = JSON.stringify(d.credential_offer, null, 2);
         if (d.tx_code) { $('pinval').textContent = d.tx_code; $('pinbanner').classList.remove('hidden'); }
         else { $('pinbanner').classList.add('hidden'); }
+        $('qrbox').style.display = withQr ? '' : 'none';
+        $('wletrow').style.display = withQr ? '' : 'none';
+        $('jsonfold').open = !withQr;
         if (withQr) {
           const mode = document.querySelector('input[name=delivery]:checked').value;
           const uri = mode === 'value' ? d.delivery.by_value_uri : d.delivery.by_reference_uri;
@@ -598,15 +602,12 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
               await navigator.clipboard.writeText(uri);
               b.textContent = '✓ コピーしました';
             } catch (e) {
-              b.textContent = '✗ コピー不可 — 下のURIを手動選択してください';
+              b.textContent = '✗ コピー不可 — JSON内のURIを手動選択してください';
             }
             setTimeout(() => { b.textContent = t; }, 2200);
           };
-          $('qrcard').classList.remove('hidden');
-          $('out').classList.remove('jsononly');
         } else {
-          $('qrcard').classList.add('hidden');   // JSON only
-          $('out').classList.add('jsononly');
+          $('offeruri').textContent = d.delivery?.offer_uri || '';
         }
         $('out').classList.remove('hidden');
       }
@@ -615,11 +616,13 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
     </script>
     <style>
       .optfold{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
-      .optfold>summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--muted);list-style:none;user-select:none}
-      .optfold>summary::-webkit-details-marker{display:none}
-      .optfold>summary::before{content:"▸ ";font-size:10px}
-      .optfold[open]>summary::before{content:"▾ "}
+      .optfold>summary,.jsonfold>summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--muted);list-style:none;user-select:none}
+      .optfold>summary::-webkit-details-marker,.jsonfold>summary::-webkit-details-marker{display:none}
+      .optfold>summary::before,.jsonfold>summary::before{content:"▸ ";font-size:10px}
+      .optfold[open]>summary::before,.jsonfold[open]>summary::before{content:"▾ "}
       .optfold[open]>summary{margin-bottom:10px}
+      .jsonfold{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+      .jsonfold[open]>summary{margin-bottom:8px}
       .wletrow{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
       .btn.wlet{flex:1;text-align:center;font-size:13px;min-width:0}
       .btn.wlet.ghost3{background:#fff;color:var(--civic);border:1px solid var(--line)}
