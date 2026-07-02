@@ -10,6 +10,8 @@ import { buildDelivery, offerByValueUri, offerByReferenceUri, offerQrSvg } from 
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { shell, renderConsent, renderAuthStart, renderCallback, renderOfferAuthcode, completeIssuance, pkce, authorizeUrl, renderLogin, appShell, renderConsentScreen, renderVcSelect, groupCatalog, renderHistory, renderAccount } from './authcode-demo.mjs';
 import { renderVerifyConsole, renderWebVerify, renderWebVerifyResult, renderVerifyHistory } from './verifier-demo.mjs';
+import { scenarioList, getScenario, evaluateScenario, scenarioConfigIds } from './scenarios.mjs';
+import { renderScenarioHome, renderScenarioRun, renderScenarioStep1Done, renderScenarioAccept, renderScenarioGone } from './scenario-demo.mjs';
 import { captureInbound, getLog, pushLog, buildEntry } from './devlog.mjs';
 import { createWallet } from './wallet.mjs';
 import { allConfigIds, configInfo, jwks as issuerJwks } from './issuer.mjs';
@@ -23,7 +25,7 @@ async function loadHtml(rel) {
 }
 
 export function createApp(opts = {}) {
-  const { issuerHtml = null, verifierPki = null, statusPki = null, ...svcOpts } = opts;
+  const { issuerHtml = null, verifierPki = null, statusPki = null, walletOrigin: issuerWalletOrigin = '', ...svcOpts } = opts;
   const svc = new IssuerService({ ...svcOpts, statusPki });
   const app = new Hono();
 
@@ -79,7 +81,7 @@ export function createApp(opts = {}) {
   app.get('/', async (c) => {
     const user = await svc.sessionUser(sid(c));
     if (!user) return c.redirect('/login?next=/', 302);
-    return c.html(renderVcSelect(user, groupCatalog(allConfigIds().map(configInfo))));
+    return c.html(renderVcSelect(user, groupCatalog(allConfigIds().map(configInfo)), { walletOrigin: issuerWalletOrigin }));
   });
 
   // Static issuer demo page (legacy / direct URL fallback)
@@ -105,8 +107,19 @@ export function createApp(opts = {}) {
     const user = await svc.sessionUser(sid(c));
     if (!user) return c.redirect('/login?next=/account', 302);
     const f = await c.req.parseBody();
+    // household rows arrive as indexed fields hh_<i>_<field>; rows whose name is
+    // empty are dropped by the store (that's also how deletion degrades sans JS)
+    const byIdx = new Map();
+    for (const [k, val] of Object.entries(f)) {
+      const m = /^hh_(\d+)_(family|given|birth|rel)$/.exec(k);
+      if (!m) continue;
+      if (!byIdx.has(m[1])) byIdx.set(m[1], {});
+      byIdx.get(m[1])[m[2]] = val;
+    }
+    const household = [...byIdx.entries()].sort(([a], [b]) => a - b).map(([, v]) => v);
     svc.updateUser(user.id, {
       family: f.family, given: f.given, desc: f.desc, birth: f.birth, address: f.address, honseki: f.honseki,
+      household,
     });
     return c.redirect('/account', 302);
   });
@@ -114,9 +127,9 @@ export function createApp(opts = {}) {
   // demo helper to mint an offer (issuer-initiated), with all delivery forms
   app.post('/offer', async (c) => {
     try {
-      const { credential_configuration_ids, tx_code, qr, grant } = await c.req.json();
+      const { credential_configuration_ids, tx_code, qr, grant, claims } = await c.req.json();
       const { credential_offer, preAuthorizedCode, issuerState, offerId, offerUri, txCode } =
-        await svc.createOffer(credential_configuration_ids, { txCode: tx_code, grant });
+        await svc.createOffer(credential_configuration_ids, { txCode: tx_code, grant, claims });
       const delivery = await buildDelivery({ offer: credential_offer, offerUri, withQr: qr === true });
       return c.json({ credential_offer, pre_authorized_code: preAuthorizedCode, issuer_state: issuerState, offer_id: offerId, delivery, tx_code: txCode });
     } catch (e) { return fail(c, e); }
@@ -400,6 +413,12 @@ export function createVerifierApp(opts = {}) {
       const entry = {
         at: new Date().toISOString(), via, valid: !!result?.valid,
         creds, claims: Object.fromEntries(Object.entries(claims).map(([k, x]) => [k, fmtClaim(x)])),
+        // per-credential claims: the flat merge above silently drops colliding keys
+        // (e.g. family_name on BOTH the PID and the 住民票), so keep attribution too
+        claimsByCred: (result?.results || []).map((r) => ({
+          dcqlId: r.dcqlId,
+          claims: Object.fromEntries(Object.entries(r.claims || {}).map(([k, x]) => [k, fmtClaim(x)])),
+        })),
         // raw vp_token (signatures incl.) per presented credential — for the JSON view
         raws: (result?.results || []).map((r) => r.raw).filter(Boolean),
         errors: result?.errors || [],
@@ -426,11 +445,92 @@ export function createVerifierApp(opts = {}) {
     if (val == null) return '';
     if (val instanceof Date) return val.toISOString().slice(0, 10);
     if (val instanceof Uint8Array || Buffer.isBuffer(val)) return `(${val.length} bytes)`;
-    if (typeof val === 'object') return 'value' in val ? String(val.value) : JSON.stringify(val);
+    if (Array.isArray(val)) return val.map(fmtClaim).join('／');
+    if (typeof val === 'object') {
+      if ('value' in val) return String(val.value);
+      // 世帯員レコード（住民票 household_members）: 氏名（続柄）
+      if (val.relationship_to_head) return `${val.family_name ?? ''} ${val.given_name ?? ''}（${val.relationship_to_head}）`;
+      return JSON.stringify(val);
+    }
     return val;
   };
-  app.get('/verifier', (c) => c.html(renderVerifyConsole(groupCatalog(allConfigIds().map(configInfo)))));
+  // ---- lay-audience scenario demo (/verifier) vs expert builder (/verifier/builder) ----
+  app.get('/verifier', (c) => c.html(renderScenarioHome(scenarioList())));
+  app.get('/verifier/builder', (c) => c.html(renderVerifyConsole(groupCatalog(allConfigIds().map(configInfo)))));
   app.get('/verifier/history', async (c) => c.html(renderVerifyHistory(await getHistory())));
+  // scenario correlation record per transaction: {id, step, txn1?, wallet?}.
+  // Drives the step dispatch on the result pages; never stored inside the
+  // OID4VP request itself. `wallet` (a serialized ephemeral wallet) is only
+  // present for self-test runs so step 2 can reuse the SAME holder key.
+  const putScn = (txn, rec) => v.store.set(`vpscn:${txn}`, rec, 600);
+  const getScn = (txn) => v.store.get(`vpscn:${txn}`);
+  app.get('/vp/scenarios', (c) => c.json(scenarioList())); // presets as data (UI+tests share one source)
+  app.get('/verifier/s/:id', (c) => {
+    const s = getScenario(c.req.param('id'));
+    return s ? c.html(renderScenarioRun(s)) : c.notFound();
+  });
+  // Self-test STEP 1: mint the scenario's credentials into an ephemeral wallet,
+  // present the PID, verify, and land on the step-1-done page. The wallet
+  // snapshot rides the scn record so step 2 presents from the same holder key.
+  app.post('/verifier/s/:id/selftest', async (c) => {
+    const s = getScenario(c.req.param('id'));
+    if (!s) return c.notFound();
+    try {
+      const wallet = createWallet();
+      const offerRes = await issuerFetch('/offer', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ credential_configuration_ids: scenarioConfigIds(s) }),
+      });
+      const { credential_offer } = await offerRes.json();
+      await wallet.receive({ request: issuerFetch, offer: credential_offer, credentialIssuer: issuerUrl });
+      const { transactionId, request } = await v.createRequest({ specs: s.steps[0].specs });
+      const result = await v.verifyResponse({ transactionId, encryptedResponse: await wallet.respond(request) });
+      await putResult(transactionId, result);
+      await putScn(transactionId, { id: s.id, step: 1, wallet: wallet.serialize() });
+      await recordHistory(request, result, 'console');
+      return c.redirect(`/verifier/s/${s.id}/result/${transactionId}`, 303);
+    } catch (e) {
+      return c.html(renderScenarioGone(s));
+    }
+  });
+  // Self-test STEP 2: reuse the step-1 wallet, present the EAA linked to step 1
+  // (linkTo -> the verifier checks linkedSameHolder), then show the acceptance.
+  app.post('/verifier/s/:id/step2/:txn1', async (c) => {
+    const s = getScenario(c.req.param('id'));
+    if (!s) return c.notFound();
+    const scn = await getScn(c.req.param('txn1'));
+    if (!scn || scn.id !== s.id || !scn.wallet) return c.html(renderScenarioGone(s));
+    try {
+      const wallet = createWallet(scn.wallet);
+      const txn1 = c.req.param('txn1');
+      const { transactionId, request } = await v.createRequest({ specs: s.steps[1].specs, linkTo: txn1 });
+      const result = await v.verifyResponse({ transactionId, encryptedResponse: await wallet.respond(request) });
+      await putResult(transactionId, result);
+      await putScn(transactionId, { id: s.id, step: 2, txn1 });
+      await recordHistory(request, result, 'console');
+      return c.redirect(`/verifier/s/${s.id}/result/${transactionId}`, 303);
+    } catch (e) {
+      return c.html(renderScenarioGone(s));
+    }
+  });
+  // Result dispatch: step 1 -> identity-confirmed page (invites step 2);
+  // step 2 -> acceptance page (evaluates the scenario against BOTH results).
+  // 1-step scenarios (e.g. age-check) accept straight after their only step.
+  app.get('/verifier/s/:id/result/:txn', async (c) => {
+    const s = getScenario(c.req.param('id'));
+    if (!s) return c.notFound();
+    const txn = c.req.param('txn');
+    const [scn, result] = await Promise.all([getScn(txn), getResult(txn)]);
+    // the txn must belong to THIS scenario — a marriage URL must never render a
+    // kidbank result (the page carries the scenario's RP/claims framing)
+    if (!scn || scn.id !== s.id || !result) return c.html(renderScenarioGone(s));
+    if (scn.step === 1 && s.steps.length === 1) {
+      return c.html(renderScenarioAccept(s, result, null, evaluateScenario(s, result)));
+    }
+    if (scn.step === 1) return c.html(renderScenarioStep1Done(s, txn, result, { selftest: !!scn.wallet }));
+    const result1 = await getResult(scn.txn1);
+    return c.html(renderScenarioAccept(s, result1, result, evaluateScenario(s, result1, result)));
+  });
   app.get('/demo/verify/catalog', (c) => c.json(allConfigIds().map(configInfo)));
   app.post('/demo/verify/prepare', async (c) => {
     try {
@@ -471,26 +571,57 @@ export function createVerifierApp(opts = {}) {
     try { return c.json(await v.createRequest(await c.req.json())); } catch (e) { return fail(c, e); }
   });
 
-  // POST /vp/build {configId, claims, protocol, target} -> request JSON for the
-  // chosen present target. target: 'dcapi' (native, Annex C/D) | 'web' (Annex D
-  // redirect -> web wallet). Returns the request to preview AND (for web) the
-  // wallet deep link. Used by the verify console to drive REAL wallets.
+  // POST /vp/build -> request JSON for the chosen present target.
+  //   single credential : {configId, claims, optional?, protocol?, target?}
+  //   multi credential  : {specs:[{id, configId, claims, optional?}], protocol?, target?}
+  // target: 'dcapi' (native, Annex C/D) | 'web' (Annex D redirect -> web wallet).
+  // Returns the request to preview AND (for web) the wallet deep link.
+  // Used by the verify console AND the scenario demo to drive REAL wallets.
   app.post('/vp/build', async (c) => {
     try {
-      const { configId, claims, optional = [], protocol = 'annex-d', target = 'dcapi' } = await c.req.json();
-      if (!claims || !claims.length) return c.json({ error: '必須項目を1つ以上選択してください' }, 400);
-      const specs = [{ id: 'q1', configId, claims, optional }];
+      const body = await c.req.json();
+      const { configId, claims, optional = [], target = 'dcapi' } = body;
+      // Scenario presets pin the specs per STEP (1 = PID identity proofing,
+      // 2 = the EAA, session-linked to step 1 via linkTxn) and force Annex D.
+      const scn = body.scenario ? getScenario(body.scenario) : null;
+      if (body.scenario && !scn) return c.json({ error: '未知のシナリオです' }, 400);
+      const step = scn ? (body.step === 2 ? 2 : 1) : null;
+      if (scn && step === 2 && scn.steps.length === 1) return c.json({ error: 'このシナリオは1ステップです' }, 400);
+      if (scn && step === 2 && !body.linkTxn) return c.json({ error: 'ステップ2には linkTxn（ステップ1のトランザクション）が必要です' }, 400);
+      if (scn && step === 2) {
+        // The acceptance page asserts "this identity proofing belongs to THIS
+        // scenario", so a step-2 build must reference a step-1 transaction of the
+        // SAME scenario (else a marriage step-1 could underwrite a kidbank
+        // acceptance). Step-1 re-use (multiple step-2s from one step-1) is a
+        // documented demo allowance — production would consume it one-shot.
+        const prev = await getScn(body.linkTxn);
+        if (!prev || prev.id !== scn.id || prev.step !== 1) {
+          return c.json({ error: 'linkTxn がこのシナリオのステップ1ではありません（期限切れの可能性があります）' }, 400);
+        }
+      }
+      const protocol = scn ? 'annex-d' : (body.protocol || 'annex-d');
+      const specs = scn ? scn.steps[step - 1].specs
+        : Array.isArray(body.specs) && body.specs.length
+          ? body.specs.map((s, i) => ({ id: s.id || `q${i + 1}`, configId: s.configId, claims: s.claims, optional: s.optional || [] }))
+          : [{ id: 'q1', configId, claims, optional }];
+      if (specs.some((s) => !s.claims || !s.claims.length)) return c.json({ error: '必須項目を1つ以上選択してください' }, 400);
+      const scnOpts = scn ? { purpose: scn.purpose, rpName: scn.rp, ...(step === 2 ? { linkTo: body.linkTxn } : {}) } : {};
+      const scnRec = scn ? { id: scn.id, step, ...(step === 2 ? { txn1: body.linkTxn } : {}) } : null;
       if (target === 'web') {
         if (protocol === 'annex-c') return c.json({ error: 'Annex C はネイティブウォレット（DC API）専用です' }, 400);
-        const { transactionId, request } = await v.createRequest({ specs, transport: 'redirect', responseUriBase: `${verifierOrigin}/oid4vp/response` });
+        const { transactionId, request } = await v.createRequest({
+          specs, transport: 'redirect', responseUriBase: `${verifierOrigin}/oid4vp/response`, ...scnOpts,
+        });
         await putRequest(transactionId, request);
+        if (scnRec) await putScn(transactionId, scnRec);
         const requestUri = `${verifierOrigin}/oid4vp/request/${transactionId}`;
         const walletPresent = `${walletOrigin}/present?request_uri=${encodeURIComponent(requestUri)}`;
         return c.json({ transactionId, request, target, walletPresent });
       }
       // native DC API (Annex C or D)
-      const { transactionId, request } = await v.createRequest({ specs, protocol });
+      const { transactionId, request } = await v.createRequest({ specs, protocol, ...scnOpts });
       await putRequest(transactionId, request); // so /vp/verify can record history
+      if (scnRec) await putScn(transactionId, scnRec);
       const dcProtocol = request.protocol === 'org-iso-mdoc' ? 'org-iso-mdoc' : 'openid4vp-v1-unsigned';
       return c.json({ transactionId, request, target, dcProtocol });
     } catch (e) { return c.json({ error: e.message }, 400); }
@@ -502,7 +633,10 @@ export function createVerifierApp(opts = {}) {
     try {
       const body = await c.req.json();
       const result = await v.verifyResponse(body);
-      if (body.transactionId) await recordHistory(await getRequest(body.transactionId), result, 'dcapi');
+      if (body.transactionId) {
+        await putResult(body.transactionId, result); // scenario result pages read this back
+        await recordHistory(await getRequest(body.transactionId), result, 'dcapi');
+      }
       return c.json(result);
     } catch (e) { return fail(c, e); }
   });
@@ -531,7 +665,10 @@ export function createVerifierApp(opts = {}) {
       const result = await v.verifyResponse({ transactionId: txn, encryptedResponse: body.response });
       await putResult(txn, result);
       await recordHistory(await getRequest(txn), result, 'web');
-      return c.json({ redirect_uri: `${verifierOrigin}/oid4vp/result/${txn}` }); // direct_post.jwt
+      // scenario runs land back on the scenario's step/acceptance page
+      const scn = await getScn(txn);
+      const dest = scn ? `${verifierOrigin}/verifier/s/${scn.id}/result/${txn}` : `${verifierOrigin}/oid4vp/result/${txn}`;
+      return c.json({ redirect_uri: dest }); // direct_post.jwt
     } catch (e) { return fail(c, e); }
   });
   app.get('/oid4vp/result/:txn', async (c) => c.html(renderWebVerifyResult(await getResult(c.req.param('txn')))));

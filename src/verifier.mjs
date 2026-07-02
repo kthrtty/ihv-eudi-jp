@@ -72,7 +72,7 @@ export class VerifierService {
 
   /** Build a presentation request. protocol: 'annex-d' (OID4VP/HAIP over DC API,
    *  JWE) or 'annex-c' (org-iso-mdoc, HPKE). Annex C is mdoc-only. */
-  async createRequest({ specs, sessionId, linkTo, protocol = 'annex-d', transport, responseUri, responseUriBase } = {}) {
+  async createRequest({ specs, sessionId, linkTo, protocol = 'annex-d', transport, responseUri, responseUriBase, purpose, rpName } = {}) {
     await this._ensurePki();
     const nonce = rand();
     const dcql_query = buildDcql(specs);
@@ -81,6 +81,11 @@ export class VerifierService {
     if (protocol === 'annex-c') {
       if (dcql_query.credentials.some((q) => q.format !== 'mso_mdoc')) {
         throw new Error('Annex C (org-iso-mdoc) supports mdoc only');
+      }
+      // The Annex C verify path handles exactly one DeviceResponse; a multi-spec
+      // request would silently verify only credentials[0]. Reject it instead.
+      if (dcql_query.credentials.length > 1) {
+        throw new Error('Annex C (org-iso-mdoc) supports a single credential per request; use Annex D for multi-credential');
       }
       const nonceBytes = randomBytes(16);
       const encInfo = buildEncryptionInfo({ nonce: nonceBytes, recipientCoseKey: coseKeyFromJwk(this.encJwk) });
@@ -117,7 +122,11 @@ export class VerifierService {
         response_uri: respUri,
         nonce,
         dcql_query,
-        client_metadata: this.clientMetadata(),
+        client_metadata: { ...this.clientMetadata(), ...(rpName ? { client_name: rpName } : {}) },
+        // demo extension for the consent screen (OID4VP 1.0 DCQL has no per-credential
+        // purpose field; production would use transaction_data). Redirect transport only —
+        // our own web wallet renders it; native wallets never see it.
+        ...(purpose ? { purpose } : {}),
       };
       return { transactionId, request };
     }
@@ -209,6 +218,14 @@ export class VerifierService {
       results.push({ dcqlId: q.id, claims: r.claims, holder: r.holder, raw });
     }
 
+    // Cross-credential holder comparison within THIS response: null when fewer than
+    // two credentials carried a holder key; otherwise whether all keys match.
+    // Not an error by itself — a multi-credential request may legitimately carry
+    // another subject's credential (e.g. a guardian wallet holding a child's 住民票),
+    // so the scenario/consumer layer decides what "same wallet" means for it.
+    const holderIds = results.map((r) => r.holder && holderId(r.holder)).filter(Boolean);
+    const sameHolderAcrossCreds = holderIds.length >= 2 ? new Set(holderIds).size === 1 : null;
+
     // session linking: same holder across the linked sequence
     let linkedSameHolder = null;
     if (session.linkTo) {
@@ -216,8 +233,10 @@ export class VerifierService {
       linkedSameHolder = prior != null && holder != null && prior === holderId(holder);
       if (!linkedSameHolder) errors.push('linked presentation is a different holder');
     }
-    if (holder) await this.store.set(`holder:${session.sessionId}`, holderId(holder), 1800);
+    // record the holder handle only for VALID presentations — an invalid one must
+    // never (re)bind the session's holder for later linked steps
+    if (holder && errors.length === 0) await this.store.set(`holder:${session.sessionId}`, holderId(holder), 1800);
 
-    return { valid: errors.length === 0, results, linkedSameHolder, errors };
+    return { valid: errors.length === 0, results, sameHolderAcrossCreds, linkedSameHolder, errors };
   }
 }

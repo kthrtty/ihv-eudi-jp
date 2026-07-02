@@ -50,6 +50,7 @@ export default {
         // ISSUER_URL is authoritative (LB/proxy); when unset, metadata derives the
         // base from the live request origin (see createApp issuerBase).
         credentialIssuer: env.ISSUER_URL || undefined,
+        walletOrigin: env.WALLET_ORIGIN || 'https://web-wallet.example.test',
         statusPki: pki?.statusPki ?? null,
         verifierPki: pki?.verifierPki ?? null,
       });

@@ -220,6 +220,28 @@
       "note": "derived; lets verifier age-check without birth_date"
     },
     {
+      "key": "age_over_20",
+      "type": "bool",
+      "display": {
+        "ja": "20歳以上",
+        "en": "Age over 20"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.pid.1",
+        "element": "age_over_20"
+      },
+      "sdjwt": {
+        "path": [
+          "age_over_20"
+        ]
+      },
+      "note": "derived; lets verifier age-check without birth_date"
+    },
+    {
       "key": "document_number",
       "type": "string",
       "display": {

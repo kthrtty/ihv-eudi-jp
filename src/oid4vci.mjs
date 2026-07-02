@@ -208,7 +208,11 @@ export class IssuerService {
   }
 
   // ---- 4. Credential Offer (pre-authorized_code | authorization_code | both) ----
-  async createOffer(credentialConfigurationIds, { txCode, grant = 'pre-authorized_code' } = {}) {
+  // `claims` = optional per-configId subject-data override ({configId:{key:val}})
+  // merged over SAMPLE at mint time. This models an issuer-operator preparing an
+  // offer for a specific record (e.g. a child's 住民票 for the kid-bank scenario);
+  // it rides the pre-authorized_code path only.
+  async createOffer(credentialConfigurationIds, { txCode, grant = 'pre-authorized_code', claims = null } = {}) {
     const ids = [].concat(credentialConfigurationIds);
     for (const id of ids) if (!catalog.credential_configurations_supported[id]) throw httpErr(400, 'invalid_request', `unknown config ${id}`);
     // tx_code (PIN): `true` => issuer generates a fresh random PIN per offer; an
@@ -224,7 +228,7 @@ export class IssuerService {
     }
     if (grant !== 'authorization_code') {
       preAuthorizedCode = tok();
-      await this.store.set(`pac:${preAuthorizedCode}`, { ids, txCode: pin, used: false });
+      await this.store.set(`pac:${preAuthorizedCode}`, { ids, txCode: pin, used: false, ...(claims ? { claims } : {}) });
       const g = { 'pre-authorized_code': preAuthorizedCode };
       if (pin) g.tx_code = { input_mode: 'numeric', length: pin.length };
       grants[PRE_AUTH_GRANT] = g;
@@ -254,7 +258,7 @@ export class IssuerService {
       if (pac.txCode != null && String(params.tx_code) !== String(pac.txCode)) throw httpErr(400, 'invalid_grant', 'bad tx_code');
       await this.store.set(`pac:${code}`, { ...pac, used: true }); // one-time
       const accessToken = tok();
-      await this.store.set(`at:${accessToken}`, { ids: pac.ids }, 600);
+      await this.store.set(`at:${accessToken}`, { ids: pac.ids, ...(pac.claims ? { claims: pac.claims } : {}) }, 600);
       return { access_token: accessToken, token_type: 'Bearer', expires_in: 600 };
     }
     if (grant_type === 'authorization_code') {
@@ -295,7 +299,8 @@ export class IssuerService {
     const holderJwk = await this.#verifyProof(jwtProofs[0]);
     const status = this.statusList.allocate();
     const persona = at.userId ? this.users.get(at.userId) : null; // session-bound data switch
-    const claims = personaClaims(configId, persona);               // {} for pre-auth (default sample)
+    // subject data precedence: offer-supplied override > persona > SAMPLE (in mint)
+    const claims = at.claims?.[configId] ?? personaClaims(configId, persona);
     const minted = await mint(configId, { holderJwk, status, claims });
     this.issuanceLog.push({
       idx: status.idx, configId, format: minted.format,

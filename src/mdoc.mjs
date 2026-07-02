@@ -114,11 +114,21 @@ export function verifyMdoc(issuerSignedBytes, { trustedIacaDer, expectedDocType 
       if (!expected || Buffer.compare(Buffer.from(recomputed), Buffer.from(expected)) !== 0) {
         errors.push(`digest mismatch for ${get(isi, 'elementIdentifier')}`);
       } else {
-        claims[get(isi, 'elementIdentifier')] = get(isi, 'elementValue');
+        claims[get(isi, 'elementIdentifier')] = plainValue(get(isi, 'elementValue'));
       }
     }
   }
   return { valid: errors.length === 0, docType, deviceKey, claims, status, errors };
+}
+
+// Element values decode in Map mode (integer COSE keys elsewhere demand it), so a
+// structured value (e.g. 住民票 household_members: array of records) comes back as
+// Map instances — JSON-invisible. Convert nested Maps to plain objects for the
+// RETURNED claims only; digest verification above ran on the raw bytes already.
+function plainValue(v) {
+  if (v instanceof Map) return Object.fromEntries([...v.entries()].map(([k, x]) => [k, plainValue(x)]));
+  if (Array.isArray(v)) return v.map(plainValue);
+  return v;
 }
 
 const tval = (t) => (t instanceof Tag ? t.value : t);
