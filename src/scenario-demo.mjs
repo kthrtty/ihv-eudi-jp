@@ -7,6 +7,10 @@ import { claimVal } from './scenarios.mjs';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
 const label = (configId, key) => configInfo(configId).claimLabels?.[key] || key;
+// specs may carry format alternatives (configIds); UI labels use the first one —
+// claim labels cover both schema keys AND mdoc wire names, so they render
+// correctly whichever format the holder actually presented.
+const firstCfg = (sp) => sp.configIds?.[0] ?? sp.configId;
 const credName = (configId) => configInfo(configId).name.replace(/ \(.+\)$/, '');
 
 const SHELL_OPTS = { brand: 'クレデンシャル検証ポータル', sub: 'VERIFIER', role: 'verifier', width: 'mid', dev: true };
@@ -128,7 +132,7 @@ export function renderScenarioHome(scenarios = []) {
       <div class="stt">${esc(s.title)}</div>
       <div class="stg">${esc(s.tagline)}</div>
       <div class="sflow">${s.steps.map((st, i) =>
-        `<span class="fpill">${i + 1}. ${esc(i === 0 ? (st.specs[0].claims.length === 1 ? '年齢のみ' : '身分証') : credName(st.specs[0].configId))}</span><span class="farr">→</span>`).join('')}<span class="fpill ok">受理</span></div>
+        `<span class="fpill">${i + 1}. ${esc(i === 0 ? (st.specs[0].claims.length === 1 ? '年齢のみ' : '身分証') : credName(firstCfg(st.specs[0])))}</span><span class="farr">→</span>`).join('')}<span class="fpill ok">受理</span></div>
       <div class="sgo">はじめる →</div>
     </a>`).join('');
   return shell('検証デモ', `
@@ -164,12 +168,12 @@ export function renderScenarioHome(scenarios = []) {
 export function renderScenarioRun(s) {
   const stepBlocks = s.steps.map((st, i) => {
     const blocks = st.specs.map((sp) => {
-      const req = sp.claims.map((k) => `<span class="cpill req">${esc(label(sp.configId, k))}</span>`).join('');
-      const opt = (sp.optional || []).map((k) => `<span class="cpill opt">${esc(label(sp.configId, k))}（任意）</span>`).join('');
+      const req = sp.claims.map((k) => `<span class="cpill req">${esc(label(firstCfg(sp), k))}</span>`).join('');
+      const opt = (sp.optional || []).map((k) => `<span class="cpill opt">${esc(label(firstCfg(sp), k))}（任意）</span>`).join('');
       return `<div class="cpills">${req}${opt}</div>`;
     }).join('');
     return `<div class="credblk">
-      <div class="credttl"><span class="stepn">${i + 1}</span>${esc(st.name)} — ${esc(credName(st.specs[0].configId))}</div>
+      <div class="credttl"><span class="stepn">${i + 1}</span>${esc(st.name)} — ${esc(credName(firstCfg(st.specs[0])))}</div>
       ${blocks}
     </div>`;
   }).join('');
@@ -224,7 +228,7 @@ export function renderScenarioStep1Done(s, txn1, result1, { selftest = false } =
       ${okPid
         ? `<div class="okbig">✓ 本人確認が完了しました</div>
            <p style="font-size:13.5px;line-height:1.8">${esc(pidName)}様の本人特定事項をデジタル身分証で確認しました。続いて<b>${esc(s.steps[1].name)}</b>にお進みください。</p>
-           ${claimsTable(pidSpec.configId, r?.claims)}
+           ${claimsTable(firstCfg(pidSpec), r?.claims)}
            <div class="lbl2" style="margin-top:16px">ステップ2: ${esc(s.steps[1].name)}</div>
            ${stepActions(s, 2, { txn1, selftest })}`
         : `<div class="ngbig">✗ 本人確認ができませんでした</div>
@@ -245,8 +249,8 @@ export function renderScenarioStep1Done(s, txn1, result1, { selftest = false } =
 export function renderScenarioAccept(s, result1, result2, evaluation) {
   const { ok, checks, summary } = evaluation;
   const oneStep = s.steps.length === 1;
-  const pidCard = claimsTable(s.steps[0].specs[0].configId, (result1?.results || [])[0]?.claims);
-  const eaaCard = oneStep ? '' : claimsTable(s.steps[1].specs[0].configId, (result2?.results || [])[0]?.claims);
+  const pidCard = claimsTable(firstCfg(s.steps[0].specs[0]), (result1?.results || [])[0]?.claims);
+  const eaaCard = oneStep ? '' : claimsTable(firstCfg(s.steps[1].specs[0]), (result2?.results || [])[0]?.claims);
   const allValid = !!result1?.valid && (oneStep || !!result2?.valid);
   // Attribute failures to the right base check: a revoked credential must not
   // paint the signature check ✗ (the signature IS fine) and vice versa.

@@ -8,7 +8,7 @@ import { verifySdJwtPresentation } from './sdjwt.mjs';
 import { annexDSessionTranscript, annexCSessionTranscript, oid4vpRedirectSessionTranscript, buildEncryptionInfo, hpkeSuite, annexCOpen, cborEncode, b64url, coseKeyFromJwk } from './handover.mjs';
 import { fromB64url } from './cbor.mjs';
 import { decryptResponse, calculateJwkThumbprint } from './jwe.mjs';
-import { buildDcql, satisfies } from './dcql.mjs';
+import { buildDcql, satisfies, missingPresentations } from './dcql.mjs';
 import { rawVpRepr } from './vpdebug.mjs';
 import { verifyStatus } from './status.mjs';
 import { memoryStore } from './oid4vci.mjs';
@@ -193,9 +193,13 @@ export class VerifierService {
     const vpToken = payload.vp_token || {};
     const results = [];
     let holder;
+    // presence is set-aware: with credential_sets, the holder answers ONE option
+    // per set (e.g. mdoc OR SD-JWT of the same document) — absent alternatives
+    // are fine as long as each required set has one fully-presented option.
+    errors.push(...missingPresentations(session.dcql, Object.keys(vpToken).filter((id) => vpToken[id]?.[0])));
     for (const q of session.dcql.credentials) {
       const presented = vpToken[q.id]?.[0];
-      if (!presented) { errors.push(`missing presentation for ${q.id}`); continue; }
+      if (!presented) continue; // required-but-missing already reported above
       let r;
       if (q.format === 'mso_mdoc') {
         r = verifyDeviceResponse(new Uint8Array(Buffer.from(presented, 'base64url')),
