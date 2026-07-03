@@ -226,11 +226,10 @@ export function createApp(opts = {}) {
         return c.redirect(redirect, 302);
       } catch (e) { return fail(c, e); }
     }
-    // Browser with cookie session — show the explicit consent screen
+    // Browser with cookie session — show the explicit consent screen listing
+    // every requested credential (multi-scope requests show them all)
     const ids = await svc.requestedIds(q);
-    const md = svc.metadata().credential_configurations_supported;
-    const name = ids.map((id) => (md[id]?.display?.find((d) => d.locale === 'ja-JP') || md[id]?.display?.[0])?.name || id).join('、');
-    return c.html(renderConsentScreen(q, user, name));
+    return c.html(renderConsentScreen(q, user, ids.map(configInfo)));
   });
 
   // Consent submit: session must already exist; issue code and redirect to client

@@ -94,6 +94,53 @@ const CSS = `
 `;
 const FONTS = '<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">';
 
+// ---- wallet card visual system (shared by the web wallet + issuer consent) ----
+// 8 documents × Japanese-palette gradients: c1→c2 base, c3 = top-right glow.
+export const WALLET_CARD_THEME = {
+  pid: { c1: '#2B3A8F', c2: '#1A2565', c3: '#7C6FE0' },          // 紺+菖蒲
+  juminhyo: { c1: '#00796B', c2: '#004D40', c3: '#66D9C4' },     // 深緑+若竹
+  qualification: { c1: '#7B1FA2', c2: '#4A0E7A', c3: '#CE93D8' },// 紫+藤
+  koseki: { c1: '#5D4037', c2: '#3E2723', c3: '#C9A227' },       // 焦茶+金茶
+  tax: { c1: '#2E7D32', c2: '#124D18', c3: '#9CCC65' },          // 緑+若葉
+  single: { c1: '#AD1457', c2: '#7B0F3E', c3: '#F48FB1' },       // 茜+撫子
+  disaster: { c1: '#D84315', c2: '#93290A', c3: '#FFB74D' },     // 柿
+  vaccine: { c1: '#0277BD', c2: '#014377', c3: '#4FC3F7' },      // 空
+};
+// 青海波 (seigaiha) pattern, overlaid at low opacity on every card for 品位
+const SEIGAIHA = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="56" height="28"><g fill="none" stroke="#fff" stroke-width="1.2"><circle cx="0" cy="28" r="26"/><circle cx="0" cy="28" r="18"/><circle cx="0" cy="28" r="10"/><circle cx="56" cy="28" r="26"/><circle cx="56" cy="28" r="18"/><circle cx="56" cy="28" r="10"/><circle cx="28" cy="42" r="26"/><circle cx="28" cy="42" r="18"/><circle cx="28" cy="42" r="10"/></g></svg>');
+
+export const walletCardCss = () => `
+  .vcard{position:relative;display:block;width:100%;max-width:420px;margin:0 auto;aspect-ratio:1.586;border-radius:22px;padding:18px 20px;box-sizing:border-box;color:#fff;text-decoration:none;
+    box-shadow:0 12px 28px rgba(14,26,43,.22),inset 0 1px 0 rgba(255,255,255,.25);
+    background:radial-gradient(120% 90% at 88% -12%,var(--c3) 0%,transparent 55%),radial-gradient(90% 130% at -8% 112%,rgba(255,255,255,.16) 0%,transparent 50%),linear-gradient(135deg,var(--c1) 0%,var(--c2) 100%);
+    transition:transform .18s ease,box-shadow .18s ease}
+  a.vcard:hover,a.vcard:focus-visible{transform:translateY(-10px);box-shadow:0 18px 36px rgba(14,26,43,.3)}
+  .vcard::after{content:"";position:absolute;inset:0;border-radius:22px;opacity:.07;background:url("${SEIGAIHA}") 0 0/56px 28px repeat;pointer-events:none}
+  .vcard .vt{font-size:17px;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,.28);position:relative;z-index:1;line-height:1.35}
+  .vcard .vs{font-size:11px;color:rgba(255,255,255,.75);position:relative;z-index:1}
+  .vcard .vfmt{position:absolute;top:14px;right:16px;font-size:10.5px;font-weight:700;letter-spacing:.08em;padding:3px 10px;border-radius:999px;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.38);z-index:1}
+  .vcard .viss{position:absolute;left:20px;bottom:16px;font-size:11px;color:rgba(255,255,255,.78);z-index:1;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .vcard .vst{position:absolute;right:16px;bottom:14px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.16);z-index:1}
+  .vcard .vst::before{content:"●";margin-right:4px;color:#7CE3B1}
+  .vcard .vst.revoked::before{color:#FF8A80}
+  /* consent "peek": keep the ID-1 ratio, show only the top, fade into the sheet */
+  .vpeek{position:relative;height:118px;overflow:hidden;margin-top:12px}
+  .vpeek .vcard{-webkit-mask-image:linear-gradient(180deg,#000 30%,transparent 96%);mask-image:linear-gradient(180deg,#000 30%,transparent 96%);box-shadow:none}
+`;
+
+/** One wallet card face. NO personal data on the face (Apple Wallet / EUDI
+ *  practice): type name, issuer, format badge and status only. */
+export function vcardHtml(type, { title, sub = '', fmt = '', issuer = 'デジタル資格証発行ポータル', status = '有効', revoked = false, href = '', style = '' } = {}) {
+  const t = WALLET_CARD_THEME[type] || WALLET_CARD_THEME.pid;
+  const tag = href ? 'a' : 'div';
+  return `<${tag} ${href ? `href="${esc(href)}"` : ''} class="vcard" style="--c1:${t.c1};--c2:${t.c2};--c3:${t.c3};${style}">
+    <div class="vt">${esc(title)}</div>${sub ? `<div class="vs">${esc(sub)}</div>` : ''}
+    ${fmt ? `<span class="vfmt">${esc(fmt)}</span>` : ''}
+    <span class="viss">${esc(issuer)}</span>
+    <span class="vst${revoked ? ' revoked' : ''}">${esc(status)}</span>
+  </${tag}>`;
+}
+
 // Tab-level role identity: coloured-dot favicon (発/W/検) + title prefix, so the
 // three origins are distinguishable in the browser tab strip / screenshots.
 const ROLE_META = {
@@ -346,28 +393,49 @@ export function appShell(title, body, user = null, { width = 'narrow', dev = tru
 }
 
 /** Consent screen shown at GET /authorize when a session already exists. */
-export function renderConsentScreen(q, user, requested) {
+/** Authorization consent (session exists). `infos` = requested credentials
+ *  ([{configId, name, format}]) — a multi-scope request lists them all, each with
+ *  its wallet-card swatch, so the holder sees exactly what will be issued. */
+export function renderConsentScreen(q, user, infos = []) {
   const init = q.issuer_state ? '発行者起点（issuer_state）' : 'ウォレット起点';
   const hidden = ['response_type', 'client_id', 'redirect_uri', 'code_challenge', 'code_challenge_method', 'scope', 'issuer_state', 'state']
     .map((k) => `<input type="hidden" name="${k}" value="${esc(q[k] ?? '')}">`).join('');
+  const n = infos.length;
+  const rows = infos.map((i) => {
+    const t = WALLET_CARD_THEME[i.configId?.replace(/_(mdoc|sdjwt)$/, '')] || WALLET_CARD_THEME.pid;
+    const fmt = i.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT';
+    return `<div class="reqrow"><span class="sw" style="--c1:${t.c1};--c2:${t.c2}"></span>
+      <div><b>${esc(i.name.replace(/ \(.+\)$/, ''))}</b></div><span class="fmtb">${fmt}</span></div>`;
+  }).join('');
   return appShell('発行への同意', `
-    <div class="card" style="margin-top:28px">
+    <div class="card" style="margin-top:28px;max-width:520px;margin-left:auto;margin-right:auto">
       <div class="step">認可 — 発行への同意</div>
-      <div class="eyebrow" style="margin-top:10px">クレデンシャル発行への同意</div>
-      <h1>以下の発行に同意しますか？</h1>
-      <div class="req">
-        <div class="k">要求元クライアント</div><b>${esc(q.client_id || 'wallet')}</b>
-        <div class="k" style="margin-top:8px">発行が要求されているクレデンシャル</div><b>${esc(requested)}</b>
-        <div class="k" style="margin-top:8px">開始方式</div><span>${esc(init)}</span>
-        <div class="k mono" style="margin-top:8px">PKCE: ${esc((q.code_challenge_method || '') + ' ' + String(q.code_challenge || '').slice(0, 16))}…</div>
-      </div>
-      <div style="display:flex;gap:10px;align-items:center;margin-top:20px">
-        <form method="POST" action="/authorize/consent">${hidden}
-          <button type="submit" class="btn">同意して発行する</button>
-        </form>
-        <a href="/" style="color:var(--muted);font-size:14px;text-decoration:none">キャンセル</a>
-      </div>
-    </div>`, user);
+      <h1>以下の ${n} 件の発行に同意しますか？</h1>
+      ${rows}
+      <div class="who"><span class="seal" style="width:38px;height:38px;font-size:16px">${esc((user.surname ?? user.family ?? '?')[0])}</span>
+        <div style="font-size:13.5px"><b>${esc(`${user.family} ${user.given}`)}</b> としてサインイン中<br>
+        <span style="font-size:11px;color:var(--muted)">あなたの登録情報がクレデンシャルに記載されます</span></div></div>
+      <div style="font-size:12px;color:var(--muted)">要求元: <b style="color:var(--ink)">${esc(q.client_id || 'wallet')}</b>（${esc(init)}）</div>
+      <details class="techfold"><summary>技術詳細（PKCE / scope / redirect_uri）</summary>
+        <div class="req mono" style="font-size:11.5px;margin-top:8px">
+          scope: ${esc(q.scope || '—')}<br>PKCE: ${esc((q.code_challenge_method || '') + ' ' + String(q.code_challenge || '').slice(0, 24))}…<br>
+          redirect_uri: ${esc(q.redirect_uri || '')}
+        </div>
+      </details>
+      <form method="POST" action="/authorize/consent" style="margin-top:16px">${hidden}
+        <button type="submit" class="btn" style="display:block;width:100%;text-align:center">同意して ${n} 件を発行する</button>
+      </form>
+      <button type="button" class="btn" onclick="history.back()" style="display:block;width:100%;text-align:center;margin-top:8px;background:#fff;color:var(--ink);border:1px solid var(--line)">キャンセル（戻る）</button>
+    </div>
+    <style>
+      .reqrow{display:flex;gap:11px;align-items:center;border:1px solid var(--line);border-radius:11px;padding:10px 12px;margin-top:8px}
+      .reqrow .sw{width:46px;height:29px;border-radius:6px;flex:none;background:linear-gradient(135deg,var(--c1),var(--c2))}
+      .reqrow b{font-size:13.5px}
+      .reqrow .fmtb{margin-left:auto;font-size:10px;font-weight:700;border:1px solid var(--line);border-radius:6px;padding:2px 8px;color:var(--muted)}
+      .who{display:flex;gap:10px;align-items:center;background:#f7f9fc;border:1px solid var(--line);border-radius:11px;padding:10px 12px;margin:14px 0 8px}
+      .techfold{margin-top:10px}.techfold>summary{font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;list-style:none}
+      .techfold>summary::before{content:"▸ "}
+    </style>`, user);
 }
 
 // Curated display names + short descriptions per credential type (matches the

@@ -10,8 +10,9 @@ import { getCookie, setCookie } from 'hono/cookie';
 import { randomBytes, createHash } from 'node:crypto';
 import { createWallet } from './wallet.mjs';
 import { verify as verifyCredential } from './issuer.mjs';
-import { shell, pkce, typeIcon, typeName } from './authcode-demo.mjs';
-import { catalog } from './issuer.mjs';
+import { shell, pkce, typeIcon, typeName, vcardHtml, walletCardCss, WALLET_CARD_THEME } from './authcode-demo.mjs';
+import { catalog, configInfo } from './issuer.mjs';
+import { verifyStatus } from './status.mjs';
 import { storedCredRepr } from './vpdebug.mjs';
 import { recordingFetch, getLog } from './devlog.mjs';
 
@@ -129,11 +130,11 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     setWsidCookie(c, sid);            // stable sid; refresh maxAge
     if (store) {
       const snap = await store.get(`wsess:${sid}`);
-      if (snap) return { wallet: createWallet(snap.wallet), creds: snap.creds || [], pending: snap.pending || null, present: snap.present || null, _sid: sid };
-      return { wallet: createWallet(), creds: [], pending: null, present: null, _sid: sid, _volatile: hadCookie };
+      if (snap) return { wallet: createWallet(snap.wallet), creds: snap.creds || [], pending: snap.pending || null, pendingAuth: snap.pendingAuth || {}, activity: snap.activity || [], present: snap.present || null, _sid: sid };
+      return { wallet: createWallet(), creds: [], pending: null, pendingAuth: {}, activity: [], present: null, _sid: sid, _volatile: hadCookie };
     }
     if (mem.has(sid)) return mem.get(sid);
-    const s = { wallet: createWallet(), creds: [], pending: null, present: null, _sid: sid };
+    const s = { wallet: createWallet(), creds: [], pending: null, pendingAuth: {}, activity: [], present: null, _sid: sid };
     mem.set(sid, s);
     return s;
   };
@@ -145,10 +146,47 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     if (!store || !s?._sid) return;
     if (s._volatile && (!s.creds || s.creds.length === 0)) return;
     await store.set(`wsess:${s._sid}`, {
-      wallet: s.wallet.serialize(), creds: s.creds, pending: s.pending ?? null, present: s.present ?? null,
+      wallet: s.wallet.serialize(), creds: s.creds, pending: s.pending ?? null, pendingAuth: s.pendingAuth ?? {}, activity: s.activity ?? [], present: s.present ?? null,
     }, SESSION_TTL);
   };
   const httpTo = (base) => (path, opts) => doFetch(base + path, opts); // OID4VCI client -> Issuer
+
+  // ＋カタログの元データ: issuer metadata（5分キャッシュ）から display 名を取り、
+  // オフライン時のみローカルの schema バンドルへフォールバック（脱ハードコードは #3 Phase2）
+  const catalogList = async () => {
+    const KEY = 'wmeta:catalog';
+    const hit = await store?.get(KEY);
+    if (hit) return hit;
+    try {
+      const meta = await (await doFetch(issuerUrl + '/.well-known/openid-credential-issuer')).json();
+      const list = Object.entries(meta.credential_configurations_supported || {}).map(([id, cc]) => ({
+        configId: id, format: cc.format,
+        name: (cc.display?.find((d) => d.locale === 'ja-JP') || cc.display?.[0])?.name || id,
+      }));
+      if (list.length) { await store?.set(KEY, list, 300); return list; }
+    } catch { /* offline -> fallback below */ }
+    return Object.entries(catalog.credential_configurations_supported).map(([id, cc]) => ({
+      configId: id, format: cc.format, name: typeName(credType(id)),
+    }));
+  };
+
+  // 失効状態: Token Status List をリストごと取得して局所判定（issuer に個体を明かさない）。
+  // 結果は 5 分キャッシュ、詳細画面の「再確認」で強制更新。
+  const credStatus = async (s, credId, { force = false } = {}) => {
+    const KEY = `wst:${credId}`;
+    if (!force) { const hit = await store?.get(KEY); if (hit) return hit; }
+    try {
+      const c = s.creds.find((x) => x.id === credId);
+      const stored = s.wallet.get(credId);
+      if (!c || !stored) return { checked: false };
+      const v = await verifyCredential(c.configId, stored.credential);
+      if (!v.status) return { checked: false };
+      const st = await verifyStatus(v.status, async (uri) => (await doFetch(uri)).text());
+      const out = { checked: true, revoked: !!st.revoked, at: Date.now() };
+      await store?.set(KEY, out, 300);
+      return out;
+    } catch { return { checked: false }; }
+  };
 
   const record = async (s, rec) => {
     let claims = {};
@@ -156,7 +194,32 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     s.creds.push({ ...rec, claims: Object.fromEntries(Object.entries(claims).map(([k, v]) => [k, fmt(v)])) });
   };
 
-  app.get('/', async (c) => { const s = await loadSession(c); return c.html(home(s, issuerUrl, verifierUrl)); }); // view-only: don't persist (avoids clobbering on a transient KV miss)
+  app.get('/', async (c) => {
+    const s = await loadSession(c);
+    const cat = await catalogList();
+    const statuses = Object.fromEntries(await Promise.all(s.creds.map(async (cr) => [cr.id, await store?.get(`wst:${cr.id}`)])));
+    return c.html(home(s, issuerUrl, verifierUrl, cat, statuses)); // view-only: don't persist
+  });
+
+  // カード詳細: ヒーローカード + 属性(4件+折りたたみ) + アクティビティ + 失効状態 + 開発者向け
+  app.get('/cred/:id', async (c) => {
+    const s = await loadSession(c);
+    const cr = s.creds.find((x) => x.id === c.req.param('id'));
+    if (!cr) return c.redirect('/', 302);
+    const raw = (() => { try {
+      const cred = s.wallet.get(cr.id)?.credential;
+      const wire = cr.format === 'mso_mdoc' ? Buffer.from(cred).toString('base64url') : cred;
+      return storedCredRepr({ format: cr.format, wire });
+    } catch { return null; } })();
+    const st = await credStatus(s, cr.id);
+    const acts = (s.activity || []).filter((a) => (a.credIds || []).includes(cr.id));
+    return c.html(credDetail(cr, raw, st, acts));
+  });
+  app.post('/cred/:id/recheck', async (c) => {
+    const s = await loadSession(c);
+    await credStatus(s, c.req.param('id'), { force: true });
+    return c.redirect('/cred/' + c.req.param('id'), 302);
+  });
   app.get('/creds', async (c) => { const s = await loadSession(c); return c.json(s.creds.map(({ id, configId, format }) => ({ id, configId, format }))); });
   // developer console: the OID4VCI/OID4VP calls this wallet made (masked, newest-first)
   app.get('/dev/log', async (c) => c.json({ entries: await getLog(store, 'wallet') }));
@@ -195,9 +258,12 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
 
   // Wallet-initiated auth-code: user picks credential type, wallet starts PKCE flow
   app.get('/request', async (c) => {
+    // single config via ?cfg= (back-compat) or MULTI via ?scope=a b (space-sep)
+    const scopeQ = (c.req.query('scope') || '').split(/[\s+]+/).filter(Boolean);
     const configId = c.req.query('cfg');
+    const configIds = scopeQ.length ? scopeQ : (configId ? [configId] : []);
     const iss = c.req.query('issuer') || issuerUrl;
-    if (!configId) {
+    if (!configIds.length) {
       // Show credential picker: fetch issuer metadata
       try {
         const meta = await (await doFetch(iss + '/.well-known/openid-credential-issuer')).json();
@@ -209,17 +275,19 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     }
     // Build the PKCE auth-code request (wallet-initiated: scope= not issuer_state=).
     // We DON'T redirect immediately — show the generated request URL + a button.
+    // The pending record is keyed by `state` so (a) /oidc/cb can VERIFY the state
+    // round-trips (CSRF/mix-up) and (b) parallel issuances don't clobber each other.
     const s = await loadSession(c);
     const { verifier, challenge, state } = pkce();
     const redirectUri = walletOrigin + '/oidc/cb';
-    s.pending = { verifier, configId, issuerBase: iss, redirectUri };
+    s.pendingAuth[state] = { verifier, configIds, issuerBase: iss, redirectUri };
     await saveSession(s);
     const url = iss + '/authorize?' + new URLSearchParams({
       response_type: 'code', client_id: 'ihv-web-wallet', redirect_uri: redirectUri,
       code_challenge: challenge, code_challenge_method: 'S256',
-      scope: configId, state,
+      scope: configIds.join(' '), state,
     }).toString();
-    return c.html(authRequestPreview({ url, configId, issuerBase: iss }));
+    return c.html(authRequestPreview({ url, configIds, issuerBase: iss }));
   });
 
   // Issuer-initiated pre-auth: paste/scan credential offer URI
@@ -274,10 +342,11 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
       }
       if (hasAuthCode) {
         const { verifier, challenge, state } = pkce();
-        s.pending = { verifier, configId, issuerBase, redirectUri: walletOrigin + '/oidc/cb' };
+        const redirectUri = walletOrigin + '/oidc/cb';
+        s.pendingAuth[state] = { verifier, configIds: offer.credential_configuration_ids, issuerBase, redirectUri };
         await saveSession(s);
         const url = `${issuerBase}/authorize?` + new URLSearchParams({
-          response_type: 'code', client_id: 'ihv-web-wallet', redirect_uri: s.pending.redirectUri,
+          response_type: 'code', client_id: 'ihv-web-wallet', redirect_uri: redirectUri,
           code_challenge: challenge, code_challenge_method: 'S256',
           issuer_state: grants.authorization_code.issuer_state, state,
         }).toString();
@@ -309,10 +378,12 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
       }
       if (chosen === 'authorization_code') {
         const { verifier, challenge, state } = pkce();
-        s.pending = { verifier, configId, issuerBase, redirectUri: walletOrigin + '/oidc/cb' };
+        const redirectUri = walletOrigin + '/oidc/cb';
+        s.pendingAuth[state] = { verifier, configIds: offer.credential_configuration_ids, issuerBase, redirectUri };
+        s.pending = null;
         await saveSession(s);
         const url = `${issuerBase}/authorize?` + new URLSearchParams({
-          response_type: 'code', client_id: 'ihv-web-wallet', redirect_uri: s.pending.redirectUri,
+          response_type: 'code', client_id: 'ihv-web-wallet', redirect_uri: redirectUri,
           code_challenge: challenge, code_challenge_method: 'S256',
           issuer_state: grants.authorization_code.issuer_state, state,
         }).toString();
@@ -346,16 +417,20 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
   app.get('/oidc/cb', async (c) => {
     const s = await loadSession(c);
     try {
-      const p = s.pending;
-      if (!p) throw new Error('no pending issuance');
-      const rec = await s.wallet.exchangeAndReceive({
+      // state MUST round-trip and match a pending record (CSRF / mix-up defence);
+      // the record is one-time — consumed here.
+      const state = c.req.query('state');
+      const p = (state && s.pendingAuth?.[state]) || null;
+      if (!p) throw new Error('state が一致する保留中の発行要求がありません（要求の期限切れ・改ざん・二重コールバックの可能性）');
+      delete s.pendingAuth[state];
+      const recs = await s.wallet.exchangeAndReceive({
         request: httpTo(p.issuerBase), code: c.req.query('code'),
-        verifier: p.verifier, redirectUri: p.redirectUri, configId: p.configId, credentialIssuer: p.issuerBase,
+        verifier: p.verifier, redirectUri: p.redirectUri, configIds: p.configIds, credentialIssuer: p.issuerBase,
       });
-      s.pending = null;
-      await record(s, rec);
+      const list = Array.isArray(recs) ? recs : [recs];
+      for (const rec of list) await record(s, rec);
       await saveSession(s);
-      return c.html(added(s, [rec], 'authorization_code'));
+      return c.html(added(s, list, 'authorization_code'));
     } catch (e) {
       return c.html(shell('ウォレット', `<div class="card"><h1>発行に失敗</h1><div class="hint" style="color:#9E3A3A">${esc(e.message)}</div></div>`, WALLET));
     }
@@ -418,6 +493,11 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
       if (!resp.ok || !r.redirect_uri) {
         throw new Error(r.error || `Verifier への提示送信に失敗しました（HTTP ${resp.status}）。要求が期限切れの可能性があります。`);
       }
+      // ARF transaction log: WHO was shown WHAT (claim names only — never values)
+      const usedCreds = Object.values(selection).map((x) => x.credentialId).filter(Boolean);
+      const usedClaims = [...new Set(Object.values(selection).flatMap((x) => x.disclose || []))];
+      s.activity = [{ at: new Date().toISOString(), rp: verifierLabel(request).name, claims: usedClaims, credIds: usedCreds },
+        ...(s.activity || [])].slice(0, 30);
       s.present = null;
       await saveSession(s); // presentation does NOT consume the credential — it stays in the wallet
       return c.redirect(r.redirect_uri, 302); // back to the Verifier's result page
@@ -514,23 +594,35 @@ function presentConsent({ request, plan, have, held = [] }) {
   const body = have
     ? `<form method="POST" action="/present/confirm" id="pf">
         ${plan.map(qCard).join('')}
-        <div class="card" id="prevCard">
-          <div class="step">送信プレビュー（デバッグ）— vp_token に入る claims</div>
-          <pre id="preview" class="prev"></pre>
-        </div>
+        <details class="prevfold"><summary>送信内容のプレビュー（開発者向け）— vp_token に入る claims</summary>
+          <div class="card" id="prevCard" style="margin-top:8px">
+            <pre id="preview" class="prev"></pre>
+          </div>
+        </details>
         <div class="bar">
           <div class="count" id="count"></div>
-          <button class="btn" type="submit">この内容で提示（暗号化して送信）</button>
           <div class="mini" id="minall">↺ 任意項目をすべて外す（必須のみ）</div>
+          <div class="btnrow2">
+            <a class="btn wcancel" href="/">キャンセル</a>
+            <button class="btn" type="submit">共有する（暗号化して送信）</button>
+          </div>
         </div>
         <div class="hint"><b class="rtag req">必須</b>は提示先が要求し検証に必要な項目で、常に開示されます。<b class="rtag opt">任意</b>はあなたが選んで追加開示できる項目です。外した任意項目は vp_token に含まれません。提示は OID4VP を <b>HTTPS リダイレクト</b>（direct_post.jwt）で実行します。</div>
       </form>`
-    : `<div class="card">${notHeld}</div>`;
+    : `<div class="card">${notHeld}</div><div style="margin-top:12px;text-align:center"><a class="btn wcancel" href="/" style="display:inline-block">ウォレットに戻る</a></div>`;
 
+  // ARF order: WHO is asking (+verification state) and WHY come FIRST; the card
+  // peek (ID-1 ratio, bottom fading into the sheet) follows, then the claim rows.
+  const peekType = have && plan[0]?.matches[0] ? credType(plan[0].matches[0].configId) : null;
+  const peek = peekType
+    ? `<div class="vpeek">${vcardHtml(peekType, { title: typeName(peekType), fmt: plan[0].isMdoc ? 'mdoc' : 'SD-JWT' })}</div>`
+    : '';
+  const verified = v.src !== 'client_metadata.client_name';
   return shell('提示の確認', `
-    <div class="card rpcard">
-      <div class="step">OID4VP 提示要求</div>
-      <h1>この情報を提示しますか？</h1>
+    <div class="cscrim"></div>
+    <div class="csheet">
+      <div class="grab"></div>
+      <div class="csh"><b>この情報を提示しますか？</b></div>
       <div class="rp">
         <div class="rp-ic"></div>
         <div class="rp-main">
@@ -538,14 +630,33 @@ function presentConsent({ request, plan, have, held = [] }) {
           <div class="rp-name">${esc(v.name)}</div>
           <div class="rp-sub mono">${esc(rpHost || request.client_id)}</div>
         </div>
+        <span class="vbadge${verified ? '' : ' warn'}">${verified ? '✓ 検証済みの提示先' : '⚠ 未検証の名称'}</span>
       </div>
       ${request.purpose ? `<div class="rp-purpose"><b>利用目的</b>${esc(request.purpose)}</div>` : ''}
       <div class="rp-src">ラベル取得元: <code>${esc(v.src)}</code>${request.purpose ? ' ・ 利用目的: <code>request.purpose（デモ拡張）</code>' : ''}</div>
+      ${peek}
+      ${body}
     </div>
-    ${body}${STYLE}${PRESENT_STYLE}${have ? PRESENT_JS : ''}`, WALLET);
+    ${STYLE}${PRESENT_STYLE}<style>${walletCardCss()}${peekType && plan.length === 1 ? '.csheet .qcard .qhead{display:none}' : ''}</style>${have ? PRESENT_JS : ''}`, WALLET);
 }
 
 const PRESENT_STYLE = `<style>
+  /* consent as a bottom sheet: static scrim over the (empty) page, sheet pinned
+     to the bottom. Existing claim rows / picker / warnings render inside it. */
+  .cscrim{position:fixed;inset:0;background:rgba(14,26,43,.55);z-index:1}
+  .csheet{position:relative;z-index:2;max-width:560px;margin:8vh auto 0;background:#fff;border-radius:18px 18px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,.25);padding:8px 18px 18px;min-height:80vh}
+  .grab{width:44px;height:5px;border-radius:3px;background:#C6D0DC;margin:6px auto 10px}
+  .csh b{font-size:16px}
+  .csheet .card{border:none;padding:0;margin-top:14px}
+  .vbadge{margin-left:auto;font-size:10px;font-weight:700;color:#0E8A6B;background:#E7F3EE;border-radius:999px;padding:3px 9px;white-space:nowrap;flex:none}
+  .vbadge.warn{color:#8a6d1a;background:#FCF7E8}
+  .prevfold{margin-top:10px}
+  .prevfold>summary{font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;list-style:none}
+  .prevfold>summary::before{content:"▸ "}
+  .prevfold[open]>summary::before{content:"▾ "}
+  .btnrow2{display:flex;gap:10px;width:100%;margin-top:8px}
+  .btnrow2 .btn{flex:1;text-align:center}
+  .btn.wcancel{background:#fff;color:var(--ink);border:1px solid var(--line)}
   .rpcard h1{font-size:18px;margin:6px 0 12px}
   .hh-warn{font-size:11.5px;color:#8a6d1a;background:#FCF7E8;border:1px solid #EFE2B8;border-radius:8px;padding:6px 9px;margin-top:5px;line-height:1.6}
   .rp-purpose{background:#F3F8F6;border:1px solid #D2E5DF;border-radius:9px;padding:8px 12px;font-size:12.5px;margin-top:8px}
@@ -771,86 +882,248 @@ const VC_MODAL_JS = `<script>
   });
 </script>`;
 
-function home(s, issuerUrl, verifierUrl) {
-  const body = s.creds.length
-    ? s.creds.map(credCard).join('')
-    : `<div class="hint" style="color:var(--muted)">まだクレデンシャルがありません。下のメニューから取得してください。</div>`;
-  const issuerUrl2 = issuerUrl;
-  const resetBtn = s.creds.length
-    ? `<button type="button" class="reset-btn" onclick="askReset()">初期化</button>`
-    : '';
-  // raw stored credential (mdoc CBOR->JSON / SD-JWT decomposed) for the modal's 生データ tab
-  const rawOf = (c) => {
-    try {
-      const cred = s.wallet.get(c.id)?.credential;
-      if (cred == null) return null;
-      const wire = c.format === 'mso_mdoc' ? Buffer.from(cred).toString('base64url') : cred;
-      return storedCredRepr({ format: c.format, wire });
-    } catch { return null; }
+function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
+  const n = s.creds.length;
+  const cardOf = (cr) => {
+    const st = statuses[cr.id];
+    return vcardHtml(credType(cr.configId), {
+      title: typeName(credType(cr.configId)),
+      sub: cr.configId,
+      fmt: cr.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT',
+      href: `/cred/${cr.id}`,
+      status: st?.checked ? (st.revoked ? '失効' : '有効') : '有効',
+      revoked: !!st?.revoked,
+    });
   };
-  const modals = s.creds.map((c) => credModal(c, rawOf(c))).join('') + (s.creds.length ? DELETE_CONFIRM + RESET_CONFIRM : '');
-  return shell('ウェブウォレット', `
-    <div class="card">
-      <div class="step">保管中のクレデンシャル</div>
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-        <h1 style="margin:0">ウォレット</h1>
-        ${resetBtn}
-      </div>
-      <div style="margin-top:12px">${body}</div>
-    </div>
-    ${modals}${VC_MODAL_STYLE}${s.creds.length ? VC_MODAL_JS : ''}
+  const stackBody = n
+    ? `<div class="wstack">${s.creds.map(cardOf).join('')}</div>`
+    : `<div class="ghost-card">クレデンシャルがありません<br><span style="font-size:11.5px">右下の ＋ から発行を受けられます</span></div>`;
 
-    <div class="card" style="margin-top:12px">
-      <div class="step">発行受領 — OID4VCI</div>
-      <h1 style="font-size:16px;margin-bottom:10px">クレデンシャルを取得する</h1>
-      <div class="hubgrid">
-        <a class="hublink" href="/request">
-          <div class="hub-icon">🔑</div>
-          <div><b>認可コード（ウォレット起点）</b><br><span class="hub-sub">ウォレットが種別を選んで発行者に <code>scope</code> で要求</span></div>
-        </a>
-        <a class="hublink" href="/offer-form">
-          <div class="hub-icon">📲</div>
-          <div><b>オファー URI を受け取る</b><br><span class="hub-sub">発行者が生成した QR・リンクのオファー URI を貼り付け。Pre-Auth グラント（認可不要・即交換）または issuer_state を伴う Authorization Code グラント（要認可）を自動判別</span></div>
-        </a>
+  // ＋カタログ: 8種タイル × issuer式チップ（クリック=選択・複数可）→ 複数 scope で認可へ
+  const types = [...new Set(cat.map((x) => credType(x.configId)))];
+  const tiles = types.map((t) => {
+    const mdoc = cat.find((x) => credType(x.configId) === t && x.format === 'mso_mdoc');
+    const sdjwt = cat.find((x) => credType(x.configId) === t && x.format !== 'mso_mdoc');
+    const th = WALLET_CARD_THEME[t] || WALLET_CARD_THEME.pid;
+    const chip = (cc, label) => cc ? `<button type="button" class="wchip" data-cfg="${esc(cc.configId)}">${label}</button>` : '';
+    return `<div class="wtile" data-type="${esc(t)}">
+      <span class="sw" style="--c1:${th.c1};--c2:${th.c2}"></span>
+      <div class="tx"><b>${esc(typeName(t))}</b></div>
+      <span class="wchips">${chip(mdoc, 'mdoc')}${chip(sdjwt, 'SD-JWT')}</span>
+    </div>`;
+  }).join('');
+
+  return shell('ウォレット', `
+    <div class="wstage">
+      <div class="whead"><h1>ウォレット</h1><span class="wn">${n} 枚</span>
+        <details class="wmenu"><summary>⋯</summary>
+          <div class="wpop">
+            <a href="/dev/holder-key">🔑 バインディング鍵を表示</a>
+            <a href="${esc(verifierUrl)}/verifier">✅ 検証者コンソールへ</a>
+            ${n ? `<button type="button" onclick="askReset()">⚠ ウォレットを初期化</button>` : ''}
+          </div>
+        </details></div>
+      ${stackBody}
+      <div class="wfoot"><a href="${esc(verifierUrl)}/verifier">検証者コンソールで提示を試す →</a></div>
+      <details class="devlinks"><summary>開発者リンク</summary>
+        <div class="devgrid">
+          <a href="${esc(issuerUrl)}/">発行者トップ</a>
+          <a href="${esc(issuerUrl)}/issuances">発行台帳</a>
+          <a href="/request">認可要求（旧ピッカー）</a>
+          <a href="/offer-form">オファー受領（旧フォーム）</a>
+          <a href="/dev/holder-key">バインディング鍵</a>
+        </div>
+      </details>
+    </div>
+
+    <div class="fabs">
+      <button type="button" class="fab-qr" onclick="openSheet('qrSheet')" title="オファーを受け取る（QR・リンク）">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 20h-3"/></svg>
+      </button>
+      <button type="button" class="fab-add" onclick="openSheet('catSheet')" title="カードを追加">＋</button>
+    </div>
+
+    <div class="wsheet-wrap" id="catSheet" hidden>
+      <div class="wscrim" onclick="closeSheet('catSheet')"></div>
+      <div class="wsheet"><div class="grab"></div>
+        <div class="wsh"><b>カードを追加 — 発行機関にログインして取得</b><button type="button" class="wx" onclick="closeSheet('catSheet')">×</button></div>
+        <div class="wtiles">${tiles}</div>
+        <div class="wcta">
+          <span class="wcount">選択中: <b id="selCount">0</b> 構成</span>
+          <button type="button" class="btn" id="goIssue" disabled>発行を受ける（発行者にログイン）→</button>
+        </div>
+        <div class="whint">複数選択可 — 1回の認可（authorization_code + PKCE・複数 scope）でまとめて発行されます。形式: mdoc=対面提示向け (ISO 18013-5) / SD-JWT=オンライン提示向け</div>
       </div>
     </div>
 
-    <div class="card" style="margin-top:12px">
-      <div class="step">提示・検証</div>
-      <h1 style="font-size:16px;margin-bottom:10px">クレデンシャルを提示する</h1>
-      <div class="hubgrid">
-        <a class="hublink" href="${esc(verifierUrl)}/">
-          <div class="hub-icon">✅</div>
-          <div><b>検証コンソールで提示</b><br><span class="hub-sub">Verifier トップへ移動 → 種別・項目・提示先を選んで要求 → 提示</span></div>
-        </a>
+    <div class="wsheet-wrap" id="qrSheet" hidden>
+      <div class="wscrim" onclick="closeSheet('qrSheet')"></div>
+      <div class="wsheet"><div class="grab"></div>
+        <div class="wsh"><b>オファーを受け取る — 発行機関から提示された QR・リンク</b><button type="button" class="wx" onclick="closeSheet('qrSheet')">×</button></div>
+        <form method="GET" action="/add">
+          <textarea name="credential_offer_uri" rows="3" placeholder="openid-credential-offer://… または https://…" style="width:100%;font:inherit;font-size:12.5px;padding:10px;border:1px solid var(--line);border-radius:10px;box-sizing:border-box"></textarea>
+          <button class="btn" type="submit" style="width:100%;margin-top:10px">このウォレットで取得する</button>
+        </form>
+        <div class="whint" style="margin-top:10px">Pre-Auth（即交換）/ Authorization Code（要同意・issuer_state）を自動判別します。<a href="${esc(issuerUrl)}/" target="_blank" rel="noopener">発行者でオファーを作成（別タブ）↗</a></div>
       </div>
     </div>
 
-    <details class="card" style="margin-top:12px">
-      <summary style="cursor:pointer;font-weight:600;color:var(--muted);font-size:14px">開発者リンク</summary>
-      <div class="hubgrid" style="margin-top:10px">
-        <a class="hublink small" href="${esc(issuerUrl2)}/">発行者トップ</a>
-        <a class="hublink small" href="${esc(issuerUrl2)}/login">発行者ログイン</a>
-        <a class="hublink small" href="${esc(verifierUrl)}/verifier">検証コンソール（Verifier）</a>
-        <a class="hublink small" href="/dev/holder-key">ホルダーバインディング鍵を表示</a>
-        <a class="hublink small" href="${esc(issuerUrl2)}/demo/offer-authcode">発行者起点オファー デモ（Issuer 側）</a>
-        <a class="hublink small" href="${esc(issuerUrl2)}/issuances">発行台帳</a>
-        <a class="hublink small" href="${esc(issuerUrl2)}/users">ユーザー一覧 (API)</a>
-      </div>
-    </details>
-    ${STYLE}
-    <style>
-      .reset-btn{font:inherit;font-size:13px;padding:7px 14px;border:1px solid #E2B4AE;color:#C8453C;background:#fff;border-radius:8px;cursor:pointer}
-      .reset-btn:hover{background:#FBE9E7}
-      .hubgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
-      .hublink{display:flex;align-items:flex-start;gap:10px;border:1px solid var(--line);border-radius:10px;
-               padding:12px 14px;text-decoration:none;color:inherit;transition:background .1s}
-      .hublink:hover{background:#f0f7f5}
-      .hub-icon{font-size:20px;line-height:1;flex-shrink:0;margin-top:2px}
-      .hub-sub{font-size:12px;color:var(--muted)}
-      .hublink.small{font-size:13px;padding:8px 12px;align-items:center}
-    </style>`, { ...WALLET, width: 'mid' });
+    ${n ? RESET_CONFIRM : ''}
+    ${WSTYLE}
+    <script>
+      function openSheet(id){document.getElementById(id).hidden=false;document.body.style.overflow='hidden'}
+      function closeSheet(id){document.getElementById(id).hidden=true;document.body.style.overflow=''}
+      var sel=new Set();
+      document.querySelectorAll('.wchip').forEach(function(ch){ch.onclick=function(){
+        var cfg=ch.dataset.cfg;
+        if(sel.has(cfg)){sel.delete(cfg);ch.classList.remove('on');}else{sel.add(cfg);ch.classList.add('on');}
+        ch.closest('.wtile').classList.toggle('sel', !!ch.closest('.wtile').querySelector('.wchip.on'));
+        document.getElementById('selCount').textContent=sel.size;
+        document.getElementById('goIssue').disabled=!sel.size;
+      };});
+      document.getElementById('goIssue').onclick=function(){
+        location.href='/request?scope='+encodeURIComponent([...sel].join(' '));
+      };
+      function askReset(){var d=document.getElementById('resetConfirm');if(d)d.hidden=false;}
+      function cancelReset(){var d=document.getElementById('resetConfirm');if(d)d.hidden=true;}
+    </script>`, { ...WALLET, width: 'mid' });
 }
+
+// ---- カード詳細（/cred/:id）----
+function credDetail(cr, raw, st, acts = []) {
+  const type = credType(cr.configId);
+  const labels = (() => { try { return configInfo(cr.configId).claimLabels || {}; } catch { return {}; } })();
+  const entries = Object.entries(cr.claims || {});
+  const head = entries.slice(0, 4);
+  const rest = entries.slice(4);
+  const row = ([k, v]) => `<tr><td>${esc(labels[k] || k)}</td><td>${esc(v)}</td></tr>`;
+  const stChip = st?.checked
+    ? (st.revoked ? `<span class="chip2 bad">● 失効しています</span>` : `<span class="chip2">● 有効 · ${esc(agoLabel(st.at))}</span>`)
+    : `<span class="chip2 na">未確認</span>`;
+  const actList = acts.length
+    ? acts.map((a) => `<div class="actrow"><span>${esc(new Date(a.at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', hour12: false }))}</span><b>${esc(a.rp)}</b><small>${esc((a.claims || []).join(', '))}</small></div>`).join('')
+    : '<div class="actrow"><small>このカードの提示履歴はまだありません（値は保存されません — 日時・提示先・項目名のみ）</small></div>';
+  const rawJson = raw ? esc(JSON.stringify(raw.json ?? {}, null, 2)) : '（生データを取得できませんでした）';
+  return shell(typeName(type), `
+    <div class="wstage">
+      <div class="back"><a href="/">← ウォレット</a></div>
+      ${vcardHtml(type, { title: typeName(type), sub: cr.configId, fmt: cr.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT', status: st?.checked ? (st.revoked ? '失効' : '有効') : '有効', revoked: !!st?.revoked })}
+      <div class="panel">
+        <div class="ph">属性データ</div>
+        <table class="attrs">${head.map(row).join('')}</table>
+        ${rest.length ? `<details class="morefold"><summary>▾ ほか ${rest.length} 項目を表示</summary><table class="attrs">${rest.map(row).join('')}</table></details>` : ''}
+      </div>
+      <div class="panel">
+        <details class="rowfold"><summary><span class="ic">🕘</span>アクティビティ（提示履歴）<span class="cnt">${acts.length} 件</span></summary>
+          <div class="acts">${actList}</div>
+        </details>
+        <div class="prow"><span class="ic">◎</span>失効状態 ${stChip}
+          <form method="POST" action="/cred/${esc(cr.id)}/recheck" style="margin-left:auto"><button type="submit" class="mini2">再確認</button></form></div>
+      </div>
+      <details class="devfold"><summary>開発者向け（生データ / バインディング鍵）</summary>
+        <div class="panel" style="margin-top:8px;padding:12px 14px">
+          ${raw?.note ? `<div class="cbor-note">ⓘ ${esc(raw.note)}</div>` : ''}
+          <pre class="djson">${rawJson}</pre>
+          ${raw?.compact ? `<details class="rawc"><summary>オンワイヤ表現を表示</summary><pre class="djson small">${esc(raw.compact)}</pre></details>` : ''}
+          <a href="/dev/holder-key" style="font-size:12px;font-weight:700;color:var(--muted)">🔑 バインディング鍵を表示 →</a>
+        </div>
+      </details>
+      <button type="button" class="wdel" onclick="document.getElementById('delConfirm').hidden=false">このクレデンシャルを削除</button>
+    </div>
+    <div class="vc-confirm" id="delConfirm" hidden>
+      <div class="vc-scrim" onclick="document.getElementById('delConfirm').hidden=true"></div>
+      <div class="confirm">
+        <h3 class="cf-h">クレデンシャルを削除</h3>
+        <p class="cf-p"><b>${esc(typeName(type))}</b> をウォレットから削除します。<br>この操作は取り消せません。</p>
+        <form method="POST" action="/cred/${esc(cr.id)}/delete" class="cf-btns">
+          <button type="button" class="cf-cancel" onclick="document.getElementById('delConfirm').hidden=true">キャンセル</button>
+          <button type="submit" class="cf-del">削除する</button>
+        </form>
+      </div></div>
+    ${WSTYLE}${VC_MODAL_STYLE}`, WALLET);
+}
+
+const agoLabel = (t) => {
+  const m = Math.max(0, Math.round((Date.now() - t) / 60000));
+  return m < 1 ? 'たった今確認' : `${m}分前に確認`;
+};
+
+// ---- 刷新UIの共有スタイル ----
+const WSTYLE = `<style>
+  ${walletCardCss()}
+  .wstage{background:linear-gradient(180deg,#E4EEEA,#EFF2F7 70%);margin:-6vh -18px 0;padding:18px 18px 120px;min-height:calc(100vh - 60px)}
+  .whead{display:flex;align-items:center;margin:0 2px 14px;max-width:420px;margin-left:auto;margin-right:auto}
+  .whead h1{font-size:17px;margin:0}.wn{font-size:12px;color:var(--muted);margin-left:8px}
+  .wmenu{margin-left:auto;position:relative}
+  .wmenu>summary{list-style:none;width:34px;height:34px;border-radius:50%;background:#fff;border:1px solid var(--line);display:grid;place-items:center;color:var(--muted);cursor:pointer}
+  .wmenu>summary::-webkit-details-marker{display:none}
+  .wpop{position:absolute;right:0;top:calc(100% + 6px);background:#fff;border:1px solid var(--line);border-radius:12px;min-width:220px;box-shadow:0 6px 24px rgba(14,26,43,.14);padding:6px;z-index:20;display:flex;flex-direction:column}
+  .wpop a,.wpop button{font:inherit;font-size:13px;text-align:left;padding:9px 12px;border:0;background:none;color:var(--ink);text-decoration:none;border-radius:8px;cursor:pointer}
+  .wpop a:hover,.wpop button:hover{background:#f0f7f5}
+  .wstack{max-width:420px;margin:0 auto}
+  .wstack .vcard:not(:first-child){margin-top:-96px}
+  @media(min-width:720px){.wstack{max-width:880px;display:grid;grid-template-columns:repeat(2,minmax(0,420px));gap:18px;justify-content:center}.wstack .vcard:not(:first-child){margin-top:0}}
+  .ghost-card{border:2px dashed #C4D6D0;border-radius:22px;aspect-ratio:1.586;display:grid;place-items:center;color:var(--muted);font-size:13px;text-align:center;max-width:420px;margin:0 auto;line-height:1.8}
+  .wfoot{text-align:center;margin-top:22px;font-size:12px}
+  .wfoot a{color:var(--muted);text-decoration:none}
+  .devlinks{max-width:420px;margin:18px auto 0}
+  .devlinks>summary{font-size:12px;font-weight:700;color:var(--muted);cursor:pointer}
+  .devgrid{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+  .devgrid a{font-size:12px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:6px 10px;color:var(--ink);text-decoration:none}
+  .fabs{position:fixed;right:20px;bottom:24px;display:flex;flex-direction:column;gap:12px;align-items:center;z-index:70}
+  .fab-qr{width:48px;height:48px;border-radius:50%;background:#fff;border:1px solid var(--line);display:grid;place-items:center;color:var(--ink);box-shadow:0 4px 14px rgba(14,26,43,.18);cursor:pointer}
+  .fab-add{width:58px;height:58px;border-radius:50%;background:var(--w,#2E7D6B);background:#2E7D6B;color:#fff;border:0;display:grid;place-items:center;box-shadow:0 6px 18px rgba(46,125,107,.45);font-size:30px;line-height:1;cursor:pointer}
+  .wsheet-wrap[hidden]{display:none}
+  .wscrim{position:fixed;inset:0;background:rgba(14,26,43,.55);z-index:80}
+  .wsheet{position:fixed;left:0;right:0;bottom:0;max-width:560px;margin:0 auto;max-height:92vh;overflow:auto;background:#fff;border-radius:18px 18px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,.25);z-index:81;padding:8px 18px 18px}
+  .grab{width:44px;height:5px;border-radius:3px;background:#C6D0DC;margin:6px auto 10px}
+  .wsh{display:flex;align-items:center;margin-bottom:10px;gap:8px}.wsh b{font-size:14.5px;line-height:1.4}
+  .wx{margin-left:auto;border:0;background:none;font-size:20px;color:var(--muted);cursor:pointer;flex:none}
+  .wtiles{display:flex;flex-direction:column;gap:9px}
+  @media(min-width:720px){.wtiles{display:grid;grid-template-columns:1fr 1fr;gap:10px}}
+  .wtile{border:1px solid var(--line);border-radius:12px;padding:11px 12px;display:flex;gap:11px;align-items:center}
+  .wtile.sel{background:#F3F8F6;box-shadow:0 0 0 2px #2E7D6B inset}
+  .wtile .sw{width:46px;height:29px;border-radius:6px;flex:none;background:linear-gradient(135deg,var(--c1),var(--c2))}
+  .wtile .tx{flex:1;min-width:0}.wtile b{font-size:13.5px;line-height:1.3}
+  .wchips{display:flex;gap:5px;flex:none}
+  .wchip{font:inherit;font-size:10.5px;font-weight:700;padding:4px 10px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--muted);cursor:pointer}
+  .wchip.on{background:#2E7D6B;color:#fff;border-color:#2E7D6B}
+  .wcta{display:flex;align-items:center;gap:12px;margin-top:14px;position:sticky;bottom:0;background:#fff;padding:10px 0 2px}
+  .wcount{font-size:12px;color:var(--muted);white-space:nowrap}
+  .wcta .btn{flex:1}
+  .wcta .btn[disabled]{opacity:.45;cursor:default}
+  .whint{font-size:10.5px;color:var(--muted);margin-top:10px;line-height:1.7}
+  .back{max-width:420px;margin:0 auto 12px;font-size:13px}
+  .back a{color:var(--muted);text-decoration:none}
+  .panel{background:#fff;border:1px solid var(--line);border-radius:14px;margin:14px auto 0;overflow:hidden;max-width:420px}
+  .ph{font-size:11px;color:var(--muted);font-weight:700;padding:12px 16px 0}
+  table.attrs{width:100%;border-collapse:collapse;font-size:13px}
+  table.attrs td{padding:9px 16px;border-bottom:1px solid #EEF2F6}
+  table.attrs td:first-child{color:var(--muted);width:44%}
+  .morefold>summary{display:block;text-align:center;font-size:12px;font-weight:700;color:#2E7D6B;padding:11px;cursor:pointer;list-style:none}
+  .morefold>summary::-webkit-details-marker{display:none}
+  .morefold[open]>summary{color:var(--muted)}
+  .rowfold>summary{display:flex;align-items:center;gap:12px;padding:15px 16px;font-size:14px;font-weight:600;cursor:pointer;list-style:none}
+  .rowfold>summary::-webkit-details-marker{display:none}
+  .rowfold .cnt{margin-left:auto;font-size:11px;color:var(--muted)}
+  .prow{display:flex;align-items:center;gap:12px;padding:13px 16px;border-top:1px solid var(--line);font-size:14px;font-weight:600}
+  .prow .ic,.rowfold .ic{width:22px;text-align:center}
+  .chip2{font-size:11px;font-weight:700;border-radius:999px;padding:2px 10px;background:#E7F3EE;color:#0E8A6B}
+  .chip2.bad{background:#FBE9E7;color:#C8453C}.chip2.na{background:#EEF2F6;color:var(--muted)}
+  .mini2{font:inherit;font-size:11px;font-weight:700;padding:4px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--muted);cursor:pointer}
+  .acts{padding:0 16px 12px}
+  .actrow{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline;font-size:12px;padding:7px 0;border-top:1px dashed #EEF2F6}
+  .actrow small{color:var(--muted)}
+  .devfold{max-width:420px;margin:12px auto 0}
+  .devfold>summary{font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;list-style:none}
+  .devfold>summary::before{content:"▸ "}
+  .devfold[open]>summary::before{content:"▾ "}
+  .djson{background:#0E1A2B;color:#cfe6dd;border-radius:9px;padding:11px 12px;margin:6px 0;font-family:"IBM Plex Mono",monospace;font-size:10.5px;line-height:1.55;white-space:pre-wrap;word-break:break-all;overflow:auto;max-height:280px}
+  .djson.small{max-height:150px}
+  .cbor-note{font-size:11px;color:#7a5b13;background:#FFF7E6;border:1px solid #F2D98B;border-radius:8px;padding:6px 10px;margin-bottom:6px}
+  .rawc>summary{font-size:11.5px;font-weight:700;color:var(--muted);cursor:pointer}
+  .wdel{display:block;width:100%;max-width:420px;margin:14px auto 0;text-align:center;color:#C8453C;font-weight:700;font-size:14px;background:#fff;border:1px solid #EED4D0;border-radius:14px;padding:14px;cursor:pointer}
+</style>`;
 
 function holderKeyPage(jwk, pem, thumbprint, credCount) {
   const pub = JSON.stringify({ kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y }, null, 2);
@@ -880,17 +1153,20 @@ function holderKeyPage(jwk, pem, thumbprint, credCount) {
 function added(s, recs, grant) {
   const list = Array.isArray(recs) ? recs : [recs];
   const newCreds = s.creds.slice(-list.length);
-  const cards = newCreds.map((c) => credCard(c, { interactive: false })).join('');
-  const title = list.length === 1 ? esc(list[0].configId) : `${list.length} 件のクレデンシャル`;
+  const cards = newCreds.map((c) => vcardHtml(credType(c.configId), {
+    title: typeName(credType(c.configId)), sub: c.configId,
+    fmt: c.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT', style: 'margin-top:12px',
+  })).join('');
+  const title = list.length === 1 ? esc(typeName(credType(list[0].configId))) : `${list.length} 件のクレデンシャル`;
   return shell('発行完了', `
     <div class="card">
       <div class="step">OID4VCI（${esc(grant)}）で受領</div>
       <div class="ok">✓ クレデンシャルをウォレットに保管しました</div>
       <h1 style="font-size:18px">${title}</h1>
       ${cards}
-      <div style="margin-top:14px"><a class="btn" href="/">ウォレットを開く</a></div>
+      <div style="margin-top:16px"><a class="btn" href="/" style="display:block;text-align:center">ウォレットを開く</a></div>
       <div class="hint" style="margin-top:10px">この発行は OID4VCI を <b>HTTPS リダイレクト</b>で実行しました（ネイティブ DC API 不使用）。</div>
-    </div>${STYLE}`, WALLET);
+    </div><style>${walletCardCss()}</style>${STYLE}`, WALLET);
 }
 
 function pinScreen(offer, txMeta) {
@@ -931,10 +1207,11 @@ function requestPicker(configs, issuerBase) {
     </div>${STYLE}`, WALLET);
 }
 
-function authRequestPreview({ url, configId, issuerBase }) {
+function authRequestPreview({ url, configIds = [], issuerBase }) {
+  const scopeLabel = configIds.join(' ');
   return shell('認可要求の確認', `
     <div class="card">
-      <div class="step">STEP 2 / Authorization Request（scope=${esc(configId)}）</div>
+      <div class="step">STEP 2 / Authorization Request（scope=${esc(scopeLabel)}）</div>
       <h1>認可要求 URL を確認</h1>
       <div class="hint">ウォレットが生成した PKCE 付きの認可要求です。下のボタンで発行者の認可エンドポイントへ移動します。
         ログイン・同意のうえ、このウォレットにクレデンシャルが発行されます。</div>
