@@ -1208,20 +1208,41 @@ function requestPicker(configs, issuerBase) {
 }
 
 function authRequestPreview({ url, configIds = [], issuerBase }) {
-  const scopeLabel = configIds.join(' ');
-  return shell('認可要求の確認', `
+  // WHAT is being requested is the headline (swatch rows, one per VC); the raw
+  // authorize URL is developer detail and lives in a fold.
+  const rows = configIds.map((id) => {
+    const type = credType(id);
+    const t = WALLET_CARD_THEME[type] || WALLET_CARD_THEME.pid;
+    const fmt = /_mdoc$/.test(id) ? 'mdoc' : 'SD-JWT';
+    return `<div class="reqrow"><span class="sw" style="--c1:${t.c1};--c2:${t.c2};--c3:${t.c3}"></span>
+      <div><b>${esc(typeName(type))}</b><small class="mono">${esc(id)}</small></div>
+      <span class="fmtb">${fmt}</span></div>`;
+  }).join('');
+  return shell('発行を受ける', `
     <div class="card">
-      <div class="step">STEP 2 / Authorization Request（scope=${esc(scopeLabel)}）</div>
-      <h1>認可要求 URL を確認</h1>
-      <div class="hint">ウォレットが生成した PKCE 付きの認可要求です。下のボタンで発行者の認可エンドポイントへ移動します。
-        ログイン・同意のうえ、このウォレットにクレデンシャルが発行されます。</div>
-      <div class="urlbox mono">${esc(url)}</div>
-      <div style="text-align:center;margin-top:6px">
-        <a class="btn" href="${esc(url)}">認可へ進む（発行者へ移動）</a>
-      </div>
-      <div class="hint" style="margin-top:10px">発行者: <span class="mono">${esc(issuerBase)}</span> / redirect_uri はこのウォレットの <span class="mono">/oidc/cb</span></div>
-      <div style="margin-top:12px"><a href="/request">← 種別を選び直す</a>　<a href="/">ウォレットに戻る</a></div>
-    </div>${STYLE}`, WALLET);
+      <div class="step">発行者にログインして取得（authorization_code + PKCE）</div>
+      <h1>以下の ${configIds.length} 件の発行を要求します</h1>
+      ${rows}
+      <div class="hint" style="margin-top:12px">「認可へ進む」で発行者のサインイン・同意画面に移動します。同意すると、このウォレットにクレデンシャルが発行されます。</div>
+      <a class="btn" href="${esc(url)}" style="display:block;text-align:center;margin-top:14px">認可へ進む（発行者へ移動）</a>
+      <details class="urlfold">
+        <summary>開発者向け: 認可要求 URL（PKCE / scope / state）</summary>
+        <div class="urlbox mono">${esc(url)}</div>
+        <div class="hint" style="margin-top:6px">発行者: <span class="mono">${esc(issuerBase)}</span> / redirect_uri はこのウォレットの <span class="mono">/oidc/cb</span></div>
+      </details>
+      <div style="margin-top:14px;font-size:13px"><a href="/">← ウォレットに戻る（選び直す）</a></div>
+    </div>
+    <style>
+      .reqrow{display:flex;gap:11px;align-items:center;border:1px solid var(--line);border-radius:11px;padding:10px 12px;margin-top:8px}
+      .reqrow .sw{width:46px;height:29px;border-radius:6px;flex:none;background:radial-gradient(120% 90% at 88% -12%,var(--c3) 0%,transparent 55%),linear-gradient(135deg,var(--c1),var(--c2))}
+      .reqrow b{font-size:13.5px;display:block;line-height:1.3}
+      .reqrow small{font-size:10px;color:var(--muted)}
+      .reqrow .fmtb{margin-left:auto;font-size:10px;font-weight:700;border:1px solid var(--line);border-radius:6px;padding:2px 8px;color:var(--muted)}
+      .urlfold{margin-top:12px}
+      .urlfold>summary{font-size:11.5px;font-weight:700;color:var(--muted);cursor:pointer;list-style:none}
+      .urlfold>summary::before{content:"▸ "}
+      .urlfold[open]>summary::before{content:"▾ "}
+    </style>${STYLE}`, WALLET);
 }
 
 
