@@ -152,8 +152,13 @@ export const devToggleHtml = () =>
  *  `endpoints:true` adds an エンドポイント tab that fetches GET /dev/endpoints. */
 export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
 <div id="devDrawer" class="dev-drawer" hidden>
+  <div class="dev-grip" id="devGrip" title="ドラッグで高さを変更"><span></span></div>
   <div class="dev-dh"><span class="dev-ic">${CONSOLE_ICON}</span><b>開発者コンソール</b><span class="dev-sub">OID4VCI / OID4VP</span>
+    <span class="dev-size" id="devSize">
+      <button type="button" data-h="mini" title="ミニバー（最新1件のティッカー）">▁ ミニ</button><button type="button" data-h="40" title="画面の40%">◱ 小</button><button type="button" data-h="55" title="画面の55%">◧ 半分</button><button type="button" data-h="85" title="画面の85%">⬒ 最大</button>
+    </span>
     <button type="button" class="dev-x" onclick="window.__dev.close()">×</button></div>
+  <div class="dev-minibar" id="devMini" title="クリックで展開"></div>
   ${endpoints ? `<div class="dev-tabs"><button class="dev-tab on" data-tab="log">通信ログ</button><button class="dev-tab" data-tab="ep">エンドポイント</button></div>` : ''}
   <div class="dev-pane" data-pane="log">
   <div class="dev-legend">🔒 機微情報は値のみ部分マスク（先頭＋長さ＋末尾）。キーと構造は保持。</div>
@@ -177,10 +182,27 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
   .dev-toggle.on{background:#0E1A2B;border-color:#0E1A2B;color:#fff}
   .dev-fab{position:fixed;right:16px;bottom:16px;z-index:60;background:#0E1A2B;color:#cfe6dd;border:0;border-radius:999px;padding:11px 16px;font-family:ui-monospace,monospace;font-size:13px;font-weight:700;box-shadow:0 6px 18px rgba(0,0,0,.3);cursor:pointer;display:none}
   .dev-fab.show{display:inline-flex;align-items:center;gap:7px}
-  .dev-drawer{position:fixed;left:0;right:0;bottom:0;z-index:61;background:#fff;border-top:1px solid var(--line,#E3E8EF);border-radius:16px 16px 0 0;box-shadow:0 -10px 30px rgba(0,0,0,.2);max-height:78vh;display:flex;flex-direction:column;padding-bottom:8px}
+  .dev-drawer{position:fixed;left:0;right:0;bottom:0;z-index:61;background:#fff;border-top:1px solid var(--line,#E3E8EF);border-radius:16px 16px 0 0;box-shadow:0 -10px 30px rgba(0,0,0,.2);height:40vh;min-height:46px;max-height:85vh;display:flex;flex-direction:column;padding-bottom:8px}
+  /* resize grip (devtools-style): drag between 15vh and 85vh; height persists */
+  .dev-grip{flex:none;height:14px;display:flex;align-items:center;justify-content:center;cursor:ns-resize;touch-action:none}
+  .dev-grip span{width:48px;height:5px;border-radius:3px;background:#C6D0DC}
+  .dev-grip:hover span{background:#9FB0C4}
+  /* one-click height presets in the header */
+  .dev-size{margin-left:auto;display:inline-flex;gap:2px;background:#EEF2F1;border:1px solid var(--line,#E3E8EF);border-radius:8px;padding:2px}
+  .dev-size button{font:inherit;font-size:10.5px;font-weight:700;border:0;border-radius:6px;padding:3px 8px;color:var(--muted,#5B6B82);background:transparent;cursor:pointer;white-space:nowrap}
+  .dev-size button.on{background:#0E1A2B;color:#fff}
+  /* mini (peek) mode: a 46px ticker showing the latest exchange */
+  .dev-minibar{display:none}
+  .dev-drawer.mini{height:46px !important;overflow:hidden}
+  .dev-drawer.mini .dev-grip,.dev-drawer.mini .dev-dh,.dev-drawer.mini .dev-tabs,.dev-drawer.mini .dev-pane{display:none}
+  .dev-drawer.mini .dev-minibar{display:flex;align-items:center;gap:9px;padding:0 16px;height:46px;font-family:ui-monospace,monospace;font-size:12px;cursor:pointer}
+  .dev-minibar .mb-ic{color:#0E8A6B;font-weight:800}
+  .dev-minibar .mb-hint{margin-left:auto;color:var(--muted,#5B6B82);font-size:10.5px;font-family:inherit;white-space:nowrap}
+  .dev-minibar .mb-x{border:0;background:none;font-size:16px;color:var(--muted,#5B6B82);cursor:pointer;padding:0 0 0 4px}
+  .dev-minibar .dev-ep{flex:0 1 auto}
   .dev-drawer[hidden]{display:none}
   .dev-dh{display:flex;align-items:center;gap:8px;padding:13px 16px;border-bottom:1px solid var(--line,#E3E8EF);font-size:14px}
-  .dev-dh .dev-sub{color:var(--muted,#5B6B82);font-size:11px;font-weight:600}.dev-dh .dev-x{margin-left:auto;border:0;background:none;font-size:20px;color:var(--muted,#5B6B82);cursor:pointer}
+  .dev-dh .dev-sub{color:var(--muted,#5B6B82);font-size:11px;font-weight:600}.dev-dh .dev-x{margin-left:8px;border:0;background:none;font-size:20px;color:var(--muted,#5B6B82);cursor:pointer}
   .dev-tabs{display:flex;gap:4px;padding:8px 14px 0;border-bottom:1px solid var(--line,#E3E8EF)}
   .dev-tab{font:inherit;font-size:12px;font-weight:700;padding:8px 14px;border:0;border-radius:8px 8px 0 0;color:var(--muted,#5B6B82);background:none;cursor:pointer}
   .dev-tab.on{background:#0E1A2B;color:#fff}
@@ -249,6 +271,7 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
         '<div class="dev-head" onclick="window.__dev.toggleStep(this)">'+dir+mp+'<span class="dev-ep">'+esc(e.ep)+'</span>'+st+'<span class="dev-grp">'+esc(e.grp)+'</span></div>'+
         '<div class="dev-body" '+(open?'':'hidden')+'>'+detail(e)+'</div></div></div>';
     }).join('')+'</div>';
+    renderMini();
   }
   function load(){
     fetch(ORIGIN+'/dev/log',{credentials:'include'}).then(function(r){return r.json();}).then(function(d){
@@ -273,9 +296,41 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
   function setIcon(open){
     var t=document.getElementById('devToggle');if(t){t.classList.toggle('on',open);t.setAttribute('aria-pressed',open);}
   }
+  // ---- height model: open (15–85vh, persisted) or mini (46px ticker) ----
+  var drawer=function(){return document.getElementById('devDrawer');};
+  var size={mode:localStorage.getItem('ihv-dev-mode')||'open',h:parseFloat(localStorage.getItem('ihv-dev-h'))||40,poll:null};
+  function clampH(v){return Math.min(85,Math.max(15,v));}
+  function markPreset(){
+    document.querySelectorAll('#devSize button').forEach(function(b){
+      b.classList.toggle('on',size.mode==='mini'?b.dataset.h==='mini':String(Math.round(size.h))===b.dataset.h);
+    });
+  }
+  function applySize(){
+    var d=drawer();if(!d)return;
+    d.classList.toggle('mini',size.mode==='mini');
+    if(size.mode!=='mini')d.style.height=size.h+'vh';
+    markPreset();
+    if(size.mode==='mini'){renderMini();startPoll();}else{stopPoll();}
+  }
+  function setMode(m){size.mode=m;localStorage.setItem('ihv-dev-mode',m);applySize();}
+  function setH(v){size.h=clampH(v);size.mode='open';localStorage.setItem('ihv-dev-h',String(size.h));localStorage.setItem('ihv-dev-mode','open');applySize();}
+  // mini ticker = latest entry, one line; auto-refresh while visible
+  function renderMini(){
+    var el=document.getElementById('devMini');if(!el)return;
+    var e=state.entries[0];
+    var body=e?'<span class="dev-st s'+String(e.status).charAt(0)+'">'+esc(e.status)+'</span>'+
+      '<span class="dev-mp '+esc(e.method)+'">'+esc(e.method)+'</span>'+
+      '<span class="dev-ep">'+esc(e.ep)+'</span><span class="dev-grp">'+esc(e.grp||'')+'</span>'
+      :'<span class="dev-grp">通信記録はまだありません</span>';
+    el.innerHTML='<span class="mb-ic">&gt;_</span>'+body+
+      '<span class="mb-hint">クリックで展開 ▴</span>'+
+      '<button type="button" class="mb-x" onclick="event.stopPropagation();window.__dev.close()">×</button>';
+  }
+  function startPoll(){if(size.poll)return;size.poll=setInterval(function(){if(!drawer().hidden&&size.mode==='mini')load();},8000);}
+  function stopPoll(){if(size.poll){clearInterval(size.poll);size.poll=null;}}
   window.__dev={
-    open:function(){localStorage.setItem('ihv-dev','1');document.getElementById('devDrawer').hidden=false;setIcon(true);load();},
-    close:function(){localStorage.setItem('ihv-dev','0');document.getElementById('devDrawer').hidden=true;setIcon(false);},
+    open:function(){localStorage.setItem('ihv-dev','1');drawer().hidden=false;setIcon(true);applySize();load();},
+    close:function(){localStorage.setItem('ihv-dev','0');drawer().hidden=true;setIcon(false);stopPoll();},
     load:load,
     toggleStep:function(h){var b=h.nextElementSibling;b.hidden=!b.hidden;h.parentNode.classList.toggle('open',!b.hidden);},
   };
@@ -284,6 +339,29 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
     var t=document.getElementById('devToggle');
     if(t)t.onclick=function(){ document.getElementById('devDrawer').hidden ? window.__dev.open() : window.__dev.close(); };
     if(localStorage.getItem('ihv-dev')==='1')window.__dev.open(); else setIcon(false);
+    // height presets（▁ミニ/◱小/◧半分/⬒最大）
+    document.querySelectorAll('#devSize button').forEach(function(b){b.onclick=function(){
+      b.dataset.h==='mini'?setMode('mini'):setH(parseFloat(b.dataset.h));
+    };});
+    // mini ticker click = expand back to the last open height
+    var mini=document.getElementById('devMini');
+    if(mini)mini.onclick=function(){setMode('open');};
+    // grip drag（pointer events; live resize + persist on release）
+    var g=document.getElementById('devGrip');
+    if(g){
+      g.addEventListener('pointerdown',function(ev){
+        ev.preventDefault();g.setPointerCapture(ev.pointerId);
+        var move=function(m){
+          var vh=clampH((window.innerHeight-m.clientY)/window.innerHeight*100);
+          size.h=vh;drawer().style.height=vh+'vh';
+        };
+        var up=function(){
+          localStorage.setItem('ihv-dev-h',String(size.h));markPreset();
+          g.removeEventListener('pointermove',move);g.removeEventListener('pointerup',up);
+        };
+        g.addEventListener('pointermove',move);g.addEventListener('pointerup',up);
+      });
+    }
     document.querySelectorAll('.dev-chip[data-f]').forEach(function(c){c.onclick=function(){
       document.querySelectorAll('.dev-chip[data-f]').forEach(function(x){x.classList.toggle('on',x===c);});
       state.filter=c.dataset.f;render();
