@@ -14,7 +14,7 @@ const SEED = [
     birth: '1988-07-03', sex: 2, address: '東京都新宿区西新宿2-8-1', honseki: '東京都新宿区西新宿2番', desc: '公務員',
     household: [] },
   { id: 'u_suzuki', surname: '鈴木', family: '鈴木', given: '一郎', family_kana: 'スズキ', given_kana: 'イチロウ',
-    birth: '1975-12-20', sex: 1, address: '神奈川県横浜市西区みなとみらい3-3', honseki: '神奈川県横浜市西区1番', desc: '会社員',
+    birth: '1975-12-20', sex: 1, address: '神奈川県横浜市西区みなとみらい3-3', honseki: '神奈川県横浜市西区1番', desc: '会社員・二児の父',
     // 住民票の続柄表記は平成7年以降「子」に統一（長男/長女は戸籍側の表記）。
     // /account は自由入力なので CHILD_RELS 側は旧表記も許容する（防御は別レイヤ）。
     household: [
