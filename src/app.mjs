@@ -117,7 +117,7 @@ export function createApp(opts = {}) {
       byIdx.get(m[1])[m[2]] = val;
     }
     const household = [...byIdx.entries()].sort(([a], [b]) => a - b).map(([, v]) => v);
-    svc.updateUser(user.id, {
+    await svc.updateUser(user.id, {
       family: f.family, given: f.given, desc: f.desc, birth: f.birth, address: f.address, honseki: f.honseki,
       household,
     });
@@ -172,8 +172,8 @@ export function createApp(opts = {}) {
   // ---- passwordless session ----
   const sid = (c) => c.req.header('x-session-id') || getCookie(c, 'sid');
   // GET /login — simple user picker for browser access (sets session, redirects to /)
-  app.get('/login', (c) => {
-    const users = svc.listUsers();
+  app.get('/login', async (c) => {
+    const users = await svc.listUsers();
     const next = c.req.query('next') || '/';
     return c.html(renderLogin(users, next));
   });
@@ -294,10 +294,10 @@ export function createApp(opts = {}) {
   // (The interactive Verifier console moved to the Verifier app at /verifier.)
 
   // ---- user-data maintenance ----
-  app.get('/users', (c) => c.json({ users: svc.listUsers() }));
-  app.get('/users/:id', (c) => { const u = svc.getUser(c.req.param('id')); return u ? c.json(u) : c.json({ error: 'not found' }, 404); });
+  app.get('/users', async (c) => c.json({ users: await svc.listUsers() }));
+  app.get('/users/:id', async (c) => { const u = await svc.getUser(c.req.param('id')); return u ? c.json(u) : c.json({ error: 'not found' }, 404); });
   app.put('/users/:id', async (c) => {
-    try { return c.json(svc.updateUser(c.req.param('id'), await c.req.json())); }
+    try { return c.json(await svc.updateUser(c.req.param('id'), await c.req.json())); }
     catch (e) { return fail(c, e); }
   });
 

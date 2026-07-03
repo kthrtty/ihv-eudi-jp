@@ -91,6 +91,16 @@ export class IssuerService {
     if (saved.statusReasons) this.statusList.reasons = new Map(saved.statusReasons);
   }
 
+  // User-persona edits live in their own KV key and are re-read on EVERY access
+  // (no _stateLoaded-style guard): an /account edit on isolate A must be visible
+  // to an issuance on isolate B immediately, or the minted VC carries stale data.
+  async _loadUsers() {
+    const saved = await this.store.get('_persist:users');
+    if (saved) this.users.restore(saved);
+  }
+  async _saveUsers() {
+    await this.store.set('_persist:users', this.users.dump(), 86400 * 30);
+  }
   async _saveState() {
     await this.store.set('_persist:state', {
       issuanceLog: this.issuanceLog,
@@ -102,6 +112,7 @@ export class IssuerService {
 
   // ---- Passwordless session (user identification) ----
   async login(userId) {
+    await this._loadUsers();
     if (!this.users.has(userId)) throw httpErr(400, 'invalid_request', `unknown user ${userId}`);
     const sid = tok();
     await this.store.set(`sess:${sid}`, { userId }, 3600);
@@ -110,14 +121,17 @@ export class IssuerService {
   async logout(sid) { if (sid) await this.store.del?.(`sess:${sid}`); return { ok: true }; }
   async sessionUser(sid) {
     const s = sid && await this.store.get(`sess:${sid}`);
+    if (s) await this._loadUsers();
     return s ? this.users.get(s.userId) : null;
   }
 
   // ---- User-data maintenance ----
-  listUsers() { return this.users.list(); }
-  getUser(id) { return this.users.get(id); }
-  updateUser(id, patch) {
+  async listUsers() { await this._loadUsers(); return this.users.list(); }
+  async getUser(id) { await this._loadUsers(); return this.users.get(id); }
+  async updateUser(id, patch) {
+    await this._loadUsers(); // merge on top of the latest persisted state
     const u = this.users.update(id, patch);
+    if (u) await this._saveUsers();
     if (!u) throw httpErr(404, 'not_found', `unknown user ${id}`);
     return u;
   }
@@ -298,6 +312,7 @@ export class IssuerService {
     await this._loadState();
     const holderJwk = await this.#verifyProof(jwtProofs[0]);
     const status = this.statusList.allocate();
+    if (at.userId) await this._loadUsers(); // persona edits must survive isolate switches
     const persona = at.userId ? this.users.get(at.userId) : null; // session-bound data switch
     // subject data precedence: offer-supplied override > persona > SAMPLE (in mint)
     const claims = at.claims?.[configId] ?? personaClaims(configId, persona);
