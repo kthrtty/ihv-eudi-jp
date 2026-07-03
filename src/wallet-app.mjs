@@ -500,7 +500,15 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
         ...(s.activity || [])].slice(0, 30);
       s.present = null;
       await saveSession(s); // presentation does NOT consume the credential — it stays in the wallet
-      return c.redirect(r.redirect_uri, 302); // back to the Verifier's result page
+      // Open-redirect guard: the post-presentation redirect MUST land on the same
+      // origin that received the vp_token (response_uri). A crafted request_uri
+      // could otherwise steer the wallet to redirect to an attacker's page.
+      let dest;
+      try {
+        if (new URL(r.redirect_uri).origin !== new URL(request.response_uri).origin) throw 0;
+        dest = r.redirect_uri;
+      } catch { throw new Error('提示先と異なるオリジンへのリダイレクトを拒否しました'); }
+      return c.redirect(dest, 302); // back to the Verifier's result page
     } catch (e) {
       return c.html(shell('ウォレット', `<div class="card"><h1>提示に失敗</h1><div class="hint" style="color:#9E3A3A">${esc(e.message)}</div></div>`, WALLET));
     }
