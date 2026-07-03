@@ -150,6 +150,56 @@ test('authorize consent v2: a multi-scope request lists EVERY credential and cou
   assert.match(html, /reqrow/, 'each credential gets a swatch row');
 });
 
+test('BUG回帰: ユーザー編集は isolate を跨いで発行に反映される（KV 永続化）', async () => {
+  // 本番 Workers ではリクエストごとに別 isolate に当たりうる。ユーザーストアが
+  // per-isolate メモリのままだと、/account や PUT /users の編集後も別 isolate の
+  // 発行が SEED の元データで mint される（報告されたバグ）。fake KV を共有した
+  // 2 つの独立 app インスタンスで isolate 切替を模擬する。
+  const { kvStore } = await import('../src/oid4vci.mjs');
+  const mem = new Map();
+  const fakeKV = {
+    async put(k, v) { mem.set(k, v); },
+    async get(k) { return mem.has(k) ? mem.get(k) : null; },
+    async delete(k) { mem.delete(k); },
+  };
+  const mkApp = () => createApp({ credentialIssuer: ISSUER, store: kvStore(fakeKV) }); // 各 app = 別 isolate（SEED は初期状態）
+
+  // isolate A: 氏名と世帯を編集
+  const appA = mkApp();
+  const upd = await (await appA.request('/users/u_tanaka', {
+    method: 'PUT', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ family: '結城', given: '莉央', household: [{ family: '結城', given: '蒼', birth: '2020-02-02', rel: '子' }] }),
+  })).json();
+  assert.equal(upd.family, '結城');
+
+  // isolate B（完全に新しいインスタンス・メモリは SEED）: 発行すると編集が反映されるべき
+  const appB = mkApp();
+  const claimsB = await issueAsUser(appB, 'u_tanaka');
+  assert.equal(claimsB.family_name, '結城', '別 isolate の発行に氏名編集が反映される');
+  assert.equal(claimsB.given_name, '莉央');
+  const juB = await issueAsUser(appB, 'u_tanaka', 'juminhyo_mdoc');
+  assert.ok(juB.household_members.find((m) => m.given_name === '蒼' && m.relationship_to_head === '子'),
+    '世帯員の編集も isolate を跨いで住民票に反映される');
+
+  // isolate C: /account 経路（ブラウザセッション）でも同様
+  const appC = mkApp();
+  const login = await (await appC.request('/login', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ user_id: 'u_tanaka' }),
+  })).json();
+  await appC.request('/account', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: `sid=${login.session_id}` },
+    body: new URLSearchParams({ family: '結城', given: '莉央', desc: '', birth: '2002-04-10', address: 'x', honseki: 'y' }).toString(),
+  });
+  const appD = mkApp();
+  const claimsD = await issueAsUser(appD, 'u_tanaka');
+  assert.equal(claimsD.family_name, '結城', '/account 経由の編集も別 isolate の発行に反映');
+  // 表示系 API も最新を返す
+  const shown = await (await appD.request('/users/u_tanaka')).json();
+  assert.equal(shown.family, '結城');
+});
+
 test('session lifecycle: /session reflects login and logout', async () => {
   const app = createApp({ credentialIssuer: ISSUER });
   const login = await (await app.request('/login', {

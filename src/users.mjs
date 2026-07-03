@@ -88,5 +88,13 @@ export function createUserStore() {
       if ('household' in patch) u.household = cleanHousehold(patch.household);
       return { ...u };
     },
+    // Persistence hooks: the store itself is per-process memory. On Cloudflare
+    // Workers each isolate gets a fresh SEED copy, so edits MUST round-trip
+    // through KV (oid4vci _loadUsers/_saveUsers) or issued VCs revert to the
+    // original persona after an isolate switch.
+    dump: () => [...users.values()].map((u) => ({ ...u, household: (u.household || []).map((m) => ({ ...m })) })),
+    restore: (list) => {
+      for (const u of list || []) if (u && u.id && users.has(u.id)) users.set(u.id, { ...u, household: (u.household || []).map((m) => ({ ...m })) });
+    },
   };
 }
