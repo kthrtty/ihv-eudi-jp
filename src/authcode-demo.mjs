@@ -300,7 +300,9 @@ function appHeaderHtml(user, dev = false) {
     </header>`;
   const initial = esc(user.surname[0] ?? user.family[0]);
   const name = esc(`${user.family} ${user.given}`);
-  const desc = user.desc ? `<div style="font-size:11px;color:#5B6B82">${esc(user.desc)}</div>` : '';
+  // compact header pill: 28px avatar + FAMILY NAME only. The full name / title
+  // (desc) live in the dropdown, where there is room for them.
+  const desc = user.desc ? `<div style="font-size:12px;color:#5B6B82">${esc(user.desc)}</div>` : '';
   const mItem = 'display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 14px;border:none;background:none;font:inherit;font-size:14px;cursor:pointer;border-radius:6px;text-decoration:none;color:#0E1A2B;box-sizing:border-box';
   return `
     <header class="ahdr" style="background:#EAF0FA;border-bottom:1px solid #D4DEF5;padding:0 24px;display:flex;align-items:center;gap:12px">
@@ -310,15 +312,15 @@ function appHeaderHtml(user, dev = false) {
       <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
         ${devBtn}
         <details style="position:relative">
-          <summary class="ah-pill" style="list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;padding:5px 14px 5px 6px;border:1px solid #DCE3ED;border-radius:999px;background:#fff">
-            <span style="width:36px;height:36px;border-radius:50%;border:2px solid #C8453C;color:#C8453C;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0">${initial}</span>
-            <div class="ah-name" style="text-align:left"><div style="font-size:14px;font-weight:600;line-height:1.3">${name}</div>${desc}</div>
-            <span class="ah-name" style="font-size:11px;color:#5B6B82;margin-left:2px">▾</span>
+          <summary class="ah-pill" style="list-style:none;cursor:pointer;display:flex;align-items:center;gap:7px;padding:3px 10px 3px 4px;border:1px solid #DCE3ED;border-radius:999px;background:#fff">
+            <span style="width:28px;height:28px;border-radius:50%;border:2px solid #C8453C;color:#C8453C;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0">${initial}</span>
+            <span class="ah-name" style="font-size:13px;font-weight:600">${esc(user.family)}</span>
+            <span class="ah-name" style="font-size:10px;color:#5B6B82">▾</span>
           </summary>
           <div style="position:absolute;right:0;top:calc(100% + 6px);background:#fff;border:1px solid #DCE3ED;border-radius:12px;min-width:230px;box-shadow:0 6px 24px rgba(14,26,43,.12);z-index:10;padding:6px">
             <div style="display:flex;align-items:center;gap:12px;padding:12px 14px 14px">
               <span style="width:44px;height:44px;border-radius:50%;border:2px solid #C8453C;color:#C8453C;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:20px;flex-shrink:0">${initial}</span>
-              <div><div style="font-size:15px;font-weight:700">${name}</div><div style="font-family:monospace;font-size:12px;color:#5B6B82">${esc(user.id)}</div></div>
+              <div><div style="font-size:15px;font-weight:700">${name}</div>${desc}<div style="font-family:monospace;font-size:12px;color:#5B6B82">${esc(user.id)}</div></div>
             </div>
             <div style="height:1px;background:#EEF1F6;margin:2px 0 6px"></div>
             <a href="/history" style="${mItem}"><span>📈</span> 発行履歴</a>
