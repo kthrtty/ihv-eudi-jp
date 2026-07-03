@@ -23,10 +23,27 @@ const dispName = (configId) => {
 const CSS = `
   :root{--ink:#0E1A2B;--paper:#EFF2F7;--surface:#fff;--civic:#1C3F94;--civic-press:#15306F;
     --seal:#C8453C;--seal-soft:#f4ddd9;--verify:#0E8A6B;--line:#DCE3ED;--muted:#5B6B82}
+  /* role theming: each site's header tint / accents / primary buttons follow its
+     role colour (issuer=blue is the :root default; verifier/wallet override
+     --civic so every accent that uses it inherits the role identity). */
+  body.role-issuer{--role-soft:#EAF0FA;--role-line:#D4DEF5}
+  body.role-verifier{--role-soft:#F8EEEE;--role-line:#E7D6D6;--civic:#9E3A3A;--civic-press:#7E2D2D}
+  body.role-wallet{--role-soft:#EAF4F1;--role-line:#D2E5DF;--civic:#2E7D6B;--civic-press:#246154}
   *{box-sizing:border-box}
   body{margin:0;font-family:"Zen Kaku Gothic New",system-ui,sans-serif;background:var(--paper);color:var(--ink);line-height:1.6}
   .mono{font-family:"IBM Plex Mono",monospace}
-  .top{display:flex;align-items:center;gap:11px;padding:14px 22px;background:#fff;border-bottom:1px solid var(--line)}
+  /* sticky role header: stays on top while scrolling and COMPACTS (padding/sub
+     label) past a small threshold — the role tint + badge remain visible at all
+     times, which is the whole point (which-site-am-I-on identification). */
+  .top{display:flex;align-items:center;gap:11px;padding:14px 22px;background:var(--role-soft,#fff);border-bottom:1px solid var(--role-line,var(--line));
+    position:sticky;top:0;z-index:60;transition:padding .18s ease, box-shadow .18s ease}
+  .top.compact{padding:6px 22px;box-shadow:0 2px 12px rgba(14,26,43,.12)}
+  .top.compact small{display:none}
+  .top.compact .tag{height:16px}
+  /* issuer portal header (appShell) — same sticky/compact behaviour */
+  .ahdr{position:sticky;top:0;z-index:60;height:60px;transition:height .18s ease, box-shadow .18s ease}
+  .ahdr.compact{height:44px;box-shadow:0 2px 12px rgba(14,26,43,.12)}
+  .ahdr.compact .ah-sub{display:none}
   .top .tag{width:10px;height:24px;border-radius:3px;background:var(--civic)}
   .top.verifier .tag{background:#9E3A3A}
   .top.wallet .tag{background:#2E7D6B}
@@ -76,12 +93,30 @@ const CSS = `
   .step{display:inline-block;font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:2px 10px;margin-bottom:10px}
 `;
 const FONTS = '<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">';
+
+// Tab-level role identity: coloured-dot favicon (発/W/検) + title prefix, so the
+// three origins are distinguishable in the browser tab strip / screenshots.
+const ROLE_META = {
+  issuer: { prefix: '発行者', color: '#1C3F94', ch: '発' },
+  verifier: { prefix: '検証者', color: '#9E3A3A', ch: '検' },
+  wallet: { prefix: 'ウォレット', color: '#2E7D6B', ch: 'W' },
+};
+export const roleHead = (role, title) => {
+  const m = ROLE_META[role] || ROLE_META.issuer;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="15" fill="${m.color}"/><text x="16" y="22" font-size="${m.ch === 'W' ? 17 : 14}" font-weight="bold" text-anchor="middle" fill="#fff" font-family="sans-serif">${m.ch}</text></svg>`;
+  return `<title>【${m.prefix}】${esc(title)}</title><link rel="icon" type="image/svg+xml" href="data:image/svg+xml,${encodeURIComponent(svg)}">`;
+};
+// header compact-on-scroll: one sentinel + IntersectionObserver (no scroll handler)
+const STICKY_JS = `<script>(function(){var h=document.querySelector('header.top,header.ahdr');var s=document.getElementById('hdr-sent');
+if(h&&s&&'IntersectionObserver' in window)new IntersectionObserver(function(e){h.classList.toggle('compact',!e[0].isIntersecting)}).observe(s)})();</script>`;
+const SENTINEL = '<div id="hdr-sent" style="position:absolute;top:0;left:0;width:1px;height:1px"></div>';
+
 export const shell = (title, body, { brand = 'デジタル資格証発行ポータル', sub = 'AUTHORIZATION SERVER', role = 'issuer', width = 'narrow', dev = false } = {}) => {
   const cls = width === 'wide' ? 'wrap wide' : width === 'mid' ? 'wrap mid' : 'wrap';
   const roleBadge = `<span class="role">${role === 'verifier' ? '検証者 · VERIFIER' : role === 'wallet' ? 'ウォレット · WALLET' : '発行者 · ISSUER'}</span>`;
   const right = dev ? `<span class="dev-hdr-right">${devToggleHtml()}${roleBadge}</span>` : roleBadge;
-  return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title>${FONTS}<style>${CSS}</style></head>
-<body><header class="top ${role}"><span class="tag"></span><div><b>${esc(brand)}</b><small>${esc(sub)}</small></div>${right}</header><div class="${cls}">${body}</div>${dev ? devWidgetHtml() : ''}</body></html>`;
+  return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${roleHead(role, title)}${FONTS}<style>${CSS}</style></head>
+<body class="role-${role}">${SENTINEL}<header class="top ${role}"><span class="tag"></span><div><b>${esc(brand)}</b><small>${esc(sub)}</small></div>${right}</header><div class="${cls}">${body}</div>${dev ? devWidgetHtml() : ''}${STICKY_JS}</body></html>`;
 };
 
 /** AS consent + passwordless login screen shown by GET /authorize when no session. */
@@ -257,7 +292,7 @@ export function renderLogin(users, next = '/', { note = null } = {}) {
 function appHeaderHtml(user, dev = false) {
   const devBtn = dev ? devToggleHtml() : '';
   if (!user) return `
-    <header style="background:#fff;border-bottom:1px solid #DCE3ED;padding:0 24px;display:flex;align-items:center;height:60px;gap:12px">
+    <header class="ahdr" style="background:#EAF0FA;border-bottom:1px solid #D4DEF5;padding:0 24px;display:flex;align-items:center;gap:12px">
       <span style="width:4px;height:28px;border-radius:2px;background:#1C3F94;flex-shrink:0;display:block"></span>
       <div class="ah-brand"><div class="ah-title" style="font-size:16px;font-weight:700;color:#0E1A2B;line-height:1.2">IHV 発行ポータル</div>
         <div class="ah-sub" style="font-size:10px;letter-spacing:.14em;color:#5B6B82">CREDENTIAL ISSUER</div></div>
@@ -268,7 +303,7 @@ function appHeaderHtml(user, dev = false) {
   const desc = user.desc ? `<div style="font-size:11px;color:#5B6B82">${esc(user.desc)}</div>` : '';
   const mItem = 'display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 14px;border:none;background:none;font:inherit;font-size:14px;cursor:pointer;border-radius:6px;text-decoration:none;color:#0E1A2B;box-sizing:border-box';
   return `
-    <header style="background:#fff;border-bottom:1px solid #DCE3ED;padding:0 24px;display:flex;align-items:center;height:60px;gap:12px">
+    <header class="ahdr" style="background:#EAF0FA;border-bottom:1px solid #D4DEF5;padding:0 24px;display:flex;align-items:center;gap:12px">
       <span style="width:4px;height:28px;border-radius:2px;background:#1C3F94;flex-shrink:0;display:block"></span>
       <div class="ah-brand"><div class="ah-title" style="font-size:16px;font-weight:700;color:#0E1A2B;line-height:1.2">IHV 発行ポータル</div>
         <div class="ah-sub" style="font-size:10px;letter-spacing:.14em;color:#5B6B82">CREDENTIAL ISSUER</div></div>
@@ -302,9 +337,9 @@ export function appShell(title, body, user = null, { width = 'narrow', dev = tru
   const cls = width === 'wide' ? 'wrap wide' : width === 'mid' ? 'wrap mid' : 'wrap';
   return `<!doctype html><html lang="ja"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>${esc(title)} — IHV 発行ポータル</title>${FONTS}<style>${CSS}</style>
-  </head><body style="background:var(--paper);min-height:100vh">
-    ${appHeaderHtml(user, dev)}<div class="${cls}">${body}</div>${dev ? devWidgetHtml('', { endpoints: true }) : ''}
+    ${roleHead('issuer', `${title} — IHV 発行ポータル`)}${FONTS}<style>${CSS}</style>
+  </head><body class="role-issuer" style="background:var(--paper);min-height:100vh">
+    ${SENTINEL}${appHeaderHtml(user, dev)}<div class="${cls}">${body}</div>${dev ? devWidgetHtml('', { endpoints: true }) : ''}${STICKY_JS}
   </body></html>`;
 }
 
