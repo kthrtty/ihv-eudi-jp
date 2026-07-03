@@ -844,7 +844,7 @@ export function renderHistory(user, issuances) {
       ? '<span class="badge ng">● 失効</span>'
       : '<span class="badge ok">● 有効</span>';
     const revBtn = e.revoked
-      ? `<span class="rvreason" title="失効理由">${esc(e.revocation || '—')}</span>`
+      ? `<span class="rvreason" title="失効理由">${esc(e.revocation?.reason || '—')}</span>`
       : `<button class="revoke on" data-idx="${e.idx}">失効させる</button>`;
     return `<div class="hrow">
       <span class="sw" style="--c1:${t.c1};--c2:${t.c2};--c3:${t.c3}"></span>
