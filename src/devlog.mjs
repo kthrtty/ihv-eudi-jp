@@ -153,9 +153,9 @@ export const devToggleHtml = () =>
 export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
 <div id="devDrawer" class="dev-drawer" hidden>
   <div class="dev-grip" id="devGrip" title="ドラッグで高さを変更"><span></span></div>
-  <div class="dev-dh"><span class="dev-ic">${CONSOLE_ICON}</span><b>開発者コンソール</b><span class="dev-sub">OID4VCI / OID4VP</span>
+  <div class="dev-dh"><span class="dev-ic">${CONSOLE_ICON}</span><b>開発者コンソール</b>
     <span class="dev-size" id="devSize">
-      <button type="button" data-h="mini" title="ミニバー（最新1件のティッカー）">▁ ミニ</button><button type="button" data-h="40" title="画面の40%">◱ 小</button><button type="button" data-h="55" title="画面の55%">◧ 半分</button><button type="button" data-h="85" title="画面の85%">⬒ 最大</button>
+      <button type="button" data-h="mini" title="ミニバー（最新1件のティッカー）">ミニ</button><button type="button" data-h="40" title="画面の40%">小</button><button type="button" data-h="55" title="画面の55%">半分</button><button type="button" data-h="85" title="画面の85%">最大</button>
     </span>
     <button type="button" class="dev-x" onclick="window.__dev.close()">×</button></div>
   <div class="dev-minibar" id="devMini" title="クリックで展開"></div>
@@ -189,7 +189,7 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
   .dev-grip:hover span{background:#9FB0C4}
   /* one-click height presets in the header */
   .dev-size{margin-left:auto;display:inline-flex;gap:2px;background:#EEF2F1;border:1px solid var(--line,#E3E8EF);border-radius:8px;padding:2px}
-  .dev-size button{font:inherit;font-size:10.5px;font-weight:700;border:0;border-radius:6px;padding:3px 8px;color:var(--muted,#5B6B82);background:transparent;cursor:pointer;white-space:nowrap}
+  .dev-size button{font:inherit;font-size:10px;font-weight:700;border:0;border-radius:6px;padding:3px 7px;color:var(--muted,#5B6B82);background:transparent;cursor:pointer;white-space:nowrap}
   .dev-size button.on{background:#0E1A2B;color:#fff}
   /* mini (peek) mode: a 46px ticker showing the latest exchange */
   .dev-minibar{display:none}
@@ -201,13 +201,14 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
   .dev-minibar .mb-x{border:0;background:none;font-size:16px;color:var(--muted,#5B6B82);cursor:pointer;padding:0 0 0 4px}
   .dev-minibar .dev-ep{flex:0 1 auto}
   .dev-drawer[hidden]{display:none}
-  .dev-dh{display:flex;align-items:center;gap:8px;padding:13px 16px;border-bottom:1px solid var(--line,#E3E8EF);font-size:14px}
-  .dev-dh .dev-sub{color:var(--muted,#5B6B82);font-size:11px;font-weight:600}.dev-dh .dev-x{margin-left:8px;border:0;background:none;font-size:20px;color:var(--muted,#5B6B82);cursor:pointer}
+  .dev-dh{display:flex;align-items:center;gap:7px;padding:8px 14px;border-bottom:1px solid var(--line,#E3E8EF);font-size:12.5px}
+  .dev-dh b{white-space:nowrap}
+  .dev-dh .dev-x{margin-left:6px;border:0;background:none;font-size:18px;color:var(--muted,#5B6B82);cursor:pointer;padding:0 2px}
   .dev-tabs{display:flex;gap:4px;padding:8px 14px 0;border-bottom:1px solid var(--line,#E3E8EF)}
   .dev-tab{font:inherit;font-size:12px;font-weight:700;padding:8px 14px;border:0;border-radius:8px 8px 0 0;color:var(--muted,#5B6B82);background:none;cursor:pointer}
   .dev-tab.on{background:#0E1A2B;color:#fff}
   .dev-pane{display:flex;flex-direction:column;min-height:0;overflow:auto}
-  .dev-legend{font-size:11px;color:#7a5b13;background:#FFF7E6;border:1px solid #F2D98B;border-radius:8px;padding:6px 10px;margin:10px 16px 0}
+  .dev-legend{font-size:10px;color:#7a5b13;background:#FFF7E6;border:1px solid #F2D98B;border-radius:8px;padding:4px 9px;margin:8px 14px 0;line-height:1.5}
   .dev-ep{border:1px solid var(--line,#E3E8EF);border-radius:10px;padding:10px 12px;margin-top:8px}
   .dev-ep.meta{border-color:#F2D98B;background:#FFFDF6}
   .dev-ep-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -216,10 +217,10 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
   .dev-ep-go{margin-left:auto;font-size:11px;font-weight:700;color:#1C3F94;cursor:pointer;text-decoration:none}
   .dev-ep-val{margin-top:8px;border-top:1px dashed #ECD9A0;padding-top:7px}
   .dev-ep-vh{font-size:10.5px;font-weight:700;color:#7a5b13;margin-bottom:4px}
-  .dev-filters{display:flex;gap:6px;padding:10px 16px 4px;flex-wrap:wrap}
-  .dev-chip{font:inherit;font-size:11px;font-weight:700;border:1px solid var(--line,#E3E8EF);border-radius:999px;padding:4px 11px;color:var(--muted,#5B6B82);background:#fff;cursor:pointer}
+  .dev-filters{display:flex;gap:5px;padding:8px 14px 2px;flex-wrap:wrap}
+  .dev-chip{font:inherit;font-size:10.5px;font-weight:700;border:1px solid var(--line,#E3E8EF);border-radius:999px;padding:3px 9px;color:var(--muted,#5B6B82);background:#fff;cursor:pointer}
   .dev-chip.on{background:#0E1A2B;color:#fff;border-color:#0E1A2B}
-  .dev-rows{padding:8px 16px 14px;overflow:auto}
+  .dev-rows{padding:6px 14px 12px;overflow:auto}
   .dev-tl{border-left:2px solid var(--line,#E3E8EF);padding-left:14px;margin-left:9px}
   .dev-step{position:relative;padding:4px 0 12px}
   .dev-num{position:absolute;left:-25px;top:4px;width:20px;height:20px;border-radius:50%;background:#cfd8e3;color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center}
@@ -227,13 +228,13 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
   .dev-head{display:flex;align-items:center;gap:8px;padding:7px 9px;background:#f7f9fc;border:1px solid var(--line,#E3E8EF);border-radius:9px;cursor:pointer}
   .dev-dir{font-weight:800;font-size:13px}.dev-dir.out{color:#2E7D6B}.dev-dir.in{color:#9E3A3A}
   .dev-mp{font-size:10px;font-weight:800;border-radius:5px;padding:2px 6px;color:#fff;background:#7A52A8}.dev-mp.GET{background:#3B6EA5}
-  .dev-ep{font-family:ui-monospace,monospace;font-size:11.5px;color:#0E1A2B;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dev-ep{font-family:ui-monospace,monospace;font-size:11px;color:#0E1A2B;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .dev-st{font-size:10px;font-weight:800;border-radius:999px;padding:2px 7px;background:#E7F3EE;color:#1f7a52}.dev-st.s4,.dev-st.s5{background:#FBE9E7;color:#9E3A3A}
   .dev-grp{font-size:10px;color:var(--muted,#5B6B82)}
   .dev-body{margin-top:8px}
   .dev-sect{font-size:11.5px;font-weight:800;margin:10px 0 4px}
   .dev-blab{font-size:11px;font-weight:700;color:var(--muted,#5B6B82);margin:8px 0 0}
-  .dev-code{background:#0E1A2B;color:#cfe6dd;border-radius:9px;padding:11px 12px;margin:4px 0 0;font-family:ui-monospace,monospace;font-size:10.5px;line-height:1.55;white-space:pre-wrap;word-break:break-all;overflow:auto;max-height:240px}
+  .dev-code{background:#0E1A2B;color:#cfe6dd;border-radius:9px;padding:9px 11px;margin:4px 0 0;font-family:ui-monospace,monospace;font-size:10px;line-height:1.5;white-space:pre-wrap;word-break:break-all;overflow:auto;max-height:240px}
   .dev-fold>summary{font-size:11px;font-weight:700;color:#2E7D6B;cursor:pointer;list-style:none;margin-top:4px}
   .dev-fold>summary::-webkit-details-marker{display:none}
   .dev-hdrs{border:1px solid var(--line,#E3E8EF);border-radius:8px;overflow:hidden;margin-top:5px}
