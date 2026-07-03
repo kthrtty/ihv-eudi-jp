@@ -197,7 +197,7 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
   .dev-drawer.mini .dev-grip,.dev-drawer.mini .dev-dh,.dev-drawer.mini .dev-tabs,.dev-drawer.mini .dev-pane{display:none}
   .dev-drawer.mini .dev-minibar{display:flex;align-items:center;gap:9px;padding:0 16px;height:46px;font-family:ui-monospace,monospace;font-size:12px;cursor:pointer}
   .dev-minibar .mb-ic{color:#0E8A6B;font-weight:800}
-  .dev-minibar .mb-hint{margin-left:auto;color:var(--muted,#5B6B82);font-size:10.5px;font-family:inherit;white-space:nowrap}
+  .dev-minibar .mb-hint{margin-left:auto;color:var(--muted,#5B6B82);font-size:13px;line-height:1}
   .dev-minibar .mb-x{border:0;background:none;font-size:16px;color:var(--muted,#5B6B82);cursor:pointer;padding:0 0 0 4px}
   .dev-minibar .dev-ep{flex:0 1 auto}
   .dev-drawer[hidden]{display:none}
@@ -324,7 +324,7 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
       '<span class="dev-ep">'+esc(e.ep)+'</span><span class="dev-grp">'+esc(e.grp||'')+'</span>'
       :'<span class="dev-grp">通信記録はまだありません</span>';
     el.innerHTML='<span class="mb-ic">&gt;_</span>'+body+
-      '<span class="mb-hint">クリックで展開 ▴</span>'+
+      '<span class="mb-hint" title="クリックで展開">▴</span>'+
       '<button type="button" class="mb-x" onclick="event.stopPropagation();window.__dev.close()">×</button>';
   }
   function startPoll(){if(size.poll)return;size.poll=setInterval(function(){if(!drawer().hidden&&size.mode==='mini')load();},8000);}
