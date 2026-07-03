@@ -96,12 +96,14 @@ export const SCENARIOS = {
   'disaster-aid': {
     id: 'disaster-aid',
     icon: '🏚️',
-    title: '被災者支援金の申請',
-    rp: '千代田区 被災者支援窓口',
-    rpKind: '支援金オンライン申請',
-    tagline: '本人確認のうえ、罹災証明書を提示して支援金を申請',
-    story: '災害で住家に被害を受けた方が、生活再建支援金をオンラインで申請します。本人確認ののち、市区町村が発行した罹災証明書を提示します。被害程度（全壊・半壊など）が支援金の算定に使われます。',
-    purpose: '被災者生活再建支援金の申請に伴う本人確認および罹災事実・被害程度の確認',
+    title: '地震保険の保険金請求',
+    rp: 'あおい損害保険',
+    rpKind: '保険金請求（オンライン受付）',
+    tagline: '本人確認のうえ、罹災証明書を提示して保険金を請求',
+    // 行政の支援金はマイナ連携で代替されうるため、罹災証明書は「民間（損保）への
+    // 提出」の代表例で構成（地震保険の査定で罹災証明書の提出が実務上求められる）。
+    story: '地震で住まいに被害を受けた契約者が、保険金をオンラインで請求します。本人確認ののち、市区町村が発行した罹災証明書を提示します。被害程度（全壊・半壊など）が保険金の査定に使われます。',
+    purpose: '地震保険の保険金請求に伴う本人確認および罹災事実・被害程度の確認（査定）',
     steps: [
       PID_STEP,
       { name: '罹災証明書の提示', shortName: '罹災証明書',
@@ -113,25 +115,27 @@ export const SCENARIOS = {
       return [
         { ok: sameName(pid, eaa), label: '身分証と罹災証明書の氏名が一致' },
         { ok: !!(pid && eaa) && strip(cl(pid, 'residence_address')) === strip(cl(eaa, 'address')),
-          label: '住所が罹災住家と一致（居住実態の確認）' },
+          label: '住所が罹災住家と一致（保険の対象物件の確認）' },
         { ok: !!cl(eaa, 'damage_level'), label: `被害程度を確認（提示値: ${cl(eaa, 'damage_level') ?? '—'} / ${cl(eaa, 'disaster_name') ?? ''}）` },
         { ok: r2?.linkedSameHolder === true, label: '同一の保有者鍵で署名を確認（別人のウォレットの混用を防止）' },
       ];
     },
     acceptText(pid, eaa) {
-      return `${this.rp}は、${name(pid)}様の本人確認と、罹災証明書（${cl(eaa, 'disaster_name') ?? ''}・被害程度: ${cl(eaa, 'damage_level') ?? ''}）の確認を完了し、支援金の申請を受理しました。`;
+      return `${this.rp}は、${name(pid)}様の本人確認と、罹災証明書（${cl(eaa, 'disaster_name') ?? ''}・被害程度: ${cl(eaa, 'damage_level') ?? ''}）の確認を完了し、保険金請求を受理しました。被害程度は保険金の査定に使用します。`;
     },
   },
 
   entry: {
     id: 'entry',
     icon: '✈️',
-    title: '入国事前手続き（防疫チェック）',
-    rp: '入国事前手続きポータル',
-    rpKind: 'Visit Japan Web 型の事前審査サイト',
-    tagline: '本人確認のうえ、ワクチン接種証明を提示',
-    story: '渡航者が到着前にオンラインで身元確認と防疫要件（ワクチン接種歴）の確認を済ませます。本人確認ののち、接種証明を提示します（EU DCC / DTC を参考にした将来像のデモ。入国審査そのものではありません）。',
-    purpose: '事前入国手続きにおける渡航者の身元確認と防疫要件（接種歴）の確認',
+    title: '国際線チェックイン（防疫要件）',
+    rp: 'あさひ航空',
+    rpKind: '国際線オンラインチェックイン',
+    tagline: '本人確認のうえ、ワクチン接種証明を提示して搭乗手続き',
+    // 渡航先が防疫要件を課す場合、確認の実務を担ったのは航空会社（民間）だった
+    // （COVID 期の搭乗前チェック・IATA Travel Pass / EU DCC の実績に基づく構成）。
+    story: '渡航先の国が防疫要件（ワクチン接種歴）を課している場合、航空会社は搭乗前にその充足を確認します。オンラインチェックインで本人確認ののち、接種証明を提示します（COVID 期に実際に行われた民間実務・EU DCC を参考にした構成）。',
+    purpose: '国際線搭乗手続きにおける本人確認と渡航先の防疫要件（接種歴）の確認',
     steps: [
       { name: '本人確認（デジタル身分証の提示）', shortName: '本人確認',
         specs: [{ id: 'pid', configIds: ['pid_mdoc', 'pid_sdjwt'], claims: ['family_name', 'given_name', 'birth_date'] }] },
@@ -149,7 +153,7 @@ export const SCENARIOS = {
       ];
     },
     acceptText(pid, eaa) {
-      return `${this.rp}は、${name(pid)}様の身元と、${cl(eaa, 'disease') ?? ''}ワクチンの接種記録（${cl(eaa, 'dose_number') ?? '—'}回・${cl(eaa, 'vaccination_date') ?? ''}接種）の確認を完了し、事前手続きを受理しました。`;
+      return `${this.rp}は、${name(pid)}様の身元と、${cl(eaa, 'disease') ?? ''}ワクチンの接種記録（${cl(eaa, 'dose_number') ?? '—'}回・${cl(eaa, 'vaccination_date') ?? ''}接種）の確認を完了し、搭乗手続き（チェックイン）を受理しました。`;
     },
   },
 };
@@ -250,15 +254,17 @@ SCENARIOS['age-check'] = {
   },
 };
 
-SCENARIOS.childcare = {
-  id: 'childcare',
-  icon: '🧒',
-  title: '保育所の利用申込（保育料算定）',
-  rp: '千代田区 保育課',
-  rpKind: '保育所利用オンライン申請',
-  tagline: '本人確認のうえ、課税証明書で保育料算定のための所得を確認',
-  story: '保育所の利用申込では、保育料の算定のために保護者の課税情報が必要です（転入直後などマイナンバー連携で確認できない場合は課税証明書の提出が求められます。実際の算定基準は市町村民税所得割額で、本デモは課税標準額で代用しています）。本人確認ののち、課税証明書を提示します。',
-  purpose: '保育所利用申込に伴う本人確認および保育料算定のための所得確認',
+SCENARIOS.mortgage = {
+  id: 'mortgage',
+  icon: '🏠',
+  title: '住宅ローンの仮審査（収入確認）',
+  rp: 'みずなみ銀行',
+  rpKind: '住宅ローン仮審査（オンライン申込）',
+  tagline: '本人確認のうえ、課税証明書で収入を確認して仮審査を申込',
+  // 行政宛はマイナンバー連携で代替されるため、課税証明書は「民間の与信審査に
+  // 本人が提出する」代表例（住宅ローン・賃貸保証審査）で構成する。
+  story: '銀行の住宅ローン仮審査では、収入確認書類（課税証明書・源泉徴収票など）の提出が必要です。行政機関どうしはマイナンバー連携で所得情報を照会できますが、民間の与信審査は本人が証明書を取得して提出するのが現行実務 — その置き換えを想定したデモです。',
+  purpose: '住宅ローン仮審査における本人確認および返済能力（所得）の確認',
   steps: [
     PID_STEP,
     { name: '課税証明書の提示', shortName: '課税証明書',
@@ -269,42 +275,45 @@ SCENARIOS.childcare = {
   checks(pid, eaa, r2) {
     return [
       { ok: sameName(pid, eaa), label: '身分証と課税証明書の氏名が一致' },
-      { ok: cl(eaa, 'taxable_amount') != null && cl(eaa, 'tax_year') != null,
-        label: `保育料算定に必要な課税情報を確認（${cl(eaa, 'tax_year') ?? '—'}・課税標準額あり）` },
+      { ok: cl(eaa, 'total_income') != null && cl(eaa, 'tax_year') != null,
+        label: `審査に必要な所得情報を確認（${cl(eaa, 'tax_year') ?? '—'}・所得金額あり）` },
       { ok: r2?.linkedSameHolder === true, label: '同一の保有者鍵で署名を確認（別人のウォレットの混用を防止）' },
     ];
   },
   acceptText(pid, eaa) {
-    return `${this.rp}は、${name(pid)}様の本人確認と、課税証明書（${cl(eaa, 'tax_year') ?? ''}）による所得確認を完了し、保育所の利用申込を受理しました。保育料は確認した課税情報に基づき算定されます。`;
+    return `${this.rp}は、${name(pid)}様の本人確認と、課税証明書（${cl(eaa, 'tax_year') ?? ''}）による所得確認を完了し、住宅ローン仮審査の申込を受理しました。確認した所得情報は返済能力の審査に使用します。`;
   },
 };
 
-SCENARIOS.passport = {
-  id: 'passport',
-  icon: '🛂',
-  title: 'パスポートの発給申請',
-  rp: '東京都 旅券課',
-  rpKind: '旅券発給オンライン申請',
-  tagline: '本人確認のうえ、戸籍謄本を提示して発給を申請',
-  story: '一般旅券の新規発給申請には戸籍謄本（全部事項証明書）の提出が必要です（有効旅券からの切替申請では原則不要。オンライン申請の本来像は戸籍電子証明書の連携です）。本人確認ののち、戸籍謄本を提示して氏名・生年月日・本籍を確認します。',
-  purpose: '旅券発給申請に伴う本人確認および戸籍記載事項（氏名・生年月日・本籍）の確認',
+SCENARIOS.inheritance = {
+  id: 'inheritance',
+  icon: '📜',
+  title: '預金相続の手続き（相続人確認）',
+  rp: 'みずなみ銀行',
+  rpKind: '相続手続き窓口（オンライン受付）',
+  tagline: '本人確認のうえ、戸籍謄本で被相続人との関係を証明',
+  // 旅券申請はマイナ/JPKI とオンライン申請で代替が進むため、戸籍謄本は
+  // 「民間（銀行・保険）に相続関係を証明する」代表例で構成する。
+  story: '預金者が亡くなると、相続人は戸籍謄本で被相続人との関係を証明して払い戻しを受けます。銀行への戸籍一式の提出は民間手続きに残る戸籍の代表用途です。本デモでは相続人自身の戸籍謄本（父母欄・続柄）で親子関係を確認します。',
+  purpose: '預金相続手続きにおける相続人の本人確認および被相続人との続柄確認',
   steps: [
     PID_STEP,
     { name: '戸籍謄本の提示', shortName: '戸籍謄本',
       specs: [{ id: 'eaa', configIds: ['koseki_mdoc', 'koseki_sdjwt'],
-        claims: ['family_name', 'given_name', 'birth_date', 'honseki', 'head_of_family', 'relationship'] }] },
+        claims: ['family_name', 'given_name', 'birth_date', 'relationship', 'father_name'] }] },
   ],
-  notDisclosed: '父母の氏名・出生地などの戸籍記載事項は要求されず、開示もされません。',
+  notDisclosed: '本籍・出生地・母の氏名などの戸籍記載事項は要求されず、開示もされません。',
   checks(pid, eaa, r2) {
     return [
       { ok: sameName(pid, eaa) && String(cl(pid, 'birth_date')) === String(cl(eaa, 'birth_date')),
-        label: '身分証と戸籍謄本の氏名・生年月日が一致' },
-      { ok: !!cl(eaa, 'honseki'), label: `本籍を確認（提示値: ${cl(eaa, 'honseki') ?? '—'}）` },
+        label: '身分証と戸籍謄本の氏名・生年月日が一致（相続人本人の戸籍）' },
+      { ok: !!cl(eaa, 'father_name'),
+        label: `被相続人（父）との親子関係を確認（父の氏名: ${cl(eaa, 'father_name') ?? '—'}・続柄: ${cl(eaa, 'relationship') ?? '—'}）` },
       { ok: r2?.linkedSameHolder === true, label: '同一の保有者鍵で署名を確認（別人のウォレットの混用を防止）' },
     ];
   },
   acceptText(pid, eaa) {
-    return `${this.rp}は、${name(pid)}様の本人確認と、戸籍謄本による氏名・生年月日・本籍（${cl(eaa, 'honseki') ?? ''}）の確認を完了し、旅券の発給申請を受理しました。`;
+    return `${this.rp}は、相続人 ${name(pid)}様（続柄: ${cl(eaa, 'relationship') ?? '—'}）の本人確認と、戸籍謄本による被相続人 ${cl(eaa, 'father_name') ?? ''}様との親子関係の確認を完了し、預金相続手続きの申込を受理しました。`;
   },
 };
 
