@@ -314,7 +314,7 @@ export function renderLogin(users, next = '/', { note = null } = {}) {
     <title>サインイン — IHV 発行ポータル</title>${FONTS}
     <style>
       *{box-sizing:border-box}
-      body{margin:0;font-family:"Zen Kaku Gothic New",system-ui,sans-serif;background:#EFF2F7;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#0E1A2B}
+      body{margin:0;font-family:"Zen Kaku Gothic New",system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#0E1A2B;background:radial-gradient(60% 40% at 80% 0%,#DCE6F7 0%,transparent 60%),linear-gradient(180deg,#E7EDF8,#EFF2F7)}
       .login-card{background:#fff;border:1px solid #DCE3ED;border-radius:14px;padding:24px 18px;width:140px;cursor:pointer;font:inherit;font-family:inherit;display:flex;flex-direction:column;align-items:center;gap:12px;transition:box-shadow .15s,transform .15s}
       .login-card:hover{transform:translateY(-3px);box-shadow:0 8px 24px rgba(14,26,43,.12)}
       .login-seal{width:78px;height:78px;border-radius:50%;background:#fff;color:#C8453C;border:2.5px solid #C8453C;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:700}
@@ -547,7 +547,7 @@ export function renderClaimsModal(groups) {
       .cmodal-grp{font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.04em;margin:0 0 10px}
       .cmodal-pills{display:flex;flex-wrap:wrap;gap:6px}
       .cmodal-pill{font-size:12px;font-family:"IBM Plex Mono",monospace;background:#eef2fb;border:1px solid #d7e0f3;color:#26407e;border-radius:999px;padding:3px 11px}
-      .vcinfo{position:absolute;top:10px;right:11px;width:23px;height:23px;border-radius:50%;border:1px solid var(--line);background:#fff;color:var(--muted);font-size:13px;font-weight:700;font-style:italic;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;font-family:Georgia,serif;z-index:2}
+      .vcinfo{position:absolute;top:10px;left:12px;width:22px;height:22px;border-radius:50%;border:1px solid rgba(255,255,255,.5);background:rgba(255,255,255,.15);color:#fff;font-size:11px;font-weight:700;cursor:pointer;z-index:2;font-family:Georgia,serif}
       .vcinfo:hover{border-color:var(--civic);color:var(--civic);background:#f4f7fd}
     </style>`;
 }
@@ -571,18 +571,20 @@ export function groupCatalog(configs) {
 /** Issuer portal top page: card tiles (multi-select type+format) + offer options
  *  + JSON-preview and issue buttons. Fully client-side against POST /offer. */
 export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
+  // ID-1 (1.586) gradient cards — the SAME visual object the holder will see in
+  // the wallet after issuance (WALLET_CARD_THEME is shared), so I→H reads as
+  // "the card you mint here is the card that lands in the wallet".
   const cards = groups.map((g) => {
+    const t = WALLET_CARD_THEME[g.type] || WALLET_CARD_THEME.pid;
     const chips = g.formats.map((f) =>
-      `<button type="button" class="fmtchip" data-cfg="${esc(f.configId)}">${esc(f.label)}</button>`).join('');
-    return `<div class="vccard">
+      `<button type="button" class="fmtchip" data-cfg="${esc(f.configId)}" style="--cc:${t.c1}">${esc(f.label)}</button>`).join('');
+    return `<div class="vccard" style="--c1:${t.c1};--c2:${t.c2};--c3:${t.c3}">
+      <span class="vcck">✓</span>
       <button type="button" class="vcinfo" title="含まれる項目を見る" onclick="event.stopPropagation();openClaims('${esc(g.type)}')">i</button>
-      <div class="vcmain">
-        <div class="vctype">${esc(g.type)}</div>
-        <div class="vcname">${esc(g.name)}</div>
-        <div class="vcdesc">${esc(g.desc)}</div>
-        <div class="vcchips">${chips}</div>
-      </div>
-      <div class="vcart">${typeIcon(g.type)}</div>
+      <div class="vcname">${esc(g.name)}</div>
+      <div class="vcdesc">${esc(g.desc)}</div>
+      <span class="vciss">デジタル資格証発行ポータル</span>
+      <div class="vcchips">${chips}</div>
     </div>`;
   }).join('');
   return appShell('クレデンシャルを発行する', `
@@ -591,10 +593,10 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       <div class="hint" style="margin:0 0 14px">カードの形式チップ（mdoc / SD-JWT）をクリックで複数選択できます。複数種別・複数形式をまとめて1つのオファーに含められます。</div>
       <div class="vcgrid">${cards}</div>
 
-      <div class="card" style="margin-top:20px">
+      <div class="card ibar" style="margin-top:20px">
         <div class="actions" style="margin-top:0;align-items:center;gap:14px">
-          <button class="btn" id="issue">発行（オファーを生成）</button>
           <span id="selnote" class="hint" style="margin-top:0">選択中: <b id="selcount">0</b> 構成</span>
+          <button class="btn" id="issue" style="margin-left:auto">発行（オファーを生成）</button>
         </div>
         <details class="optfold">
           <summary>⚙ 発行オプション（開発者向け）— 既定: Pre-Auth グラント / by reference / PIN なし</summary>
@@ -672,7 +674,9 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
           else { selected.add(cfg); chip.classList.add('on'); }
           // highlight the whole card when any of its formats is selected
           const card = chip.closest('.vccard');
-          card.classList.toggle('sel', !!card.querySelector('.fmtchip.on'));
+          const on = !!card.querySelector('.fmtchip.on');
+          card.classList.toggle('sel', on);
+          const ck = card.querySelector('.vcck'); if (ck) ck.style.display = on ? 'grid' : 'none';
           $('selcount').textContent = selected.size;
         };
       });
@@ -735,6 +739,7 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       $('issue').onclick = async (e) => { e.preventDefault(); const d = await buildOffer(true); if (d) showResult(d, true); };
     </script>
     <style>
+      .ibar{position:sticky;bottom:14px;box-shadow:0 8px 24px rgba(14,26,43,.14);z-index:5}
       .optfold{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
       .optfold>summary,.jsonfold>summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--muted);list-style:none;user-select:none}
       .optfold>summary::-webkit-details-marker,.jsonfold>summary::-webkit-details-marker{display:none}
@@ -780,23 +785,24 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       .sect{background:#fff;border:1px solid var(--line);border-left:4px solid var(--verify);border-radius:10px;padding:14px 18px;font-size:13px;color:var(--muted);letter-spacing:.04em}
       .sect b{color:var(--ink);font-weight:700}
       .h2{font-size:20px;margin:24px 0 6px;font-weight:700}
-      .vcgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(296px,1fr));gap:14px}
+      .vcgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
       /* The selection ring is drawn on an absolutely-positioned ::after overlay,
          so it never participates in the card's box model: no resize, no shift,
          and no overlap with neighbouring cards. */
-      .vccard{position:relative;width:100%;min-width:0;box-sizing:border-box;background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:12px;transition:background .12s}
-      .vccard.sel{background:#f4f7fd}
-      .vccard.sel::after{content:"";position:absolute;inset:0;border-radius:14px;box-shadow:0 0 0 2px var(--civic) inset;pointer-events:none}
-      .vcmain{min-width:0;flex:1}
-      .vcart{flex-shrink:0}
-      .vcicon{display:block;height:78px;width:auto;filter:drop-shadow(0 5px 12px rgba(14,26,43,.18))}
-      .vctype{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--muted);margin-bottom:6px}
-      .vcname{font-size:17px;font-weight:700;margin-bottom:6px}
-      .vcdesc{font-size:13px;color:var(--muted);margin-bottom:14px}
-      .vcchips{display:flex;gap:8px;flex-wrap:wrap}
-      .fmtchip{font:inherit;font-size:12px;font-weight:600;padding:5px 14px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--muted);cursor:pointer;transition:all .12s}
-      .fmtchip:hover{border-color:#aebbd3}
-      .fmtchip.on{background:var(--civic);color:#fff;border-color:var(--civic)}
+      .vccard{position:relative;width:100%;min-width:0;box-sizing:border-box;aspect-ratio:1.586;border-radius:18px;padding:14px 16px;color:#fff;
+        background:radial-gradient(120% 90% at 88% -12%,var(--c3) 0%,transparent 55%),radial-gradient(90% 130% at -8% 112%,rgba(255,255,255,.16) 0%,transparent 50%),linear-gradient(135deg,var(--c1) 0%,var(--c2) 100%);
+        box-shadow:0 8px 20px rgba(14,26,43,.18);transition:transform .15s,box-shadow .15s}
+      .vccard::before{content:"";position:absolute;inset:0;border-radius:18px;opacity:.07;background:url("${SEIGAIHA}") 0 0/56px 28px repeat;pointer-events:none}
+      .vccard:hover{transform:translateY(-4px)}
+      .vccard.sel{outline:3px solid #fff;outline-offset:-3px;box-shadow:0 0 0 3px var(--civic),0 10px 24px rgba(14,26,43,.26)}
+      .vcck{display:none;position:absolute;top:12px;right:14px;width:23px;height:23px;border-radius:50%;background:#fff;color:var(--civic);place-items:center;font-size:13px;font-weight:800;z-index:2}
+      .vcname{font-size:14.5px;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,.3);line-height:1.35;position:relative;z-index:1;max-width:82%}
+      .vcdesc{font-size:10.5px;color:rgba(255,255,255,.78);position:relative;z-index:1}
+      .vciss{position:absolute;left:16px;bottom:44px;font-size:10px;color:rgba(255,255,255,.62);z-index:1}
+      .vcchips{position:absolute;left:14px;bottom:11px;display:flex;gap:6px;z-index:1}
+      .fmtchip{font:inherit;font-size:10.5px;font-weight:700;padding:4px 12px;border-radius:8px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.4);color:#fff;cursor:pointer;transition:all .12s;backdrop-filter:blur(2px)}
+      .fmtchip:hover{background:rgba(255,255,255,.3)}
+      .fmtchip.on{background:#fff;color:var(--cc,var(--civic));border-color:#fff}
       .optrow{display:flex;align-items:center;gap:16px;margin-bottom:14px}
       .optlbl{font-size:12px;color:var(--muted);font-weight:700;width:140px;flex-shrink:0}
       /* scope to the <select> element: a bare .sel also matched selected .vccard
@@ -830,42 +836,34 @@ export function renderHistory(user, issuances) {
   // ledger too. Japan has no DST, so a fixed +9h offset is exact and ICU-independent.
   const dt = (iso) => { try { return iso ? new Date(Date.parse(iso) + 9 * 3600e3).toISOString().slice(0, 16).replace('T', ' ') : '—'; } catch { return '—'; } };
   const rows = issuances.map((e) => {
-    const type = (TYPE_META[e.configId.replace(/_(mdoc|sdjwt)$/, '')]?.name || e.configId).replace(/（.*）/, '');
+    const type = e.configId.replace(/_(mdoc|sdjwt)$/, '');
+    const name = (TYPE_META[type]?.name || e.configId).replace(/（.*）/, '');
+    const t = WALLET_CARD_THEME[type] || WALLET_CARD_THEME.pid;
     const fmt = e.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT';
     const state = e.revoked
-      ? '<span class="badge ng">失効</span>'
-      : '<span class="badge ok">有効</span>';
+      ? '<span class="badge ng">● 失効</span>'
+      : '<span class="badge ok">● 有効</span>';
     const revBtn = e.revoked
-      ? '<button class="revoke" disabled>失効</button>'
-      : `<button class="revoke on" data-idx="${e.idx}">失効</button>`;
-    return `<tr>
-      <td>${esc(type)}</td>
-      <td><span class="fmt">${fmt}</span></td>
-      <td class="mono">${esc(dt(e.issued_at))}</td>
-      <td class="mono">${e.revoked ? '—' : esc(dt(e.expires_at))}</td>
-      <td>${state}</td>
-      <td class="muted">${esc(e.revocation || '—')}</td>
-      <td class="mono" style="font-size:12px">${esc(short(e.holder))}</td>
-      <td>${revBtn}</td>
-    </tr>`;
+      ? `<span class="rvreason" title="失効理由">${esc(e.revocation || '—')}</span>`
+      : `<button class="revoke on" data-idx="${e.idx}">失効させる</button>`;
+    return `<div class="hrow">
+      <span class="sw" style="--c1:${t.c1};--c2:${t.c2};--c3:${t.c3}"></span>
+      <div class="htx"><b>${esc(name)}</b>
+        <small>${esc(dt(e.issued_at))} 発行 ・ ${e.revoked ? '—' : esc(dt(e.expires_at)) + ' まで'} ・ ${fmt} ・ idx ${esc(String(e.idx))} ・ 鍵 ${esc(short(e.holder))}</small></div>
+      ${state}${revBtn}
+    </div>`;
   }).join('');
   return appShell('発行履歴', `
-    <div style="margin-top:24px">
+    <div style="margin-top:24px;max-width:880px;margin-left:auto;margin-right:auto">
       <div style="display:flex;align-items:center;justify-content:space-between">
         <h1 style="font-size:22px;margin:0">発行履歴</h1>
         <a href="/" style="color:var(--civic);text-decoration:none;font-size:14px">← 発行に戻る</a>
       </div>
-      <div style="background:#EAF4EF;border:1px solid #CDE6DB;border-radius:10px;padding:14px 18px;margin:16px 0;font-size:13.5px;color:#1f5c46">
+      <div style="background:#EAF4EF;border:1px solid #CDE6DB;border-radius:10px;padding:14px 18px;margin:16px 0 8px;font-size:13.5px;color:#1f5c46">
         ⓘ <b>Issuer は提示を追跡しません</b>（issuer-verifier unlinkability）。この台帳は自分が発行した記録のみで、いつ・どこで提示されたか（提示回数・提示先）は保持しません。
       </div>
-      <div class="card" style="padding:0;overflow:hidden">
-        <table class="hist">
-          <thead><tr>
-            <th>クレデンシャル</th><th>形式</th><th>発行日時 (JST)</th><th>有効期限 (JST)</th><th>状態</th><th>失効理由</th><th>バインド鍵</th><th></th>
-          </tr></thead>
-          <tbody>${rows || '<tr><td colspan="8" class="muted" style="text-align:center;padding:28px">発行記録がありません。</td></tr>'}</tbody>
-        </table>
-      </div>
+      <div class="hlegend">発行日時 (JST)・有効期限 (JST) は各行に表示。失効は Token Status List に即時反映されます。</div>
+      ${rows || '<div class="hrow"><span class="muted" style="padding:8px 2px">発行記録がありません。</span></div>'}
     </div>
     <script>
       document.querySelectorAll('.revoke.on').forEach((b) => { b.onclick = async () => {
@@ -876,18 +874,21 @@ export function renderHistory(user, issuances) {
       }; });
     </script>
     <style>
-      table.hist{width:100%;border-collapse:collapse;font-size:14px}
-      table.hist th{text-align:left;padding:14px 16px;color:var(--muted);font-size:12px;font-weight:700;border-bottom:1px solid var(--line);background:#FAFBFD}
-      table.hist td{padding:16px;border-bottom:1px solid #EEF1F6;vertical-align:middle}
-      table.hist tr:last-child td{border-bottom:none}
-      .fmt{font-size:12px;border:1px solid var(--line);border-radius:7px;padding:2px 10px;color:var(--muted);background:#fff}
-      .badge{font-size:12px;font-weight:700;padding:3px 12px;border-radius:999px}
+      .hlegend{font-size:11px;color:var(--muted);margin:0 2px 10px}
+      .hrow{display:flex;align-items:center;gap:12px;background:#fff;border:1px solid var(--line);border-radius:13px;padding:11px 14px;margin-top:9px}
+      .hrow .sw{width:52px;height:33px;border-radius:7px;flex:none;
+        background:radial-gradient(120% 90% at 88% -12%,var(--c3) 0%,transparent 55%),linear-gradient(135deg,var(--c1),var(--c2))}
+      .htx{flex:1;min-width:0}
+      .htx b{font-size:13.5px;display:block}
+      .htx small{font-size:10.5px;color:var(--muted);font-family:"IBM Plex Mono",monospace;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .badge{font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;flex:none}
       .badge.ok{color:#0E8A6B;background:#E3F3EE}
       .badge.ng{color:#C8453C;background:#FBE9E7}
       .muted{color:var(--muted)}
-      .revoke{font:inherit;font-size:13px;padding:6px 16px;border-radius:8px;cursor:pointer;border:1px solid #E2B4AE;color:#C8453C;background:#fff}
+      .rvreason{font-size:11.5px;color:var(--muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .revoke{font:inherit;font-size:11.5px;font-weight:700;padding:5px 12px;border-radius:8px;cursor:pointer;border:1px solid #EED4D0;color:#C8453C;background:#fff;flex:none}
       .revoke.on:hover{background:#FBE9E7}
-      .revoke:disabled{opacity:.4;cursor:default;border-color:var(--line);color:var(--muted)}
+      .revoke:disabled{opacity:.4;cursor:default}
     </style>`, user, { width: 'wide' });
 }
 
