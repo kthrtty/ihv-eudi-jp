@@ -266,8 +266,8 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
     el.innerHTML='<div class="dev-tl">'+list.map(function(e,i){
       var open=i===0;
       var dir='<span class="dev-dir '+e.dir+'">'+(e.dir==='out'?'→':'←')+'</span>';
-      var st='<span class="dev-st s'+String(e.status).charAt(0)+'">'+e.status+'</span>';
-      var mp='<span class="dev-mp '+e.method+'">'+e.method+'</span>';
+      var st='<span class="dev-st s'+String(e.status).charAt(0)+'">'+esc(e.status)+'</span>';
+      var mp='<span class="dev-mp '+esc(e.method)+'">'+esc(e.method)+'</span>';
       return '<div class="dev-step'+(open?' open':'')+'"><div class="dev-num">'+(i+1)+'</div><div>'+
         '<div class="dev-head" onclick="window.__dev.toggleStep(this)">'+dir+mp+'<span class="dev-ep">'+esc(e.ep)+'</span>'+st+'<span class="dev-grp">'+esc(e.grp)+'</span></div>'+
         '<div class="dev-body" '+(open?'':'hidden')+'>'+detail(e)+'</div></div></div>';
@@ -285,7 +285,7 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
     el.innerHTML=eps.map(function(e){
       var meta=e.value!==undefined&&e.value!==null;
       var go=e.method==='GET'?'<a class="dev-ep-go" href="'+esc(e.path)+'" target="_blank" rel="noopener">開く ↗</a>':'';
-      var mp='<span class="dev-mp '+e.method+'">'+e.method+'</span>';
+      var mp='<span class="dev-mp '+esc(e.method)+'">'+esc(e.method)+'</span>';
       var gc='<span class="dev-grp">'+esc(e.grp||'')+'</span>';
       var val=meta?'<div class="dev-ep-val"><div class="dev-ep-vh">現在の値</div><pre class="dev-code">'+esc(typeof e.value==='string'?e.value:JSON.stringify(e.value,null,2))+'</pre></div>':'';
       return '<div class="dev-ep'+(meta?' meta':'')+'"><div class="dev-ep-top">'+mp+'<span class="dev-ep-path">'+esc(e.path)+'</span>'+gc+go+'</div><div class="dev-ep-desc">'+esc(e.desc||'')+'</div>'+val+'</div>';

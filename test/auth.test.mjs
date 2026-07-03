@@ -213,6 +213,24 @@ test('session lifecycle: /session reflects login and logout', async () => {
   assert.equal(after.user, null);
 });
 
+test('セキュリティ: /login の next はローカルパスに制限（オープンリダイレクト防止）', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+  const login = await (await app.request('/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_yamada' }) })).json();
+  // 外部URL / スキーム相対 // は拒否して '/' へ、ローカルパスは維持
+  for (const [bad, _] of [['https://evil.example'], ['//evil.example'], ['javascript:alert(1)']]) {
+    const r = await app.request('/login/select', {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: `sid=${login.session_id}` },
+      body: new URLSearchParams({ user_id: 'u_yamada', next: bad }).toString(), redirect: 'manual',
+    });
+    assert.equal(r.headers.get('location'), '/', `open redirect to ${bad} must be neutralised`);
+  }
+  const okp = await app.request('/login/select', {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ user_id: 'u_yamada', next: '/account' }).toString(), redirect: 'manual',
+  });
+  assert.equal(okp.headers.get('location'), '/account', 'a local path is preserved');
+});
+
 test('users maintenance API: list and unknown user', async () => {
   const app = createApp({ credentialIssuer: ISSUER });
   const { users } = await (await app.request('/users')).json();

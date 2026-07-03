@@ -535,6 +535,49 @@ test('multi-isolate: a stale per-isolate cache must not hide VCs another isolate
   }
 });
 
+test('セキュリティ: 提示後リダイレクトは response_uri と同一オリジンに限定（クロスオリジン拒否）', async () => {
+  const IP = 8983, VP = 8986, WP = 8984, EP = 8985;
+  const ISSUER = `http://127.0.0.1:${IP}`, VERIF = `http://127.0.0.1:${VP}`, WALLET = `http://127.0.0.1:${WP}`;
+  const issuer = serve({ fetch: createApp({ credentialIssuer: ISSUER }).fetch, port: IP });
+  const verifier = serve({ fetch: createVerifierApp({ verifierOrigin: VERIF, walletOrigin: WALLET, issuerUrl: ISSUER }).fetch, port: VP });
+  // attacker endpoint: receives the (validly-encrypted) vp_token, returns a
+  // CROSS-ORIGIN redirect_uri — the wallet must refuse to follow it.
+  const evil = new Hono();
+  evil.post('/resp', (c) => c.json({ redirect_uri: 'https://attacker.example/phish' }));
+  const evilSrv = serve({ fetch: evil.fetch, port: EP });
+  try {
+    const wallet = createWalletApp({ walletOrigin: WALLET, issuerUrl: ISSUER });
+    const made = await (await fetch(`${ISSUER}/offer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'] }) })).json();
+    const add = await wallet.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${made.offer_id}`));
+    const cookie = add.headers.get('set-cookie').split(';')[0];
+    const [cred] = await (await wallet.request('/creds', { headers: { cookie } })).json();
+
+    // build a REAL request (valid client_metadata enc key), then swap ONLY the
+    // response_uri to the attacker — so respond() still encrypts successfully.
+    const b = await (await fetch(`${VERIF}/vp/build`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ configId: 'pid_mdoc', claims: ['family_name'], protocol: 'annex-d', target: 'web' }) })).json();
+    const tampered = { ...b.request, response_uri: `http://127.0.0.1:${EP}/resp` };
+    const reqSrv = new Hono();
+    reqSrv.get('/req', (c) => c.json(tampered));
+    const rs = serve({ fetch: reqSrv.fetch, port: 8987 });
+    try {
+      await wallet.request('/present?request_uri=' + encodeURIComponent('http://127.0.0.1:8987/req') + '&_b=1', { headers: { cookie } });
+      const confirm = await wallet.request('/present/confirm', {
+        method: 'POST', headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ 'cred:q1': cred.id, 'disclose:q1': 'family_name' }).toString(),
+        redirect: 'manual',
+      });
+      assert.notEqual(confirm.status, 302, 'must NOT redirect');
+      const html = await confirm.text();
+      assert.ok(!html.includes('attacker.example'), 'attacker origin never reflected as a redirect');
+      assert.match(html, /異なるオリジンへのリダイレクトを拒否/);
+    } finally { await new Promise((r) => rs.close(r)); }
+  } finally {
+    await new Promise((r) => evilSrv.close(r));
+    await new Promise((r) => verifier.close(r));
+    await new Promise((r) => issuer.close(r));
+  }
+});
+
 test('wallet redesigned: multi-scope ＋カタログ発行 — one authorization issues BOTH credentials; state is verified', async () => {
   const IP = 8977, WP = 8978;
   const ISSUER = `http://127.0.0.1:${IP}`, WALLET = `http://127.0.0.1:${WP}`;

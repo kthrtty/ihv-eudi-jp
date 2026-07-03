@@ -172,22 +172,24 @@ export function createApp(opts = {}) {
   // ---- passwordless session ----
   const sid = (c) => c.req.header('x-session-id') || getCookie(c, 'sid');
   // GET /login — simple user picker for browser access (sets session, redirects to /)
+  // `next` MUST be a local path (single leading '/'): otherwise
+  // /login?next=https://evil is an open redirect off the issuer origin.
+  const safeNext = (n) => (typeof n === 'string' && /^\/(?!\/)/.test(n) ? n : '/');
   app.get('/login', async (c) => {
     const users = await svc.listUsers();
-    const next = c.req.query('next') || '/';
-    return c.html(renderLogin(users, next));
+    return c.html(renderLogin(users, safeNext(c.req.query('next'))));
   });
   app.post('/login/select', async (c) => {
     const f = await c.req.parseBody();
     const { sessionId } = await svc.login(f.user_id);
-    setCookie(c, 'sid', sessionId, { httpOnly: true, sameSite: 'Lax', path: '/' });
-    return c.redirect(f.next || '/', 302);
+    setCookie(c, 'sid', sessionId, { httpOnly: true, sameSite: 'Lax', secure: true, path: '/' });
+    return c.redirect(safeNext(f.next), 302);
   });
   app.post('/login', async (c) => {
     try {
       const { user_id } = await c.req.json();
       const { sessionId, user } = await svc.login(user_id);
-      setCookie(c, 'sid', sessionId, { httpOnly: true, sameSite: 'Lax', path: '/' });
+      setCookie(c, 'sid', sessionId, { httpOnly: true, sameSite: 'Lax', secure: true, path: '/' });
       return c.json({ session_id: sessionId, user });
     } catch (e) { return fail(c, e); }
   });
@@ -256,7 +258,7 @@ export function createApp(opts = {}) {
     const demoId = Math.random().toString(36).slice(2);
     const redirectUri = `${svc.credentialIssuer}/demo/cb`;
     await svc.store.set(`demo:${demoId}`, { verifier, configId, redirectUri, state }, 600);
-    setCookie(c, 'demo', demoId, { httpOnly: true, sameSite: 'Lax', path: '/' });
+    setCookie(c, 'demo', demoId, { httpOnly: true, sameSite: 'Lax', secure: true, path: '/' });
     return c.html(await renderAuthStart({ issuer: svc.credentialIssuer, configId, redirectUri, verifier, state }));
   });
 
@@ -269,7 +271,7 @@ export function createApp(opts = {}) {
     const demoId = Math.random().toString(36).slice(2);
     const redirectUri = `${svc.credentialIssuer}/demo/cb`;
     await svc.store.set(`demo:${demoId}`, { verifier, configId, redirectUri, state }, 600);
-    setCookie(c, 'demo', demoId, { httpOnly: true, sameSite: 'Lax', path: '/' });
+    setCookie(c, 'demo', demoId, { httpOnly: true, sameSite: 'Lax', secure: true, path: '/' });
     const url = authorizeUrl({ issuer: svc.credentialIssuer, redirectUri, challenge, state, issuerState });
     return c.html(await renderOfferAuthcode({ offer: credential_offer, offerUri, authorizeUrl: url, configId }));
   });
@@ -546,7 +548,7 @@ export function createVerifierApp(opts = {}) {
       const { transactionId, request } = await v.createRequest({ specs: [{ id: 'q1', configId, claims, optional }], protocol });
       const demoId = Math.random().toString(36).slice(2);
       await v.store.set(`vdemo:${demoId}`, { wallet: wallet.serialize(), request, transactionId }, 600);
-      setCookie(c, 'vdemo', demoId, { httpOnly: true, sameSite: 'Lax', path: '/' });
+      setCookie(c, 'vdemo', demoId, { httpOnly: true, sameSite: 'Lax', secure: true, path: '/' });
       return c.json({ request });
     } catch (e) { return c.json({ error: e.message }, 400); }
   });
