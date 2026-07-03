@@ -41,7 +41,7 @@ test('scenarios: GET /vp/scenarios serves the presets — every issuable EAA doc
   const v = vapp();
   const list = await (await v.request('/vp/scenarios')).json();
   assert.deepEqual(list.map((s) => s.id).sort(),
-    ['age-check', 'childcare', 'disaster-aid', 'entry', 'hiring', 'kidbank', 'marriage', 'minor-mobile', 'passport']);
+    ['age-check', 'disaster-aid', 'entry', 'hiring', 'inheritance', 'kidbank', 'marriage', 'minor-mobile', 'mortgage']);
   const cfgs = (sp) => sp.configIds ?? [sp.configId];
   for (const s of list) {
     assert.ok(s.title && s.rp && s.purpose && s.story, `${s.id} carries display strings`);
@@ -60,6 +60,11 @@ test('scenarios: GET /vp/scenarios serves the presets — every issuable EAA doc
   const used = new Set(list.flatMap((s) => s.steps.flatMap((st) => st.specs.flatMap((sp) => cfgs(sp).map((c) => c.replace(/_(mdoc|sdjwt)$/, ''))))));
   for (const doc of ['pid', 'juminhyo', 'qualification', 'koseki', 'tax', 'single', 'disaster', 'vaccine']) {
     assert.ok(used.has(doc), `document ${doc} is exercised by some scenario`);
+  }
+  // recipients are PRIVATE-sector RPs: government-destined submissions are covered
+  // by マイナンバー連携/JPKI in reality, so no scenario should target 行政窓口
+  for (const sc of list) {
+    assert.ok(!/区|市役所|旅券課|入国|省|庁(?!舎)/.test(sc.rp), `${sc.id} RP must be private-sector (got: ${sc.rp})`);
   }
   // step 1 must not be called マイナ認証 (Digital Agency's official JPKI-login alias)
   assert.ok(list.every((s) => !/マイナ認証/.test(s.title) && !/マイナ認証/.test(s.steps[0].name)));
@@ -152,12 +157,16 @@ test('scenarios: minor-mobile registers parental consent via the same household 
   assert.match(acceptHtml, /親権者同意を受理しました/);
 });
 
-test('scenarios: childcare (tax) and passport (koseki) exercise the remaining documents', async () => {
+test('scenarios: mortgage (tax→民間与信) and inheritance (koseki→銀行相続) exercise the remaining documents PRIVATELY', async () => {
+  // 行政宛はマイナ連携で代替されるため、課税/戸籍は民間提出ユースケースで構成
   const v = vapp();
-  const a = await runSelfTest(v, 'childcare');
-  assert.match(a.acceptHtml, /所得確認を完了/, 'tax certificate consumed for fee assessment');
-  const b = await runSelfTest(v, 'passport');
-  assert.match(b.acceptHtml, /本籍を確認/, 'koseki consumed for passport application');
+  const a = await runSelfTest(v, 'mortgage');
+  assert.match(a.acceptHtml, /所得確認を完了/, 'tax certificate consumed for private credit screening');
+  assert.match(a.acceptHtml, /住宅ローン仮審査/, 'recipient is a PRIVATE bank');
+  const b = await runSelfTest(v, 'inheritance');
+  assert.match(b.acceptHtml, /親子関係の確認を完了/, 'koseki proves heirship');
+  assert.match(b.acceptHtml, /山田 一郎/, 'the deceased (father) is named from koseki father_name');
+  assert.match(b.acceptHtml, /預金相続手続き/, 'recipient is a PRIVATE bank');
 });
 
 test('scenarios: marriage acceptance confirms 独身 from the 独身証明書 (its real-world purpose)', async () => {
@@ -309,7 +318,7 @@ test('scenarios: mixed formats across steps (mdoc PID + SD-JWT EAA) also accepte
   await present(b1);
   const b2 = await (await J(v, '/vp/build', { scenario: 'entry', step: 2, linkTxn: b1.transactionId, target: 'web' })).json();
   const acceptHtml = await (await v.request(new URL(await present(b2)).pathname)).text();
-  assert.match(acceptHtml, /事前手続きを受理しました/, 'mdoc step1 + SD-JWT step2 cross-format flow accepted');
+  assert.match(acceptHtml, /搭乗手続き（チェックイン）を受理しました/, 'mdoc step1 + SD-JWT step2 cross-format flow accepted');
 });
 
 test('dcql: credential_sets negative — holding NEITHER format fails resolve; verifier reports the unsatisfied set', async () => {
