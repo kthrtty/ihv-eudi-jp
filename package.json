@@ -25,10 +25,7 @@
     "dev:issuer": "wrangler dev",
     "dev:verifier": "wrangler dev --config wrangler.verifier.toml",
     "dev:wallet": "wrangler dev --config wrangler.wallet.toml",
-    "deploy:issuer": "wrangler deploy",
-    "deploy:verifier": "wrangler deploy --config wrangler.verifier.toml",
-    "deploy:wallet": "wrangler deploy --config wrangler.wallet.toml",
-    "deploy": "npm run deploy:issuer && npm run deploy:verifier && npm run deploy:wallet",
+    "deploy": "node scripts/deploy.mjs",
     "gen-pki-json": "node scripts/gen-worker-pki.mjs",
     "gen-pki-json:wallet": "node scripts/gen-worker-pki.mjs --wallet",
     "deploy:pki": "node scripts/gen-worker-pki.mjs | wrangler kv key put _pki:config --namespace-id 84ba206f1832417ea3dcfc0db2960d6d"

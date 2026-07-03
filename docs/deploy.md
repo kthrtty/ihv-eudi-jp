@@ -6,9 +6,28 @@
 
 | Worker | URL | エントリ | 役割 |
 |---|---|---|---|
-| `issuer` | `https://issuer.example.test` | `src/worker-issuer.mjs` | OID4VCI 発行 + デモ検証コンソール |
-| `verifier` | `https://verifier.example.test` | `src/worker-verifier.mjs` | OID4VP + DC API ページ |
-| `web-wallet` | `https://web-wallet.example.test` | `src/worker-wallet.mjs` | ブラウザウォレット |
+| `issuer` | `https://issuer.<subdomain>.workers.dev` | `src/worker-issuer.mjs` | OID4VCI 発行 + デモ検証コンソール |
+| `verifier` | `https://verifier.<subdomain>.workers.dev` | `src/worker-verifier.mjs` | OID4VP + DC API ページ |
+| `web-wallet` | `https://web-wallet.<subdomain>.workers.dev` | `src/worker-wallet.mjs` | ブラウザウォレット |
+
+## 実オリジンの注入（リポジトリにはテスト値のみ）
+
+`wrangler*.toml` の `[vars]` は **テスト用プレースホルダ**（`*.example.test`）を保持し、
+本番ドメインはコミットしない。実値は gitignore 済みの `.deploy.env` に置き、
+`npm run deploy`（`scripts/deploy.mjs`）が `wrangler deploy --var` で注入する
+（CLI の `--var` は toml の `[vars]` より優先）。
+
+```bash
+cp .deploy.env.example .deploy.env
+# WORKERS_SUBDOMAIN=<自分の workers.dev サブドメイン> に書き換え
+npm run deploy   # .deploy.env が無い場合は拒否（プレースホルダの誤デプロイ防止）
+```
+
+カスタムドメインを使う場合は `.deploy.env` で `ISSUER_URL` / `VERIFIER_ORIGIN` /
+`WALLET_ORIGIN` を個別指定（`WORKERS_SUBDOMAIN` より優先）。
+
+> 注: 過去の git 履歴には旧ドメインが残る。完全に消すには履歴書き換え
+> （`git filter-repo` + force push）が必要。
 
 ## 初回セットアップ
 
@@ -102,7 +121,7 @@ npm run dev:wallet    # wrangler dev --config wrangler.wallet.toml
 ## trust/trust-list.json について
 
 現在は `ihv.example` ドメインの dev 証明書 SAN を使用。Workers 本番 URL
-(`*.example.test`) で DC API 実機テストを行う際は、証明書を本番 SAN で
+(`*.<subdomain>.workers.dev`) で DC API 実機テストを行う際は、証明書を本番 SAN で
 再生成し `trust/trust-list.json` を更新する（`scripts/gen-trust.mjs` 参照）。
 
 ## 技術メモ
