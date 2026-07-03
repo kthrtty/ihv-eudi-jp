@@ -128,6 +128,28 @@ test('household maintenance: /account form (hh_* rows) updates the household; em
   assert.ok(claims.household_members.find((m) => m.given_name === '蓮' && m.relationship_to_head === '子'));
 });
 
+test('authorize consent v2: a multi-scope request lists EVERY credential and counts them in the button', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+  const login = await (await app.request('/login', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ user_id: 'u_yamada' }),
+  })).json();
+  const q = new URLSearchParams({
+    response_type: 'code', client_id: 'ihv-web-wallet', redirect_uri: 'https://wallet.example/oidc/cb',
+    code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM', code_challenge_method: 'S256',
+    scope: 'pid_mdoc juminhyo_mdoc', state: 'xyz',
+  });
+  // ブラウザ経路（cookie セッション）→ 同意画面
+  const res = await app.request('/authorize?' + q.toString(), { headers: { cookie: `sid=${login.session_id}` } });
+  const html = await res.text();
+  assert.match(html, /以下の 2 件の発行に同意しますか/);
+  assert.match(html, /個人識別情報|PID/);
+  assert.match(html, /住民票/);
+  assert.match(html, /同意して 2 件を発行する/);
+  assert.match(html, /山田 太郎/, 'the signed-in subject is shown');
+  assert.match(html, /reqrow/, 'each credential gets a swatch row');
+});
+
 test('session lifecycle: /session reflects login and logout', async () => {
   const app = createApp({ credentialIssuer: ISSUER });
   const login = await (await app.request('/login', {

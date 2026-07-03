@@ -252,11 +252,11 @@ test('web wallet present: holding vaccine_mdoc, a vaccine_SDJWT request is not h
     // SD-JWT vaccine request -> format mismatch -> NOT held
     const sd = await present(await buildReq('vaccine_sdjwt'));
     assert.match(sd, /保有していません/);
-    assert.doesNotMatch(sd, /この内容で提示/);
+    assert.doesNotMatch(sd, /共有する/);
 
     // mdoc vaccine request -> match -> held (present button shown)
     const md = await present(await buildReq('vaccine_mdoc'));
-    assert.match(md, /この内容で提示/);
+    assert.match(md, /共有する/);
   } finally {
     await new Promise((r) => issuer.close(r));
     await new Promise((r) => verifier.close(r));
@@ -300,7 +300,7 @@ test('KV session: VCs added persist and BOTH formats are presentable from anothe
       const reqUri = new URL(build.walletPresent).searchParams.get('request_uri');
       const present = await (await B.request('/present?request_uri=' + encodeURIComponent(reqUri), { headers: { cookie } })).text();
       assert.doesNotMatch(present, /保有していません/, `${cfg} should be held`);
-      assert.match(present, /この内容で提示/, `${cfg} should be presentable`);
+      assert.match(present, /共有する/, `${cfg} should be presentable`);
     }
   } finally {
     await new Promise((r) => issuer.close(r));
@@ -349,7 +349,7 @@ test('present cross-site cookie defense: no wsid -> same-site bounce (not 保有
     //    presents normally. Both with and without _b=1.
     for (const url of [presentUrl, presentUrl + '&_b=1']) {
       const ok = await (await app.request(url, { headers: { cookie } })).text();
-      assert.match(ok, /この内容で提示/, `cookie present -> presents (${url})`);
+      assert.match(ok, /共有する/, `cookie present -> presents (${url})`);
       assert.doesNotMatch(ok, /保有していません/);
     }
   } finally {
@@ -535,7 +535,89 @@ test('multi-isolate: a stale per-isolate cache must not hide VCs another isolate
   }
 });
 
-test('web wallet home: VC cards show ≤4 attrs + a modal with 属性/JSON segment; per-VC delete removes only that VC', async () => {
+test('wallet redesigned: multi-scope ＋カタログ発行 — one authorization issues BOTH credentials; state is verified', async () => {
+  const IP = 8977, WP = 8978;
+  const ISSUER = `http://127.0.0.1:${IP}`, WALLET = `http://127.0.0.1:${WP}`;
+  const issuer = serve({ fetch: createApp({ credentialIssuer: ISSUER }).fetch, port: IP });
+  try {
+    const wallet = createWalletApp({ walletOrigin: WALLET, issuerUrl: ISSUER });
+    // カタログの複数選択 → /request?scope=<a b> が認可URLプレビューを作る
+    const req = await wallet.request('/request?scope=' + encodeURIComponent('pid_mdoc juminhyo_mdoc'));
+    const cookie = req.headers.get('set-cookie').split(';')[0];
+    const html = await req.text();
+    assert.match(html, /scope=pid_mdoc\+juminhyo_mdoc|scope=pid_mdoc%20juminhyo_mdoc/, 'multi-scope in the authorize URL');
+    const url = new URL(html.match(/href="([^"]+\/authorize[^"]+)"/)[1].replace(/&amp;/g, '&'));
+    const state = url.searchParams.get('state');
+
+    // issuer 側: ログインして authorize を通し code を得る（プログラム経路）
+    const login = await (await fetch(`${ISSUER}/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_yamada' }) })).json();
+    const auth = await fetch(url, { headers: { 'x-session-id': login.session_id }, redirect: 'manual' });
+    const cb = new URL(auth.headers.get('location'));
+    assert.equal(cb.searchParams.get('state'), state, 'state round-trips');
+
+    // state 改ざんは拒否（one-time の pendingAuth に一致しない）
+    const bad = await (await wallet.request(`/oidc/cb?code=${cb.searchParams.get('code')}&state=WRONG`, { headers: { cookie } })).text();
+    assert.match(bad, /発行に失敗/);
+    assert.match(bad, /state が一致する保留中の発行要求がありません/);
+
+    // 正しい state → 1回の交換で2件受領
+    const done = await (await wallet.request(`/oidc/cb?code=${cb.searchParams.get('code')}&state=${state}`, { headers: { cookie } })).text();
+    assert.match(done, /2 件のクレデンシャル/);
+    const creds = await (await wallet.request('/creds', { headers: { cookie } })).json();
+    assert.deepEqual(creds.map((x) => x.configId).sort(), ['juminhyo_mdoc', 'pid_mdoc']);
+  } finally {
+    await new Promise((r) => issuer.close(r));
+  }
+});
+
+test('wallet redesigned: 失効状態の再確認（Token Status List をウォレットが引く）と提示アクティビティの記録', async () => {
+  const IP = 8979, VP = 8980, WP = 8981;
+  const ISSUER = `http://127.0.0.1:${IP}`, VERIF = `http://127.0.0.1:${VP}`, WALLET = `http://127.0.0.1:${WP}`;
+  const issuer = serve({ fetch: createApp({ credentialIssuer: ISSUER }).fetch, port: IP });
+  const vapp = createVerifierApp({ verifierOrigin: VERIF, walletOrigin: WALLET, issuerUrl: ISSUER });
+  const verifier = serve({ fetch: vapp.fetch, port: VP });
+  try {
+    const wallet = createWalletApp({ walletOrigin: WALLET, issuerUrl: ISSUER });
+    const made = await (await fetch(`${ISSUER}/offer`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'] }),
+    })).json();
+    const add = await wallet.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${made.offer_id}`));
+    const cookie = add.headers.get('set-cookie').split(';')[0];
+    const [cred] = await (await wallet.request('/creds', { headers: { cookie } })).json();
+
+    // 失効状態: 初期は未確認 → 再確認でリスト全体を取得して「有効」バッジ
+    let det = await (await wallet.request(`/cred/${cred.id}`, { headers: { cookie } })).text();
+    assert.match(det, /失効状態/);
+    await wallet.request(`/cred/${cred.id}/recheck`, { method: 'POST', headers: { cookie }, redirect: 'manual' });
+    det = await (await wallet.request(`/cred/${cred.id}`, { headers: { cookie } })).text();
+    assert.match(det, /● 有効/, 'status list consulted; valid badge shown');
+
+    // 提示（confirm 成功）→ アクティビティに 日時/提示先/項目名 が記録される（値は残さない）
+    const b = await (await fetch(`${VERIF}/vp/build`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ configId: 'pid_mdoc', claims: ['family_name'], protocol: 'annex-d', target: 'web' }),
+    })).json();
+    const pres = await wallet.request('/present?request_uri=' + encodeURIComponent(`${VERIF}/oid4vp/request/${b.transactionId}`) + '&_b=1', { headers: { cookie } });
+    assert.match(await pres.text(), /共有する/);
+    const confirm = await wallet.request('/present/confirm', {
+      method: 'POST', headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ [`cred:q1`]: cred.id, [`disclose:q1`]: 'family_name' }).toString(),
+      redirect: 'manual',
+    });
+    assert.equal(confirm.status, 302, 'presented to the verifier');
+    det = await (await wallet.request(`/cred/${cred.id}`, { headers: { cookie } })).text();
+    assert.match(det, /アクティビティ/);
+    assert.match(det, /1 件/, 'transaction log has one entry');
+    assert.match(det, /family_name/, 'claim NAMES are logged');
+    assert.ok(!/アクティビティ[\s\S]*山田/.test(det.split('アクティビティ')[1].split('失効状態')[0]), 'claim VALUES are not logged');
+  } finally {
+    await new Promise((r) => verifier.close(r));
+    await new Promise((r) => issuer.close(r));
+  }
+});
+
+test('web wallet redesigned: card faces carry NO personal data; /cred/:id shows 4 attrs + fold + raw data + status; per-VC delete removes only that VC', async () => {
   const IP = 8975, WP = 8976;
   const ISSUER = `http://127.0.0.1:${IP}`, WALLET = `http://127.0.0.1:${WP}`;
   const issuer = serve({ fetch: createApp({ credentialIssuer: ISSUER }).fetch, port: IP });
@@ -545,31 +627,39 @@ test('web wallet home: VC cards show ≤4 attrs + a modal with 属性/JSON segme
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ credential_configuration_ids: [configId] }),
     })).json()).offer_id;
-    // issue two creds into one wallet session (shared cookie)
     const add1 = await wallet.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${await mk('pid_mdoc')}`));
     const cookie = add1.headers.get('set-cookie').split(';')[0];
     await wallet.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${await mk('juminhyo_sdjwt')}`), { headers: { cookie } });
 
+    // ---- home: colourful card wall, NO PII on the face (Apple Wallet / EUDI practice)
     const home = await (await wallet.request('/', { headers: { cookie } })).text();
-    assert.match(home, /すべての属性・生データ を表示/);  // card opens a modal
-    assert.match(home, /class="seg"/);                    // segment (属性/生データ), not tabs
-    assert.match(home, /data-pan="raw"/);
-    assert.match(home, /class="djson"/);                  // raw representation present
-    // mdoc 生データ = the stored IssuerSigned decoded from CBOR to JSON
-    assert.match(home, /nameSpaces/);                     // CBOR-decoded structure
-    assert.match(home, /issuerAuth/);
-    assert.match(home, /_cbor\(#6\.24\)/);                // embedded CBOR decoded
-    assert.match(home, /CBOR を JSON に変換/);            // the conversion is stated
-    // SD-JWT 生データ = decomposed compact serialization (signature exposed)
-    assert.match(home, /signature_b64url/);
-    assert.match(home, /class="vc-del"/);                 // delete lives in the modal
-    // a PID card shows at most 4 representative attr rows on the card face
-    const firstCard = home.split('held-more')[0];
-    assert.ok((firstCard.match(/<tr>/g) || []).length <= 4, 'card shows ≤4 attrs');
+    assert.match(home, /class="vcard"/, 'gradient credential cards');
+    assert.match(home, /href="\/cred\//, 'cards link to the detail page');
+    assert.ok(!home.includes('山田'), 'no claim VALUES on the home card faces');
+    assert.match(home, /fab-add/, '＋ FAB present');
+    assert.match(home, /fab-qr/, 'QR/offer FAB present');
+    assert.match(home, /data-cfg="pid_mdoc"/, 'catalog sheet offers per-format chips (issuer-style)');
+    assert.match(home, /複数選択可/, 'multi-select catalog to a single multi-scope authorization');
 
-    // delete the pid_mdoc; juminhyo_sdjwt must remain
-    const before = await (await wallet.request('/creds', { headers: { cookie } })).json();
-    const pid = before.find((x) => x.configId === 'pid_mdoc');
+    // ---- detail: 4 attrs shown, rest folded; raw data + status live here now
+    const creds = await (await wallet.request('/creds', { headers: { cookie } })).json();
+    const pid = creds.find((x) => x.configId === 'pid_mdoc');
+    const det = await (await wallet.request(`/cred/${pid.id}`, { headers: { cookie } })).text();
+    assert.match(det, /山田/, 'attribute values ARE on the detail page');
+    const firstTable = det.split('morefold')[0];
+    assert.ok((firstTable.match(/<tr>/g) || []).length <= 4, 'detail shows 4 representative attrs first');
+    assert.match(det, /ほか \d+ 項目を表示/, 'remaining attrs behind a fold');
+    assert.match(det, /失効状態/, 'revocation status row');
+    assert.match(det, /アクティビティ/, 'wallet-side transaction log row');
+    assert.match(det, /開発者向け/, 'raw data demoted to a developer fold');
+    assert.match(det, /nameSpaces/); assert.match(det, /issuerAuth/);
+    assert.match(det, /_cbor\(#6\.24\)/); assert.match(det, /CBOR を JSON に変換/);
+    // SD-JWT detail exposes the decomposed compact serialization
+    const ju = creds.find((x) => x.configId === 'juminhyo_sdjwt');
+    const det2 = await (await wallet.request(`/cred/${ju.id}`, { headers: { cookie } })).text();
+    assert.match(det2, /signature_b64url/);
+
+    // ---- delete the pid_mdoc from its detail page; juminhyo_sdjwt must remain
     const del = await wallet.request(`/cred/${pid.id}/delete`, { method: 'POST', headers: { cookie }, redirect: 'manual' });
     assert.equal(del.status, 302);
     const after = await (await wallet.request('/creds', { headers: { cookie } })).json();
@@ -605,7 +695,7 @@ test('web wallet present: selective-disclosure UX (提示先 label, per-claim ch
     assert.match(html, /IHV デモ検証者/);                          // client_name surfaced
     assert.match(html, /name="disclose:[^"]+" value="family_name"/); // per-claim checkbox
     assert.match(html, /name="disclose:[^"]+" value="given_name"/);
-    assert.match(html, /送信プレビュー（デバッグ）/);              // debug preview present
+    assert.match(html, /送信内容のプレビュー（開発者向け）/);              // debug preview present
     assert.match(html, /<svg class="vcicon"/);                     // issuer-matched icon
 
     // required vs optional: family_name required (locked on), age_over_18 optional (opt-in)
@@ -658,7 +748,7 @@ test('web wallet /present/confirm: a Verifier error (no redirect_uri) shows an e
 
     // wallet fetches the stub's request (response_uri -> stub /resp), shows consent
     const consent = await wallet.request('/present?request_uri=' + encodeURIComponent(`${STUB}/req`), { headers: { cookie } });
-    assert.match(await consent.text(), /この内容で提示/);
+    assert.match(await consent.text(), /共有する/);
 
     // confirm: stub returns 500 with no redirect_uri -> wallet must NOT 302 to undefined
     const confirm = await wallet.request('/present/confirm', { method: 'POST', headers: { cookie }, redirect: 'manual' });

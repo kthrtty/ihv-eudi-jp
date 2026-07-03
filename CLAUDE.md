@@ -70,6 +70,17 @@ Pixel 実機で resolver 確認済）／🌐 Web ウォレット `/add?credentia
 `sameHolderAcrossCreds`（単一応答内クロス比較・builder用）。**履歴はシナリオ非依存**（via=console/web/dcapi、冒頭に戻りリンク）。
 mdoc注意: 検証claims は**ワイヤ名**（`resident_address`）で返る・日付は `{value,tag:1004}`（`claimVal` で unwrap）。
 
+## Web ウォレット刷新（2026-07-03・UX/VC 2専門家協議）
+`/`=カードステージ（**和色8配色グラデ vcard・ID-1比・青海波・カード面にPIIなし**=Apple Wallet/EUDI慣行、
+`authcode-demo.mjs` の `WALLET_CARD_THEME`/`vcardHtml`/`walletCardCss` を issuer 同意画面と共有）＋
+FAB ➕（カタログシート: metadata駆動8タイル×形式チップ・**複数選択→複数scopeを1認可**）/QR（オファー受領シート）。
+`/cred/:id`=詳細（属性4件+折りたたみ・**アクティビティ=ARF取引ログ**（値は保存せず日時/提示先/項目名のみ、
+`s.activity` 30件）・**失効状態**（wallet が Status List 全体取得→局所判定・KV 5分キャッシュ `wst:`・再確認POST）・
+開発者fold=生データ/鍵）。同意画面=ボトムシート（RP+検証バッジ→purpose→**peekカード**（ID-1維持・下端mask-imageフェード）→
+クレーム行→キャンセル/共有する。src=client_metadata 由来は「⚠未検証の名称」）。
+**セキュリティ修正**: `/oidc/cb` の **state 照合必須**＋`s.pendingAuth[state]` map（並行発行対応・one-time消費）。
+`exchangeAndReceive({configIds})` で1トークン→N件発行。issuer 同意画面 v2=「以下の N 件」スウォッチ行列挙。
+
 ## 実装済みフロー
 - **発行**: pre-auth + **authorization_code(PKCE S256)**。wallet起点(scope) / 発行者起点(`grants.authorization_code.issuer_state`)
 - **セッション連動データ**: `/login`→access_token に userId→`credential()` が persona を mint。`/users` 保守が次回発行へ反映

@@ -106,13 +106,20 @@ export function createWallet(snapshot = null) {
     },
 
     /** Exchange an authorization code (already obtained via a browser redirect) for
-     *  an access token (PKCE) and run issuance. Used by web-wallet callbacks. */
-    async exchangeAndReceive({ request, code, verifier, redirectUri, configId, credentialIssuer }) {
+     *  an access token (PKCE) and run issuance. Used by web-wallet callbacks.
+     *  Multi-scope authorization: pass configIds[] — ONE code/token exchange, then
+     *  one credential request per configuration (returns an array of records). */
+    async exchangeAndReceive({ request, code, verifier, redirectUri, configId, configIds, credentialIssuer }) {
       const tokenRes = await (await request('/token', {
         method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ grant_type: 'authorization_code', code, code_verifier: verifier, redirect_uri: redirectUri }).toString(),
       })).json();
       if (!tokenRes.access_token) throw new Error(`token failed: ${tokenRes.error || 'no token'}`);
+      if (configIds && configIds.length) {
+        const recs = [];
+        for (const id of configIds) recs.push(await finish(request, tokenRes.access_token, id, credentialIssuer));
+        return recs;
+      }
       return finish(request, tokenRes.access_token, configId, credentialIssuer);
     },
 
