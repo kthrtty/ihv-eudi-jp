@@ -530,14 +530,14 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
           <div class="handoff" id="wletrow">
             <div class="qrside"><div id="qrbox"></div></div>
             <div class="btnside">
-              <a class="act primary" id="opendevice" href="#">
-                <span class="act-ic">📱</span>
-                <span class="act-tx"><b>この端末のウォレットで開く</b><small>ネイティブウォレットが起動します（コピー&ペースト不要）</small></span>
+              <a class="act primary" id="openweb" href="#" target="_blank" rel="noopener">
+                <span class="act-ic">🌐</span>
+                <span class="act-tx"><b>Web ウォレットに追加</b><small>ブラウザのウォレットで受け取ります（コピー&ペースト不要）</small></span>
                 <span class="act-ch">›</span>
               </a>
-              <a class="act" id="openweb" href="#" target="_blank" rel="noopener">
-                <span class="act-ic">🌐</span>
-                <span class="act-tx"><b>Web ウォレットに追加</b><small>ブラウザのウォレットで受け取ります</small></span>
+              <a class="act" id="opendevice" href="#">
+                <span class="act-ic">📱</span>
+                <span class="act-tx"><b>この端末のウォレットで開く</b><small>ネイティブウォレット（Multipaz 等）が起動します</small></span>
                 <span class="act-ch">›</span>
               </a>
               <button type="button" class="act" id="copyoffer">
