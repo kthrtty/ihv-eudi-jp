@@ -547,7 +547,10 @@ export function renderClaimsModal(groups) {
       .cmodal-grp{font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.04em;margin:0 0 10px}
       .cmodal-pills{display:flex;flex-wrap:wrap;gap:6px}
       .cmodal-pill{font-size:12px;font-family:"IBM Plex Mono",monospace;background:#eef2fb;border:1px solid #d7e0f3;color:#26407e;border-radius:999px;padding:3px 11px}
-      .vcinfo{position:absolute;top:10px;left:12px;width:22px;height:22px;border-radius:50%;border:1px solid rgba(255,255,255,.5);background:rgba(255,255,255,.15);color:#fff;font-size:11px;font-weight:700;cursor:pointer;z-index:2;font-family:Georgia,serif}
+      /* ⓘ sits bottom-right — the only always-empty corner (title top-left,
+         ✓ badge top-right when selected, issuer+chips bottom-left) */
+      .vcinfo{position:absolute;bottom:11px;right:14px;width:24px;height:24px;border-radius:50%;border:1px solid rgba(255,255,255,.5);background:rgba(255,255,255,.15);color:#fff;font-size:12px;font-weight:700;cursor:pointer;z-index:2;font-family:Georgia,serif}
+      .vcinfo:hover{background:rgba(255,255,255,.32)}
       .vcinfo:hover{border-color:var(--civic);color:var(--civic);background:#f4f7fd}
     </style>`;
 }
