@@ -17,6 +17,43 @@ npm run coverage    # c8（対象 src/**）
 > Claude Code で開く場合: 上記のあと `git init && git add -A && git commit -m init` →
 > リポジトリ直下で `claude`。`CLAUDE.md` が自動でプロジェクト文脈として読まれます。
 
+## デモの流れ（代表シナリオ）
+
+3 つの独立オリジン — **発行者（Issuer・青）／ウォレット（Holder・ティール）／検証者（Verifier・煉瓦）** — を
+ブラウザだけで行き来する代表フローです。ヘッダー色・favicon・タブタイトルでどのサイトにいるかが常に分かります。
+
+### 発行 — Issuer → Holder（OID4VCI / pre-authorized_code）
+
+発行者ポータルでクレデンシャルを選んで「発行」を押し、オファーをウォレットへ受け渡します（QR＝別端末／
+リンク＝同一端末。コピー&ペースト不要）。
+
+| ① クレデンシャルを選択して発行 | ② ウォレットへの受け渡し（QR とリンク） |
+|---|---|
+| ![発行者: PID と住民票を選択](docs/images/readme-issue-select.png) | ![受け渡しカード: QR / Web ウォレット / カスタムスキーマ / コピー](docs/images/readme-issue-handoff.png) |
+
+| ③ Web ウォレットが受領（OID4VCI） | ④ 保管一覧（選択的開示のソースになる） |
+|---|---|
+| ![ウォレット: 2件のクレデンシャルを保管](docs/images/readme-issue-wallet-add.png) | ![ウォレット: 保管中のクレデンシャル](docs/images/readme-issue-wallet-home.png) |
+
+### 検証 — Holder → Verifier（OID4VP + HAIP・ステップ型シナリオ）
+
+検証者は実在の手続きを模した **9 シナリオ**（8 種の文書を全て使用）を提供。代表例
+**「子どもの銀行口座開設」**では、Step1 で保護者の本人確認（PID）、Step2 で住民票（世帯全員・続柄記載）を
+`linkTo` 連鎖で提示し、**世帯員に「子」がいること＋2 回の提示が同一の保有者鍵で署名されたこと**を検証して受理します。
+
+| ① シナリオを選ぶ | ② ウォレットの同意画面（Step2: 住民票） |
+|---|---|
+| ![検証者: 9シナリオのランディング](docs/images/readme-verify-scenarios.png) | ![ウォレット: 提示先/利用目的/世帯全員開示の警告/送信プレビュー](docs/images/readme-verify-consent.png) |
+
+| ③ Step1 完了（本人確認） | ④ 受理（親子関係＋同一鍵を確認） |
+|---|---|
+| ![検証者: 本人確認が完了しました](docs/images/readme-verify-step1.png) | ![検証者: 申請を受理しました（世帯員に子を確認）](docs/images/readme-verify-accept.png) |
+
+同意画面には **提示先（client_metadata.client_name）・利用目的（request.purpose）・開示される項目と値・
+世帯全員が開示される旨の警告** が表示され、必須／任意（holder が外せる）を選んで暗号化送信（direct_post.jwt）します。
+mdoc / SD-JWT のどちらの形式で発行されていても提示できます（DCQL `credential_sets` による形式代替）。
+各画面のヘッダー `>_` から**開発者コンソール**（Token/Credential/OID4VP の実通信・部分マスク付き）を開けます。
+
 ## 構成
 
 ```
