@@ -24,6 +24,7 @@ async function walletWith(configIds) {
     })).json();
     await wallet.receive({ request: app.request.bind(app), offer: offer.credential_offer, credentialIssuer: ISSUER });
   }
+  wallet.issuerApp = app; // 検証テストが status list をローカル参照するため（本番へ fetch しない）
   return wallet;
 }
 
@@ -283,8 +284,8 @@ test('Verifier scenario C: PID -> EAA sequential, session-linked (same holder)',
 
 test('Verifier HTTP app: /vp/request -> wallet -> /vp/verify, and serves DC API page', async () => {
   const { createVerifierApp } = await import('../src/app.mjs');
-  const vapp = createVerifierApp();
   const wallet = await walletWith(['pid_mdoc']);
+  const vapp = createVerifierApp({ statusResolver: async () => (await wallet.issuerApp.request('/status-lists/0')).text() });
 
   const { transactionId, request } = await (await vapp.request('/vp/request', {
     method: 'POST', headers: { 'content-type': 'application/json' },
@@ -312,7 +313,7 @@ test('Verifier HTTP app: /vp/request -> wallet -> /vp/verify, and serves DC API 
 });
 test('Verifier: native DC API /vp/verify records to global history (newest-first) and returns claims under results[]', async () => {
   const { createVerifierApp } = await import('../src/app.mjs');
-  const vapp = createVerifierApp();
+  const vapp = createVerifierApp({ statusResolver: async () => (await w1.issuerApp.request('/status-lists/0')).text() });
 
   // history starts empty
   assert.match(await (await vapp.request('/verifier/history')).text(), /まだ提示を受け取っていません/);
@@ -351,7 +352,7 @@ test('Verifier: native DC API /vp/verify records to global history (newest-first
 
 test('Verifier: /vp/build accepts multi-credential specs[] and the full present->verify round-trip succeeds', async () => {
   const { createVerifierApp } = await import('../src/app.mjs');
-  const vapp = createVerifierApp();
+  const vapp = createVerifierApp({ statusResolver: async () => (await wallet.issuerApp.request('/status-lists/0')).text() });
   const wallet = await walletWith(['pid_mdoc', 'vaccine_mdoc']); // one holder, two credentials
 
   const b = await (await vapp.request('/vp/build', {

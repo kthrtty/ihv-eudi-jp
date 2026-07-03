@@ -10,6 +10,7 @@ pki/
 # Cloudflare / Wrangler (M2b+)
 .wrangler/
 .dev.vars
+.deploy.env
 dist/
 
 # misc
