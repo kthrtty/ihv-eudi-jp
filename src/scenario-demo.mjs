@@ -165,85 +165,122 @@ export function renderScenarioHome(scenarios = []) {
 }
 
 // ---- scenario intro / step-1 page (GET /verifier/s/:id) -------------------------
+// devlog 風の縦タイムライン: 番号丸を線でつなぎ、実行中ステップのブロックに
+// アクション（提示ボタン）を内蔵する。進行するとボタンは次のステップへ移る。
+function claimPills(sp) {
+  const req = sp.claims.map((k) => `<span class="cpill req">${esc(label(firstCfg(sp), k))}</span>`).join('');
+  const opt = (sp.optional || []).map((k) => `<span class="cpill opt">${esc(label(firstCfg(sp), k))}（任意）</span>`).join('');
+  return `<div class="cpills">${req}${opt}</div>`;
+}
+/** One timeline node. state: 'done' | 'cur' | 'todo' */
+function tStep({ num, state, title, body = '' }) {
+  return `<div class="tstep ${state}">
+    <div class="tnum">${state === 'done' ? '✓' : esc(String(num))}</div>
+    <div class="tbody"><div class="tttl">${title}</div>${body}</div>
+  </div>`;
+}
 export function renderScenarioRun(s) {
-  const stepBlocks = s.steps.map((st, i) => {
-    const blocks = st.specs.map((sp) => {
-      const req = sp.claims.map((k) => `<span class="cpill req">${esc(label(firstCfg(sp), k))}</span>`).join('');
-      const opt = (sp.optional || []).map((k) => `<span class="cpill opt">${esc(label(firstCfg(sp), k))}（任意）</span>`).join('');
-      return `<div class="cpills">${req}${opt}</div>`;
-    }).join('');
-    return `<div class="credblk">
-      <div class="credttl"><span class="stepn">${i + 1}</span>${esc(st.name)} — ${esc(credName(firstCfg(st.specs[0])))}</div>
-      ${blocks}
-    </div>`;
-  }).join('');
+  const one = s.steps.length === 1;
+  const nodes = [
+    tStep({
+      num: 1, state: 'cur',
+      title: `ステップ1: ${esc(s.steps[0].name)} — ${esc(credName(firstCfg(s.steps[0].specs[0])))}`,
+      body: claimPills(s.steps[0].specs[0]) + stepActions(s, 1),
+    }),
+    ...(one ? [] : [tStep({
+      num: 2, state: 'todo',
+      title: `ステップ2: ${esc(s.steps[1].name)} — ${esc(credName(firstCfg(s.steps[1].specs[0])))}`,
+      body: claimPills(s.steps[1].specs[0]) + `<div class="tlock">ステップ1の完了後に提示できます</div>`,
+    })]),
+    tStep({ num: '受', state: 'todo', title: esc(s.stepbarAccept || '申請の受理'), body: '' }),
+  ].join('');
   return shell(s.title, `
     <div class="card">
       <div class="step"><a href="/verifier" style="color:inherit;text-decoration:none">← シナリオ一覧</a></div>
       <div class="rphead"><span class="sic2">${s.icon}</span>
         <div><h1 style="margin:0">${esc(s.title)}</h1>
         <div class="muted" style="font-size:12.5px">${esc(s.rp)} — ${esc(s.rpKind)}</div></div></div>
-      ${stepBar(s, 0)}
       <p style="font-size:13.5px;line-height:1.8">${esc(s.story)}</p>
       <div class="pbox"><b>利用目的</b><div>${esc(s.purpose)}</div></div>
-      <div class="lbl2">提示をお願いする項目（ステップ別）</div>
-      ${stepBlocks}
-      <div class="mini2">✓ ${esc(s.notDisclosed)}</div>
+      <div class="mini2" style="margin:10px 0 2px">✓ ${esc(s.notDisclosed)}</div>
       ${s.discloseNote ? `<div class="warn2">⚠ ${esc(s.discloseNote)}</div>` : ''}
-      <div class="lbl2" style="margin-top:16px">ステップ1: ${esc(s.steps[0].name)}</div>
-      ${stepActions(s, 1)}
+      <div class="tl">${nodes}</div>
     </div>
     <style>
       .rphead{display:flex;gap:12px;align-items:center;margin:4px 0 6px}
       .sic2{font-size:38px;line-height:1}
       .pbox{background:#f7f9fc;border:1px solid var(--line);border-radius:10px;padding:10px 14px;font-size:12.5px;margin:8px 0 4px}
       .pbox b{display:block;font-size:11px;color:var(--muted);letter-spacing:.06em}
-      .lbl2{font-size:12px;color:var(--muted);font-weight:700;margin:16px 0 6px}
-      .credblk{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px}
-      .credttl{font-size:13px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:8px}
-      .stepn{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:#9E3A3A;color:#fff;font-size:11px;flex:none}
-      .cpills{display:flex;flex-wrap:wrap;gap:5px}
-      .cpill{font-size:12px;border-radius:999px;padding:3px 11px}
-      .cpill.req{background:#F6ECEC;color:#9E3A3A;border:1px solid #E7D6D6}
-      .cpill.opt{background:#fff;color:var(--muted);border:1px dashed var(--line)}
-      .mini2{font-size:12px;color:var(--verify);margin:8px 0 2px}
-      .warn2{font-size:12px;color:#8a6d1a;background:#FCF7E8;border:1px solid #EFE2B8;border-radius:9px;padding:8px 12px;margin:6px 0 2px}
-      .actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
-      .btn.ghost{background:#fff;color:#9E3A3A;border:1px solid var(--line)}
-      .alt{margin-top:12px}.alt>summary{cursor:pointer;font-size:12px;color:var(--muted);font-weight:700}
+      ${TL_CSS}
       ${RESULT_CSS}
     </style>`, SHELL_OPTS);
 }
 
-// ---- step-1 done page: identity confirmed, invite step 2 ------------------------
+// ---- step-1 done page: identity confirmed; the ACTION moves to step 2 ----------
 export function renderScenarioStep1Done(s, txn1, result1, { selftest = false } = {}) {
   const pidSpec = s.steps[0].specs[0];
   const r = (result1?.results || [])[0];
   const pidName = r?.claims ? `${claimVal(r.claims.family_name) ?? ''} ${claimVal(r.claims.given_name) ?? ''}`.trim() : '';
   const okPid = !!result1?.valid;
+  const doneBody = okPid
+    ? `<div class="tok">✓ 本人確認が完了しました${pidName ? ` — ${esc(pidName)}様` : ''}</div>${claimsTable(firstCfg(pidSpec), r?.claims)}`
+    : `<div class="tng">✗ 本人確認ができませんでした</div><div class="hint" style="color:#9E3A3A">${esc((result1?.errors || []).join('; '))}</div>`;
+  const nodes = [
+    tStep({
+      num: 1, state: okPid ? 'done' : 'cur',
+      title: `ステップ1: ${esc(s.steps[0].name)} — ${esc(credName(firstCfg(pidSpec)))}`,
+      body: doneBody,
+    }),
+    tStep({
+      num: 2, state: okPid ? 'cur' : 'todo',
+      title: `ステップ2: ${esc(s.steps[1].name)} — ${esc(credName(firstCfg(s.steps[1].specs[0])))}`,
+      body: okPid
+        ? claimPills(s.steps[1].specs[0]) + stepActions(s, 2, { txn1, selftest })
+        : claimPills(s.steps[1].specs[0]) + `<div class="tlock">ステップ1の完了後に提示できます</div>`,
+    }),
+    tStep({ num: '受', state: 'todo', title: esc(s.stepbarAccept || '申請の受理'), body: '' }),
+  ].join('');
   return shell(`${s.title} · ステップ1`, `
     <div class="card">
       <div class="step">${esc(s.rp)} — ${esc(s.title)}</div>
-      ${stepBar(s, okPid ? 1 : 0)}
-      ${okPid
-        ? `<div class="okbig">✓ 本人確認が完了しました</div>
-           <p style="font-size:13.5px;line-height:1.8">${esc(pidName)}様の本人特定事項をデジタル身分証で確認しました。続いて<b>${esc(s.steps[1].name)}</b>にお進みください。</p>
-           ${claimsTable(firstCfg(pidSpec), r?.claims)}
-           <div class="lbl2" style="margin-top:16px">ステップ2: ${esc(s.steps[1].name)}</div>
-           ${stepActions(s, 2, { txn1, selftest })}`
-        : `<div class="ngbig">✗ 本人確認ができませんでした</div>
-           <p style="font-size:13.5px;line-height:1.8">身分証の検証に失敗しました。${esc((result1?.errors || []).join('; '))}</p>`}
+      <div class="tl" style="margin-top:14px">${nodes}</div>
       <div class="navrow">
         <a class="btn ghost" href="/verifier/s/${esc(s.id)}">最初からやり直す</a>
         <a class="btn ghost" href="/verifier">シナリオ一覧へ</a>
       </div>
     </div>
-    <style>${RESULT_CSS}
+    <style>${TL_CSS}${RESULT_CSS}
       .actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
       .alt{margin-top:12px}.alt>summary{cursor:pointer;font-size:12px;color:var(--muted);font-weight:700}
-      .lbl2{font-size:12px;color:var(--muted);font-weight:700;margin:16px 0 6px}
     </style>`, SHELL_OPTS);
 }
+
+// timeline (devlog-style): a left rail connects the numbered nodes
+const TL_CSS = `
+  .tl{border-left:2px solid var(--line);margin:16px 0 4px 13px;padding-left:20px}
+  .tstep{position:relative;padding:2px 0 20px}
+  .tstep:last-child{padding-bottom:4px}
+  .tnum{position:absolute;left:-33px;top:2px;width:24px;height:24px;border-radius:50%;background:#CBD5E1;color:#fff;font-size:11.5px;font-weight:800;display:flex;align-items:center;justify-content:center}
+  .tstep.cur .tnum{background:#9E3A3A;box-shadow:0 0 0 4px #F6ECEC}
+  .tstep.done .tnum{background:#0E8A6B}
+  .tttl{font-size:13.5px;font-weight:700;line-height:1.5}
+  .tstep.todo .tttl{color:var(--muted)}
+  .tstep .tbody{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:#fff}
+  .tstep.cur .tbody{border-color:#E7D6D6;box-shadow:0 4px 14px rgba(158,58,58,.08)}
+  .tstep.todo .tbody{background:#FAFBFD}
+  .tlock{font-size:11.5px;color:var(--muted);margin-top:8px}
+  .tok{color:var(--verify);font-weight:700;font-size:13.5px;margin:2px 0 6px}
+  .tng{color:#9E3A3A;font-weight:700;font-size:13.5px;margin:2px 0 6px}
+  .cpills{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+  .cpill{font-size:12px;border-radius:999px;padding:3px 11px}
+  .cpill.req{background:#F6ECEC;color:#9E3A3A;border:1px solid #E7D6D6}
+  .cpill.opt{background:#fff;color:var(--muted);border:1px dashed var(--line)}
+  .mini2{font-size:12px;color:var(--verify)}
+  .warn2{font-size:12px;color:#8a6d1a;background:#FCF7E8;border:1px solid #EFE2B8;border-radius:9px;padding:8px 12px;margin:6px 0 2px}
+  .actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+  .btn.ghost{background:#fff;color:#9E3A3A;border:1px solid var(--line)}
+  .alt{margin-top:12px}.alt>summary{cursor:pointer;font-size:12px;color:var(--muted);font-weight:700}
+`;
 
 // ---- acceptance page after step 2 (GET /verifier/s/:id/result/:txn2) ------------
 export function renderScenarioAccept(s, result1, result2, evaluation) {
