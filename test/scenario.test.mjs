@@ -42,15 +42,22 @@ test('scenarios: GET /vp/scenarios serves the presets — every issuable EAA doc
   const list = await (await v.request('/vp/scenarios')).json();
   assert.deepEqual(list.map((s) => s.id).sort(),
     ['age-check', 'childcare', 'disaster-aid', 'entry', 'hiring', 'kidbank', 'marriage', 'minor-mobile', 'passport']);
+  const cfgs = (sp) => sp.configIds ?? [sp.configId];
   for (const s of list) {
     assert.ok(s.title && s.rp && s.purpose && s.story, `${s.id} carries display strings`);
     assert.ok(s.steps.length === 1 || s.steps.length === 2, `${s.id} is a 1- or 2-step flow`);
-    assert.equal(s.steps[0].specs[0].configId, 'pid_mdoc', `${s.id} step 1 uses the PID`);
-    if (s.steps.length === 2) assert.notEqual(s.steps[1].specs[0].configId, 'pid_mdoc', `${s.id} step 2 presents an EAA`);
+    assert.ok(cfgs(s.steps[0].specs[0]).includes('pid_mdoc'), `${s.id} step 1 uses the PID`);
+    // format-agnostic: every spec accepts BOTH formats of its document (credential_sets)
+    for (const st of s.steps) for (const sp of st.specs) {
+      const docs = new Set(cfgs(sp).map((c) => c.replace(/_(mdoc|sdjwt)$/, '')));
+      assert.equal(docs.size, 1, `${s.id} alternatives are formats of ONE document`);
+      assert.equal(cfgs(sp).length, 2, `${s.id} accepts mdoc OR SD-JWT`);
+    }
+    if (s.steps.length === 2) assert.ok(!cfgs(s.steps[1].specs[0]).includes('pid_mdoc'), `${s.id} step 2 presents an EAA`);
     assert.ok(s.notDisclosed, `${s.id} states what is NOT disclosed (data minimisation)`);
   }
   // full coverage: all 8 issuable documents appear across the scenario set
-  const used = new Set(list.flatMap((s) => s.steps.flatMap((st) => st.specs.map((sp) => sp.configId.replace(/_(mdoc|sdjwt)$/, '')))));
+  const used = new Set(list.flatMap((s) => s.steps.flatMap((st) => st.specs.flatMap((sp) => cfgs(sp).map((c) => c.replace(/_(mdoc|sdjwt)$/, ''))))));
   for (const doc of ['pid', 'juminhyo', 'qualification', 'koseki', 'tax', 'single', 'disaster', 'vaccine']) {
     assert.ok(used.has(doc), `document ${doc} is exercised by some scenario`);
   }
@@ -253,6 +260,73 @@ test('history: no scenario coupling (plain via labels) and a top back-link', asy
   const topIdx = hist.indexOf('← 検証ポータルトップへ');
   const cardIdx = hist.indexOf('hcard');
   assert.ok(topIdx !== -1 && cardIdx !== -1 && topIdx < cardIdx, 'back link present at the TOP of the page');
+});
+
+test('scenarios: format alternatives (credential_sets) — an SD-JWT-only wallet presents to marriage (the reported bug)', async () => {
+  // 実機報告: single_sdjwt しか保有していないウォレットが marriage（従来 single_mdoc
+  // 固定要求）で「形式不一致・保有なし」になった。credential_sets の代替候補で
+  // どちらの形式でも提示できることを固定する。
+  const v = vapp();
+  const wallet = createWallet();
+  for (const cfg of ['pid_sdjwt', 'single_sdjwt']) { // SD-JWT だけを保有
+    const offer = await (await fetch(`${ISSUER}/offer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ credential_configuration_ids: [cfg] }) })).json();
+    await wallet.receive({ request: (p, i) => fetch(ISSUER + p, i), offer: offer.credential_offer, credentialIssuer: ISSUER });
+  }
+  const present = async (b) => {
+    const resp = await v.request(`/oid4vp/response/${b.transactionId}`, {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ response: await wallet.respond(b.request) }).toString(),
+    });
+    return (await resp.json()).redirect_uri;
+  };
+  const b1 = await (await J(v, '/vp/build', { scenario: 'marriage', step: 1, target: 'web' })).json();
+  // the request advertises BOTH formats via standard credential_sets
+  assert.ok(b1.request.dcql_query.credential_sets?.length >= 1, 'credential_sets present');
+  assert.equal(b1.request.dcql_query.credentials.length, 2, 'mdoc and SD-JWT variants offered');
+  const step1Html = await (await v.request(new URL(await present(b1)).pathname)).text();
+  assert.match(step1Html, /本人確認が完了しました/, 'SD-JWT PID satisfies step 1');
+  const b2 = await (await J(v, '/vp/build', { scenario: 'marriage', step: 2, linkTxn: b1.transactionId, target: 'web' })).json();
+  const acceptHtml = await (await v.request(new URL(await present(b2)).pathname)).text();
+  assert.match(acceptHtml, /入会申込を受理しました/, 'SD-JWT 独身証明書 satisfies step 2');
+  assert.match(acceptHtml, /独身\(未婚\)/, 'claims verified from the SD-JWT variant');
+});
+
+test('scenarios: mixed formats across steps (mdoc PID + SD-JWT EAA) also accepted', async () => {
+  const v = vapp();
+  const wallet = createWallet();
+  for (const cfg of ['pid_mdoc', 'vaccine_sdjwt']) {
+    const offer = await (await fetch(`${ISSUER}/offer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ credential_configuration_ids: [cfg] }) })).json();
+    await wallet.receive({ request: (p, i) => fetch(ISSUER + p, i), offer: offer.credential_offer, credentialIssuer: ISSUER });
+  }
+  const present = async (b) => {
+    const resp = await v.request(`/oid4vp/response/${b.transactionId}`, {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ response: await wallet.respond(b.request) }).toString(),
+    });
+    return (await resp.json()).redirect_uri;
+  };
+  const b1 = await (await J(v, '/vp/build', { scenario: 'entry', step: 1, target: 'web' })).json();
+  await present(b1);
+  const b2 = await (await J(v, '/vp/build', { scenario: 'entry', step: 2, linkTxn: b1.transactionId, target: 'web' })).json();
+  const acceptHtml = await (await v.request(new URL(await present(b2)).pathname)).text();
+  assert.match(acceptHtml, /事前手続きを受理しました/, 'mdoc step1 + SD-JWT step2 cross-format flow accepted');
+});
+
+test('dcql: credential_sets negative — holding NEITHER format fails resolve; verifier reports the unsatisfied set', async () => {
+  const { buildDcql, resolveForWallet, missingPresentations } = await import('../src/dcql.mjs');
+  const dcql = buildDcql([{ id: 'eaa', configIds: ['single_mdoc', 'single_sdjwt'], claims: ['family_name'] }]);
+  // wallet with an unrelated credential only
+  const app = createApp({ credentialIssuer: ISSUER });
+  const w = createWallet();
+  const offer = await (await app.request('/offer', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'] }) })).json();
+  await w.receive({ request: app.request.bind(app), offer: offer.credential_offer, credentialIssuer: ISSUER });
+  assert.throws(() => resolveForWallet(dcql, w), /no credential for DCQL set/);
+  // verifier-side: nothing presented -> the SET is reported missing (not each alternative)
+  const errs = missingPresentations(dcql, []);
+  assert.equal(errs.length, 1);
+  assert.match(errs[0], /credential_set \[eaa\.0 \| eaa\.1\]/);
+  // one alternative presented -> satisfied
+  assert.deepEqual(missingPresentations(dcql, ['eaa.1']), []);
 });
 
 test('scenarios: cross-scenario linkage is blocked — a marriage step-1 cannot underwrite a kidbank step-2', async () => {

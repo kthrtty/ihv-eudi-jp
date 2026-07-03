@@ -23,8 +23,10 @@ const cl = (claims, key) => claimVal(claims?.[key] ?? (ALIAS[key] ? claims?.[ALI
 const PID_STEP = {
   name: '本人確認（デジタル身分証の提示）',
   shortName: '本人確認',
+  // どちらの形式で発行されていても提示できるよう、DCQL credential_sets の
+  // 代替候補（mdoc OR SD-JWT）として要求する
   specs: [{
-    id: 'pid', configId: 'pid_mdoc',
+    id: 'pid', configIds: ['pid_mdoc', 'pid_sdjwt'],
     claims: ['family_name', 'given_name', 'birth_date', 'residence_address'],
   }],
 };
@@ -44,7 +46,7 @@ export const SCENARIOS = {
     steps: [
       PID_STEP,
       { name: '独身証明書の提示', shortName: '独身証明書',
-        specs: [{ id: 'eaa', configId: 'single_mdoc',
+        specs: [{ id: 'eaa', configIds: ['single_mdoc', 'single_sdjwt'],
           claims: ['family_name', 'given_name', 'birth_date', 'marital_status', 'statement'] }] },
     ],
     notDisclosed: '本籍・証明書番号などは要求されず、開示もされません。',
@@ -73,7 +75,7 @@ export const SCENARIOS = {
     steps: [
       PID_STEP,
       { name: '国家資格の提示', shortName: '国家資格',
-        specs: [{ id: 'eaa', configId: 'qualification_mdoc',
+        specs: [{ id: 'eaa', configIds: ['qualification_mdoc', 'qualification_sdjwt'],
           claims: ['holder_family_name', 'holder_given_name', 'holder_birth_date', 'qualification_name', 'registration_number', 'competent_authority'] }] },
     ],
     notDisclosed: '登録年月日や資格区分の詳細などは要求されず、開示もされません。',
@@ -103,7 +105,7 @@ export const SCENARIOS = {
     steps: [
       PID_STEP,
       { name: '罹災証明書の提示', shortName: '罹災証明書',
-        specs: [{ id: 'eaa', configId: 'disaster_mdoc',
+        specs: [{ id: 'eaa', configIds: ['disaster_mdoc', 'disaster_sdjwt'],
           claims: ['family_name', 'given_name', 'address', 'disaster_name', 'damage_level'] }] },
     ],
     notDisclosed: '建物の構造や証明書番号などは要求されず、開示もされません。',
@@ -132,9 +134,9 @@ export const SCENARIOS = {
     purpose: '事前入国手続きにおける渡航者の身元確認と防疫要件（接種歴）の確認',
     steps: [
       { name: '本人確認（デジタル身分証の提示）', shortName: '本人確認',
-        specs: [{ id: 'pid', configId: 'pid_mdoc', claims: ['family_name', 'given_name', 'birth_date'] }] },
+        specs: [{ id: 'pid', configIds: ['pid_mdoc', 'pid_sdjwt'], claims: ['family_name', 'given_name', 'birth_date'] }] },
       { name: 'ワクチン接種証明の提示', shortName: '接種証明',
-        specs: [{ id: 'eaa', configId: 'vaccine_mdoc',
+        specs: [{ id: 'eaa', configIds: ['vaccine_mdoc', 'vaccine_sdjwt'],
           claims: ['family_name', 'given_name', 'birth_date', 'disease', 'vaccine_type', 'dose_number', 'vaccination_date'] }] },
     ],
     notDisclosed: 'ロット番号・接種会場や、身分証の住所などは要求されず、開示もされません。',
@@ -160,7 +162,7 @@ export const SCENARIOS = {
 const JUMINHYO_STEP = {
   name: '住民票（世帯全員・続柄記載）の提示',
   shortName: '住民票',
-  specs: [{ id: 'eaa', configId: 'juminhyo_mdoc',
+  specs: [{ id: 'eaa', configIds: ['juminhyo_mdoc', 'juminhyo_sdjwt'],
     claims: ['family_name', 'given_name', 'relationship_to_head', 'household_members'] }],
 };
 const CHILD_RELS = ['子', '長男', '長女', '二男', '二女', '三男', '三女', '養子', '養女'];
@@ -232,7 +234,7 @@ SCENARIOS['age-check'] = {
   stepbarAccept: '確認完了',
   steps: [
     { name: '年齢属性のみの提示（デジタル身分証）', shortName: '年齢のみ提示',
-      specs: [{ id: 'pid', configId: 'pid_mdoc', claims: ['age_over_20'] }] },
+      specs: [{ id: 'pid', configIds: ['pid_mdoc', 'pid_sdjwt'], claims: ['age_over_20'] }] },
   ],
   notDisclosed: '氏名・生年月日・住所・顔写真など、年齢区分以外の一切は要求されず、開示もされません。なお検証者どうしの突合を完全に防ぐには使い捨てクレデンシャルのバッチ発行（本デモ未実装）が必要です。',
   checks(pid, _eaa, _r2) {
@@ -260,7 +262,7 @@ SCENARIOS.childcare = {
   steps: [
     PID_STEP,
     { name: '課税証明書の提示', shortName: '課税証明書',
-      specs: [{ id: 'eaa', configId: 'tax_mdoc',
+      specs: [{ id: 'eaa', configIds: ['tax_mdoc', 'tax_sdjwt'],
         claims: ['family_name', 'given_name', 'tax_year', 'total_income', 'taxable_amount'] }] },
   ],
   notDisclosed: '税額の内訳や証明書番号などは要求されず、開示もされません。',
@@ -289,7 +291,7 @@ SCENARIOS.passport = {
   steps: [
     PID_STEP,
     { name: '戸籍謄本の提示', shortName: '戸籍謄本',
-      specs: [{ id: 'eaa', configId: 'koseki_mdoc',
+      specs: [{ id: 'eaa', configIds: ['koseki_mdoc', 'koseki_sdjwt'],
         claims: ['family_name', 'given_name', 'birth_date', 'honseki', 'head_of_family', 'relationship'] }] },
   ],
   notDisclosed: '父母の氏名・出生地などの戸籍記載事項は要求されず、開示もされません。',
@@ -312,7 +314,7 @@ export const scenarioList = () => Object.values(SCENARIOS).map(({ id, icon, titl
 export const getScenario = (id) => SCENARIOS[id] || null;
 
 /** All configIds a scenario needs minted for a self-test run. */
-export const scenarioConfigIds = (s) => s.steps.flatMap((st) => st.specs.map((sp) => sp.configId));
+export const scenarioConfigIds = (s) => s.steps.flatMap((st) => st.specs.map((sp) => sp.configIds?.[0] ?? sp.configId));
 
 /** Evaluate the scenario at its final step. 2-step: identity claims (step1) +
  *  EAA claims (step2) + the session link (same holder key across both

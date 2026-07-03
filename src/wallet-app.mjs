@@ -32,9 +32,15 @@ function verifierLabel(request) {
 
 /** Resolve a DCQL request against the wallet's stored creds (with claim values),
  *  returning per-query matches so the UI can let the holder pick credential+claims.
- *  Matches by BOTH format AND doctype/vct — the same rule used at present time. */
+ *  Matches by BOTH format AND doctype/vct — the same rule used at present time.
+ *  Set-aware: with `credential_sets` (format alternatives), only ONE satisfiable
+ *  option per required set is planned; the other alternatives are dropped from
+ *  the consent UI. An unsatisfiable set keeps ALL its alternatives (matches=[])
+ *  so the "not held" screen can list every acceptable variant. */
 function resolvePresentation(request, creds) {
-  return (request?.dcql_query?.credentials || []).map((q) => {
+  const dcql = request?.dcql_query || {};
+  const queries = dcql.credentials || [];
+  const planOne = (q) => {
     const isMdoc = q.format === 'mso_mdoc';
     const want = isMdoc ? q.meta?.doctype_value : q.meta?.vct_values?.[0];
     const matches = creds.filter((cr) => {
@@ -50,7 +56,17 @@ function resolvePresentation(request, creds) {
       optional: sets?.length ? !sets.every((set) => set.includes(cl.id)) : false,
     }));
     return { dcqlId: q.id, format: q.format, isMdoc, want, matches, reqClaims };
-  });
+  };
+  const planned = new Map(queries.map((q) => [q.id, planOne(q)]));
+  if (!dcql.credential_sets?.length) return [...planned.values()];
+  const inSets = new Set(dcql.credential_sets.flatMap((s) => s.options.flat()));
+  const out = queries.filter((q) => !inSets.has(q.id)).map((q) => planned.get(q.id));
+  for (const set of dcql.credential_sets) {
+    const opt = set.options.find((ids) => ids.every((id) => planned.get(id)?.matches.length));
+    if (opt) out.push(...opt.map((id) => planned.get(id)));
+    else if (set.required !== false) out.push(...set.options.flat().map((id) => planned.get(id)).filter(Boolean));
+  }
+  return out;
 }
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
