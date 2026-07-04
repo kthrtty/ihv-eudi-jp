@@ -124,7 +124,7 @@ test('scenarios: FAMILY use case E2E — persona-managed household flows into �
   // 実発行 → kidbank シナリオへ web 経路で 2 ステップ提示 → 桃子との親子関係で受理。
   const v = vapp();
   const login = await (await fetch(`${ISSUER}/login`, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_suzuki' }),
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_003' }),
   })).json();
   const wallet = createWallet();
   const req = (p, i) => fetch(ISSUER + p, i);
@@ -361,8 +361,8 @@ test('XSS: a hostile household member name is escaped on ALL surfaces (account, 
   const HOSTILE = '<img src=x onerror=alert(1)>';
   const app = createApp({ credentialIssuer: ISSUER });
   // 1) /account re-render escapes the stored value into the input attribute
-  const login = await (await app.request('/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_yamada' }) })).json();
-  await app.request('/users/u_yamada', { method: 'PUT', headers: { 'content-type': 'application/json' },
+  const login = await (await app.request('/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_001' }) })).json();
+  await app.request('/users/u_001', { method: 'PUT', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ household: [{ family: HOSTILE, given: '莉子', birth: '2015-06-10', rel: '子' }] }) });
   const account = await (await app.request('/account', { headers: { cookie: `sid=${login.session_id}` } })).text();
   assert.ok(!account.includes(HOSTILE), 'account page neutralises the raw tag');
@@ -431,7 +431,7 @@ test('offer claims override is PRE-AUTH ONLY: the authorization_code path ignore
     body: JSON.stringify({ credential_configuration_ids: ['juminhyo_mdoc'], grant: 'authorization_code',
       claims: { juminhyo_mdoc: { family_name: '乗っ取り' } } }),
   })).json();
-  const login = await (await app.request('/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_sato' }) })).json();
+  const login = await (await app.request('/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_002' }) })).json();
   const wallet = createWallet();
   const rec = await wallet.authorizeAndReceive({
     request: app.request.bind(app), configId: 'juminhyo_mdoc', sessionId: login.session_id,

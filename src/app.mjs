@@ -128,8 +128,11 @@ export function createApp(opts = {}) {
   app.post('/offer', async (c) => {
     try {
       const { credential_configuration_ids, tx_code, qr, grant, claims } = await c.req.json();
+      // pre-auth offers carry the logged-in issuer user so the credential endpoint
+      // mints the CURRENT persona (post-edit names) instead of the static SAMPLE
+      const user = await svc.sessionUser(sid(c));
       const { credential_offer, preAuthorizedCode, issuerState, offerId, offerUri, txCode } =
-        await svc.createOffer(credential_configuration_ids, { txCode: tx_code, grant, claims });
+        await svc.createOffer(credential_configuration_ids, { txCode: tx_code, grant, claims, userId: user?.id ?? null });
       const delivery = await buildDelivery({ offer: credential_offer, offerUri, withQr: qr === true });
       return c.json({ credential_offer, pre_authorized_code: preAuthorizedCode, issuer_state: issuerState, offer_id: offerId, delivery, tx_code: txCode });
     } catch (e) { return fail(c, e); }

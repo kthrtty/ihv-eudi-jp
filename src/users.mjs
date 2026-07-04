@@ -6,14 +6,17 @@
 // `household` = 世帯員（本人を除く・続柄は世帯主=本人から見たもの）。住民票の
 // household_members claim（世帯全員・続柄付き）に「本人（世帯主）+ household」で
 // 写像される。guardianship 系シナリオ（子ども口座/親権者同意）の親子関係の源泉。
+// id は表示名から独立した内部ID（口座番号と同じ扱い）。改名しても変わらない。
+// 旧 u_yamada 形式から改番済み: KV の _persist:users に旧IDレコードが残っていても
+// restore() の users.has() ガードで無視される（編集はシードに戻る。デモ許容）。
 const SEED = [
-  { id: 'u_yamada', family: '山田', given: '太郎', family_kana: 'ヤマダ', given_kana: 'タロウ',
+  { id: 'u_001', family: '山田', given: '太郎', family_kana: 'ヤマダ', given_kana: 'タロウ',
     birth: '1990-01-15', sex: 1, address: '東京都千代田区1-1-1', honseki: '東京都千代田区千代田1番', desc: '医師（国家資格あり）',
     household: [{ family: '山田', given: '莉子', birth: '2015-06-10', rel: '子' }] },
-  { id: 'u_sato', family: '佐藤', given: '花子', family_kana: 'サトウ', given_kana: 'ハナコ',
+  { id: 'u_002', family: '佐藤', given: '花子', family_kana: 'サトウ', given_kana: 'ハナコ',
     birth: '1988-07-03', sex: 2, address: '東京都新宿区西新宿2-8-1', honseki: '東京都新宿区西新宿2番', desc: '公務員',
     household: [] },
-  { id: 'u_suzuki', family: '鈴木', given: '一郎', family_kana: 'スズキ', given_kana: 'イチロウ',
+  { id: 'u_003', family: '鈴木', given: '一郎', family_kana: 'スズキ', given_kana: 'イチロウ',
     birth: '1975-12-20', sex: 1, address: '神奈川県横浜市西区みなとみらい3-3', honseki: '神奈川県横浜市西区1番', desc: '会社員・二児の父',
     // 住民票の続柄表記は平成7年以降「子」に統一（長男/長女は戸籍側の表記）。
     // /account は自由入力なので CHILD_RELS 側は旧表記も許容する（防御は別レイヤ）。
@@ -21,7 +24,7 @@ const SEED = [
       { family: '鈴木', given: '奈々', birth: '1978-05-02', rel: '妻' },
       { family: '鈴木', given: '桃子', birth: '2010-03-05', rel: '子' },
     ] },
-  { id: 'u_tanaka', family: '田中', given: '美咲', family_kana: 'タナカ', given_kana: 'ミサキ',
+  { id: 'u_004', family: '田中', given: '美咲', family_kana: 'タナカ', given_kana: 'ミサキ',
     birth: '2002-04-10', sex: 2, address: '大阪府大阪市北区梅田1-1', honseki: '大阪府大阪市北区梅田1番', desc: '学生',
     household: [] },
 ];

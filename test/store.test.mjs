@@ -16,8 +16,8 @@ function mockKV() {
 test('kvStore: set/get round-trips JSON and applies a TTL floor of 60s', async () => {
   const kv = mockKV();
   const s = kvStore(kv);
-  await s.set('at:abc', { ids: ['pid_mdoc'], userId: 'u_yamada' }, 600);
-  assert.deepEqual(await s.get('at:abc'), { ids: ['pid_mdoc'], userId: 'u_yamada' });
+  await s.set('at:abc', { ids: ['pid_mdoc'], userId: 'u_001' }, 600);
+  assert.deepEqual(await s.get('at:abc'), { ids: ['pid_mdoc'], userId: 'u_001' });
   await s.set('nonce:x', { v: 1 }, 5); // below floor
   assert.equal(kv._m.get('nonce:x').ttl, 60);
 });
