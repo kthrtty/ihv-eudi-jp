@@ -8,7 +8,7 @@ import { IssuerService } from './oid4vci.mjs';
 import { VerifierService } from './verifier.mjs';
 import { buildDelivery, offerByValueUri, offerByReferenceUri, offerQrSvg } from './offer.mjs';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
-import { shell, renderConsent, renderAuthStart, renderCallback, renderOfferAuthcode, completeIssuance, pkce, authorizeUrl, renderLogin, appShell, renderConsentScreen, renderVcSelect, groupCatalog, renderHistory, renderAccount } from './authcode-demo.mjs';
+import { shell, renderAuthStart, renderCallback, renderOfferAuthcode, completeIssuance, pkce, authorizeUrl, renderLogin, appShell, renderConsentScreen, renderVcSelect, groupCatalog, renderHistory, renderAccount } from './authcode-demo.mjs';
 import { renderVerifyConsole, renderWebVerify, renderWebVerifyResult, renderVerifyHistory } from './verifier-demo.mjs';
 import { scenarioList, getScenario, evaluateScenario, scenarioConfigIds } from './scenarios.mjs';
 import { renderScenarioHome, renderScenarioRun, renderScenarioStep1Done, renderScenarioAccept, renderScenarioGone } from './scenario-demo.mjs';
