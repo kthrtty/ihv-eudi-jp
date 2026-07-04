@@ -160,7 +160,7 @@ const SENTINEL = '<div id="hdr-sent" style="position:absolute;top:0;left:0;width
 
 export const shell = (title, body, { brand = 'デジタル資格証発行ポータル', sub = 'AUTHORIZATION SERVER', role = 'issuer', width = 'narrow', dev = false } = {}) => {
   const cls = width === 'wide' ? 'wrap wide' : width === 'mid' ? 'wrap mid' : 'wrap';
-  const roleBadge = `<span class="role">${role === 'verifier' ? '検証者 · VERIFIER' : role === 'wallet' ? 'ウォレット · WALLET' : '発行者 · ISSUER'}</span>`;
+  const roleBadge = `<span class="role">${role === 'verifier' ? 'Verifier' : role === 'wallet' ? 'Wallet' : '発行者 · ISSUER'}</span>`;
   const right = dev ? `<span class="dev-hdr-right">${devToggleHtml()}${roleBadge}</span>` : roleBadge;
   return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${roleHead(role, title)}${FONTS}<style>${CSS}</style></head>
 <body class="role-${role}">${SENTINEL}<header class="top ${role}"><span class="tag"></span><div><b>${esc(brand)}</b><small>${esc(sub)}</small></div>${right}</header><div class="${cls}">${body}</div>${dev ? devWidgetHtml() : ''}${STICKY_JS}</body></html>`;
