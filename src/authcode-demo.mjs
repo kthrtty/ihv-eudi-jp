@@ -535,7 +535,7 @@ export function renderClaimsModal(groups) {
       })();
     </script>
     <style>
-      .cmodal-scrim{position:fixed;inset:0;background:#0e1a2b66;display:flex;align-items:center;justify-content:center;z-index:50;padding:20px}
+      .cmodal-scrim{position:fixed;inset:0;background:#0e1a2b66;display:flex;align-items:center;justify-content:center;z-index:90;padding:20px} /* above the dev drawer (z61) */
       .cmodal-scrim.hidden{display:none}
       .cmodal{background:#fff;border-radius:16px;width:520px;max-width:94vw;max-height:88vh;overflow:auto;box-shadow:0 20px 60px #0e1a2b40}
       .cmodal-head{display:flex;align-items:center;gap:14px;padding:18px 22px;border-bottom:1px solid var(--line)}

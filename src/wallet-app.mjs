@@ -651,8 +651,8 @@ function presentConsent({ request, plan, have, held = [] }) {
 const PRESENT_STYLE = `<style>
   /* consent as a bottom sheet: static scrim over the (empty) page, sheet pinned
      to the bottom. Existing claim rows / picker / warnings render inside it. */
-  .cscrim{position:fixed;inset:0;background:rgba(14,26,43,.55);z-index:1}
-  .csheet{position:relative;z-index:2;max-width:560px;margin:8vh auto 0;background:#fff;border-radius:18px 18px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,.25);padding:8px 18px 18px;min-height:80vh}
+  .cscrim{position:fixed;inset:0;background:rgba(14,26,43,.55);z-index:90} /* above the dev drawer (z61) */
+  .csheet{position:relative;z-index:91;max-width:560px;margin:8vh auto 0;background:#fff;border-radius:18px 18px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,.25);padding:8px 18px 18px;min-height:80vh}
   .grab{width:44px;height:5px;border-radius:3px;background:#C6D0DC;margin:6px auto 10px}
   .csh b{font-size:16px}
   .csheet .card{border:none;padding:0;margin-top:14px}
@@ -835,7 +835,7 @@ const VC_MODAL_STYLE = `<style>
   .held:focus-visible{outline:2px solid #2E7D6B;outline-offset:2px}
   .held-more{margin-top:10px;font-size:12px;color:#2E7D6B;font-weight:700}
   .held-more.static{color:var(--muted);font-weight:600}
-  .vcsheet,.vc-confirm{position:fixed;inset:0;z-index:50;display:flex}
+  .vcsheet,.vc-confirm{position:fixed;inset:0;z-index:90;display:flex} /* modals sit above the dev drawer (z61) */
   .vcsheet[hidden],.vc-confirm[hidden]{display:none}
   .vcsheet{align-items:flex-end}.vc-confirm{align-items:center;justify-content:center;padding:24px}
   .vc-scrim{position:absolute;inset:0;background:rgba(14,26,43,.45)}
@@ -1078,7 +1078,9 @@ const WSTYLE = `<style>
   .devlinks>summary{font-size:12px;font-weight:700;color:var(--muted);cursor:pointer}
   .devgrid{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
   .devgrid a{font-size:12px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:6px 10px;color:var(--ink);text-decoration:none}
-  .fabs{position:fixed;right:20px;bottom:24px;display:flex;flex-direction:column;gap:12px;align-items:center;z-index:70}
+  .fabs{position:fixed;right:20px;bottom:24px;display:flex;flex-direction:column;gap:12px;align-items:center;z-index:60}
+  /* dev console open: lift the FABs above the drawer (devlog syncBody) */
+  body.dev-open .fabs{bottom:calc(var(--dev-drawer-h,40vh) + 24px)}
   .fab-qr{width:48px;height:48px;border-radius:50%;background:#fff;border:1px solid var(--line);display:grid;place-items:center;color:var(--ink);box-shadow:0 4px 14px rgba(14,26,43,.18);cursor:pointer}
   .fab-add{width:58px;height:58px;border-radius:50%;background:var(--w,#2E7D6B);background:#2E7D6B;color:#fff;border:0;display:grid;place-items:center;box-shadow:0 6px 18px rgba(46,125,107,.45);font-size:30px;line-height:1;cursor:pointer}
   .wsheet-wrap[hidden]{display:none}
