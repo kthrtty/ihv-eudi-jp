@@ -760,6 +760,9 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       .gearbtn{flex:none;width:40px;height:40px;border:1px solid #D4DEF5;background:#fff;border-radius:10px;font-size:17px;cursor:pointer;color:#3C4A61}
       .gearbtn[aria-expanded="true"]{background:#EAF0FA;border-color:#B7C7EE}
       body{padding-bottom:150px} /* keep the last card row reachable above the dock */
+      /* dev console open: lift the dock to sit right on top of the drawer, so
+         you can trigger issuance WHILE watching the logs (devlog syncBody) */
+      body.dev-open .ibar{bottom:var(--dev-drawer-h,40vh)}
       .optfold{margin-top:0;border-top:none;padding-top:0}
       .optfold[open]{margin-top:12px;border-top:1px solid var(--line);padding-top:12px}
       .optfold>summary{display:none} /* the ⚙ button drives open/close */
