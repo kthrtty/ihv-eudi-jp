@@ -150,6 +150,60 @@ test('authorize consent v2: a multi-scope request lists EVERY credential and cou
   assert.match(html, /reqrow/, 'each credential gets a swatch row');
 });
 
+// ---- KV移行ハザード（ID改番 u_yamada→u_001 のデプロイで本番KVに残る旧データ）----
+// 設計: 旧IDは users.has() ガードで無視され、全経路が graceful degradation する。
+// このふるまいがデプロイ安全性の根拠なので回帰テストで pin する（QA指摘 I-1）。
+const mkStaleKv = () => {
+  const mem = new Map();
+  return {
+    async put(k, v) { mem.set(k, v); },
+    async get(k) { return mem.has(k) ? mem.get(k) : null; },
+    async delete(k) { mem.delete(k); },
+  };
+};
+
+test('KV移行: 旧userIdのセッションは 500 にならず /login へ誘導される', async () => {
+  const { kvStore } = await import('../src/oid4vci.mjs');
+  const store = kvStore(mkStaleKv());
+  await store.set('sess:stale-sid', { userId: 'u_sato' }, 3600); // 改番前のID
+  const app = createApp({ credentialIssuer: ISSUER, store });
+  const acct = await app.request('/account', { headers: { cookie: 'sid=stale-sid' }, redirect: 'manual' });
+  assert.equal(acct.status, 302, 'stale session must redirect, not 500');
+  assert.match(acct.headers.get('location'), /^\/login/);
+  const sess = await (await app.request('/session', { headers: { cookie: 'sid=stale-sid' } })).json();
+  assert.equal(sess.user, null);
+});
+
+test('KV移行: 旧userId入りの pre-auth コードは SAMPLE にフォールバックして正常発行', async () => {
+  const { kvStore } = await import('../src/oid4vci.mjs');
+  const store = kvStore(mkStaleKv());
+  await store.set('pac:stale-code', { ids: ['pid_mdoc'], txCode: null, used: false, userId: 'u_yamada' });
+  const app = createApp({ credentialIssuer: ISSUER, store });
+  const wallet = createWallet();
+  const offer = {
+    credential_issuer: ISSUER, credential_configuration_ids: ['pid_mdoc'],
+    grants: { 'urn:ietf:params:oauth:grant-type:pre-authorized_code': { 'pre-authorized_code': 'stale-code' } },
+  };
+  const [rec] = await wallet.receive({ request: app.request.bind(app), offer, credentialIssuer: ISSUER });
+  const { claims } = await verifyCredential('pid_mdoc', wallet.get(rec.id).credential);
+  assert.equal(claims.family_name, '山田', 'unknown userId falls back to the static SAMPLE');
+});
+
+test('KV移行: _persist:users に旧ID/新IDが混在しても restore は新IDのみ反映', async () => {
+  const { kvStore } = await import('../src/oid4vci.mjs');
+  const store = kvStore(mkStaleKv());
+  await store.set('_persist:users', [
+    { id: 'u_sato', family: '西井上', given: '慎吾' },              // 旧ID: 無視されるべき
+    { id: 'u_002', family: '高橋', given: '花子', birth: '1988-07-03' }, // 新ID: 反映されるべき
+  ]);
+  const app = createApp({ credentialIssuer: ISSUER, store });
+  const { users } = await (await app.request('/users')).json();
+  const names = users.map((u) => u.name);
+  assert.ok(names.includes('高橋 花子'), 'new-id record restored');
+  assert.ok(!names.some((n) => n.includes('西井上')), 'old-id record ignored');
+  assert.equal(users.length, 4, 'seed roster size unchanged');
+});
+
 test('BUG回帰: ユーザー編集は isolate を跨いで発行に反映される（KV 永続化）', async () => {
   // 本番 Workers ではリクエストごとに別 isolate に当たりうる。ユーザーストアが
   // per-isolate メモリのままだと、/account や PUT /users の編集後も別 isolate の
