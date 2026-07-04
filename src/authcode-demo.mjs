@@ -175,7 +175,7 @@ export function renderConsent(q, users, requested) {
   const seals = users.map((u) => `
     <form method="POST" action="/authorize/consent" style="margin:0">${hidden}
       <input type="hidden" name="user_id" value="${esc(u.id)}">
-      <button class="userbtn" type="submit"><span class="seal">${esc(u.surname[0])}</span><span class="nm">${esc(u.name)}</span></button>
+      <button class="userbtn" type="submit"><span class="seal">${esc(u.initial)}</span><span class="nm">${esc(u.name)}</span></button>
     </form>`).join('');
   return shell('認可 — サインイン', `
     <div class="card">
@@ -302,7 +302,7 @@ export function renderLogin(users, next = '/', { note = null } = {}) {
       <input type="hidden" name="user_id" value="${esc(u.id)}">
       <input type="hidden" name="next" value="${esc(next)}">
       <button type="submit" class="login-card">
-        <span class="login-seal">${esc(u.surname[0] ?? u.name[0])}</span>
+        <span class="login-seal">${esc(u.initial ?? u.name[0])}</span>
         <span class="login-nm">${esc(u.name)}</span>
       </button>
     </form>`).join('');
@@ -345,7 +345,7 @@ function appHeaderHtml(user, dev = false) {
         <div class="ah-sub" style="font-size:10px;letter-spacing:.14em;color:#5B6B82">CREDENTIAL ISSUER</div></div>
       ${dev ? `<div style="margin-left:auto">${devBtn}</div>` : ''}
     </header>`;
-  const initial = esc(user.surname[0] ?? user.family[0]);
+  const initial = esc(user.family[0]);
   const name = esc(`${user.family} ${user.given}`);
   // compact header pill: 28px avatar + FAMILY NAME only. The full name / title
   // (desc) live in the dropdown, where there is room for them.
@@ -412,7 +412,7 @@ export function renderConsentScreen(q, user, infos = []) {
       <div class="step">認可 — 発行への同意</div>
       <h1>以下の ${n} 件の発行に同意しますか？</h1>
       ${rows}
-      <div class="who"><span class="seal" style="width:38px;height:38px;font-size:16px">${esc((user.surname ?? user.family ?? '?')[0])}</span>
+      <div class="who"><span class="seal" style="width:38px;height:38px;font-size:16px">${esc((user.family ?? '?')[0])}</span>
         <div style="font-size:13.5px"><b>${esc(`${user.family} ${user.given}`)}</b> としてサインイン中<br>
         <span style="font-size:11px;color:var(--muted)">あなたの登録情報がクレデンシャルに記載されます</span></div></div>
       <div style="font-size:12px;color:var(--muted)">要求元: <b style="color:var(--ink)">${esc(q.client_id || 'wallet')}</b>（${esc(init)}）</div>

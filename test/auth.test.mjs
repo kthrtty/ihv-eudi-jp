@@ -213,6 +213,23 @@ test('session lifecycle: /session reflects login and logout', async () => {
   assert.equal(after.user, null);
 });
 
+test('アバターの頭文字は変更後の姓に追従する（名前変更→シール/ピルが新しい頭文字）', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+  // ログインしてから姓を 山田→高橋 に変更
+  const login = await (await app.request('/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_yamada' }) })).json();
+  const upd = await app.request('/users/u_yamada', {
+    method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ family: '高橋' }),
+  });
+  assert.equal(upd.status, 200);
+  // ログイン画面のユーザー選択シール = 新しい姓の頭文字（旧 surname 固定値ではない）
+  const loginPage = await (await app.request('/login')).text();
+  assert.match(loginPage, />高<\/span>/, 'login seal shows the NEW initial');
+  assert.match(loginPage, /高橋 太郎/, 'login list shows the new family name');
+  // ログイン済みヘッダーのアバターピルも追従
+  const home = await (await app.request('/', { headers: { cookie: `sid=${login.session_id}` } })).text();
+  assert.match(home, />高<\/span>/, 'header pill avatar shows the NEW initial');
+});
+
 test('セキュリティ: /login の next はローカルパスに制限（オープンリダイレクト防止）', async () => {
   const app = createApp({ credentialIssuer: ISSUER });
   const login = await (await app.request('/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_yamada' }) })).json();
