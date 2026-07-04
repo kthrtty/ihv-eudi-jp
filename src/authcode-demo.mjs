@@ -597,12 +597,13 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       <div class="vcgrid">${cards}</div>
 
       <div class="card ibar" style="margin-top:20px">
-        <div class="actions" style="margin-top:0;align-items:center;gap:14px">
+        <div class="actions" style="margin-top:0;align-items:center;gap:12px">
           <span id="selnote" class="hint" style="margin-top:0">選択中: <b id="selcount">0</b> 構成</span>
           <button class="btn" id="issue" style="margin-left:auto">発行（オファーを生成）</button>
+          <button type="button" class="gearbtn" id="optbtn" title="発行オプション（開発者向け）— 既定: Pre-Auth グラント / by reference / PIN なし" aria-expanded="false">⚙</button>
         </div>
-        <details class="optfold">
-          <summary>⚙ 発行オプション（開発者向け）— 既定: Pre-Auth グラント / by reference / PIN なし</summary>
+        <details class="optfold" id="optfold">
+          <summary>発行オプション（開発者向け）</summary>
           <div class="optrow">
             <div class="optlbl">グラント（発行フロー）</div>
             <select id="grant" class="sel">
@@ -669,6 +670,11 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
     </div>
     <script>
       const $ = (id) => document.getElementById(id);
+      $('optbtn').onclick = () => {
+        const f = $('optfold');
+        f.open = !f.open;
+        $('optbtn').setAttribute('aria-expanded', String(f.open));
+      };
       const selected = new Set();
       document.querySelectorAll('.fmtchip').forEach((chip) => {
         chip.onclick = () => {
@@ -742,8 +748,21 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       $('issue').onclick = async (e) => { e.preventDefault(); const d = await buildOffer(true); if (d) showResult(d, true); };
     </script>
     <style>
-      .ibar{position:sticky;bottom:14px;box-shadow:0 8px 24px rgba(14,26,43,.14);z-index:5}
-      .optfold{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+      /* issue dock (案B): full-bleed at the very bottom — no gap for cards to
+         peek through; frosted glass so scrolling cards fade behind it deliberately.
+         One compact row (count / issue / ⚙); options expand INSIDE the dock. */
+      .ibar{position:fixed;left:0;right:0;bottom:0;margin:0 !important;z-index:50;
+        border-radius:16px 16px 0 0;border:none;border-top:1px solid #D4DEF5;
+        background:rgba(255,255,255,.88);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+        box-shadow:0 -8px 28px rgba(14,26,43,.12);box-sizing:border-box;
+        padding:12px 18px calc(12px + env(safe-area-inset-bottom))}
+      .ibar>.actions,.ibar>.optfold{max-width:1104px;margin-left:auto;margin-right:auto}
+      .gearbtn{flex:none;width:40px;height:40px;border:1px solid #D4DEF5;background:#fff;border-radius:10px;font-size:17px;cursor:pointer;color:#3C4A61}
+      .gearbtn[aria-expanded="true"]{background:#EAF0FA;border-color:#B7C7EE}
+      body{padding-bottom:150px} /* keep the last card row reachable above the dock */
+      .optfold{margin-top:0;border-top:none;padding-top:0}
+      .optfold[open]{margin-top:12px;border-top:1px solid var(--line);padding-top:12px}
+      .optfold>summary{display:none} /* the ⚙ button drives open/close */
       .optfold>summary,.jsonfold>summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--muted);list-style:none;user-select:none}
       .optfold>summary::-webkit-details-marker,.jsonfold>summary::-webkit-details-marker{display:none}
       .optfold>summary::before,.jsonfold>summary::before{content:"▸ ";font-size:10px}
