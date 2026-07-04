@@ -78,7 +78,7 @@ test('OID4VCI: PAR (RFC 9126) round-trips a pushed request into /authorize → c
   const off = await (await J('/offer', { credential_configuration_ids: ['pid_mdoc'], grant: 'authorization_code' })).json();
   const issuerState = off.credential_offer.grants.authorization_code.issuer_state;
   // a browser session (Multipaz opens a custom tab; here we log in programmatically)
-  const login = await (await J('/login', { user_id: 'u_yamada' })).json();
+  const login = await (await J('/login', { user_id: 'u_001' })).json();
   const sessionId = login.session_id;
   // push the authorization request
   const parRes = await FORM('/par', {
@@ -102,7 +102,7 @@ test('OID4VCI: PAR (RFC 9126) round-trips a pushed request into /authorize → c
 });
 
 test('OID4VCI: /authorize rejects an unknown request_uri', async () => {
-  const login = await (await J('/login', { user_id: 'u_yamada' })).json();
+  const login = await (await J('/login', { user_id: 'u_001' })).json();
   const res = await app.request('/authorize?' + new URLSearchParams({ request_uri: 'urn:ietf:params:oauth:request_uri:nope' }).toString(), {
     headers: { 'x-session-id': login.session_id },
   });
