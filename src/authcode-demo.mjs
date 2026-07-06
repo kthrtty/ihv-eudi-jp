@@ -1042,7 +1042,7 @@ export function renderAccount(user, docs = []) {
           if (e.target.classList.contains('hh-del')) e.target.closest('.hh-row').remove();
         });
       })();
-    </script>`, user);
+    </script>`, user, { width: 'wide' });
 }
 
 /** Build a wallet authorization request URL (optionally carrying issuer_state). */
