@@ -416,7 +416,7 @@ export function renderConsentScreen(q, user, infos = []) {
 // c1/c2: material-design gradient; glyph: emoji; shape: 'card' (landscape ID
 // card) or 'paper' (portrait certificate sheet).
 const TYPE_META = {
-  pid:           { name: 'PID（写真付き身分証）',     desc: '基本四情報＋顔写真',    note: '※実際にはMNCはカード代替電磁的記録を利用', c1: '#3949AB', c2: '#283593', glyph: '🪪', shape: 'card' },
+  pid:           { name: '写真付き身分証（PID）',     desc: '基本四情報＋顔写真',    note: '※実際にはMNCはカード代替電磁的記録を利用', c1: '#3949AB', c2: '#283593', glyph: '🪪', shape: 'card' },
   qualification: { name: '国家資格（EAA）',           desc: '医師・行政書士 等',     c1: '#8E24AA', c2: '#6A1B9A', glyph: '🎓', shape: 'card' },
   juminhyo:      { name: '住民票（EAA）',             desc: '住所・世帯情報',        c1: '#00897B', c2: '#00695C', glyph: '🏠', shape: 'paper' },
   koseki:        { name: '戸籍謄本（EAA）',           desc: '本籍・続柄・親子関係',  c1: '#6D4C41', c2: '#4E342E', glyph: '📜', shape: 'paper' },
@@ -460,7 +460,7 @@ function paperIcon(type, m) {
 }
 
 /** Curated display name for a credential type (same label as the issuer portal
- *  tiles, e.g. 'PID（写真付き身分証）'). Keeps wallet/verifier names consistent
+ *  tiles, e.g. '写真付き身分証（PID）'). Keeps wallet/verifier names consistent
  *  with the issuer instead of the catalog's metadata display name. */
 export function typeName(type) {
   return TYPE_META[type]?.name || type;

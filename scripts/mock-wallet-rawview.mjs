@@ -49,7 +49,7 @@ const optC = `${seg(['属性（全13件）', '生データ'], 1)}
   </div>`;
 
 const sheet = (title, body) => `<div class="sheet">
-  <div class="mh"><div class="mh-ic"></div><div class="mh-nm">PID（写真付き身分証）</div><button class="mh-x">×</button></div>
+  <div class="mh"><div class="mh-ic"></div><div class="mh-nm">写真付き身分証（PID）</div><button class="mh-x">×</button></div>
   ${body}
   <div class="mfoot"><button class="vc-del">🗑 このクレデンシャルを削除</button></div>
 </div>`;
