@@ -416,7 +416,7 @@ export function renderConsentScreen(q, user, infos = []) {
 // c1/c2: material-design gradient; glyph: emoji; shape: 'card' (landscape ID
 // card) or 'paper' (portrait certificate sheet).
 const TYPE_META = {
-  pid:           { name: 'PID（写真付き身分証）',     desc: '基本四情報＋顔写真',    c1: '#3949AB', c2: '#283593', glyph: '🪪', shape: 'card' },
+  pid:           { name: 'PID（写真付き身分証）',     desc: '基本四情報＋顔写真',    note: '※実際にはMNCはカード代替電磁的記録を利用', c1: '#3949AB', c2: '#283593', glyph: '🪪', shape: 'card' },
   qualification: { name: '国家資格（EAA）',           desc: '医師・行政書士 等',     c1: '#8E24AA', c2: '#6A1B9A', glyph: '🎓', shape: 'card' },
   juminhyo:      { name: '住民票（EAA）',             desc: '住所・世帯情報',        c1: '#00897B', c2: '#00695C', glyph: '🏠', shape: 'paper' },
   koseki:        { name: '戸籍謄本（EAA）',           desc: '本籍・続柄・親子関係',  c1: '#6D4C41', c2: '#4E342E', glyph: '📜', shape: 'paper' },
@@ -540,7 +540,7 @@ export function groupCatalog(configs) {
     for (const k of c.claims || []) if (!g.claims.includes(k)) g.claims.push(k); // union, insertion order
   }
   return [...byType.entries()].map(([type, g]) => ({
-    type, name: TYPE_META[type]?.name || type, desc: TYPE_META[type]?.desc || '', formats: g.formats, claims: g.claims,
+    type, name: TYPE_META[type]?.name || type, desc: TYPE_META[type]?.desc || '', note: TYPE_META[type]?.note || '', formats: g.formats, claims: g.claims,
   }));
 }
 
@@ -559,6 +559,7 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       <button type="button" class="vcinfo" title="含まれる項目を見る" onclick="event.stopPropagation();openClaims('${esc(g.type)}')">i</button>
       <div class="vcname">${esc(g.name)}</div>
       <div class="vcdesc">${esc(g.desc)}</div>
+      ${g.note ? `<div class="vcnote">${esc(g.note)}</div>` : ''}
       <span class="vciss">デジタル資格証発行ポータル</span>
       <div class="vcchips">${chips}</div>
     </div>`;
@@ -801,6 +802,7 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       .vcck{display:none;position:absolute;top:12px;right:14px;width:23px;height:23px;border-radius:50%;background:#fff;color:var(--civic);place-items:center;font-size:13px;font-weight:800;z-index:2}
       .vcname{font-size:14.5px;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,.3);line-height:1.35;position:relative;z-index:1;max-width:82%}
       .vcdesc{font-size:10.5px;color:rgba(255,255,255,.78);position:relative;z-index:1}
+      .vcnote{font-size:9px;color:rgba(255,255,255,.62);position:relative;z-index:1;margin-top:2px}
       .vciss{position:absolute;left:16px;bottom:44px;font-size:10px;color:rgba(255,255,255,.62);z-index:1}
       .vcchips{position:absolute;left:14px;bottom:11px;display:flex;gap:6px;z-index:1}
       .fmtchip{font:inherit;font-size:10.5px;font-weight:700;padding:4px 12px;border-radius:8px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.4);color:#fff;cursor:pointer;transition:all .12s;backdrop-filter:blur(2px)}
