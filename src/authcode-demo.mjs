@@ -928,8 +928,19 @@ export function renderAccount(user) {
         <form method="POST" action="/account">
           ${f('姓', 'family', user.family)}
           ${f('名', 'given', user.given)}
+          ${f('姓（カナ）', 'family_kana', user.family_kana)}
+          ${f('名（カナ）', 'given_kana', user.given_kana)}
           ${f('肩書き・属性（ヘッダ表示）', 'desc', user.desc)}
           ${f('生年月日', 'birth', user.birth)}
+          <label style="display:block;margin-bottom:14px">
+            <div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:6px">性別（ISO/IEC 5218）</div>
+            <select name="sex" style="font:inherit;width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:8px;box-sizing:border-box;background:#fff">
+              <option value="1"${Number(user.sex) === 1 ? ' selected' : ''}>1 — 男性</option>
+              <option value="2"${Number(user.sex) === 2 ? ' selected' : ''}>2 — 女性</option>
+              <option value="0"${Number(user.sex) === 0 ? ' selected' : ''}>0 — 不明</option>
+              <option value="9"${Number(user.sex) === 9 ? ' selected' : ''}>9 — 適用不能</option>
+            </select>
+          </label>
           ${f('住所', 'address', user.address)}
           ${f('本籍', 'honseki', user.honseki)}
 

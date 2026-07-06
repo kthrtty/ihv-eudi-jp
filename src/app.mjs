@@ -118,7 +118,8 @@ export function createApp(opts = {}) {
     }
     const household = [...byIdx.entries()].sort(([a], [b]) => a - b).map(([, v]) => v);
     await svc.updateUser(user.id, {
-      family: f.family, given: f.given, desc: f.desc, birth: f.birth, address: f.address, honseki: f.honseki,
+      family: f.family, given: f.given, family_kana: f.family_kana, given_kana: f.given_kana,
+      desc: f.desc, birth: f.birth, sex: Number(f.sex), address: f.address, honseki: f.honseki,
       household,
     });
     return c.redirect('/account', 302);

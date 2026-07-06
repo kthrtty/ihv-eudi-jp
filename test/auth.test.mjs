@@ -313,6 +313,33 @@ test('pre-auth 発行: ログイン中に生成したオファーは発行時点
   assert.equal(c2.family_name, '山田', 'anonymous offers keep the static SAMPLE');
 });
 
+test('/account GUI: カナ姓名と性別も編集でき、発行 VC の value に反映される', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+  const login = await (await app.request('/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_001' }) })).json();
+  const cookie = { cookie: `sid=${login.session_id}` };
+  // GUI と同じフォーム POST（かな・性別を含む全項目）
+  const save = await app.request('/account', {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...cookie },
+    body: new URLSearchParams({
+      family: '結城', given: '莉央', family_kana: 'ユウキ', given_kana: 'リオ',
+      desc: 'テスター', birth: '1990-01-15', sex: '2',
+      address: '東京都千代田区1-1-1', honseki: '東京都千代田区千代田1番',
+    }).toString(), redirect: 'manual',
+  });
+  assert.equal(save.status, 302);
+  // フォームに全編集項目が現れる（GUI から変更できない persona フィールドを作らない）
+  const page = await (await app.request('/account', { headers: cookie })).text();
+  for (const nm of ['family', 'given', 'family_kana', 'given_kana', 'birth', 'sex', 'address', 'honseki', 'desc']) {
+    assert.match(page, new RegExp(`name="${nm}"`), `/account form exposes ${nm}`);
+  }
+  // 発行 VC に反映（PID mdoc: family_name_kana / given_name_kana / sex）
+  const claims = await issueAsUser(app, 'u_001');
+  assert.equal(claims.family_name_kana, 'ユウキ', 'kana edits reach the minted VC');
+  assert.equal(claims.given_name_kana, 'リオ');
+  assert.equal(claims.sex, 2, 'sex edit reaches the minted VC (numeric)');
+  assert.equal(claims.family_name, '結城');
+});
+
 test('セキュリティ: /login の next はローカルパスに制限（オープンリダイレクト防止）', async () => {
   const app = createApp({ credentialIssuer: ISSUER });
   const login = await (await app.request('/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_001' }) })).json();
