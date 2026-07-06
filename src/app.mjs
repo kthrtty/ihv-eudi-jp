@@ -410,10 +410,18 @@ export function createVerifierApp(opts = {}) {
   const HIST_KEY = 'vphist', HIST_MAX = 50, HIST_TTL = 60 * 60 * 24 * 30; // 30 days
   const recordHistory = async (request, result, via) => {
     try {
-      const creds = (request?.dcql_query?.credentials || []).map((q) => ({
+      // "提示されたクレデンシャル" = what the wallet ACTUALLY presented (results[]),
+      // not the request's credential_sets alternatives — a format-alternative query
+      // lists both mdoc and SD-JWT but the wallet picks one. Fall back to the
+      // requested queries only when nothing was verified (early failure).
+      const qOf = (dcqlId) => (request?.dcql_query?.credentials || []).find((x) => x.id === dcqlId);
+      const asCred = (q) => q && ({
         format: q.format,
         type: q.format === 'mso_mdoc' ? q.meta?.doctype_value : q.meta?.vct_values?.[0],
-      }));
+      });
+      const creds = (result?.results?.length
+        ? result.results.map((r) => asCred(qOf(r.dcqlId)))
+        : (request?.dcql_query?.credentials || []).map(asCred)).filter(Boolean);
       const claims = Object.assign({}, ...(result?.results || []).map((r) => r.claims || {}));
       const entry = {
         at: new Date().toISOString(), via, valid: !!result?.valid,

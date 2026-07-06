@@ -350,6 +350,30 @@ test('Verifier: native DC API /vp/verify records to global history (newest-first
   assert.ok(html.indexOf('qualification_name') < html.indexOf('family_name'), 'newest (qualification) appears before older (pid)');
 });
 
+test('履歴: 形式代替（credential_sets）要求でも「提示されたクレデンシャル」は実際に提示された1形式のみ', async () => {
+  const { createVerifierApp } = await import('../src/app.mjs');
+  const w = await walletWith(['tax_mdoc']); // mdoc しか持たないウォレット
+  const vapp = createVerifierApp({ statusResolver: async () => (await w.issuerApp.request('/status-lists/0')).text() });
+  // シナリオ mortgage step2 相当: 課税証明を mdoc/SD-JWT の代替候補で要求
+  // （形式代替 specs はシナリオ/createRequest 経路。/vp/build の specs[] は単一 configId 仕様）
+  const b = await (await vapp.request('/vp/request', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ specs: [{ id: 'eaa', configIds: ['tax_mdoc', 'tax_sdjwt'], claims: ['family_name', 'tax_year'] }] }),
+  })).json();
+  assert.equal(b.request.dcql_query.credentials.length, 2, '要求は両形式の代替候補');
+  const r = await (await vapp.request('/vp/verify', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ transactionId: b.transactionId, encryptedResponse: await w.respond(b.request) }),
+  })).json();
+  assert.equal(r.valid, true, r.errors?.join(';'));
+  // 履歴の先頭エントリ: creds は提示された mdoc の1件のみ（SD-JWT 候補は載らない）
+  const hist = await (await vapp.request('/verifier/history')).text();
+  const mdocChips = (hist.match(/jp\.go\.tax\.1/g) || []).length;
+  const sdjwtChips = (hist.match(/urn:jp:tax:1/g) || []).length;
+  assert.ok(mdocChips >= 1, 'presented mdoc chip is shown');
+  assert.equal(sdjwtChips, 0, 'the un-presented SD-JWT alternative must NOT appear');
+});
+
 test('Verifier: /vp/build accepts multi-credential specs[] and the full present->verify round-trip succeeds', async () => {
   const { createVerifierApp } = await import('../src/app.mjs');
   const vapp = createVerifierApp({ statusResolver: async () => (await wallet.issuerApp.request('/status-lists/0')).text() });
