@@ -900,7 +900,39 @@ export function renderHistory(user, issuances) {
 /** Account settings page (account menu → アカウント設定): edit persona data,
  *  including the 世帯員 (household members) that feed the 住民票's
  *  household_members claim (guardianship scenarios read the 続柄 from it). */
-export function renderAccount(user) {
+export function renderAccount(user, docs = []) {
+  // value renderer for the read-only panes (escaped inside; bool/bytes/members special-cased)
+  const fmtVal = (v) => {
+    if (v == null) return '—';
+    if (v === true) return '✓ true';
+    if (v === false) return '✗ false';
+    if (ArrayBuffer.isView(v)) return '（サンプル画像）';
+    if (Array.isArray(v)) return v.map((m) => esc(`${m.family_name} ${m.given_name}（${m.relationship_to_head}）`)).join('<br>');
+    return esc(String(v));
+  };
+  const BADGE = { edit: ['編集反映', 'b-edit'], drv: ['自動導出', 'b-drv'], fix: ['固定', 'b-fix'] };
+  const srcB = (k) => `<span class="badge ${BADGE[k][1]}">${BADGE[k][0]}</span>`;
+  const find = (t, k) => docs.find((d) => d.type === t)?.claims.find((c) => c.key === k);
+  // derived summary (right-top): the concrete values this persona derives to
+  const drows = [
+    ['18歳以上（age_over_18）', '生年月日から発行時に計算', find('pid', 'age_over_18')],
+    ['20歳以上（age_over_20）', '生年月日から発行時に計算', find('pid', 'age_over_20')],
+    ['世帯主氏名', '姓・名から（本人＝世帯主）', find('juminhyo', 'head_of_household_name')],
+    ['本人の続柄', '固定', find('juminhyo', 'relationship_to_head')],
+    ['世帯全員（続柄付き）', '本人＋世帯員欄から合成', find('juminhyo', 'household_members')],
+    ['筆頭者（戸籍）', '姓・名から', find('koseki', 'head_of_family')],
+  ].filter(([, , c]) => c);
+  const derivedTable = `<table class="ro-table">${drows.map(([label, src, c]) =>
+    `<tr><td>${esc(label)}<span class="src">${esc(src)}</span></td><td>${fmtVal(c.value)}</td></tr>`).join('')}</table>`;
+  const legend = `<div class="ro-legend"><b>凡例:</b> ${srcB('edit')}左の編集欄から反映
+    ${srcB('drv')}他の属性から計算（直接編集不可） ${srcB('fix')}発行者付与・サンプル固定</div>`;
+  const docSections = docs.map((d, i) => {
+    const t = TYPE_META[d.type] || {};
+    const rows = d.claims.map((c) =>
+      `<tr><td>${esc(c.label)}<span class="src mono">${esc(c.key)}</span></td><td>${fmtVal(c.value)} ${srcB(c.src)}</td></tr>`).join('');
+    return `<details class="doc"${i < 2 ? ' open' : ''}><summary><span class="sw" style="background:${t.c1 || '#607D8B'}"></span>${esc(t.name || d.type)}<span class="n">${d.claims.length}項目</span></summary>
+      <table class="ro-table">${rows}</table></details>`;
+  }).join('');
   const f = (label, name, val) => `
     <label style="display:block;margin-bottom:14px">
       <div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:6px">${esc(label)}</div>
@@ -918,12 +950,15 @@ export function renderAccount(user) {
     </div>`;
   const members = user.household || [];
   return appShell('アカウント設定', `
-    <div style="margin-top:24px;max-width:640px">
+    <div style="margin-top:24px">
       <div style="display:flex;align-items:center;justify-content:space-between">
         <h1 style="font-size:22px;margin:0">アカウント設定</h1>
         <a href="/" style="color:var(--civic);text-decoration:none;font-size:14px">← 発行に戻る</a>
       </div>
-      <div class="hint" style="margin:10px 0 16px">この利用者の属性です。編集すると次回以降の発行クレデンシャルに反映されます（セッション連動）。</div>
+      <div class="hint" style="margin:10px 0 16px">左＝編集できる属性（保存すると次回以降の発行クレデンシャルに反映・セッション連動）／右＝VC に載るが直接変更できない属性とその由来。</div>
+      <div class="acols">
+      <div>
+      <div class="sec-t">✏️ 編集できる属性</div>
       <div class="card">
         <form method="POST" action="/account">
           ${f('姓', 'family', user.family)}
@@ -954,6 +989,15 @@ export function renderAccount(user) {
           <button type="submit" class="btn" style="margin-top:6px;display:block">保存する</button>
         </form>
       </div>
+      </div>
+      <div class="aside">
+        <div class="sec-t"><span>🔒</span> 自動導出（左の属性から計算）</div>
+        <div class="card ro-card">${derivedTable}</div>
+        <div class="sec-t" style="margin-top:18px"><span>📄</span> 文書ごとの内訳（VC に載る項目と由来）</div>
+        ${legend}
+        ${docSections}
+      </div>
+      </div>
     </div>
     <style>
       .hh-row{display:grid;grid-template-columns:1fr 1fr 1.4fr 1.2fr auto;gap:6px;margin-bottom:8px;border:1px solid var(--line);border-radius:10px;padding:8px}
@@ -962,6 +1006,27 @@ export function renderAccount(user) {
       .hh-del:hover{color:#9E3A3A;border-color:#E7D6D6}
       .btn.ghost2{background:#fff;color:var(--civic);border:1px solid var(--line)}
       @media(max-width:560px){.hh-row{grid-template-columns:1fr 1fr;grid-auto-rows:auto}}
+      /* 2-col account layout: edit form left, read-only provenance right (sticky).
+         Collapses to a single column on narrow screens. */
+      .acols{display:grid;grid-template-columns:5fr 6fr;gap:20px;align-items:start;max-width:1104px}
+      .aside{position:sticky;top:16px;max-height:calc(100vh - 32px);overflow-y:auto;padding-right:2px}
+      @media(max-width:900px){.acols{grid-template-columns:1fr}.aside{position:static;max-height:none}}
+      .sec-t{font-size:13px;font-weight:800;margin:0 0 7px;display:flex;align-items:center;gap:6px}
+      .ro-card{padding:6px 14px}
+      .ro-table{width:100%;border-collapse:collapse;font-size:13px}
+      .ro-table td{padding:7px 8px;border-bottom:1px solid #EEF1F6;vertical-align:top}
+      .ro-table td:first-child{color:var(--muted);width:42%}
+      .ro-table tr:last-child td{border-bottom:none}
+      .src{font-size:10px;color:#8A97AB;display:block;margin-top:1px}
+      .badge{display:inline-block;font-size:10px;font-weight:700;border-radius:999px;padding:2px 8px;vertical-align:1px;white-space:nowrap}
+      .b-edit{background:#E7F3EE;color:#0E8A6B}.b-drv{background:#EAF0FA;color:#1C3F94}.b-fix{background:#F1F3F7;color:#5B6B82}
+      .ro-legend{display:flex;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin:0 0 12px;align-items:center}
+      details.doc{border:1px solid var(--line);border-radius:11px;margin-bottom:9px;background:#fff}
+      details.doc>summary{cursor:pointer;padding:11px 14px;font-size:13.5px;font-weight:700;list-style:none;display:flex;align-items:center;gap:9px}
+      details.doc>summary::-webkit-details-marker{display:none}
+      details.doc>summary .sw{width:13px;height:13px;border-radius:4px;flex:none}
+      details.doc>summary .n{margin-left:auto;font-size:11px;color:#8A97AB;font-weight:400}
+      details.doc .ro-table{padding:0 6px 8px;width:calc(100% - 12px);margin:0 6px 8px}
     </style>
     <script>
       (function () {

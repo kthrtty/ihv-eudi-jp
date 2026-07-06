@@ -225,6 +225,29 @@ export function personaClaims(configId, persona) {
   return personaOverrides(persona, schema.claims.map((c) => c.key));
 }
 
+/** Account-settings view: every claim each document will carry for this persona,
+ * with provenance: 'edit' = fed by the editable persona fields, 'drv' = derived
+ * from them at issuance (age_over_NN, household composition, 筆頭者), 'fix' =
+ * issuer-assigned / sample-fixed (not user-changeable). Mirrors mint() exactly. */
+export function accountCatalog(persona) {
+  const DRV = new Set(['head_of_household_name', 'relationship_to_head', 'household_members', 'head_of_family']);
+  return Object.entries(schemas).map(([credId, schema]) => {
+    const overrides = persona ? personaOverrides(persona, schema.claims.map((c) => c.key)) : {};
+    const data = { ...SAMPLE[credId], ...overrides };
+    if (data.birth_date) {
+      for (const c of schema.claims) {
+        const m = /^age_over_(\d+)$/.exec(c.key);
+        if (m) data[c.key] = ageAtLeast(data.birth_date, Number(m[1]));
+      }
+    }
+    const claims = schema.claims.map((c) => ({
+      key: c.key, label: c.display?.ja || c.key, value: data[c.key],
+      src: /^age_over_\d+$/.test(c.key) || DRV.has(c.key) ? 'drv' : c.key in overrides ? 'edit' : 'fix',
+    }));
+    return { type: credId, claims };
+  });
+}
+
 /** Map a schema claim key to its mdoc namespace element id (on-the-wire name).
  * Most keys map to themselves, but some (e.g. residence_address -> resident_address)
  * differ to match ARF/ISO element naming. SD-JWT issues by key, so only mdoc needs this. */
