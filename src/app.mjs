@@ -14,7 +14,7 @@ import { scenarioList, getScenario, evaluateScenario, scenarioConfigIds } from '
 import { renderScenarioHome, renderScenarioRun, renderScenarioStep1Done, renderScenarioAccept, renderScenarioGone } from './scenario-demo.mjs';
 import { captureInbound, getLog, pushLog, buildEntry } from './devlog.mjs';
 import { createWallet } from './wallet.mjs';
-import { allConfigIds, configInfo, jwks as issuerJwks } from './issuer.mjs';
+import { allConfigIds, configInfo, jwks as issuerJwks, accountCatalog } from './issuer.mjs';
 
 // Lazy HTML loader for Node.js — not called in Workers (html string passed explicitly).
 async function loadHtml(rel) {
@@ -101,7 +101,7 @@ export function createApp(opts = {}) {
   app.get('/account', async (c) => {
     const user = await svc.sessionUser(sid(c));
     if (!user) return c.redirect('/login?next=/account', 302);
-    return c.html(renderAccount(user));
+    return c.html(renderAccount(user, accountCatalog(user)));
   });
   app.post('/account', async (c) => {
     const user = await svc.sessionUser(sid(c));
