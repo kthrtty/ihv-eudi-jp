@@ -231,6 +231,7 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
   .dev-ep{font-family:ui-monospace,monospace;font-size:11px;color:#0E1A2B;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .dev-st{font-size:10px;font-weight:800;border-radius:999px;padding:2px 7px;background:#E7F3EE;color:#1f7a52}.dev-st.s4,.dev-st.s5{background:#FBE9E7;color:#9E3A3A}
   .dev-grp{font-size:10px;color:var(--muted,#5B6B82)}
+  .dev-ts{font-size:10px;color:var(--muted,#5B6B82);font-family:ui-monospace,monospace;white-space:nowrap;flex:none}
   .dev-body{margin-top:8px}
   .dev-sect{font-size:11.5px;font-weight:800;margin:10px 0 4px}
   .dev-blab{font-size:11px;font-weight:700;color:var(--muted,#5B6B82);margin:8px 0 0}
@@ -259,6 +260,13 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
       (e.resBody!=null?'<div class="dev-blab">ボディ</div>'+code(e.resBody):'')+
       (e.note?'<div class="dev-blab" style="color:#1f5c46">ⓘ '+esc(e.note)+'</div>':'');
   }
+  // 記録時刻（JST・ミリ秒付き）。ループ発行など連続呼び出しの間隔を読むために ms まで出す
+  function fmtTs(iso){
+    if(!iso)return '';
+    var t=new Date(iso);if(isNaN(t))return '';
+    var ms=('00'+t.getMilliseconds()).slice(-3);
+    return '<span class="dev-ts" title="'+esc(iso)+'">'+t.toLocaleTimeString('ja-JP',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:'Asia/Tokyo'})+'.'+ms+'</span>';
+  }
   function render(){
     var list=state.entries.filter(function(e){return state.filter==='all'||e.grp===state.filter;});
     var el=document.getElementById('devRows');
@@ -269,7 +277,7 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
       var st='<span class="dev-st s'+String(e.status).charAt(0)+'">'+esc(e.status)+'</span>';
       var mp='<span class="dev-mp '+esc(e.method)+'">'+esc(e.method)+'</span>';
       return '<div class="dev-step'+(open?' open':'')+'"><div class="dev-num">'+(i+1)+'</div><div>'+
-        '<div class="dev-head" onclick="window.__dev.toggleStep(this)">'+dir+mp+'<span class="dev-ep">'+esc(e.ep)+'</span>'+st+'<span class="dev-grp">'+esc(e.grp)+'</span></div>'+
+        '<div class="dev-head" onclick="window.__dev.toggleStep(this)">'+dir+mp+'<span class="dev-ep">'+esc(e.ep)+'</span>'+st+fmtTs(e.ts)+'<span class="dev-grp">'+esc(e.grp)+'</span></div>'+
         '<div class="dev-body" '+(open?'':'hidden')+'>'+detail(e)+'</div></div></div>';
     }).join('')+'</div>';
     renderMini();
@@ -330,7 +338,7 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
     var e=state.entries[0];
     var body=e?'<span class="dev-st s'+String(e.status).charAt(0)+'">'+esc(e.status)+'</span>'+
       '<span class="dev-mp '+esc(e.method)+'">'+esc(e.method)+'</span>'+
-      '<span class="dev-ep">'+esc(e.ep)+'</span><span class="dev-grp">'+esc(e.grp||'')+'</span>'
+      '<span class="dev-ep">'+esc(e.ep)+'</span>'+fmtTs(e.ts)+'<span class="dev-grp">'+esc(e.grp||'')+'</span>'
       :'<span class="dev-grp">通信記録はまだありません</span>';
     el.innerHTML='<span class="mb-ic">&gt;_</span>'+body+
       '<span class="mb-hint" title="クリックで展開">▴</span>'+

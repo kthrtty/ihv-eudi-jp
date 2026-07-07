@@ -52,6 +52,9 @@ test('buildEntry: parses urlencoded + JSON bodies and masks them', () => {
   assert.equal(e.resBody.expires_in, 3600);
   assert.match(e.resBody.access_token, /…|••••/);
   assert.equal(e.grp, 'OID4VCI');
+  // 記録時刻: ISO 8601 で必ず入る（ドロワーが JST ms 付きで描画する）
+  assert.match(e.ts, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+  assert.ok(Math.abs(Date.now() - Date.parse(e.ts)) < 5000, 'ts is "now"');
 });
 
 const ISSUER = 'https://issuer.ihv.example';
