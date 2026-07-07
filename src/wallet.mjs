@@ -123,6 +123,13 @@ export function createWallet(snapshot = null) {
       return finish(request, tokenRes.access_token, configId, credentialIssuer);
     },
 
+    /** 単件発行: 取得済み access token で configId を1件だけ発行して保管する。
+     *  web wallet の段階発行（ローディング進捗 n/m 表示）用 — receive /
+     *  exchangeAndReceive のループ1周分と同一処理（nonce→鍵証明→/credential）。 */
+    async receiveOne({ request, accessToken, configId, credentialIssuer }) {
+      return finish(request, accessToken, configId, credentialIssuer);
+    },
+
     list() { return [...store.values()].map(({ id, configId, format }) => ({ id, configId, format })); },
     get(id) { return store.get(id); },
     remove(id) { return store.delete(id); }, // forget a single stored credential

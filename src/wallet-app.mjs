@@ -140,11 +140,11 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     setWsidCookie(c, sid);            // stable sid; refresh maxAge
     if (store) {
       const snap = await store.get(`wsess:${sid}`);
-      if (snap) return { wallet: createWallet(snap.wallet), creds: snap.creds || [], pending: snap.pending || null, pendingAuth: snap.pendingAuth || {}, activity: snap.activity || [], present: snap.present || null, _sid: sid };
-      return { wallet: createWallet(), creds: [], pending: null, pendingAuth: {}, activity: [], present: null, _sid: sid, _volatile: hadCookie };
+      if (snap) return { wallet: createWallet(snap.wallet), creds: snap.creds || [], pending: snap.pending || null, pendingAuth: snap.pendingAuth || {}, pendingReceive: snap.pendingReceive || null, activity: snap.activity || [], present: snap.present || null, _sid: sid };
+      return { wallet: createWallet(), creds: [], pending: null, pendingAuth: {}, pendingReceive: null, activity: [], present: null, _sid: sid, _volatile: hadCookie };
     }
     if (mem.has(sid)) return mem.get(sid);
-    const s = { wallet: createWallet(), creds: [], pending: null, pendingAuth: {}, activity: [], present: null, _sid: sid };
+    const s = { wallet: createWallet(), creds: [], pending: null, pendingAuth: {}, pendingReceive: null, activity: [], present: null, _sid: sid };
     mem.set(sid, s);
     return s;
   };
@@ -154,9 +154,11 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
   // skip the write so a propagation lag can't wipe the user's credentials.
   const saveSession = async (s) => {
     if (!store || !s?._sid) return;
-    if (s._volatile && (!s.creds || s.creds.length === 0)) return;
+    // 段階発行の pendingReceive は書かないと /add/step が拾えず発行が止まる。
+    // （従来の /add 同期発行も完了時に creds 非空で書いていたので上書きリスクは同等）
+    if (s._volatile && (!s.creds || s.creds.length === 0) && !s.pendingReceive) return;
     await store.set(`wsess:${s._sid}`, {
-      wallet: s.wallet.serialize(), creds: s.creds, pending: s.pending ?? null, pendingAuth: s.pendingAuth ?? {}, activity: s.activity ?? [], present: s.present ?? null,
+      wallet: s.wallet.serialize(), creds: s.creds, pending: s.pending ?? null, pendingAuth: s.pendingAuth ?? {}, pendingReceive: s.pendingReceive ?? null, activity: s.activity ?? [], present: s.present ?? null,
     }, SESSION_TTL);
   };
   const httpTo = (base) => (path, opts) => doFetch(base + path, opts); // OID4VCI client -> Issuer
@@ -345,10 +347,11 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
           await saveSession(s);
           return c.html(pinScreen(offer, txMeta));
         }
-        const recs = await s.wallet.receive({ request: httpTo(issuerBase), offer, credentialIssuer: issuerBase });
-        for (const r of recs) await record(s, r);
+        // 段階発行: 即座にローディング画面を返し、ページ内 JS が /add/step を
+        // 1件ずつ叩く（n/m 進捗表示・真っ白画面の離脱対策）
+        s.pendingReceive = beginReceive(offer, issuerBase);
         await saveSession(s);
-        return c.html(added(s, recs, 'pre-authorized_code'));
+        return c.html(receivingScreen(offer.credential_configuration_ids, issuerBase));
       }
       if (hasAuthCode) {
         const { verifier, challenge, state } = pkce();
@@ -368,6 +371,63 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     }
   });
 
+  // pre-auth の段階発行レコード（/add/step が消費）。トークン交換材料は初回 step で
+  // access token に置き換わり、one-time 材料はその時点で破棄される。
+  const PRE_AUTH = 'urn:ietf:params:oauth:grant-type:pre-authorized_code';
+  const beginReceive = (offer, issuerBase, { txCode = null } = {}) => ({
+    grant: 'pre-authorized_code', issuerBase,
+    configIds: offer.credential_configuration_ids,
+    preAuthCode: offer.grants[PRE_AUTH]['pre-authorized_code'],
+    ...(txCode != null ? { txCode } : {}), recs: [],
+  });
+
+  // 段階発行の1ステップ: 初回はトークン交換のみ材料を消費し、以降1回の呼び出しで
+  // クレデンシャル1件を発行する。ローディング画面の JS が finished までループする。
+  app.post('/add/step', async (c) => {
+    const s = await loadSession(c);
+    const p = s.pendingReceive;
+    if (!p) return c.json({ ok: false, error: '保留中の受領がありません（期限切れの可能性）。ウォレットからやり直してください。' });
+    try {
+      if (!p.accessToken) {
+        const params = p.grant === 'authorization_code'
+          ? { grant_type: 'authorization_code', code: p.code, code_verifier: p.verifier, redirect_uri: p.redirectUri }
+          : { grant_type: PRE_AUTH, 'pre-authorized_code': p.preAuthCode, ...(p.txCode ? { tx_code: p.txCode } : {}) };
+        const tk = await (await httpTo(p.issuerBase)('/token', {
+          method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams(params).toString(),
+        })).json();
+        if (!tk.access_token) throw new Error(tk.error_description || tk.error || 'トークン交換に失敗しました');
+        p.accessToken = tk.access_token;
+        delete p.code; delete p.verifier; delete p.preAuthCode; delete p.txCode; // one-time 材料は用済み
+        await saveSession(s);
+      }
+      const i = p.recs.length;
+      if (i < p.configIds.length) {
+        const rec = await s.wallet.receiveOne({
+          request: httpTo(p.issuerBase), accessToken: p.accessToken,
+          configId: p.configIds[i], credentialIssuer: p.issuerBase,
+        });
+        await record(s, rec);
+        p.recs.push(rec);
+        await saveSession(s);
+      }
+      const done = p.recs.length, total = p.configIds.length;
+      return c.json({ ok: true, done, total, finished: done >= total });
+    } catch (e) {
+      return c.json({ ok: false, error: e.message });
+    }
+  });
+
+  // 段階発行の完了ページ（従来の added() 受領票）。pendingReceive はここで消費。
+  app.get('/add/receipt', async (c) => {
+    const s = await loadSession(c);
+    const p = s.pendingReceive;
+    if (!p || !p.recs?.length) return c.redirect('/', 302);
+    s.pendingReceive = null;
+    await saveSession(s);
+    return c.html(added(s, p.recs, p.grant));
+  });
+
   // Grant choice: user selects pre-auth or auth-code when both are available
   app.post('/add/choose', async (c) => {
     const s = await loadSession(c);
@@ -380,11 +440,10 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
       if (chosen === 'pre-authorized_code') {
         const txMeta = grants['urn:ietf:params:oauth:grant-type:pre-authorized_code'].tx_code;
         if (txMeta) { await saveSession(s); return c.html(pinScreen(offer, txMeta)); } // s.pending already set
-        const recs = await s.wallet.receive({ request: httpTo(issuerBase), offer, credentialIssuer: issuerBase });
-        for (const r of recs) await record(s, r);
+        s.pendingReceive = beginReceive(offer, issuerBase);
         s.pending = null;
         await saveSession(s);
-        return c.html(added(s, recs, 'pre-authorized_code'));
+        return c.html(receivingScreen(offer.credential_configuration_ids, issuerBase));
       }
       if (chosen === 'authorization_code') {
         const { verifier, challenge, state } = pkce();
@@ -411,15 +470,11 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     const f = await c.req.parseBody();
     const { offer, issuerBase } = s.pending || {};
     if (!offer) return c.html(shell('ウォレット', `<div class="card"><h1>セッションが切れました</h1><a href="/">戻る</a></div>`, WALLET));
-    try {
-      const recs = await s.wallet.receive({ request: httpTo(issuerBase), offer, credentialIssuer: issuerBase, txCode: f.tx_code });
-      for (const r of recs) await record(s, r);
-      s.pending = null;
-      await saveSession(s);
-      return c.html(added(s, recs, 'pre-authorized_code'));
-    } catch (e) {
-      return c.html(shell('ウォレット', `<div class="card"><h1>取得に失敗</h1><div class="hint" style="color:#9E3A3A">${esc(e.message)}</div><div style="margin-top:12px"><a class="btn" href="/">ウォレットに戻る</a></div></div>`, WALLET));
-    }
+    // PIN はトークン交換（/add/step の初回）でまとめて検証される
+    s.pendingReceive = beginReceive(offer, issuerBase, { txCode: String(f.tx_code ?? '') });
+    s.pending = null;
+    await saveSession(s);
+    return c.html(receivingScreen(offer.credential_configuration_ids, issuerBase));
   });
 
 
@@ -433,14 +488,12 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
       const p = (state && s.pendingAuth?.[state]) || null;
       if (!p) throw new Error('state が一致する保留中の発行要求がありません（要求の期限切れ・改ざん・二重コールバックの可能性）');
       delete s.pendingAuth[state];
-      const recs = await s.wallet.exchangeAndReceive({
-        request: httpTo(p.issuerBase), code: c.req.query('code'),
-        verifier: p.verifier, redirectUri: p.redirectUri, configIds: p.configIds, credentialIssuer: p.issuerBase,
-      });
-      const list = Array.isArray(recs) ? recs : [recs];
-      for (const rec of list) await record(s, rec);
+      s.pendingReceive = {
+        grant: 'authorization_code', issuerBase: p.issuerBase, configIds: p.configIds,
+        code: c.req.query('code'), verifier: p.verifier, redirectUri: p.redirectUri, recs: [],
+      };
       await saveSession(s);
-      return c.html(added(s, list, 'authorization_code'));
+      return c.html(receivingScreen(p.configIds, p.issuerBase));
     } catch (e) {
       return c.html(shell('ウォレット', `<div class="card"><h1>発行に失敗</h1><div class="hint" style="color:#9E3A3A">${esc(e.message)}</div></div>`, WALLET));
     }
@@ -1170,6 +1223,98 @@ function holderKeyPage(jwk, pem, thumbprint, credCount) {
     </div>${STYLE}
     <style>.keybox{background:#0E1A2B;color:#D7E0EE;border-radius:10px;padding:12px;font-size:12px;line-height:1.5;overflow:auto;white-space:pre-wrap;font-family:"IBM Plex Mono",monospace;margin:4px 0 0}
     .k{color:var(--muted);font-size:12px;font-weight:600}</style>`, WALLET);
+}
+
+// 段階発行のローディング画面（チェックリスト型・2026-07-08 モック協議で選定）。
+// 即座に返してページ内 JS が /add/step をループ: 行を 済み/取得中/待機 に更新し、
+// カウンタは「n件目/m件」。完了で /add/receipt（従来の受領票）へ遷移。
+function receivingScreen(configIds, issuerBase) {
+  const host = (() => { try { return new URL(issuerBase).host; } catch { return String(issuerBase); } })();
+  const total = configIds.length;
+  const rows = configIds.map((cfg, i) => {
+    const t = WALLET_CARD_THEME[credType(cfg)] || WALLET_CARD_THEME.pid;
+    return `<div class="ldrow ${i === 0 ? 'now' : 'wait'}" id="lr${i}">
+      <span class="ic"></span><span class="sw" style="background:${t.c1}"></span>
+      <span class="nm">${esc(typeName(credType(cfg)))}</span>
+      <span class="fmtc">${cfg.endsWith('_mdoc') ? 'mdoc' : 'SD-JWT'}</span>
+      <span class="lst">${i === 0 ? '取得中…' : '待機中'}</span>
+    </div>`;
+  }).join('');
+  return shell('取得中', `
+    <div class="ldcard">
+      <div class="ldsub">${esc(host)} から</div>
+      <div class="ldh">デジタル資格証を取得しています…</div>
+      <div class="ldcnt"><span id="ldn">1</span><span class="ldm"> / ${total}</span></div>
+      <div class="ldtrack"><i id="ldbar" style="width:${(0.5 / total) * 100}%"></i></div>
+      <div class="ldrows">${rows}</div>
+      <div class="lderr" id="lderr" hidden>
+        <div id="lderrmsg"></div>
+        <div style="margin-top:10px;display:flex;gap:8px;justify-content:center">
+          <button type="button" class="btn" id="ldretry">リトライ</button>
+          <a class="btn wcancel" href="/">ウォレットに戻る</a>
+        </div>
+      </div>
+      <div class="ldhint">画面を閉じずにそのままお待ちください（通常は数秒で完了します）</div>
+    </div>
+    <style>
+      .ldcard{max-width:430px;margin:26px auto;background:#fff;border:1px solid var(--line);border-radius:16px;padding:26px 22px;text-align:center}
+      .ldh{font-size:17px;font-weight:700;margin:8px 0 2px}
+      .ldsub{font-size:12px;color:var(--muted)}
+      .ldcnt{font-size:30px;font-weight:800;margin:10px 0 4px;color:#2E7D6B}
+      .ldcnt .ldm{font-size:16px;color:var(--muted);font-weight:700}
+      .ldtrack{height:6px;border-radius:3px;background:#E3EBE8;overflow:hidden;margin:0 22px 18px}
+      .ldtrack i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,#2E7D6B,#59B49A);transition:width .3s ease}
+      .ldrows{text-align:left;display:grid;gap:8px}
+      .ldrow{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:11px;padding:10px 12px}
+      .ldrow.wait{opacity:.55}
+      .ldrow .ic{width:20px;height:20px;border-radius:50%;flex:none;box-sizing:border-box;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:12px}
+      .ldrow.done .ic{border:none;background:#0E8A6B;color:#fff}
+      .ldrow.done .ic::after{content:"✓"}
+      .ldrow.now .ic{border:2.5px solid #CDE3DC;border-top-color:#2E7D6B;animation:ldspin .8s linear infinite}
+      .ldrow.err .ic{border:2px solid #E5B9B4;background:#FBE9E7;color:#9E3A3A;font-weight:800}
+      .ldrow.err .ic::after{content:"!"}
+      .ldrow .sw{width:12px;height:12px;border-radius:4px;flex:none}
+      .ldrow .nm{font-size:13px;font-weight:600;flex:1}
+      .ldrow .lst{font-size:11px;color:var(--muted);flex:none}
+      .ldrow.done .lst{color:#0E8A6B}
+      .fmtc{font-size:9.5px;font-weight:700;border:1px solid var(--line);border-radius:6px;padding:1px 7px;color:var(--muted);flex:none}
+      .ldhint{font-size:11.5px;color:var(--muted);margin-top:16px}
+      .lderr{margin-top:14px;border:1px solid #E7D6D6;background:#FBF3F2;border-radius:11px;padding:12px;font-size:12.5px;color:#9E3A3A}
+      @keyframes ldspin{to{transform:rotate(360deg)}}
+    </style>
+    <script>
+      (function(){
+        var total=${total}, done=0, dead=false;
+        function setRow(i,st,lab){var r=document.getElementById('lr'+i);if(!r)return;
+          r.className='ldrow '+st;r.querySelector('.lst').textContent=lab;}
+        function paint(){
+          for(var i=0;i<total;i++){
+            if(i<done)setRow(i,'done','取得済み');
+            else if(i===done&&dead)setRow(i,'err','失敗');
+            else if(i===done)setRow(i,'now','取得中…');
+            else setRow(i,'wait','待機中');
+          }
+          document.getElementById('ldn').textContent=Math.min(done+1,total);
+          document.getElementById('ldbar').style.width=(((done+(done<total?0.5:0))/total)*100)+'%';
+        }
+        function fail(msg){dead=true;paint();
+          document.getElementById('lderrmsg').textContent=msg;
+          document.getElementById('lderr').hidden=false;}
+        async function run(){
+          dead=false;document.getElementById('lderr').hidden=true;paint();
+          for(;;){
+            var r;
+            try{r=await (await fetch('/add/step',{method:'POST'})).json();}
+            catch(err){r={ok:false,error:'ネットワークエラー: '+err}}
+            if(!r.ok){fail(r.error||'取得に失敗しました');return;}
+            done=r.done;paint();
+            if(r.finished){location.replace('/add/receipt');return;}
+          }
+        }
+        document.getElementById('ldretry').onclick=run;
+        run();
+      })();
+    </script>${STYLE}`, WALLET);
 }
 
 function added(s, recs, grant) {
