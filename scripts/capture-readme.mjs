@@ -50,9 +50,11 @@ await page.locator('#qrcard').screenshot({ path: out + 'readme-issue-handoff.png
 console.log('✓ readme-issue-handoff.png');
 
 // ③ web wallet receives both credentials (mobile viewport from here)
+//    /add is now a loading screen (n/m checklist) that auto-advances to the receipt
 const addHref = await page.locator('#openweb').getAttribute('href');
 await page.setViewportSize(MOBILE);
 await page.goto(addHref);
+await page.waitForURL(/\/add\/receipt/, { timeout: 15000 });
 await page.waitForLoadState('networkidle');
 await shot('readme-issue-wallet-add.png', { fullPage: true });
 

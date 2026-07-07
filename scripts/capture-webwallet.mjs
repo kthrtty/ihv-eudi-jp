@@ -31,8 +31,9 @@ await page.goto(`${WALLET}/`);
 await settle(page);
 await page.screenshot({ path: out + 'ww-01-empty.png', fullPage: true });
 
-// 2) pre-authorized_code: offer -> wallet adds it directly (no redirect)
+// 2) pre-authorized_code: offer -> loading (step issuance) -> receipt
 await page.goto(`${WALLET}/add?credential_offer_uri=${await offer('pre-authorized_code')}`);
+await page.waitForURL(/\/add\/receipt/, { timeout: 15000 });
 await settle(page);
 await page.screenshot({ path: out + 'ww-02-preauth-issued.png', fullPage: true });
 
@@ -42,9 +43,9 @@ await page.waitForSelector('.userbtn', { timeout: 5000 }); // Issuer consent (is
 await settle(page);
 await page.screenshot({ path: out + 'ww-03-issuer-consent.png', fullPage: true });
 
-// pick a user -> Issuer redirects to wallet /oidc/cb -> wallet issues
+// pick a user -> Issuer redirects to wallet /oidc/cb -> loading -> receipt
 await page.click('.userbtn');
-await page.waitForURL(/\/oidc\/cb/, { timeout: 5000 });
+await page.waitForURL(/\/add\/receipt/, { timeout: 15000 });
 await page.waitForSelector('.held', { timeout: 5000 });
 await settle(page);
 await page.screenshot({ path: out + 'ww-04-authcode-issued.png', fullPage: true });
