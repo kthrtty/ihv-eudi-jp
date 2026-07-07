@@ -10,6 +10,7 @@ import { personaOverrides } from './users.mjs';
 // schemas are bundled (no fs at import) so the module loads on Workers; PKI keys
 // are still read lazily inside mint()/verify() (to be injected via env — see docs).
 import catalog from '../schemas/credential-catalog.json' with { type: 'json' };
+import portraits from '../assets/portraits.json' with { type: 'json' };
 import pid from '../schemas/pid.json' with { type: 'json' };
 import juminhyo from '../schemas/juminhyo.json' with { type: 'json' };
 import qualification from '../schemas/qualification.json' with { type: 'json' };
@@ -44,7 +45,9 @@ const SAMPLE = {
   pid: {
     family_name: '山田', given_name: '太郎', family_name_kana: 'ヤマダ', given_name_kana: 'タロウ',
     birth_date: '1990-01-15', residence_address: '東京都千代田区1-1-1', sex: 1,
-    portrait: new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]), age_over_18: true,
+    // 実JPEG（バンドル済みイラスト・山田太郎の既定）。persona ログイン時は
+    // personaOverrides が本人の portrait（base64url）で上書きする
+    portrait: new Uint8Array(Buffer.from(portraits.u_001, 'base64url')), age_over_18: true,
     document_number: 'PID-0001', issuing_country: 'JP', issuing_authority: 'デジタル庁',
     issuance_date: '2026-01-01', expiry_date: '2031-01-01',
   },

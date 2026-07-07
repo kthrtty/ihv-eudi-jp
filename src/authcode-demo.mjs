@@ -91,6 +91,8 @@ const CSS = `
   table.cl td{padding:7px 8px;border-bottom:1px solid var(--line)}
   table.cl td:first-child{color:var(--muted);white-space:nowrap}
   .step{display:inline-block;font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:2px 10px;margin-bottom:10px}
+  /* 顔写真クレーム（portrait）のサムネイル表示。3ロール共通 */
+  .pimg{width:64px;height:85px;object-fit:cover;border-radius:6px;border:1px solid rgba(0,0,0,.14);background:#E9EDF3;display:block}
 `;
 const FONTS = '<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">';
 
@@ -106,21 +108,25 @@ export const WALLET_CARD_THEME = {
   disaster: { c1: '#D84315', c2: '#93290A', c3: '#FFB74D' },     // 柿
   vaccine: { c1: '#0277BD', c2: '#014377', c3: '#4FC3F7' },      // 空
 };
-// 青海波 (seigaiha) pattern, overlaid at low opacity on every card for 品位
-const SEIGAIHA = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="56" height="28"><g fill="none" stroke="#fff" stroke-width="1.2"><circle cx="0" cy="28" r="26"/><circle cx="0" cy="28" r="18"/><circle cx="0" cy="28" r="10"/><circle cx="56" cy="28" r="26"/><circle cx="56" cy="28" r="18"/><circle cx="56" cy="28" r="10"/><circle cx="28" cy="42" r="26"/><circle cx="28" cy="42" r="18"/><circle cx="28" cy="42" r="10"/></g></svg>');
-
+// Material 3 face (2026-07-07 協議で選定): 和色グラデは維持しつつ青海波を廃し、
+// ::after=ホログラム虹彩（IDカードのセキュリティホログラム風の極薄conic）+
+// ::before=hoverで横切る光スイープ。角丸16px・M3 elevationトークン・チップはM3(角丸8px)。
 export const walletCardCss = () => `
-  .vcard{position:relative;display:block;width:100%;max-width:420px;margin:0 auto;aspect-ratio:1.586;border-radius:22px;padding:18px 20px;box-sizing:border-box;color:#fff;text-decoration:none;
-    box-shadow:0 12px 28px rgba(14,26,43,.22),inset 0 1px 0 rgba(255,255,255,.25);
+  .vcard{position:relative;display:block;width:100%;max-width:420px;margin:0 auto;aspect-ratio:1.586;border-radius:16px;padding:18px 20px;box-sizing:border-box;color:#fff;text-decoration:none;
+    box-shadow:0 1px 2px rgba(0,0,0,.3),0 1px 3px 1px rgba(0,0,0,.15);
     background:radial-gradient(120% 90% at 88% -12%,var(--c3) 0%,transparent 55%),radial-gradient(90% 130% at -8% 112%,rgba(255,255,255,.16) 0%,transparent 50%),linear-gradient(135deg,var(--c1) 0%,var(--c2) 100%);
     transition:transform .18s ease,box-shadow .18s ease}
-  a.vcard:hover,a.vcard:focus-visible{transform:translateY(-10px);box-shadow:0 18px 36px rgba(14,26,43,.3)}
-  .vcard::after{content:"";position:absolute;inset:0;border-radius:22px;opacity:.07;background:url("${SEIGAIHA}") 0 0/56px 28px repeat;pointer-events:none}
-  .vcard .vt{font-size:17px;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,.28);position:relative;z-index:1;line-height:1.35}
+  a.vcard:hover,a.vcard:focus-visible{transform:translateY(-6px);box-shadow:0 4px 8px 3px rgba(0,0,0,.15),0 1px 3px rgba(0,0,0,.3)}
+  .vcard::after{content:"";position:absolute;inset:0;border-radius:16px;opacity:.55;pointer-events:none;
+    background:conic-gradient(from 200deg at 82% 14%,rgba(255,64,160,.16),rgba(64,224,255,.13),rgba(255,240,96,.14),rgba(160,64,255,.15),rgba(255,64,160,.16))}
+  .vcard::before{content:"";position:absolute;inset:0;border-radius:16px;pointer-events:none;
+    background:linear-gradient(115deg,transparent 42%,rgba(255,255,255,.20) 50%,transparent 58%) no-repeat 130% 0/300% 100%}
+  a.vcard:hover::before,a.vcard:focus-visible::before{background-position:-30% 0;transition:background-position .8s ease}
+  .vcard .vt{font-size:17px;font-weight:500;letter-spacing:.01em;text-shadow:0 1px 2px rgba(0,0,0,.28);position:relative;z-index:1;line-height:1.35}
   .vcard .vs{font-size:11px;color:rgba(255,255,255,.75);position:relative;z-index:1}
-  .vcard .vfmt{position:absolute;top:14px;right:16px;font-size:10.5px;font-weight:700;letter-spacing:.08em;padding:3px 10px;border-radius:999px;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.38);z-index:1}
+  .vcard .vfmt{position:absolute;top:14px;right:16px;font-size:10.5px;font-weight:500;letter-spacing:.04em;padding:4px 12px;border-radius:8px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.55);z-index:1}
   .vcard .viss{position:absolute;left:20px;bottom:16px;font-size:11px;color:rgba(255,255,255,.78);z-index:1;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .vcard .vst{position:absolute;right:16px;bottom:14px;font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.16);z-index:1}
+  .vcard .vst{position:absolute;right:16px;bottom:14px;font-size:11px;font-weight:500;padding:4px 11px;border-radius:8px;background:rgba(255,255,255,.22);z-index:1}
   .vcard .vst::before{content:"●";margin-right:4px;color:#7CE3B1}
   .vcard .vst.revoked::before{color:#FF8A80}
   /* consent "peek": keep the ID-1 ratio, show only the top, fade into the sheet */
@@ -206,7 +212,8 @@ export function renderCallback({ code, state }) {
           const r = await fetch('/demo/complete', { method:'POST' });
           const d = await r.json();
           if (d.error) throw new Error(d.error);
-          const rows = Object.entries(d.claims).map(([k,v]) => '<tr><td>'+k+'</td><td>'+v+'</td></tr>').join('');
+          const rows = Object.entries(d.claims).map(([k,v]) =>
+            '<tr><td>'+k+'</td><td>'+(String(v).indexOf('data:image/')===0 ? '<img class="pimg" src="'+v+'" alt="顔写真">' : v)+'</td></tr>').join('');
           document.getElementById('result').innerHTML =
             '<div class="ok">✓ /credential で '+d.configId+' を発行しました（署名検証済み）</div>'+
             '<table class="cl">'+rows+'</table>'+
@@ -260,7 +267,14 @@ export async function completeIssuance(svc, { code, verifier, configId, redirect
     if (typeof val === 'object') return 'value' in val ? String(val.value) : JSON.stringify(val);
     return val;
   };
-  const claims = Object.fromEntries(Object.entries(v.claims).map(([k, val]) => [k, fmt(val)]));
+  // portrait は data URI にして返す（renderCallback が <img> 描画する）
+  const toImg = (val) => {
+    try {
+      const b = val instanceof Uint8Array || Buffer.isBuffer(val) ? Buffer.from(val) : Buffer.from(String(val), 'base64url');
+      return 'data:image/jpeg;base64,' + b.toString('base64');
+    } catch { return fmt(val); }
+  };
+  const claims = Object.fromEntries(Object.entries(v.claims).map(([k, val]) => [k, k === 'portrait' ? toImg(val) : fmt(val)]));
   return { configId, claims };
 }
 
@@ -793,11 +807,12 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       /* The selection ring is drawn on an absolutely-positioned ::after overlay,
          so it never participates in the card's box model: no resize, no shift,
          and no overlap with neighbouring cards. */
-      .vccard{position:relative;width:100%;min-width:0;box-sizing:border-box;aspect-ratio:1.586;border-radius:18px;padding:14px 16px;color:#fff;
+      .vccard{position:relative;width:100%;min-width:0;box-sizing:border-box;aspect-ratio:1.586;border-radius:16px;padding:14px 16px;color:#fff;
         background:radial-gradient(120% 90% at 88% -12%,var(--c3) 0%,transparent 55%),radial-gradient(90% 130% at -8% 112%,rgba(255,255,255,.16) 0%,transparent 50%),linear-gradient(135deg,var(--c1) 0%,var(--c2) 100%);
-        box-shadow:0 8px 20px rgba(14,26,43,.18);transition:transform .15s,box-shadow .15s}
-      .vccard::before{content:"";position:absolute;inset:0;border-radius:18px;opacity:.07;background:url("${SEIGAIHA}") 0 0/56px 28px repeat;pointer-events:none}
-      .vccard:hover{transform:translateY(-4px)}
+        box-shadow:0 1px 2px rgba(0,0,0,.3),0 1px 3px 1px rgba(0,0,0,.15);transition:transform .15s,box-shadow .15s}
+      .vccard::before{content:"";position:absolute;inset:0;border-radius:16px;opacity:.55;pointer-events:none;
+        background:conic-gradient(from 200deg at 82% 14%,rgba(255,64,160,.16),rgba(64,224,255,.13),rgba(255,240,96,.14),rgba(160,64,255,.15),rgba(255,64,160,.16))}
+      .vccard:hover{transform:translateY(-4px);box-shadow:0 4px 8px 3px rgba(0,0,0,.15),0 1px 3px rgba(0,0,0,.3)}
       .vccard.sel{outline:3px solid #fff;outline-offset:-3px;box-shadow:0 0 0 3px var(--civic),0 10px 24px rgba(14,26,43,.26)}
       .vcck{display:none;position:absolute;top:12px;right:14px;width:23px;height:23px;border-radius:50%;background:#fff;color:var(--civic);place-items:center;font-size:13px;font-weight:800;z-index:2}
       .vcname{font-size:14.5px;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,.3);line-height:1.35;position:relative;z-index:1;max-width:82%}
@@ -902,11 +917,19 @@ export function renderHistory(user, issuances) {
  *  household_members claim (guardianship scenarios read the 続柄 from it). */
 export function renderAccount(user, docs = []) {
   // value renderer for the read-only panes (escaped inside; bool/bytes/members special-cased)
+  // portrait は bytes（SAMPLE）か base64url 文字列（persona、JPEG は '_9j' 始まり）で来る
+  const asJpegB64 = (v) => {
+    if (ArrayBuffer.isView(v)) return Buffer.from(v.buffer, v.byteOffset, v.byteLength).toString('base64');
+    if (typeof v === 'string' && v.startsWith('_9j')) return Buffer.from(v, 'base64url').toString('base64');
+    return null;
+  };
   const fmtVal = (v) => {
     if (v == null) return '—';
     if (v === true) return '✓ true';
     if (v === false) return '✗ false';
-    if (ArrayBuffer.isView(v)) return '（サンプル画像）';
+    const jpeg = asJpegB64(v);
+    if (jpeg) return `<img class="pimg" src="data:image/jpeg;base64,${jpeg}" alt="顔写真">`;
+    if (ArrayBuffer.isView(v)) return '（バイナリ）';
     if (Array.isArray(v)) return v.map((m) => esc(`${m.family_name} ${m.given_name}（${m.relationship_to_head}）`)).join('<br>');
     return esc(String(v));
   };
@@ -980,6 +1003,20 @@ export function renderAccount(user, docs = []) {
           ${f('本籍', 'honseki', user.honseki)}
 
           <div style="border-top:1px solid var(--line);margin:18px 0 14px"></div>
+          <div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:4px">顔写真（写真付き身分証に記載）</div>
+          <div class="pf-row">
+            <img id="pfprev" class="pf-img" alt="現在の顔写真" src="data:image/jpeg;base64,${user.portrait ? Buffer.from(user.portrait, 'base64url').toString('base64') : ''}">
+            <div class="pf-ctl">
+              <input type="file" id="pfile" accept="image/jpeg,image/png,image/webp">
+              <div class="hint" style="margin:6px 0 8px">画像を選ぶと 240×320 の JPEG に自動で縮小・切り抜きされます。「保存する」で次回以降の発行分に反映（発行済みは不変）。</div>
+              ${user.portraitCustom
+                ? '<button type="submit" name="portrait_reset" value="1" class="btn ghost2">初期イラストに戻す</button>'
+                : '<span class="hint">現在: 既定イラスト（自動生成）</span>'}
+            </div>
+          </div>
+          <input type="hidden" name="portrait_b64" id="portrait_b64" value="">
+
+          <div style="border-top:1px solid var(--line);margin:18px 0 14px"></div>
           <div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:4px">世帯員（家族）</div>
           <div class="hint" style="margin:0 0 10px">住民票（世帯全員・続柄記載）の <span class="mono">household_members</span> に「本人（世帯主）＋ここに登録した世帯員」が記載されます。続柄が「子」の世帯員は、子ども口座開設・親権者同意シナリオの親子関係確認に使われます。</div>
           <datalist id="rels"><option value="子"><option value="長男"><option value="長女"><option value="妻"><option value="夫"><option value="母"><option value="父"></datalist>
@@ -1027,8 +1064,35 @@ export function renderAccount(user, docs = []) {
       details.doc>summary .sw{width:13px;height:13px;border-radius:4px;flex:none}
       details.doc>summary .n{margin-left:auto;font-size:11px;color:#8A97AB;font-weight:400}
       details.doc .ro-table{padding:0 6px 8px;width:calc(100% - 12px);margin:0 6px 8px}
+      .pf-row{display:flex;gap:14px;align-items:flex-start;margin-bottom:14px}
+      .pf-img{width:78px;height:104px;object-fit:cover;border-radius:8px;border:1px solid var(--line);background:#E9EDF3;flex:none}
+      .pf-ctl{min-width:0;font-size:13px}
+      .pf-ctl input[type=file]{font:inherit;font-size:12.5px;max-width:100%}
     </style>
     <script>
+      // 顔写真: クライアント側 canvas で 240x320 に cover 縮小 → JPEG(base64url) を
+      // hidden に格納（サーバへは縮小済みの小さなバイト列だけが届く）
+      (function () {
+        var file = document.getElementById('pfile');
+        if (!file) return;
+        file.addEventListener('change', function () {
+          var fobj = file.files && file.files[0];
+          if (!fobj) return;
+          var img = new Image();
+          img.onload = function () {
+            var W = 240, H = 320, c = document.createElement('canvas');
+            c.width = W; c.height = H;
+            var s = Math.max(W / img.width, H / img.height);
+            var w = img.width * s, h = img.height * s;
+            c.getContext('2d').drawImage(img, (W - w) / 2, (H - h) / 2, w, h);
+            var b64 = c.toDataURL('image/jpeg', 0.82).split(',')[1];
+            document.getElementById('portrait_b64').value = b64.replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
+            document.getElementById('pfprev').src = 'data:image/jpeg;base64,' + b64;
+            URL.revokeObjectURL(img.src);
+          };
+          img.src = URL.createObjectURL(fobj);
+        });
+      })();
       (function () {
         var rows = document.getElementById('hh-rows');
         var seq = ${members.length};

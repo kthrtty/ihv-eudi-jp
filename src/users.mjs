@@ -9,6 +9,12 @@
 // id は表示名から独立した内部ID（口座番号と同じ扱い）。改名しても変わらない。
 // 旧 u_yamada 形式から改番済み: KV の _persist:users に旧IDレコードが残っていても
 // restore() の users.has() ガードで無視される（編集はシードに戻る。デモ許容）。
+//
+// portrait（顔写真）: 既定はバンドル済みイラストJPEG（assets/portraits.json、
+// scripts/gen-portraits.mjs で生成・base64url）。/account でアップロードすると
+// persona.portrait に上書き保存され、空にすると既定イラストへ戻る。
+import portraits from '../assets/portraits.json' with { type: 'json' };
+
 const SEED = [
   { id: 'u_001', family: '山田', given: '太郎', family_kana: 'ヤマダ', given_kana: 'タロウ',
     birth: '1990-01-15', sex: 1, address: '東京都千代田区1-1-1', honseki: '東京都千代田区千代田1番', desc: '医師（国家資格あり）',
@@ -39,6 +45,7 @@ const MAP = {
   sex: ['sex'],
   address: ['residence_address', 'address'],
   honseki: ['honseki'],
+  portrait: ['portrait'], // base64url(JPEG) — mint 側で mdoc=bstr / sd-jwt=そのまま に変換
 };
 
 // sanitize one household member record (only known fields; name required)
@@ -79,7 +86,13 @@ export function createUserStore() {
   const users = new Map(SEED.map((u) => [u.id, { ...u, household: (u.household || []).map((m) => ({ ...m })) }]));
   return {
     list: () => [...users.values()].map(({ id, family, given }) => ({ id, initial: family[0], name: `${family} ${given}` })),
-    get: (id) => (users.has(id) ? { ...users.get(id) } : null),
+    // portrait はアップロード値があればそれ、なければバンドル既定イラスト。
+    // portraitCustom は /account の「初期イラストに戻す」表示制御用。
+    get: (id) => {
+      const u = users.get(id);
+      if (!u) return null;
+      return { ...u, portrait: u.portrait || portraits[id], portraitCustom: !!u.portrait };
+    },
     has: (id) => users.has(id),
     update: (id, patch) => {
       const u = users.get(id);
@@ -89,6 +102,11 @@ export function createUserStore() {
         if (k in patch) u[k] = patch[k];
       }
       if ('household' in patch) u.household = cleanHousehold(patch.household);
+      // portrait: 非空文字列=カスタム写真を保存 / 空文字列=既定イラストへ戻す
+      if ('portrait' in patch) {
+        const v = typeof patch.portrait === 'string' ? patch.portrait.trim() : '';
+        if (v) u.portrait = v; else delete u.portrait;
+      }
       return { ...u };
     },
     // Persistence hooks: the store itself is per-process memory. On Cloudflare
