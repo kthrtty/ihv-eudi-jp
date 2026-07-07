@@ -20,3 +20,5 @@ dist/
 
 # generated screenshots (regenerate with scripts/capture-*.mjs)
 web/captures/
+memory
+patches/

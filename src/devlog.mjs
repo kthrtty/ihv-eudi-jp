@@ -4,7 +4,7 @@
 // (len)…tail) so plaintext secrets never reach the browser; keys/structure stay.
 
 // ---- masking --------------------------------------------------------------------
-const SENSITIVE_KEY = /^(access_token|refresh_token|id_token|pre-authorized_code|code|code_verifier|tx_code|proof|proofs|jwt|response|vp_token|credential|encryption_info|enc|cipherText)$/i;
+const SENSITIVE_KEY = /^(access_token|refresh_token|id_token|pre-authorized_code|code|code_verifier|tx_code|proof|proofs|jwt|response|vp_token|credential|encryption_info|enc|cipherText|portrait|portrait_b64)$/i;
 const SENSITIVE_HDR = /^(authorization|cookie|set-cookie|proxy-authorization)$/i;
 
 /** Reveal head + length + tail; fully hide short/secret values (PIN -> 桁). */
@@ -306,12 +306,21 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
       b.classList.toggle('on',size.mode==='mini'?b.dataset.h==='mini':String(Math.round(size.h))===b.dataset.h);
     });
   }
+  // Publish drawer state to <body>: fixed bottom UI in the host app (e.g. the
+  // issuer's issue dock) reads body.dev-open + --dev-drawer-h to lift above us.
+  function syncBody(){
+    var d=drawer();var open=!!d&&!d.hidden;
+    document.body.classList.toggle('dev-open',open);
+    if(open)document.body.style.setProperty('--dev-drawer-h',size.mode==='mini'?'46px':size.h+'vh');
+    else document.body.style.removeProperty('--dev-drawer-h');
+  }
   function applySize(){
     var d=drawer();if(!d)return;
     d.classList.toggle('mini',size.mode==='mini');
     if(size.mode!=='mini')d.style.height=size.h+'vh';
     markPreset();
     if(size.mode==='mini'){renderMini();startPoll();}else{stopPoll();}
+    syncBody();
   }
   function setMode(m){size.mode=m;localStorage.setItem('ihv-dev-mode',m);applySize();}
   function setH(v){size.h=clampH(v);size.mode='open';localStorage.setItem('ihv-dev-h',String(size.h));localStorage.setItem('ihv-dev-mode','open');applySize();}
@@ -331,7 +340,7 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
   function stopPoll(){if(size.poll){clearInterval(size.poll);size.poll=null;}}
   window.__dev={
     open:function(){localStorage.setItem('ihv-dev','1');drawer().hidden=false;setIcon(true);applySize();load();},
-    close:function(){localStorage.setItem('ihv-dev','0');drawer().hidden=true;setIcon(false);stopPoll();},
+    close:function(){localStorage.setItem('ihv-dev','0');drawer().hidden=true;setIcon(false);stopPoll();syncBody();},
     load:load,
     toggleStep:function(h){var b=h.nextElementSibling;b.hidden=!b.hidden;h.parentNode.classList.toggle('open',!b.hidden);},
   };
@@ -355,6 +364,7 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
         var move=function(m){
           var vh=clampH((window.innerHeight-m.clientY)/window.innerHeight*100);
           size.h=vh;drawer().style.height=vh+'vh';
+          document.body.style.setProperty('--dev-drawer-h',vh+'vh');
         };
         var up=function(){
           localStorage.setItem('ihv-dev-h',String(size.h));markPreset();

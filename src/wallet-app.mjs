@@ -86,6 +86,16 @@ const fmt = (v) => {
   }
   return v;
 };
+// portrait（顔写真）は受領時に data URI へ変換して表示キャッシュに保存し、
+// 各画面で <img> 描画する（生バイトは s.wallet 側にそのまま残る）
+const toImgUri = (v) => {
+  try {
+    const b = v instanceof Uint8Array || Buffer.isBuffer(v) ? Buffer.from(v) : Buffer.from(String(v), 'base64url');
+    return 'data:image/jpeg;base64,' + b.toString('base64');
+  } catch { return fmt(v); }
+};
+const isImgVal = (v) => typeof v === 'string' && v.startsWith('data:image/');
+const dispVal = (v) => (isImgVal(v) ? `<img class="pimg" src="${esc(v)}" alt="顔写真">` : esc(v));
 
 export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer.example.test', verifierUrl = 'https://verifier.example.test', boundFetch = null, store = null } = {}) {
   const app = new Hono();
@@ -191,7 +201,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
   const record = async (s, rec) => {
     let claims = {};
     try { const v = await verifyCredential(rec.configId, s.wallet.get(rec.id).credential); claims = v.claims; } catch {}
-    s.creds.push({ ...rec, claims: Object.fromEntries(Object.entries(claims).map(([k, v]) => [k, fmt(v)])) });
+    s.creds.push({ ...rec, claims: Object.fromEntries(Object.entries(claims).map(([k, v]) => [k, k === 'portrait' ? toImgUri(v) : fmt(v)])) });
   };
 
   app.get('/', async (c) => {
@@ -556,7 +566,9 @@ function presentConsent({ request, plan, have, held = [] }) {
     const wire = cl.wire, required = !cl.optional;
     const valRaw = cred.claims?.[wire];
     const has = valRaw !== undefined && valRaw !== '';
-    const val = has ? String(valRaw) : '（保有なし）';
+    // 顔写真は data-val/プレビューには短いラベル、行内にはサムネイルを出す
+    const isImg = has && isImgVal(String(valRaw));
+    const val = has ? (isImg ? '（顔写真 JPEG）' : String(valRaw)) : '（保有なし）';
     const checked = has && required;           // required held -> always disclosed
     const disabled = !has || !active;          // can't disclose what you don't hold
     const tag = required ? '<span class="rtag req">必須</span>' : '<span class="rtag opt">任意</span>';
@@ -572,7 +584,7 @@ function presentConsent({ request, plan, have, held = [] }) {
         data-q="${esc(q.dcqlId)}" data-key="${esc(wire)}" data-val="${esc(val)}" ${required ? 'data-req="1"' : ''}
         ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}${lock}>
       <span class="cbx"></span>
-      <span class="cl-main"><span class="cl-k">${esc(wire)} ${tag}</span><span class="cl-v">${esc(val)}</span>${hhWarn}</span>
+      <span class="cl-main"><span class="cl-k">${esc(wire)} ${tag}</span><span class="cl-v">${isImg ? dispVal(String(valRaw)) : esc(val)}</span>${hhWarn}</span>
     </label>`;
   };
   const credBlock = (q, cred, active) => `<div class="cblock" data-q="${esc(q.dcqlId)}" data-cred="${esc(cred.id)}" ${active ? '' : 'hidden'}>
@@ -651,8 +663,8 @@ function presentConsent({ request, plan, have, held = [] }) {
 const PRESENT_STYLE = `<style>
   /* consent as a bottom sheet: static scrim over the (empty) page, sheet pinned
      to the bottom. Existing claim rows / picker / warnings render inside it. */
-  .cscrim{position:fixed;inset:0;background:rgba(14,26,43,.55);z-index:1}
-  .csheet{position:relative;z-index:2;max-width:560px;margin:8vh auto 0;background:#fff;border-radius:18px 18px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,.25);padding:8px 18px 18px;min-height:80vh}
+  .cscrim{position:fixed;inset:0;background:rgba(14,26,43,.55);z-index:90} /* above the dev drawer (z61) */
+  .csheet{position:relative;z-index:91;max-width:560px;margin:8vh auto 0;background:#fff;border-radius:18px 18px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,.25);padding:8px 18px 18px;min-height:80vh}
   .grab{width:44px;height:5px;border-radius:3px;background:#C6D0DC;margin:6px auto 10px}
   .csh b{font-size:16px}
   .csheet .card{border:none;padding:0;margin-top:14px}
@@ -757,7 +769,7 @@ const delGlyph = (sz = 20) => `<svg width="${sz}" height="${sz}" viewBox="0 0 20
 // is rendered there), so `interactive:false` drops the click + the "show all" link.
 function credCard(c, { interactive = true } = {}) {
   const entries = Object.entries(c.claims || {});
-  const rows = entries.slice(0, 4).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('');
+  const rows = entries.slice(0, 4).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${dispVal(v)}</td></tr>`).join('');
   const extra = entries.length - Math.min(entries.length, 4);
   const name = typeName(credType(c.configId));
   const open = interactive
@@ -780,7 +792,7 @@ function credCard(c, { interactive = true } = {}) {
 function credModal(c, raw) {
   const name = typeName(credType(c.configId));
   const entries = Object.entries(c.claims || {});
-  const full = entries.map(([k, v]) => `<div class="r"><span class="dk">${esc(k)}</span><span class="dv">${esc(v)}</span></div>`).join('');
+  const full = entries.map(([k, v]) => `<div class="r"><span class="dk">${esc(k)}</span><span class="dv">${dispVal(v)}</span></div>`).join('');
   const isMdoc = c.format === 'mso_mdoc';
   const fmtLabel = isMdoc ? 'mdoc IssuerSigned（nameSpaces + issuerAuth）' : 'SD-JWT VC（JWT + 開示）';
   const rawJson = raw ? esc(JSON.stringify(raw.json ?? {}, null, 2)) : '（生データを取得できませんでした）';
@@ -835,7 +847,7 @@ const VC_MODAL_STYLE = `<style>
   .held:focus-visible{outline:2px solid #2E7D6B;outline-offset:2px}
   .held-more{margin-top:10px;font-size:12px;color:#2E7D6B;font-weight:700}
   .held-more.static{color:var(--muted);font-weight:600}
-  .vcsheet,.vc-confirm{position:fixed;inset:0;z-index:50;display:flex}
+  .vcsheet,.vc-confirm{position:fixed;inset:0;z-index:90;display:flex} /* modals sit above the dev drawer (z61) */
   .vcsheet[hidden],.vc-confirm[hidden]{display:none}
   .vcsheet{align-items:flex-end}.vc-confirm{align-items:center;justify-content:center;padding:24px}
   .vc-scrim{position:absolute;inset:0;background:rgba(14,26,43,.45)}
@@ -1004,7 +1016,7 @@ function credDetail(cr, raw, st, acts = []) {
   const entries = Object.entries(cr.claims || {});
   const head = entries.slice(0, 4);
   const rest = entries.slice(4);
-  const row = ([k, v]) => `<tr><td>${esc(labels[k] || k)}</td><td>${esc(v)}</td></tr>`;
+  const row = ([k, v]) => `<tr><td>${esc(labels[k] || k)}</td><td>${dispVal(v)}</td></tr>`;
   const stChip = st?.checked
     ? (st.revoked ? `<span class="chip2 bad">● 失効しています</span>` : `<span class="chip2">● 有効 · ${esc(agoLabel(st.at))}</span>`)
     : `<span class="chip2 na">未確認</span>`;
@@ -1078,7 +1090,9 @@ const WSTYLE = `<style>
   .devlinks>summary{font-size:12px;font-weight:700;color:var(--muted);cursor:pointer}
   .devgrid{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
   .devgrid a{font-size:12px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:6px 10px;color:var(--ink);text-decoration:none}
-  .fabs{position:fixed;right:20px;bottom:24px;display:flex;flex-direction:column;gap:12px;align-items:center;z-index:70}
+  .fabs{position:fixed;right:20px;bottom:24px;display:flex;flex-direction:column;gap:12px;align-items:center;z-index:60}
+  /* dev console open: lift the FABs above the drawer (devlog syncBody) */
+  body.dev-open .fabs{bottom:calc(var(--dev-drawer-h,40vh) + 24px)}
   .fab-qr{width:48px;height:48px;border-radius:50%;background:#fff;border:1px solid var(--line);display:grid;place-items:center;color:var(--ink);box-shadow:0 4px 14px rgba(14,26,43,.18);cursor:pointer}
   .fab-add{width:58px;height:58px;border-radius:50%;background:var(--w,#2E7D6B);background:#2E7D6B;color:#fff;border:0;display:grid;place-items:center;box-shadow:0 6px 18px rgba(46,125,107,.45);font-size:30px;line-height:1;cursor:pointer}
   .wsheet-wrap[hidden]{display:none}

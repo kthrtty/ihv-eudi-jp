@@ -593,7 +593,7 @@ test('wallet redesigned: multi-scope ＋カタログ発行 — one authorization
     const state = url.searchParams.get('state');
 
     // issuer 側: ログインして authorize を通し code を得る（プログラム経路）
-    const login = await (await fetch(`${ISSUER}/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_yamada' }) })).json();
+    const login = await (await fetch(`${ISSUER}/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_001' }) })).json();
     const auth = await fetch(url, { headers: { 'x-session-id': login.session_id }, redirect: 'manual' });
     const cb = new URL(auth.headers.get('location'));
     assert.equal(cb.searchParams.get('state'), state, 'state round-trips');
