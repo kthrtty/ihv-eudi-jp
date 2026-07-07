@@ -4,7 +4,7 @@
 // (len)…tail) so plaintext secrets never reach the browser; keys/structure stay.
 
 // ---- masking --------------------------------------------------------------------
-const SENSITIVE_KEY = /^(access_token|refresh_token|id_token|pre-authorized_code|code|code_verifier|tx_code|proof|proofs|jwt|response|vp_token|credential|encryption_info|enc|cipherText)$/i;
+const SENSITIVE_KEY = /^(access_token|refresh_token|id_token|pre-authorized_code|code|code_verifier|tx_code|proof|proofs|jwt|response|vp_token|credential|encryption_info|enc|cipherText|portrait|portrait_b64)$/i;
 const SENSITIVE_HDR = /^(authorization|cookie|set-cookie|proxy-authorization)$/i;
 
 /** Reveal head + length + tail; fully hide short/secret values (PIN -> 桁). */

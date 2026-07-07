@@ -117,11 +117,21 @@ export function createApp(opts = {}) {
       byIdx.get(m[1])[m[2]] = val;
     }
     const household = [...byIdx.entries()].sort(([a], [b]) => a - b).map(([, v]) => v);
-    await svc.updateUser(user.id, {
+    const patch = {
       family: f.family, given: f.given, family_kana: f.family_kana, given_kana: f.given_kana,
       desc: f.desc, birth: f.birth, sex: Number(f.sex), address: f.address, honseki: f.honseki,
       household,
-    });
+    };
+    // 顔写真: reset ボタン=既定イラストへ / portrait_b64=クライアント縮小済み JPEG。
+    // サーバ側でも JPEG マジックバイトと上限（256KB decoded）を検証してから保存する
+    if (f.portrait_reset) patch.portrait = '';
+    else if (typeof f.portrait_b64 === 'string' && f.portrait_b64) {
+      try {
+        const buf = Buffer.from(f.portrait_b64, 'base64url');
+        if (buf.length >= 4 && buf[0] === 0xff && buf[1] === 0xd8 && buf.length <= 256 * 1024) patch.portrait = f.portrait_b64;
+      } catch { /* 不正な base64url は無視（他のフィールドは保存する） */ }
+    }
+    await svc.updateUser(user.id, patch);
     return c.redirect('/account', 302);
   });
 
@@ -402,6 +412,19 @@ export function createVerifierApp(opts = {}) {
   const getRequest = (txn) => v.store.get(`vpreq:${txn}`);
   const putResult  = (txn, result) => v.store.set(`vpres:${txn}`, result, 600);
   const getResult  = (txn) => v.store.get(`vpres:${txn}`);
+  // portrait（顔写真）は結果の保存/JSON 応答前に data URI へ正規化する。
+  // Uint8Array のまま KV/JSON に載せると {"0":255,...} に化けて表示も KV も壊れる。
+  // verifyResponse 自体の戻り値 API（バイト列）は変えない（テスト・ライブラリ利用は素のまま）。
+  const toImgUri = (x) => {
+    try {
+      const b = x instanceof Uint8Array || Buffer.isBuffer(x) ? Buffer.from(x) : Buffer.from(String(x), 'base64url');
+      return 'data:image/jpeg;base64,' + b.toString('base64');
+    } catch { return x; }
+  };
+  const withImgClaims = (result) => {
+    for (const r of result?.results || []) if (r.claims?.portrait != null) r.claims.portrait = toImgUri(r.claims.portrait);
+    return result;
+  };
 
   // GLOBAL presentation history (no per-holder session — a single shared log of every
   // presentation this Verifier verified). Stored as one capped list under `vphist`.
@@ -497,7 +520,7 @@ export function createVerifierApp(opts = {}) {
       const { credential_offer } = await offerRes.json();
       await wallet.receive({ request: issuerFetch, offer: credential_offer, credentialIssuer: issuerUrl });
       const { transactionId, request } = await v.createRequest({ specs: s.steps[0].specs });
-      const result = await v.verifyResponse({ transactionId, encryptedResponse: await wallet.respond(request) });
+      const result = withImgClaims(await v.verifyResponse({ transactionId, encryptedResponse: await wallet.respond(request) }));
       await putResult(transactionId, result);
       await putScn(transactionId, { id: s.id, step: 1, wallet: wallet.serialize() });
       await recordHistory(request, result, 'console');
@@ -517,7 +540,7 @@ export function createVerifierApp(opts = {}) {
       const wallet = createWallet(scn.wallet);
       const txn1 = c.req.param('txn1');
       const { transactionId, request } = await v.createRequest({ specs: s.steps[1].specs, linkTo: txn1 });
-      const result = await v.verifyResponse({ transactionId, encryptedResponse: await wallet.respond(request) });
+      const result = withImgClaims(await v.verifyResponse({ transactionId, encryptedResponse: await wallet.respond(request) }));
       await putResult(transactionId, result);
       await putScn(transactionId, { id: s.id, step: 2, txn1 });
       await recordHistory(request, result, 'console');
@@ -570,7 +593,7 @@ export function createVerifierApp(opts = {}) {
       if (!d) return c.json({ error: '要求が未生成か期限切れです' }, 400);
       const wallet = createWallet(d.wallet);
       const encryptedResponse = await wallet.respond(d.request);
-      const result = await v.verifyResponse({ transactionId: d.transactionId, encryptedResponse });
+      const result = withImgClaims(await v.verifyResponse({ transactionId: d.transactionId, encryptedResponse }));
       await recordHistory(d.request, result, 'console');
       const first = (result.results || [])[0] || {};
       const claims = Object.fromEntries(Object.entries(first.claims || {}).map(([k, val]) => [k, fmtClaim(val)]));
@@ -645,7 +668,7 @@ export function createVerifierApp(opts = {}) {
   app.post('/vp/verify', async (c) => {
     try {
       const body = await c.req.json();
-      const result = await v.verifyResponse(body);
+      const result = withImgClaims(await v.verifyResponse(body));
       if (body.transactionId) {
         await putResult(body.transactionId, result); // scenario result pages read this back
         await recordHistory(await getRequest(body.transactionId), result, 'dcapi');
@@ -675,7 +698,7 @@ export function createVerifierApp(opts = {}) {
     try {
       const txn = c.req.param('txn');
       const body = await c.req.parseBody();
-      const result = await v.verifyResponse({ transactionId: txn, encryptedResponse: body.response });
+      const result = withImgClaims(await v.verifyResponse({ transactionId: txn, encryptedResponse: body.response }));
       await putResult(txn, result);
       await recordHistory(await getRequest(txn), result, 'web');
       // scenario runs land back on the scenario's step/acceptance page
