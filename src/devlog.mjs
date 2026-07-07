@@ -232,6 +232,8 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
   .dev-st{font-size:10px;font-weight:800;border-radius:999px;padding:2px 7px;background:#E7F3EE;color:#1f7a52}.dev-st.s4,.dev-st.s5{background:#FBE9E7;color:#9E3A3A}
   .dev-grp{font-size:10px;color:var(--muted,#5B6B82)}
   .dev-ts{font-size:10px;color:var(--muted,#5B6B82);font-family:ui-monospace,monospace;white-space:nowrap;flex:none}
+  /* 狭幅: ミリ秒とグループチップを隠してエンドポイント表示に幅を返す（詳細側の grp は残る） */
+  @media(max-width:480px){.dev-tsms,.dev-head .dev-grp,.dev-minibar .dev-grp{display:none}}
   .dev-body{margin-top:8px}
   .dev-sect{font-size:11.5px;font-weight:800;margin:10px 0 4px}
   .dev-blab{font-size:11px;font-weight:700;color:var(--muted,#5B6B82);margin:8px 0 0}
@@ -265,7 +267,7 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
     if(!iso)return '';
     var t=new Date(iso);if(isNaN(t))return '';
     var ms=('00'+t.getMilliseconds()).slice(-3);
-    return '<span class="dev-ts" title="'+esc(iso)+'">'+t.toLocaleTimeString('ja-JP',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:'Asia/Tokyo'})+'.'+ms+'</span>';
+    return '<span class="dev-ts" title="'+esc(iso)+'">'+t.toLocaleTimeString('ja-JP',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:'Asia/Tokyo'})+'<span class="dev-tsms">.'+ms+'</span></span>';
   }
   function render(){
     var list=state.entries.filter(function(e){return state.filter==='all'||e.grp===state.filter;});
