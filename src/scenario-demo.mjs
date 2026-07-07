@@ -28,10 +28,15 @@ const fmtVal = (k, vRaw) => {
     : typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v);
 };
 
-// claims table for one presented credential (ja labels)
+// claims table for one presented credential (ja labels).
+// portrait は app 層で data URI へ正規化済み → サムネイル描画（.pimg は共有CSS）
+const cellVal = (k, v) =>
+  (typeof v === 'string' && v.startsWith('data:image/')
+    ? `<img class="pimg" src="${esc(v)}" alt="顔写真">`
+    : esc(fmtVal(k, v)));
 function claimsTable(configId, claims) {
   const rows = Object.entries(claims || {}).map(([k, v]) =>
-    `<tr><td>${esc(label(configId, k))}</td><td>${esc(fmtVal(k, v))}</td></tr>`).join('');
+    `<tr><td>${esc(label(configId, k))}</td><td>${cellVal(k, v)}</td></tr>`).join('');
   return `<div class="ccard"><div class="cchead">${esc(configInfo(configId).name)}</div><table class="cl">${rows}</table></div>`;
 }
 

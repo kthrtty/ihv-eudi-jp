@@ -51,15 +51,15 @@ async function issueAsUser(app, userId, configId = 'pid_mdoc') {
 
 test('auth-code flow: signed-in user data is minted into the credential', async () => {
   const app = createApp({ credentialIssuer: ISSUER });
-  const claims = await issueAsUser(app, 'u_yamada');
+  const claims = await issueAsUser(app, 'u_001');
   assert.equal(claims.family_name, '山田');
   assert.equal(claims.given_name, '太郎');
 });
 
 test('session switch swaps the data (same flow, different user)', async () => {
   const app = createApp({ credentialIssuer: ISSUER });
-  const yamada = await issueAsUser(app, 'u_yamada');
-  const sato = await issueAsUser(app, 'u_sato');
+  const yamada = await issueAsUser(app, 'u_001');
+  const sato = await issueAsUser(app, 'u_002');
   assert.equal(yamada.family_name, '山田');
   assert.equal(sato.family_name, '佐藤');
   assert.notEqual(yamada.birth_date, sato.birth_date);
@@ -67,23 +67,23 @@ test('session switch swaps the data (same flow, different user)', async () => {
 
 test('maintenance: editing user data changes subsequent issuance', async () => {
   const app = createApp({ credentialIssuer: ISSUER });
-  const before = await issueAsUser(app, 'u_tanaka');
+  const before = await issueAsUser(app, 'u_004');
   assert.equal(before.family_name, '田中');
 
-  const upd = await (await app.request('/users/u_tanaka', {
+  const upd = await (await app.request('/users/u_004', {
     method: 'PUT', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ family: '改姓', given: '太郎' }),
   })).json();
   assert.equal(upd.family, '改姓');
 
-  const after = await issueAsUser(app, 'u_tanaka');
+  const after = await issueAsUser(app, 'u_004');
   assert.equal(after.family_name, '改姓');
   assert.equal(after.given_name, '太郎');
 });
 
 test('household: persona 世帯員 land in the 住民票 household_members (self as 世帯主 + members)', async () => {
   const app = createApp({ credentialIssuer: ISSUER });
-  const claims = await issueAsUser(app, 'u_suzuki', 'juminhyo_mdoc');
+  const claims = await issueAsUser(app, 'u_003', 'juminhyo_mdoc');
   assert.equal(claims.head_of_household_name, '鈴木 一郎', 'head is the persona, not the SAMPLE');
   assert.equal(claims.relationship_to_head, '世帯主');
   const hm = claims.household_members;
@@ -94,7 +94,7 @@ test('household: persona 世帯員 land in the 住民票 household_members (self
 
 test('household: a member without children yields a household of one (no SAMPLE leak)', async () => {
   const app = createApp({ credentialIssuer: ISSUER });
-  const claims = await issueAsUser(app, 'u_sato', 'juminhyo_mdoc');
+  const claims = await issueAsUser(app, 'u_002', 'juminhyo_mdoc');
   assert.equal(claims.head_of_household_name, '佐藤 花子');
   assert.equal(claims.household_members.length, 1, 'only the persona herself');
   assert.ok(!JSON.stringify(claims.household_members).includes('莉子'), 'no leakage of another persona’s child');
@@ -104,7 +104,7 @@ test('household maintenance: /account form (hh_* rows) updates the household; em
   const app = createApp({ credentialIssuer: ISSUER });
   const login = await (await app.request('/login', {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ user_id: 'u_tanaka' }),
+    body: JSON.stringify({ user_id: 'u_004' }),
   })).json();
   const sid = login.session_id;
   // the account page renders the household section
@@ -120,11 +120,11 @@ test('household maintenance: /account form (hh_* rows) updates the household; em
       hh_1_family: '', hh_1_given: '', hh_1_birth: '', hh_1_rel: '',
     }).toString(),
   });
-  const u = await (await app.request('/users/u_tanaka')).json();
+  const u = await (await app.request('/users/u_004')).json();
   assert.equal(u.household.length, 1);
   assert.deepEqual(u.household[0], { family: '田中', given: '蓮', birth: '2024-01-05', rel: '子' });
   // …and the next 住民票 issuance carries the new member
-  const claims = await issueAsUser(app, 'u_tanaka', 'juminhyo_mdoc');
+  const claims = await issueAsUser(app, 'u_004', 'juminhyo_mdoc');
   assert.ok(claims.household_members.find((m) => m.given_name === '蓮' && m.relationship_to_head === '子'));
 });
 
@@ -132,7 +132,7 @@ test('authorize consent v2: a multi-scope request lists EVERY credential and cou
   const app = createApp({ credentialIssuer: ISSUER });
   const login = await (await app.request('/login', {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ user_id: 'u_yamada' }),
+    body: JSON.stringify({ user_id: 'u_001' }),
   })).json();
   const q = new URLSearchParams({
     response_type: 'code', client_id: 'ihv-web-wallet', redirect_uri: 'https://wallet.example/oidc/cb',
@@ -148,6 +148,60 @@ test('authorize consent v2: a multi-scope request lists EVERY credential and cou
   assert.match(html, /同意して 2 件を発行する/);
   assert.match(html, /山田 太郎/, 'the signed-in subject is shown');
   assert.match(html, /reqrow/, 'each credential gets a swatch row');
+});
+
+// ---- KV移行ハザード（ID改番 u_yamada→u_001 のデプロイで本番KVに残る旧データ）----
+// 設計: 旧IDは users.has() ガードで無視され、全経路が graceful degradation する。
+// このふるまいがデプロイ安全性の根拠なので回帰テストで pin する（QA指摘 I-1）。
+const mkStaleKv = () => {
+  const mem = new Map();
+  return {
+    async put(k, v) { mem.set(k, v); },
+    async get(k) { return mem.has(k) ? mem.get(k) : null; },
+    async delete(k) { mem.delete(k); },
+  };
+};
+
+test('KV移行: 旧userIdのセッションは 500 にならず /login へ誘導される', async () => {
+  const { kvStore } = await import('../src/oid4vci.mjs');
+  const store = kvStore(mkStaleKv());
+  await store.set('sess:stale-sid', { userId: 'u_sato' }, 3600); // 改番前のID
+  const app = createApp({ credentialIssuer: ISSUER, store });
+  const acct = await app.request('/account', { headers: { cookie: 'sid=stale-sid' }, redirect: 'manual' });
+  assert.equal(acct.status, 302, 'stale session must redirect, not 500');
+  assert.match(acct.headers.get('location'), /^\/login/);
+  const sess = await (await app.request('/session', { headers: { cookie: 'sid=stale-sid' } })).json();
+  assert.equal(sess.user, null);
+});
+
+test('KV移行: 旧userId入りの pre-auth コードは SAMPLE にフォールバックして正常発行', async () => {
+  const { kvStore } = await import('../src/oid4vci.mjs');
+  const store = kvStore(mkStaleKv());
+  await store.set('pac:stale-code', { ids: ['pid_mdoc'], txCode: null, used: false, userId: 'u_yamada' });
+  const app = createApp({ credentialIssuer: ISSUER, store });
+  const wallet = createWallet();
+  const offer = {
+    credential_issuer: ISSUER, credential_configuration_ids: ['pid_mdoc'],
+    grants: { 'urn:ietf:params:oauth:grant-type:pre-authorized_code': { 'pre-authorized_code': 'stale-code' } },
+  };
+  const [rec] = await wallet.receive({ request: app.request.bind(app), offer, credentialIssuer: ISSUER });
+  const { claims } = await verifyCredential('pid_mdoc', wallet.get(rec.id).credential);
+  assert.equal(claims.family_name, '山田', 'unknown userId falls back to the static SAMPLE');
+});
+
+test('KV移行: _persist:users に旧ID/新IDが混在しても restore は新IDのみ反映', async () => {
+  const { kvStore } = await import('../src/oid4vci.mjs');
+  const store = kvStore(mkStaleKv());
+  await store.set('_persist:users', [
+    { id: 'u_sato', family: '西井上', given: '慎吾' },              // 旧ID: 無視されるべき
+    { id: 'u_002', family: '高橋', given: '花子', birth: '1988-07-03' }, // 新ID: 反映されるべき
+  ]);
+  const app = createApp({ credentialIssuer: ISSUER, store });
+  const { users } = await (await app.request('/users')).json();
+  const names = users.map((u) => u.name);
+  assert.ok(names.includes('高橋 花子'), 'new-id record restored');
+  assert.ok(!names.some((n) => n.includes('西井上')), 'old-id record ignored');
+  assert.equal(users.length, 4, 'seed roster size unchanged');
 });
 
 test('BUG回帰: ユーザー編集は isolate を跨いで発行に反映される（KV 永続化）', async () => {
@@ -166,7 +220,7 @@ test('BUG回帰: ユーザー編集は isolate を跨いで発行に反映され
 
   // isolate A: 氏名と世帯を編集
   const appA = mkApp();
-  const upd = await (await appA.request('/users/u_tanaka', {
+  const upd = await (await appA.request('/users/u_004', {
     method: 'PUT', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ family: '結城', given: '莉央', household: [{ family: '結城', given: '蒼', birth: '2020-02-02', rel: '子' }] }),
   })).json();
@@ -174,10 +228,10 @@ test('BUG回帰: ユーザー編集は isolate を跨いで発行に反映され
 
   // isolate B（完全に新しいインスタンス・メモリは SEED）: 発行すると編集が反映されるべき
   const appB = mkApp();
-  const claimsB = await issueAsUser(appB, 'u_tanaka');
+  const claimsB = await issueAsUser(appB, 'u_004');
   assert.equal(claimsB.family_name, '結城', '別 isolate の発行に氏名編集が反映される');
   assert.equal(claimsB.given_name, '莉央');
-  const juB = await issueAsUser(appB, 'u_tanaka', 'juminhyo_mdoc');
+  const juB = await issueAsUser(appB, 'u_004', 'juminhyo_mdoc');
   assert.ok(juB.household_members.find((m) => m.given_name === '蒼' && m.relationship_to_head === '子'),
     '世帯員の編集も isolate を跨いで住民票に反映される');
 
@@ -185,7 +239,7 @@ test('BUG回帰: ユーザー編集は isolate を跨いで発行に反映され
   const appC = mkApp();
   const login = await (await appC.request('/login', {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ user_id: 'u_tanaka' }),
+    body: JSON.stringify({ user_id: 'u_004' }),
   })).json();
   await appC.request('/account', {
     method: 'POST',
@@ -193,10 +247,10 @@ test('BUG回帰: ユーザー編集は isolate を跨いで発行に反映され
     body: new URLSearchParams({ family: '結城', given: '莉央', desc: '', birth: '2002-04-10', address: 'x', honseki: 'y' }).toString(),
   });
   const appD = mkApp();
-  const claimsD = await issueAsUser(appD, 'u_tanaka');
+  const claimsD = await issueAsUser(appD, 'u_004');
   assert.equal(claimsD.family_name, '結城', '/account 経由の編集も別 isolate の発行に反映');
   // 表示系 API も最新を返す
-  const shown = await (await appD.request('/users/u_tanaka')).json();
+  const shown = await (await appD.request('/users/u_004')).json();
   assert.equal(shown.family, '結城');
 });
 
@@ -204,29 +258,123 @@ test('session lifecycle: /session reflects login and logout', async () => {
   const app = createApp({ credentialIssuer: ISSUER });
   const login = await (await app.request('/login', {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ user_id: 'u_suzuki' }),
+    body: JSON.stringify({ user_id: 'u_003' }),
   })).json();
   const who = await (await app.request('/session', { headers: { 'x-session-id': login.session_id } })).json();
-  assert.equal(who.user.id, 'u_suzuki');
+  assert.equal(who.user.id, 'u_003');
   await app.request('/logout', { method: 'POST', headers: { 'x-session-id': login.session_id } });
   const after = await (await app.request('/session', { headers: { 'x-session-id': login.session_id } })).json();
   assert.equal(after.user, null);
 });
 
+test('アバターの頭文字は変更後の姓に追従する（名前変更→シール/ピルが新しい頭文字）', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+  // ログインしてから姓を 山田→高橋 に変更
+  const login = await (await app.request('/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_001' }) })).json();
+  const upd = await app.request('/users/u_001', {
+    method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ family: '高橋' }),
+  });
+  assert.equal(upd.status, 200);
+  // ログイン画面のユーザー選択シール = 新しい姓の頭文字（旧 surname 固定値ではない）
+  const loginPage = await (await app.request('/login')).text();
+  assert.match(loginPage, />高<\/span>/, 'login seal shows the NEW initial');
+  assert.match(loginPage, /高橋 太郎/, 'login list shows the new family name');
+  // ログイン済みヘッダーのアバターピルも追従
+  const home = await (await app.request('/', { headers: { cookie: `sid=${login.session_id}` } })).text();
+  assert.match(home, />高<\/span>/, 'header pill avatar shows the NEW initial');
+});
+
+test('pre-auth 発行: ログイン中に生成したオファーは発行時点の最新 persona を mint する（名前変更が新規VCに反映）', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+  const login = await (await app.request('/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_001' }) })).json();
+  const cookie = { cookie: `sid=${login.session_id}` };
+  // ログイン状態でオファー生成（userId が束ねられる。claims スナップショットではない）
+  const made = await (await app.request('/offer', {
+    method: 'POST', headers: { 'content-type': 'application/json', ...cookie },
+    body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'] }),
+  })).json();
+  // オファー生成"後"に改名 → 発行はさらに後 → 新しい名前が載るべき
+  await app.request('/users/u_001', {
+    method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ family: '高橋' }),
+  });
+  const wallet = createWallet();
+  const [rec] = await wallet.receive({ request: app.request.bind(app), offer: made.credential_offer, credentialIssuer: ISSUER });
+  const { claims } = await verifyCredential('pid_mdoc', wallet.get(rec.id).credential);
+  assert.equal(claims.family_name, '高橋', 'pre-auth issuance mints the CURRENT persona, not the static SAMPLE');
+  assert.equal(claims.given_name, '太郎');
+
+  // ログインなしのオファーは従来どおり SAMPLE（session 非依存の互換維持）
+  const anon = await (await app.request('/offer', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'] }),
+  })).json();
+  const [rec2] = await wallet.receive({ request: app.request.bind(app), offer: anon.credential_offer, credentialIssuer: ISSUER });
+  const { claims: c2 } = await verifyCredential('pid_mdoc', wallet.get(rec2.id).credential);
+  assert.equal(c2.family_name, '山田', 'anonymous offers keep the static SAMPLE');
+});
+
+test('/account GUI: カナ姓名と性別も編集でき、発行 VC の value に反映される', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+  const login = await (await app.request('/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_001' }) })).json();
+  const cookie = { cookie: `sid=${login.session_id}` };
+  // GUI と同じフォーム POST（かな・性別を含む全項目）
+  const save = await app.request('/account', {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...cookie },
+    body: new URLSearchParams({
+      family: '結城', given: '莉央', family_kana: 'ユウキ', given_kana: 'リオ',
+      desc: 'テスター', birth: '1990-01-15', sex: '2',
+      address: '東京都千代田区1-1-1', honseki: '東京都千代田区千代田1番',
+    }).toString(), redirect: 'manual',
+  });
+  assert.equal(save.status, 302);
+  // フォームに全編集項目が現れる（GUI から変更できない persona フィールドを作らない）
+  const page = await (await app.request('/account', { headers: cookie })).text();
+  for (const nm of ['family', 'given', 'family_kana', 'given_kana', 'birth', 'sex', 'address', 'honseki', 'desc']) {
+    assert.match(page, new RegExp(`name="${nm}"`), `/account form exposes ${nm}`);
+  }
+  // 発行 VC に反映（PID mdoc: family_name_kana / given_name_kana / sex）
+  const claims = await issueAsUser(app, 'u_001');
+  assert.equal(claims.family_name_kana, 'ユウキ', 'kana edits reach the minted VC');
+  assert.equal(claims.given_name_kana, 'リオ');
+  assert.equal(claims.sex, 2, 'sex edit reaches the minted VC (numeric)');
+  assert.equal(claims.family_name, '結城');
+});
+
+test('/account: 変更不能属性（自動導出・固定）が由来つきで表示され、導出値は編集に追従する', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+  const login = await (await app.request('/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_001' }) })).json();
+  const cookie = { cookie: `sid=${login.session_id}` };
+  const page = await (await app.request('/account', { headers: cookie })).text();
+  // 右カラム: 自動導出セクション・文書別内訳・3種の由来バッジ
+  assert.match(page, /自動導出（左の属性から計算）/);
+  assert.match(page, /文書ごとの内訳/);
+  for (const b of ['編集反映', '自動導出', '固定']) assert.match(page, new RegExp(`class="badge b-\\w+">${b}<`));
+  assert.match(page, /age_over_20/);
+  assert.match(page, /✓ true/, '1990年生まれは age_over_20 = true');
+  // 生年月日を未成年に変更 → 導出表示が ✗ false に追従
+  await app.request('/account', {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...cookie },
+    body: new URLSearchParams({ family: '山田', given: '太郎', family_kana: 'ヤマダ', given_kana: 'タロウ',
+      desc: '', birth: '2010-01-15', sex: '1', address: 'X', honseki: 'Y' }).toString(), redirect: 'manual',
+  });
+  const page2 = await (await app.request('/account', { headers: cookie })).text();
+  assert.match(page2, /✗ false/, '2010年生まれに変えると age_over が false 表示に追従');
+});
+
 test('セキュリティ: /login の next はローカルパスに制限（オープンリダイレクト防止）', async () => {
   const app = createApp({ credentialIssuer: ISSUER });
-  const login = await (await app.request('/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_yamada' }) })).json();
+  const login = await (await app.request('/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_001' }) })).json();
   // 外部URL / スキーム相対 // は拒否して '/' へ、ローカルパスは維持
   for (const [bad, _] of [['https://evil.example'], ['//evil.example'], ['javascript:alert(1)']]) {
     const r = await app.request('/login/select', {
       method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: `sid=${login.session_id}` },
-      body: new URLSearchParams({ user_id: 'u_yamada', next: bad }).toString(), redirect: 'manual',
+      body: new URLSearchParams({ user_id: 'u_001', next: bad }).toString(), redirect: 'manual',
     });
     assert.equal(r.headers.get('location'), '/', `open redirect to ${bad} must be neutralised`);
   }
   const okp = await app.request('/login/select', {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ user_id: 'u_yamada', next: '/account' }).toString(), redirect: 'manual',
+    body: new URLSearchParams({ user_id: 'u_001', next: '/account' }).toString(), redirect: 'manual',
   });
   assert.equal(okp.headers.get('location'), '/account', 'a local path is preserved');
 });
@@ -235,13 +383,13 @@ test('users maintenance API: list and unknown user', async () => {
   const app = createApp({ credentialIssuer: ISSUER });
   const { users } = await (await app.request('/users')).json();
   assert.equal(users.length, 4);
-  assert.ok(users.find((u) => u.id === 'u_yamada'));
+  assert.ok(users.find((u) => u.id === 'u_001'));
   const nf = await app.request('/users/nope');
   assert.equal(nf.status, 404);
 });
 
 // ---- PKCE / negative paths (unit level) ----
-async function authorizedCode(svc, userId = 'u_yamada', verifier = 'verifier-fixed-0001', redirect = 'app://cb') {
+async function authorizedCode(svc, userId = 'u_001', verifier = 'verifier-fixed-0001', redirect = 'app://cb') {
   const { sessionId } = await svc.login(userId);
   const { code } = await svc.authorize({
     sessionId, response_type: 'code', redirect_uri: redirect,
@@ -259,7 +407,7 @@ test('authorize requires an active session', async () => {
 
 test('authorize rejects missing PKCE', async () => {
   const svc = new IssuerService({ credentialIssuer: ISSUER });
-  const { sessionId } = await svc.login('u_yamada');
+  const { sessionId } = await svc.login('u_001');
   await assert.rejects(svc.authorize({ sessionId, response_type: 'code', redirect_uri: 'app://cb', scope: 'pid_mdoc' }), /PKCE/);
 });
 
@@ -274,7 +422,7 @@ test('token rejects wrong code_verifier', async () => {
 test('token rejects redirect_uri mismatch and reuse of code', async () => {
   const svc = new IssuerService({ credentialIssuer: ISSUER });
   const verifier = 'verifier-fixed-0001';
-  const { code, redirect } = await authorizedCode(svc, 'u_yamada', verifier);
+  const { code, redirect } = await authorizedCode(svc, 'u_001', verifier);
   await assert.rejects(
     svc.token({ grant_type: 'authorization_code', code, code_verifier: verifier, redirect_uri: 'app://evil' }),
     /redirect_uri mismatch/);
@@ -316,7 +464,7 @@ test('issuer-initiated e2e: offer(issuer_state) -> authorize -> token -> credent
   // user signs in, wallet starts the flow using issuer_state (not scope)
   const login = await (await app.request('/login', {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ user_id: 'u_sato' }),
+    body: JSON.stringify({ user_id: 'u_002' }),
   })).json();
   const wallet = createWallet();
   const rec = await wallet.authorizeAndReceive({
@@ -331,7 +479,7 @@ test('wallet serialize/restore round-trips holder key + stored mdoc (Workers KV 
   const app = createApp({ credentialIssuer: ISSUER });
   const login = await (await app.request('/login', {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ user_id: 'u_yamada' }),
+    body: JSON.stringify({ user_id: 'u_001' }),
   })).json();
   const wallet = createWallet();
   const rec = await wallet.authorizeAndReceive({

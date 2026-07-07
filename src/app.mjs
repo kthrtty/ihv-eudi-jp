@@ -8,13 +8,13 @@ import { IssuerService } from './oid4vci.mjs';
 import { VerifierService } from './verifier.mjs';
 import { buildDelivery, offerByValueUri, offerByReferenceUri, offerQrSvg } from './offer.mjs';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
-import { shell, renderConsent, renderAuthStart, renderCallback, renderOfferAuthcode, completeIssuance, pkce, authorizeUrl, renderLogin, appShell, renderConsentScreen, renderVcSelect, groupCatalog, renderHistory, renderAccount } from './authcode-demo.mjs';
+import { shell, renderAuthStart, renderCallback, renderOfferAuthcode, completeIssuance, pkce, authorizeUrl, renderLogin, appShell, renderConsentScreen, renderVcSelect, groupCatalog, renderHistory, renderAccount } from './authcode-demo.mjs';
 import { renderVerifyConsole, renderWebVerify, renderWebVerifyResult, renderVerifyHistory } from './verifier-demo.mjs';
 import { scenarioList, getScenario, evaluateScenario, scenarioConfigIds } from './scenarios.mjs';
 import { renderScenarioHome, renderScenarioRun, renderScenarioStep1Done, renderScenarioAccept, renderScenarioGone } from './scenario-demo.mjs';
 import { captureInbound, getLog, pushLog, buildEntry } from './devlog.mjs';
 import { createWallet } from './wallet.mjs';
-import { allConfigIds, configInfo, jwks as issuerJwks } from './issuer.mjs';
+import { allConfigIds, configInfo, jwks as issuerJwks, accountCatalog } from './issuer.mjs';
 
 // Lazy HTML loader for Node.js — not called in Workers (html string passed explicitly).
 async function loadHtml(rel) {
@@ -101,7 +101,7 @@ export function createApp(opts = {}) {
   app.get('/account', async (c) => {
     const user = await svc.sessionUser(sid(c));
     if (!user) return c.redirect('/login?next=/account', 302);
-    return c.html(renderAccount(user));
+    return c.html(renderAccount(user, accountCatalog(user)));
   });
   app.post('/account', async (c) => {
     const user = await svc.sessionUser(sid(c));
@@ -117,10 +117,21 @@ export function createApp(opts = {}) {
       byIdx.get(m[1])[m[2]] = val;
     }
     const household = [...byIdx.entries()].sort(([a], [b]) => a - b).map(([, v]) => v);
-    await svc.updateUser(user.id, {
-      family: f.family, given: f.given, desc: f.desc, birth: f.birth, address: f.address, honseki: f.honseki,
+    const patch = {
+      family: f.family, given: f.given, family_kana: f.family_kana, given_kana: f.given_kana,
+      desc: f.desc, birth: f.birth, sex: Number(f.sex), address: f.address, honseki: f.honseki,
       household,
-    });
+    };
+    // 顔写真: reset ボタン=既定イラストへ / portrait_b64=クライアント縮小済み JPEG。
+    // サーバ側でも JPEG マジックバイトと上限（256KB decoded）を検証してから保存する
+    if (f.portrait_reset) patch.portrait = '';
+    else if (typeof f.portrait_b64 === 'string' && f.portrait_b64) {
+      try {
+        const buf = Buffer.from(f.portrait_b64, 'base64url');
+        if (buf.length >= 4 && buf[0] === 0xff && buf[1] === 0xd8 && buf.length <= 256 * 1024) patch.portrait = f.portrait_b64;
+      } catch { /* 不正な base64url は無視（他のフィールドは保存する） */ }
+    }
+    await svc.updateUser(user.id, patch);
     return c.redirect('/account', 302);
   });
 
@@ -128,8 +139,11 @@ export function createApp(opts = {}) {
   app.post('/offer', async (c) => {
     try {
       const { credential_configuration_ids, tx_code, qr, grant, claims } = await c.req.json();
+      // pre-auth offers carry the logged-in issuer user so the credential endpoint
+      // mints the CURRENT persona (post-edit names) instead of the static SAMPLE
+      const user = await svc.sessionUser(sid(c));
       const { credential_offer, preAuthorizedCode, issuerState, offerId, offerUri, txCode } =
-        await svc.createOffer(credential_configuration_ids, { txCode: tx_code, grant, claims });
+        await svc.createOffer(credential_configuration_ids, { txCode: tx_code, grant, claims, userId: user?.id ?? null });
       const delivery = await buildDelivery({ offer: credential_offer, offerUri, withQr: qr === true });
       return c.json({ credential_offer, pre_authorized_code: preAuthorizedCode, issuer_state: issuerState, offer_id: offerId, delivery, tx_code: txCode });
     } catch (e) { return fail(c, e); }
@@ -398,6 +412,19 @@ export function createVerifierApp(opts = {}) {
   const getRequest = (txn) => v.store.get(`vpreq:${txn}`);
   const putResult  = (txn, result) => v.store.set(`vpres:${txn}`, result, 600);
   const getResult  = (txn) => v.store.get(`vpres:${txn}`);
+  // portrait（顔写真）は結果の保存/JSON 応答前に data URI へ正規化する。
+  // Uint8Array のまま KV/JSON に載せると {"0":255,...} に化けて表示も KV も壊れる。
+  // verifyResponse 自体の戻り値 API（バイト列）は変えない（テスト・ライブラリ利用は素のまま）。
+  const toImgUri = (x) => {
+    try {
+      const b = x instanceof Uint8Array || Buffer.isBuffer(x) ? Buffer.from(x) : Buffer.from(String(x), 'base64url');
+      return 'data:image/jpeg;base64,' + b.toString('base64');
+    } catch { return x; }
+  };
+  const withImgClaims = (result) => {
+    for (const r of result?.results || []) if (r.claims?.portrait != null) r.claims.portrait = toImgUri(r.claims.portrait);
+    return result;
+  };
 
   // GLOBAL presentation history (no per-holder session — a single shared log of every
   // presentation this Verifier verified). Stored as one capped list under `vphist`.
@@ -406,10 +433,18 @@ export function createVerifierApp(opts = {}) {
   const HIST_KEY = 'vphist', HIST_MAX = 50, HIST_TTL = 60 * 60 * 24 * 30; // 30 days
   const recordHistory = async (request, result, via) => {
     try {
-      const creds = (request?.dcql_query?.credentials || []).map((q) => ({
+      // "提示されたクレデンシャル" = what the wallet ACTUALLY presented (results[]),
+      // not the request's credential_sets alternatives — a format-alternative query
+      // lists both mdoc and SD-JWT but the wallet picks one. Fall back to the
+      // requested queries only when nothing was verified (early failure).
+      const qOf = (dcqlId) => (request?.dcql_query?.credentials || []).find((x) => x.id === dcqlId);
+      const asCred = (q) => q && ({
         format: q.format,
         type: q.format === 'mso_mdoc' ? q.meta?.doctype_value : q.meta?.vct_values?.[0],
-      }));
+      });
+      const creds = (result?.results?.length
+        ? result.results.map((r) => asCred(qOf(r.dcqlId)))
+        : (request?.dcql_query?.credentials || []).map(asCred)).filter(Boolean);
       const claims = Object.assign({}, ...(result?.results || []).map((r) => r.claims || {}));
       const entry = {
         at: new Date().toISOString(), via, valid: !!result?.valid,
@@ -485,7 +520,7 @@ export function createVerifierApp(opts = {}) {
       const { credential_offer } = await offerRes.json();
       await wallet.receive({ request: issuerFetch, offer: credential_offer, credentialIssuer: issuerUrl });
       const { transactionId, request } = await v.createRequest({ specs: s.steps[0].specs });
-      const result = await v.verifyResponse({ transactionId, encryptedResponse: await wallet.respond(request) });
+      const result = withImgClaims(await v.verifyResponse({ transactionId, encryptedResponse: await wallet.respond(request) }));
       await putResult(transactionId, result);
       await putScn(transactionId, { id: s.id, step: 1, wallet: wallet.serialize() });
       await recordHistory(request, result, 'console');
@@ -505,7 +540,7 @@ export function createVerifierApp(opts = {}) {
       const wallet = createWallet(scn.wallet);
       const txn1 = c.req.param('txn1');
       const { transactionId, request } = await v.createRequest({ specs: s.steps[1].specs, linkTo: txn1 });
-      const result = await v.verifyResponse({ transactionId, encryptedResponse: await wallet.respond(request) });
+      const result = withImgClaims(await v.verifyResponse({ transactionId, encryptedResponse: await wallet.respond(request) }));
       await putResult(transactionId, result);
       await putScn(transactionId, { id: s.id, step: 2, txn1 });
       await recordHistory(request, result, 'console');
@@ -558,7 +593,7 @@ export function createVerifierApp(opts = {}) {
       if (!d) return c.json({ error: '要求が未生成か期限切れです' }, 400);
       const wallet = createWallet(d.wallet);
       const encryptedResponse = await wallet.respond(d.request);
-      const result = await v.verifyResponse({ transactionId: d.transactionId, encryptedResponse });
+      const result = withImgClaims(await v.verifyResponse({ transactionId: d.transactionId, encryptedResponse }));
       await recordHistory(d.request, result, 'console');
       const first = (result.results || [])[0] || {};
       const claims = Object.fromEntries(Object.entries(first.claims || {}).map(([k, val]) => [k, fmtClaim(val)]));
@@ -633,7 +668,7 @@ export function createVerifierApp(opts = {}) {
   app.post('/vp/verify', async (c) => {
     try {
       const body = await c.req.json();
-      const result = await v.verifyResponse(body);
+      const result = withImgClaims(await v.verifyResponse(body));
       if (body.transactionId) {
         await putResult(body.transactionId, result); // scenario result pages read this back
         await recordHistory(await getRequest(body.transactionId), result, 'dcapi');
@@ -663,7 +698,7 @@ export function createVerifierApp(opts = {}) {
     try {
       const txn = c.req.param('txn');
       const body = await c.req.parseBody();
-      const result = await v.verifyResponse({ transactionId: txn, encryptedResponse: body.response });
+      const result = withImgClaims(await v.verifyResponse({ transactionId: txn, encryptedResponse: body.response }));
       await putResult(txn, result);
       await recordHistory(await getRequest(txn), result, 'web');
       // scenario runs land back on the scenario's step/acceptance page

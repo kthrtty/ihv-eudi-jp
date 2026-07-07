@@ -26,6 +26,11 @@ const CHECKS = [
 ];
 
 const escj = (s) => String(s).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+// portrait は verifier アプリ層で data URI に正規化済み → <img> 描画（.pimg は共有CSS）
+export const dispClaim = (v) =>
+  (typeof v === 'string' && v.startsWith('data:image/')
+    ? `<img class="pimg" src="${escj(v)}" alt="顔写真">`
+    : escj(v instanceof Object ? JSON.stringify(v) : (v ?? '')));
 
 // ---- raw vp_token (JSON view) shared by the result page and the history page ----
 // One presented credential's raw token, with the CBOR→JSON disclosure note.
@@ -276,7 +281,9 @@ export function renderVerifyConsole(groups = []) {
           ? (holderRaw.x != null ? holderRaw.x + (holderRaw.y != null ? '.' + holderRaw.y : '') : JSON.stringify(holderRaw))
           : holderRaw;
         const fmt = (v) => (v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v));
-        const rows = Object.entries(claims).map(([k, v]) => '<tr><td>'+esc(k)+'</td><td>'+esc(fmt(v))+'</td></tr>').join('');
+        // portrait はサーバ側で data URI に正規化済み → サムネイル描画
+        const cell = (v) => (typeof v === 'string' && v.indexOf('data:image/') === 0 ? '<img class="pimg" src="'+v+'" alt="顔写真">' : esc(fmt(v)));
+        const rows = Object.entries(claims).map(([k, v]) => '<tr><td>'+esc(k)+'</td><td>'+cell(v)+'</td></tr>').join('');
         const checks = CHECKS.map((l) => '<div class="ck2"><span class="'+(d.valid?'cok':'cng')+'">'+(d.valid?'✓':'—')+'</span> '+l+'</div>').join('');
         $('result').innerHTML =
           '<div class="eyebrow" style="margin-top:6px">検証結果（VC 受領後）</div>'+
@@ -365,7 +372,7 @@ export function renderWebVerifyResult(result) {
   const ok = result && result.valid;
   const claims = Object.assign({}, ...(result?.results || []).map((r) => r.claims || {}));
   const rows = Object.entries(claims).map(([k, v]) =>
-    `<tr><td>${escj(k)}</td><td>${escj(v instanceof Object ? JSON.stringify(v) : v)}</td></tr>`).join('');
+    `<tr><td>${escj(k)}</td><td>${dispClaim(v)}</td></tr>`).join('');
   const checks = ['発行者署名', 'ホルダーバインディング', 'nonce・origin', 'DCQL 充足', '失効なし']
     .map((l) => `<div class="ck2"><span class="${ok ? 'cok' : 'cng'}">${ok ? '✓' : '—'}</span> ${l}</div>`).join('');
   const raws = (result?.results || []).map((r) => r.raw).filter(Boolean);
@@ -396,7 +403,7 @@ export function renderVerifyHistory(entries = []) {
   const fmtAt = (iso) => { try { return new Date(iso).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', hour12: false }); } catch { return iso; } };
   const credLine = (creds = []) => creds.map((cr) =>
     `<span class="pill">${esc(cr.type || '?')} · ${cr.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT'}</span>`).join(' ') || '<span class="muted">—</span>';
-  const row = (claims, k) => `<tr><td>${esc(claimLabel(k))} <span class="rawk">${esc(k)}</span></td><td>${esc(claims[k])}</td></tr>`;
+  const row = (claims, k) => `<tr><td>${esc(claimLabel(k))} <span class="rawk">${esc(k)}</span></td><td>${dispClaim(claims[k])}</td></tr>`;
   // Show the first 4 claims; fold the rest into a JS-less <details> accordion so a
   // many-claim presentation doesn't make the card excessively tall.
   const claimRows = (claims = {}) => {
