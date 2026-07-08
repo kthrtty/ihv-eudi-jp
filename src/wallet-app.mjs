@@ -92,7 +92,7 @@ const toImgUri = (v) => {
   try {
     const b = v instanceof Uint8Array || Buffer.isBuffer(v) ? Buffer.from(v) : Buffer.from(String(v), 'base64url');
     // 顔写真対応前の発行分は 6 バイトのスタブ — 壊れ画像ではなく注記を出す
-    if (b.length < 1000) return '（顔写真データなし — 顔写真対応前に発行された券です）';
+    if (b.length < 1000) return '（顔写真データなし — 顔写真対応前に発行）';
     return 'data:image/jpeg;base64,' + b.toString('base64');
   } catch { return fmt(v); }
 };
@@ -228,7 +228,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
         ? Buffer.from(val) : Buffer.from(String(val ?? ''), 'base64url');
       cr.claims.portrait = bytes.length >= 1000
         ? toImgUri(val)
-        : '（顔写真なし — 顔写真対応前の発行です。再発行すると表示されます）';
+        : '（顔写真データなし — 顔写真対応前に発行）';
       await saveSession(s);
     } catch { /* 表示キャッシュの修復は best-effort */ }
   };
