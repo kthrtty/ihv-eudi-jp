@@ -398,6 +398,32 @@ export function renderWebVerifyResult(result) {
 
 /** Global presentation history — one shared log of every presentation this Verifier
  *  verified (no per-holder session). Newest first. */
+/** Verifier 設定画面: Status List のキャッシュ時間（分）。KV 保存・全 isolate 共有。 */
+export function renderVerifierSettings(ttlSec, saved = false) {
+  const min = Math.round(ttlSec / 60);
+  return shell('検証者設定', `
+    <div class="card" style="max-width:480px;margin:24px auto">
+      <div class="step">検証者設定</div>
+      <h1 style="font-size:18px">Status List キャッシュ</h1>
+      ${saved ? '<div class="ok">✓ 保存しました</div>' : ''}
+      <form method="POST" action="/verifier/settings" style="margin-top:12px">
+        <label style="display:block">
+          <div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:6px">キャッシュ時間（分）</div>
+          <input name="status_ttl_min" type="number" min="0" max="1440" step="1" value="${min}"
+            style="font:inherit;width:120px;padding:9px 12px;border:1px solid var(--line);border-radius:8px">
+        </label>
+        <div class="hint" style="margin:10px 0 14px">
+          失効確認は発行者の Token Status List を丸ごと取得し、手元で局所判定します（発行者にどの券かを明かさない）。
+          キャッシュが有効な間は再取得せず手元のリストで判定し、<b>期限切れ・未取得</b>のときだけ最新を取得します。
+          <b>0 = キャッシュしない（検証のたびに取得）</b>。既定は 5 分。
+          <br>注: キャッシュ時間内は直近の失効が検証に反映されません（鮮度と負荷のトレードオフ）。
+        </div>
+        <button type="submit" class="btn">保存する</button>
+      </form>
+      <div class="navrow"><a class="btn ghost" href="/verifier">検証ポータルトップへ</a></div>
+    </div>`, { brand: 'クレデンシャル検証ポータル', sub: 'VERIFIER', role: 'verifier' });
+}
+
 export function renderVerifyHistory(entries = [], { page = 1, per = 10 } = {}) {
   const esc = (s) => String(s).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
   // 各エントリは raw vp_token（顔写真 data URI 含む）を折りたたみに抱えて重いので、
@@ -458,7 +484,7 @@ export function renderVerifyHistory(entries = [], { page = 1, per = 10 } = {}) {
       <div class="muted" style="font-size:12px;margin-bottom:12px">ホルダー単位のセッションは保持しません。全 ${total} 件（最大 50 件・${per} 件/ページ）。</div>
       ${body}
       ${pagerHtml(p, pages, '/verifier/history')}
-      <div class="navrow"><a class="btn ghost" href="/verifier">検証ポータルトップへ</a></div>
+      <div class="navrow"><a class="btn ghost" href="/verifier">検証ポータルトップへ</a><a class="btn ghost" href="/verifier/settings">⚙ 設定</a></div>
     </div>
     <style>
     .hcard{border:1px solid var(--line);border-radius:12px;margin-top:10px;overflow:hidden}
