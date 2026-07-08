@@ -10,7 +10,7 @@ import { encryptResponse, calculateJwkThumbprint } from './jwe.mjs';
 import { annexDSessionTranscript, annexCSessionTranscript, oid4vpRedirectSessionTranscript, hpkeSuite, annexCSeal } from './handover.mjs';
 import { cborDecodeMap, coseKeyToJwk, fromB64url, b64url as toB64url } from './cbor.mjs';
 import { resolveForWallet } from './dcql.mjs';
-import { parseDeviceRequest, verifyReaderAuth } from './device-request.mjs';
+import { parseDeviceRequest, verifyReaderAuth, loadTrustedReaderCAs } from './device-request.mjs';
 
 const PRE_AUTH_GRANT = 'urn:ietf:params:oauth:grant-type:pre-authorized_code';
 const annexDRedirectTranscript = (request) => oid4vpRedirectSessionTranscript({
@@ -159,7 +159,7 @@ export function createWallet(snapshot = null) {
      *  `selection` (optional) lets the holder narrow what each query discloses:
      *  { [dcqlId]: { credentialId?, disclose?:[wireNames] } }. Missing entries keep
      *  the resolver defaults (which credential matches, and all requested claims). */
-    async respond(request, selection = null, { origin = null, trustedReaderCaDer = null } = {}) {
+    async respond(request, selection = null, { origin = null, trustedReaderCaDer = null, trustedReaderCaDers = null } = {}) {
       // apply the holder's per-query selection on top of the resolver result
       const pick = (r) => {
         const sel = selection?.[r.dcqlId];
@@ -181,9 +181,13 @@ export function createWallet(snapshot = null) {
         if (request.deviceRequest) {
           const { docRequests } = parseDeviceRequest(fromB64url(request.deviceRequest));
           const d = docRequests[0];
+          // アンカーは 明示注入 > Trusted List（trust/trust-list.json の reader_auth）。
+          // どちらも無い環境で readerAuth 付き要求が来たら fail-closed（verifyReaderAuth 内）
+          const anchors = trustedReaderCaDers
+            ?? (trustedReaderCaDer ? [trustedReaderCaDer] : await loadTrustedReaderCAs());
           const ra = verifyReaderAuth({
             readerAuth: d.readerAuth, itemsRequestBytes: d.itemsRequestBytes,
-            sessionTranscriptBytes: transcript, trustedReaderCaDer,
+            sessionTranscriptBytes: transcript, trustedReaderCaDers: anchors,
           });
           if (ra.present && !ra.verified) throw new Error(ra.error || 'readerAuth verification failed');
           dcql = { credentials: [{
