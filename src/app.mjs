@@ -9,7 +9,7 @@ import { VerifierService } from './verifier.mjs';
 import { buildDelivery, offerByValueUri, offerByReferenceUri, offerQrSvg } from './offer.mjs';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { shell, renderAuthStart, renderCallback, renderOfferAuthcode, completeIssuance, pkce, authorizeUrl, renderLogin, appShell, renderConsentScreen, renderVcSelect, groupCatalog, renderHistory, renderAccount } from './authcode-demo.mjs';
-import { renderVerifyConsole, renderWebVerify, renderWebVerifyResult, renderVerifyHistory } from './verifier-demo.mjs';
+import { renderVerifyConsole, renderWebVerify, renderWebVerifyResult, renderVerifyHistory, renderVerifierSettings } from './verifier-demo.mjs';
 import { scenarioList, getScenario, evaluateScenario, scenarioConfigIds } from './scenarios.mjs';
 import { renderScenarioHome, renderScenarioRun, renderScenarioStep1Done, renderScenarioAccept, renderScenarioGone } from './scenario-demo.mjs';
 import { captureInbound, getLog, pushLog, buildEntry } from './devlog.mjs';
@@ -376,6 +376,31 @@ export function createVerifierApp(opts = {}) {
     // resolve revocation against the issuer's Token Status List
     statusResolver: rest.statusResolver ?? (async () => (await issuerFetch('/status-lists/0')).text()),
   });
+  // Status List はリスト単位でキャッシュし、判定は常に手元のリストで局所実行。
+  // キャッシュ時間は /verifier/settings で変更可能（既定 5 分・0=毎回取得）。
+  // 期限切れ・未取得のときだけ元の resolver（サーバー取得）に委譲する。
+  const DEFAULT_STATUS_TTL_SEC = 300;
+  const getStatusTtlSec = async () => {
+    const saved = await v.store.get('vcfg:status_ttl_sec'); // 注意: Number(null)===0 なので null 判定を先に
+    const n = Number(saved);
+    return saved != null && Number.isFinite(n) && n >= 0 ? n : DEFAULT_STATUS_TTL_SEC;
+  };
+  const memStl = new Map(); // store が効かないローカル実行時のフォールバック
+  const rawStatusResolver = v.statusResolver;
+  if (rawStatusResolver) {
+    v.statusResolver = async (uri) => {
+      const ttl = await getStatusTtlSec();
+      const key = `vstl:${uri || 'default'}`;
+      const now = Date.now();
+      const hit = (await v.store.get(key)) ?? memStl.get(key);
+      if (hit && ttl > 0 && now - hit.at < ttl * 1000) return hit.token;
+      const token = await rawStatusResolver(uri);
+      const rec = { token, at: now };
+      memStl.set(key, rec);
+      try { await v.store.set(key, rec, 86400); } catch { /* 鮮度判定は at + 設定TTL */ }
+      return token;
+    };
+  }
   const app = new Hono();
   // Developer console: log the inbound OID4VP exchanges (masked).
   app.use('*', captureInbound(v.store, (p) => /^\/(oid4vp\/(request|response)|vp\/(build|verify)|demo\/verify\/(prepare|present)|client-metadata|jwks|\.well-known)/.test(p), 'verifier'));
@@ -496,6 +521,17 @@ export function createVerifierApp(opts = {}) {
   app.get('/verifier', (c) => c.html(renderScenarioHome(scenarioList())));
   app.get('/verifier/builder', (c) => c.html(renderVerifyConsole(groupCatalog(allConfigIds().map(configInfo)))));
   app.get('/verifier/history', async (c) => c.html(renderVerifyHistory(await getHistory(), { page: c.req.query('p') })));
+  // Verifier 設定: Status List キャッシュ時間（KV 保存・全 isolate 共有）
+  app.get('/verifier/settings', async (c) =>
+    c.html(renderVerifierSettings(await getStatusTtlSec(), c.req.query('saved') === '1')));
+  app.post('/verifier/settings', async (c) => {
+    const f = await c.req.parseBody();
+    const min = Number(f.status_ttl_min);
+    if (Number.isFinite(min) && min >= 0 && min <= 1440) {
+      await v.store.set('vcfg:status_ttl_sec', Math.round(min * 60), 86400 * 30);
+    }
+    return c.redirect('/verifier/settings?saved=1', 302);
+  });
   // scenario correlation record per transaction: {id, step, txn1?, wallet?}.
   // Drives the step dispatch on the result pages; never stored inside the
   // OID4VP request itself. `wallet` (a serialized ephemeral wallet) is only

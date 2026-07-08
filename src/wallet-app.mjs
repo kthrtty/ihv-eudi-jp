@@ -142,11 +142,11 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     setWsidCookie(c, sid);            // stable sid; refresh maxAge
     if (store) {
       const snap = await store.get(`wsess:${sid}`);
-      if (snap) return { wallet: createWallet(snap.wallet), creds: snap.creds || [], pending: snap.pending || null, pendingAuth: snap.pendingAuth || {}, pendingReceive: snap.pendingReceive || null, activity: snap.activity || [], present: snap.present || null, _sid: sid };
-      return { wallet: createWallet(), creds: [], pending: null, pendingAuth: {}, pendingReceive: null, activity: [], present: null, _sid: sid, _volatile: hadCookie };
+      if (snap) return { wallet: createWallet(snap.wallet), creds: snap.creds || [], pending: snap.pending || null, pendingAuth: snap.pendingAuth || {}, pendingReceive: snap.pendingReceive || null, activity: snap.activity || [], present: snap.present || null, settings: snap.settings || {}, _sid: sid };
+      return { wallet: createWallet(), creds: [], pending: null, pendingAuth: {}, pendingReceive: null, activity: [], present: null, settings: {}, _sid: sid, _volatile: hadCookie };
     }
     if (mem.has(sid)) return mem.get(sid);
-    const s = { wallet: createWallet(), creds: [], pending: null, pendingAuth: {}, pendingReceive: null, activity: [], present: null, _sid: sid };
+    const s = { wallet: createWallet(), creds: [], pending: null, pendingAuth: {}, pendingReceive: null, activity: [], present: null, settings: {}, _sid: sid };
     mem.set(sid, s);
     return s;
   };
@@ -160,7 +160,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     // （従来の /add 同期発行も完了時に creds 非空で書いていたので上書きリスクは同等）
     if (s._volatile && (!s.creds || s.creds.length === 0) && !s.pendingReceive) return;
     await store.set(`wsess:${s._sid}`, {
-      wallet: s.wallet.serialize(), creds: s.creds, pending: s.pending ?? null, pendingAuth: s.pendingAuth ?? {}, pendingReceive: s.pendingReceive ?? null, activity: s.activity ?? [], present: s.present ?? null,
+      wallet: s.wallet.serialize(), creds: s.creds, pending: s.pending ?? null, pendingAuth: s.pendingAuth ?? {}, pendingReceive: s.pendingReceive ?? null, activity: s.activity ?? [], present: s.present ?? null, settings: s.settings ?? {},
     }, SESSION_TTL);
   };
   const httpTo = (base) => (path, opts) => doFetch(base + path, opts); // OID4VCI client -> Issuer
@@ -184,21 +184,40 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     }));
   };
 
-  // 失効状態: Token Status List をリストごと取得して局所判定（issuer に個体を明かさない）。
-  // 結果は 5 分キャッシュ、詳細画面の「再確認」で強制更新。
+  // 失効状態: Token Status List を「リスト単位」でキャッシュし、判定は常に手元の
+  // リストで局所実行（issuer に個体を明かさない）。キャッシュ TTL は /settings で
+  // 変更可能（既定 5 分・0=毎回取得）。期限切れ/強制時のみサーバーから再取得。
+  const DEFAULT_STATUS_TTL_SEC = 300;
+  const statusTtlSec = (s) => {
+    const v = Number(s?.settings?.statusTtlSec);
+    return Number.isFinite(v) && v >= 0 ? v : DEFAULT_STATUS_TTL_SEC;
+  };
+  const memStl = new Map(); // store なしローカル実行時のフォールバック
+  const fetchStatusList = async (uri, ttlSec, { force = false } = {}) => {
+    const key = `wstl:${uri}`;
+    const now = Date.now();
+    const hit = (await store?.get(key)) ?? memStl.get(key);
+    if (!force && hit && ttlSec > 0 && now - hit.at < ttlSec * 1000) return hit;
+    const token = await (await doFetch(uri)).text();
+    const rec = { token, at: now };
+    memStl.set(key, rec);
+    await store?.set(key, rec, 86400); // 物理TTLは長め・鮮度判定は at + 設定TTL で行う
+    return rec;
+  };
   const credStatus = async (s, credId, { force = false } = {}) => {
-    const KEY = `wst:${credId}`;
-    if (!force) { const hit = await store?.get(KEY); if (hit) return hit; }
     try {
       const c = s.creds.find((x) => x.id === credId);
       const stored = s.wallet.get(credId);
       if (!c || !stored) return { checked: false };
       const v = await verifyCredential(c.configId, stored.credential);
       if (!v.status) return { checked: false };
-      const st = await verifyStatus(v.status, async (uri) => (await doFetch(uri)).text());
-      const out = { checked: true, revoked: !!st.revoked, at: Date.now() };
-      await store?.set(KEY, out, 300);
-      return out;
+      let listAt = Date.now();
+      const st = await verifyStatus(v.status, async (uri) => {
+        const rec = await fetchStatusList(uri, statusTtlSec(s), { force });
+        listAt = rec.at;
+        return rec.token;
+      });
+      return { checked: true, revoked: !!st.revoked, at: listAt };
     } catch { return { checked: false }; }
   };
 
@@ -256,6 +275,22 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     return c.redirect('/cred/' + c.req.param('id'), 302);
   });
   app.get('/creds', async (c) => { const s = await loadSession(c); return c.json(s.creds.map(({ id, configId, format }) => ({ id, configId, format }))); });
+
+  // ウォレット設定: Status List のキャッシュ時間（既定 5 分・0 = 毎回サーバーから取得）
+  app.get('/settings', async (c) => {
+    const s = await loadSession(c);
+    return c.html(settingsPage(statusTtlSec(s), c.req.query('saved') === '1'));
+  });
+  app.post('/settings', async (c) => {
+    const s = await loadSession(c);
+    const f = await c.req.parseBody();
+    const min = Number(f.status_ttl_min);
+    if (Number.isFinite(min) && min >= 0 && min <= 1440) {
+      s.settings = { ...(s.settings || {}), statusTtlSec: Math.round(min * 60) };
+      await saveSession(s);
+    }
+    return c.redirect('/settings?saved=1', 302);
+  });
   // developer console: the OID4VCI/OID4VP calls this wallet made (masked, newest-first)
   app.get('/dev/log', async (c) => c.json({ entries: await getLog(store, 'wallet') }));
 
@@ -1018,6 +1053,7 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       <div class="whead"><h1>ウォレット</h1><span class="wn">${n} 枚</span>
         <details class="wmenu"><summary>⋯</summary>
           <div class="wpop">
+            <a href="/settings">⚙ 設定（Status List キャッシュ）</a>
             <a href="/dev/holder-key">🔑 バインディング鍵を表示</a>
             <a href="${esc(verifierUrl)}/verifier">✅ 検証者コンソールへ</a>
             ${n ? `<button type="button" onclick="askReset()">⚠ ウォレットを初期化</button>` : ''}
@@ -1342,6 +1378,31 @@ function receivingScreen(configIds, issuerBase) {
         run();
       })();
     </script>${STYLE}`, WALLET);
+}
+
+// ウォレット設定画面: Status List キャッシュ時間（分）。キャッシュが有効な間は
+// 手元のリストで失効判定し、期限切れ/未取得/再確認時のみサーバーから取得する。
+function settingsPage(ttlSec, saved = false) {
+  const min = Math.round(ttlSec / 60);
+  return shell('設定', `
+    <div class="card" style="max-width:480px;margin:24px auto">
+      <div class="back" style="margin-bottom:8px"><a href="/">← ウォレット</a></div>
+      <h1 style="font-size:18px">設定</h1>
+      ${saved ? '<div class="ok">✓ 保存しました</div>' : ''}
+      <form method="POST" action="/settings" style="margin-top:12px">
+        <label style="display:block">
+          <div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:6px">Status List のキャッシュ時間（分）</div>
+          <input name="status_ttl_min" type="number" min="0" max="1440" step="1" value="${min}"
+            style="font:inherit;width:120px;padding:9px 12px;border:1px solid var(--line);border-radius:8px">
+        </label>
+        <div class="hint" style="margin:10px 0 14px">
+          失効確認はリスト全体を取得して手元で判定します（発行者にどの券かを明かさない）。
+          キャッシュが有効な間は再取得せず手元のリストで判定し、<b>期限切れ・未取得・カード詳細の「再確認」</b>のときだけ
+          サーバーから最新を取得します。<b>0 = キャッシュしない（毎回取得）</b>。既定は 5 分。
+        </div>
+        <button type="submit" class="btn">保存する</button>
+      </form>
+    </div>${STYLE}`, WALLET);
 }
 
 function added(s, recs, grant) {

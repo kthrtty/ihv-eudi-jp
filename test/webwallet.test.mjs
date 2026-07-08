@@ -868,7 +868,7 @@ test('web wallet /present/confirm: a request without response_uri errors instead
   }
 });
 
-test('wallet home: issuer で失効させるとホームのバッジが「失効」になる（既定「有効」と偽らない）', async () => {
+test('wallet Status List キャッシュ: 既定5分はキャッシュ済みリストで判定、/settings で TTL=0 にすると毎回取得で失効が即時反映', async () => {
   const IP = 8925, WP = 8926;
   const ISSUER = `http://127.0.0.1:${IP}`, WALLET = `http://127.0.0.1:${WP}`;
   const issuer = serve({ fetch: createApp({ credentialIssuer: ISSUER }).fetch, port: IP });
@@ -881,20 +881,93 @@ test('wallet home: issuer で失効させるとホームのバッジが「失効
     const add = await wallet.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${made.offer_id}`));
     const { cookie } = await driveAdd(wallet, add);
 
-    // ホーム: 実チェック済みの 有効 バッジ（未確認ではない）
+    // ホーム: 実チェック済みの 有効 バッジ（未確認ではない）。この時点でリストがキャッシュされる
     let home = await (await wallet.request('/', { headers: { cookie } })).text();
     assert.match(home, /class="vst">有効</, 'live-checked valid badge');
     assert.doesNotMatch(home, /未確認/);
 
-    // issuer 側で失効 → ホームのバッジが 失効 に変わる（store なし=毎回実チェック）
+    // issuer 側で失効 → 既定 TTL(5分) の間は「キャッシュされたリストで判定」なので 有効 のまま
     const { issuances } = await (await fetch(`${ISSUER}/issuances`)).json();
     await fetch(`${ISSUER}/revoke`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ index: issuances[0].idx, reason: 'test' }),
     });
     home = await (await wallet.request('/', { headers: { cookie } })).text();
-    assert.match(home, /class="vst revoked">失効</, 'revocation reaches the home badge');
+    assert.match(home, /class="vst">有効</, 'within the TTL the CACHED list is used (仕様: キャッシュされたListを見て判定)');
+
+    // 設定画面で TTL=0（キャッシュしない）→ 毎回サーバーから取得 → 失効が即時反映
+    const set = await wallet.request('/settings', {
+      method: 'POST', redirect: 'manual',
+      headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ status_ttl_min: '0' }).toString(),
+    });
+    assert.ok([302, 303].includes(set.status));
+    const settings = await (await wallet.request('/settings', { headers: { cookie } })).text();
+    assert.match(settings, /value="0"/, 'saved TTL is rendered');
+    home = await (await wallet.request('/', { headers: { cookie } })).text();
+    assert.match(home, /class="vst revoked">失効</, 'TTL=0 fetches the latest list every time');
+
+    // TTL を戻すと設定はセッションに永続
+    await wallet.request('/settings', {
+      method: 'POST', redirect: 'manual',
+      headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ status_ttl_min: '5' }).toString(),
+    });
+    assert.match(await (await wallet.request('/settings', { headers: { cookie } })).text(), /value="5"/);
   } finally { await new Promise((r) => issuer.close(r)); }
+});
+
+test('verifier Status List キャッシュ: 既定はキャッシュ済みリストで判定、/verifier/settings で TTL=0 にすると失効が即時に検証へ反映', async () => {
+  const IP = 8927, VP = 8928;
+  const ISSUER = `http://127.0.0.1:${IP}`, VERIF = `http://127.0.0.1:${VP}`;
+  const issuer = serve({ fetch: createApp({ credentialIssuer: ISSUER }).fetch, port: IP });
+  const verifier = serve({
+    fetch: createVerifierApp({ verifierOrigin: VERIF, walletOrigin: 'http://127.0.0.1:8929', issuerUrl: ISSUER }).fetch,
+    port: VP,
+  });
+  try {
+    const { createWallet } = await import('../src/wallet.mjs');
+    const wallet = createWallet();
+    const offer = await (await fetch(`${ISSUER}/offer`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'] }),
+    })).json();
+    await wallet.receive({ request: (p, i) => fetch(ISSUER + p, i), offer: offer.credential_offer, credentialIssuer: ISSUER });
+    const present = async () => {
+      const b = await (await fetch(`${VERIF}/vp/build`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ configId: 'pid_mdoc', claims: ['family_name'], protocol: 'annex-d', target: 'web' }),
+      })).json();
+      const jwe = await wallet.respond(b.request);
+      const r = await (await fetch(`${VERIF}/oid4vp/response/${b.transactionId}`, {
+        method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ response: jwe }).toString(),
+      })).json();
+      return (await fetch(r.redirect_uri)).text(); // 結果ページの HTML で成否判定
+    };
+
+    assert.match(await present(), /検証しました/, 'valid before revocation (list now cached)');
+
+    const { issuances } = await (await fetch(`${ISSUER}/issuances`)).json();
+    await fetch(`${ISSUER}/revoke`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ index: issuances[0].idx, reason: 'test' }),
+    });
+
+    // 既定 TTL 内: キャッシュされたリストで判定 → まだ検証成功（鮮度と負荷のトレードオフ）
+    assert.match(await present(), /検証しました/, 'within the TTL the cached list is used');
+
+    // TTL=0 → 検証のたびに最新を取得 → 失効が反映され検証失敗
+    await fetch(`${VERIF}/verifier/settings`, {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ status_ttl_min: '0' }).toString(),
+    });
+    assert.match(await (await fetch(`${VERIF}/verifier/settings`)).text(), /value="0"/, 'saved TTL rendered');
+    assert.match(await present(), /検証に失敗/, 'TTL=0 surfaces the revocation immediately');
+  } finally {
+    await new Promise((r) => issuer.close(r));
+    await new Promise((r) => verifier.close(r));
+  }
 });
 
 test('vcard: 状態チップは上段配置+isolation でスタック時も自カードの状態が見える（z漏れ回帰 pin）', () => {
