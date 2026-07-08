@@ -419,7 +419,7 @@ export function createVerifierApp(opts = {}) {
     try {
       const b = x instanceof Uint8Array || Buffer.isBuffer(x) ? Buffer.from(x) : Buffer.from(String(x), 'base64url');
       // 顔写真対応前に発行された券は 6 バイトのスタブを運ぶ — 壊れ画像ではなく注記を出す
-      if (b.length < 1000) return '（顔写真データなし — 顔写真対応前に発行された券です）';
+      if (b.length < 1000) return '（顔写真データなし — 顔写真対応前に発行）';
       return 'data:image/jpeg;base64,' + b.toString('base64');
     } catch { return x; }
   };
