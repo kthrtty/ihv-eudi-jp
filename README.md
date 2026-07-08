@@ -2,7 +2,7 @@
 
 eIDAS2.0 / ARF 準拠の **Issuer–Verifier–Holder（IHV）デモ**（日本属性）。
 OID4VCI 1.0 で発行、OID4VP 1.0 + HAIP で提示、**mso_mdoc / SD-JWT VC** の選択的開示、
-DC API（ISO 18013-7 Annex C/D）連携、Token Status List 失効、そして DC API を使わない
+DC API 連携（OID4VP over DC API=実機確認済み／Annex C `org-iso-mdoc` は暗号面のみ準拠の簡略実装・実機非互換）、Token Status List 失効、そして DC API を使わない
 **Web ウォレット経路（HTTPS リダイレクト）**まで。設計の単一ソースは `CLAUDE.md`、詳細は `docs/`。
 
 ## 動作イメージ
