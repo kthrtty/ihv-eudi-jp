@@ -91,6 +91,8 @@ const fmt = (v) => {
 const toImgUri = (v) => {
   try {
     const b = v instanceof Uint8Array || Buffer.isBuffer(v) ? Buffer.from(v) : Buffer.from(String(v), 'base64url');
+    // 顔写真対応前の発行分は 6 バイトのスタブ — 壊れ画像ではなく注記を出す
+    if (b.length < 1000) return '（顔写真データなし — 顔写真対応前に発行された券です）';
     return 'data:image/jpeg;base64,' + b.toString('base64');
   } catch { return fmt(v); }
 };
@@ -213,11 +215,30 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     return c.html(home(s, issuerUrl, verifierUrl, cat, statuses)); // view-only: don't persist
   });
 
+  // 旧表示キャッシュの自己修復: 顔写真機能の導入前に受領した券は portrait が
+  // 「(N bytes)」の文字列でキャッシュされている。閲覧時に生クレデンシャルから
+  // 再導出し、実画像なら data URI に更新・6バイトスタブ（導入前発行で署名に
+  // 焼き込み済み＝表示では直せない）なら注記に置き換える。
+  const healPortraitCache = async (s, cr) => {
+    if (!/^\(\d+ bytes\)$/.test(String(cr?.claims?.portrait ?? ''))) return;
+    try {
+      const v = await verifyCredential(cr.configId, s.wallet.get(cr.id).credential);
+      const val = v.claims?.portrait;
+      const bytes = val instanceof Uint8Array || Buffer.isBuffer(val)
+        ? Buffer.from(val) : Buffer.from(String(val ?? ''), 'base64url');
+      cr.claims.portrait = bytes.length >= 1000
+        ? toImgUri(val)
+        : '（顔写真なし — 顔写真対応前の発行です。再発行すると表示されます）';
+      await saveSession(s);
+    } catch { /* 表示キャッシュの修復は best-effort */ }
+  };
+
   // カード詳細: ヒーローカード + 属性(4件+折りたたみ) + アクティビティ + 失効状態 + 開発者向け
   app.get('/cred/:id', async (c) => {
     const s = await loadSession(c);
     const cr = s.creds.find((x) => x.id === c.req.param('id'));
     if (!cr) return c.redirect('/', 302);
+    await healPortraitCache(s, cr);
     const raw = (() => { try {
       const cred = s.wallet.get(cr.id)?.credential;
       const wire = cr.format === 'mso_mdoc' ? Buffer.from(cred).toString('base64url') : cred;
@@ -520,6 +541,8 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
       const request = await (await doFetch(c.req.query('request_uri'))).json();
       s.present = { request };
       await saveSession(s);
+      // 旧表示キャッシュ（(N bytes)）は同意画面に出る前に修復する
+      for (const cr of s.creds) await healPortraitCache(s, cr);
       // resolve the DCQL against held creds: per query, which creds match + values
       const plan = resolvePresentation(request, s.creds);
       const have = plan.length > 0 && plan.every((q) => q.matches.length > 0);
