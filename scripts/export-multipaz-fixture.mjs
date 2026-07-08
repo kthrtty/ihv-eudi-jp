@@ -62,5 +62,20 @@ writeFileSync(`${out}/fixture-tampered.json`, JSON.stringify({
   sessionTranscriptHex: hex(st),
 }, null, 2) + '\n');
 
-console.log('wrote', `${out}/fixture.json (+tampered)`);
+// readerAuth 省略版: reader 鍵を渡さず組んだ DeviceRequest（18013-5 上 optional）。
+// Multipaz は parse は成功しつつ readerAuth=null / readerAuthenticated=false にするはず。
+const { buildDeviceRequest } = await import('../src/device-request.mjs');
+const noReaderDr = buildDeviceRequest({
+  docType: parsed.docType,
+  elements: parsed.nameSpaces,
+  sessionTranscriptBytes: st,
+  // readerKeyPem/readerCertDer を渡さない → readerAuth を付けない
+});
+writeFileSync(`${out}/fixture-noreader.json`, JSON.stringify({
+  note: 'DeviceRequest without readerAuth (reader authentication omitted). Multipaz should parse it but not authenticate the reader.',
+  deviceRequestHex: hex(noReaderDr),
+  sessionTranscriptHex: hex(st),
+}, null, 2) + '\n');
+
+console.log('wrote', `${out}/fixture.json (+tampered, +noreader)`);
 console.log('  deviceRequest', drBytes.length, 'bytes / readerAuth', fixture.expected.readerAuthPresent);
