@@ -7,6 +7,7 @@
 // docs/interop.md for the procedure and what may legitimately differ.
 import { cborEncode, cborDecodeMap, tag24, tag1004, coseKeyFromJwk } from '../src/cbor.mjs';
 import { buildEncryptionInfo, annexCSessionTranscript, annexDSessionTranscript } from '../src/handover.mjs';
+import { buildItemsRequestBytes, readerAuthenticationBytes } from '../src/device-request.mjs';
 import { isDeterministic, hex } from '../src/canonical.mjs';
 import { createHash } from 'node:crypto';
 
@@ -51,3 +52,10 @@ line('birth_date 1990-01-15 (tag 1004 full-date)', cborEncode(tag1004('1990-01-1
 
 
 console.log('\n=== done. diff each hex against the same structure in Multipaz/EUDI. ===');
+
+// 5) Annex C DeviceRequest 面（issue #13）: ItemsRequestBytes / ReaderAuthenticationBytes
+//    readerAuth の署名対象。Multipaz 等と同一入力で hex を突合する（署名自体は乱数を含むため対象外）
+const items = buildItemsRequestBytes({ docType: DOCTYPE, elements: { [NS]: { family_name: false, age_over_18: false } } });
+line('Annex C ItemsRequestBytes', cborEncode(items));
+const stC2 = annexCSessionTranscript({ base64EncryptionInfo: 'FIXED_B64_ENCRYPTION_INFO', serializedOrigin: ORIGIN });
+line('Annex C ReaderAuthenticationBytes', readerAuthenticationBytes(stC2, items));

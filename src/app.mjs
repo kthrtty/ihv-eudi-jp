@@ -620,7 +620,8 @@ export function createVerifierApp(opts = {}) {
       await wallet.receive({ request: issuerFetch, offer: credential_offer, credentialIssuer: issuerUrl });
       const { transactionId, request } = await v.createRequest({ specs: [{ id: 'q1', configId, claims, optional }], protocol });
       const demoId = Math.random().toString(36).slice(2);
-      await v.store.set(`vdemo:${demoId}`, { wallet: wallet.serialize(), request, transactionId }, 600);
+      // Annex C の request は仕様準拠の2メンバーのみで origin を含まない — 自己テスト用に併存保存
+      await v.store.set(`vdemo:${demoId}`, { wallet: wallet.serialize(), request, transactionId, origin: v.origin }, 600);
       setCookie(c, 'vdemo', demoId, { httpOnly: true, sameSite: 'Lax', secure: true, path: '/' });
       return c.json({ request });
     } catch (e) { return c.json({ error: e.message }, 400); }
@@ -630,7 +631,7 @@ export function createVerifierApp(opts = {}) {
       const d = await v.store.get(`vdemo:${getCookie(c, 'vdemo')}`);
       if (!d) return c.json({ error: '要求が未生成か期限切れです' }, 400);
       const wallet = createWallet(d.wallet);
-      const encryptedResponse = await wallet.respond(d.request);
+      const encryptedResponse = await wallet.respond(d.request, null, { origin: d.origin });
       const result = withImgClaims(await v.verifyResponse({ transactionId: d.transactionId, encryptedResponse }));
       await recordHistory(d.request, result, 'console');
       const first = (result.results || [])[0] || {};
@@ -696,7 +697,7 @@ export function createVerifierApp(opts = {}) {
       const { transactionId, request } = await v.createRequest({ specs, protocol, ...scnOpts });
       await putRequest(transactionId, request); // so /vp/verify can record history
       if (scnRec) await putScn(transactionId, scnRec);
-      const dcProtocol = request.protocol === 'org-iso-mdoc' ? 'org-iso-mdoc' : 'openid4vp-v1-unsigned';
+      const dcProtocol = request.deviceRequest ? 'org-iso-mdoc' : 'openid4vp-v1-unsigned';
       return c.json({ transactionId, request, target, dcProtocol });
     } catch (e) { return c.json({ error: e.message }, 400); }
   });

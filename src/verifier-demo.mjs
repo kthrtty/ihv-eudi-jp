@@ -105,7 +105,7 @@ export function renderVerifyConsole(groups = []) {
       <label class="lbl">プロトコル</label>
       <div class="radios">
         <label><input type="radio" name="proto" value="annex-d" checked> Annex D · OID4VP/HAIP（JWE）— Web/ネイティブ両対応</label>
-        <label><input type="radio" name="proto" value="annex-c" id="protoc"> Annex C · org-iso-mdoc（HPKE, mdoc専用）— ⚠簡略実装: data は DCQL（本来は deviceRequest）＝実機ウォレット非互換</label>
+        <label><input type="radio" name="proto" value="annex-c" id="protoc"> Annex C · org-iso-mdoc（HPKE, mdoc専用・DeviceRequest+readerAuth）— ネイティブのみ</label>
       </div>
 
       <label class="lbl">提示先（どのウォレットに要求するか）</label>

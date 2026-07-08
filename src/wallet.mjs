@@ -10,6 +10,7 @@ import { encryptResponse, calculateJwkThumbprint } from './jwe.mjs';
 import { annexDSessionTranscript, annexCSessionTranscript, oid4vpRedirectSessionTranscript, hpkeSuite, annexCSeal } from './handover.mjs';
 import { cborDecodeMap, coseKeyToJwk, fromB64url, b64url as toB64url } from './cbor.mjs';
 import { resolveForWallet } from './dcql.mjs';
+import { parseDeviceRequest, verifyReaderAuth } from './device-request.mjs';
 
 const PRE_AUTH_GRANT = 'urn:ietf:params:oauth:grant-type:pre-authorized_code';
 const annexDRedirectTranscript = (request) => oid4vpRedirectSessionTranscript({
@@ -158,7 +159,7 @@ export function createWallet(snapshot = null) {
      *  `selection` (optional) lets the holder narrow what each query discloses:
      *  { [dcqlId]: { credentialId?, disclose?:[wireNames] } }. Missing entries keep
      *  the resolver defaults (which credential matches, and all requested claims). */
-    async respond(request, selection = null) {
+    async respond(request, selection = null, { origin = null, trustedReaderCaDer = null } = {}) {
       // apply the holder's per-query selection on top of the resolver result
       const pick = (r) => {
         const sel = selection?.[r.dcqlId];
@@ -166,11 +167,32 @@ export function createWallet(snapshot = null) {
         return { ...r, credentialId: sel.credentialId ?? r.credentialId, disclose: sel.disclose ?? r.disclose };
       };
       // Annex C (org-iso-mdoc, HPKE) vs Annex D (OID4VP/HAIP, JWE)
-      if (request.protocol === 'org-iso-mdoc' || request.encryption_info) {
-        const encInfo = cborDecodeMap(fromB64url(request.encryption_info)); // ["dcapi", Map]
+      if (request.deviceRequest || request.encryptionInfo || request.encryption_info) {
+        const b64enc = request.encryptionInfo ?? request.encryption_info;
+        const encInfo = cborDecodeMap(fromB64url(b64enc)); // ["dcapi", Map]
         const recipientJwk = coseKeyToJwk(encInfo[1].get('recipientPublicKey'));
-        const transcript = annexCSessionTranscript({ base64EncryptionInfo: request.encryption_info, serializedOrigin: request.origin });
-        const resolved = resolveForWallet(request.dcql_query, this).filter((r) => r.format === 'mso_mdoc').map(pick);
+        // origin は本来 DC API 呼び出し文脈（ブラウザ）が与える — テスト/自己ループでは opts で渡す
+        const serializedOrigin = origin ?? request.origin;
+        const transcript = annexCSessionTranscript({ base64EncryptionInfo: b64enc, serializedOrigin });
+        // 仕様準拠: 要求は DeviceRequest（ItemsRequest）から読む。readerAuth があれば
+        // 署名＋（アンカー指定時）Reader CA チェーンを検証し、不正なら応答を拒否する。
+        // 内部の候補解決は DeviceRequest→等価 DCQL に写像して既存リゾルバを再利用。
+        let dcql = request.dcql_query; // 旧簡略形の後方互換（自己ループ・保存済みテストデータ）
+        if (request.deviceRequest) {
+          const { docRequests } = parseDeviceRequest(fromB64url(request.deviceRequest));
+          const d = docRequests[0];
+          const ra = verifyReaderAuth({
+            readerAuth: d.readerAuth, itemsRequestBytes: d.itemsRequestBytes,
+            sessionTranscriptBytes: transcript, trustedReaderCaDer,
+          });
+          if (ra.present && !ra.verified) throw new Error(ra.error || 'readerAuth verification failed');
+          dcql = { credentials: [{
+            id: 'q1', format: 'mso_mdoc', meta: { doctype_value: d.docType },
+            claims: Object.entries(d.nameSpaces).flatMap(([ns, els]) =>
+              Object.keys(els).map((el) => ({ path: [ns, el] }))),
+          }] };
+        }
+        const resolved = resolveForWallet(dcql, this).filter((r) => r.format === 'mso_mdoc').map(pick);
         const r = resolved[0];
         const deviceResponse = buildDeviceResponse({
           issuerSignedBytes: store.get(r.credentialId).credential, disclose: r.disclose,

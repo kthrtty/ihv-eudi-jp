@@ -453,9 +453,9 @@ test('Annex C/D dispatch: same mdoc verifies over both org-iso-mdoc (HPKE) and O
 
   // Annex C: org-iso-mdoc, HPKE-sealed DeviceResponse (object {enc, cipherText})
   const c = await v.createRequest({ specs, protocol: 'annex-c' });
-  assert.equal(c.request.protocol, 'org-iso-mdoc');
-  assert.ok(c.request.encryption_info); // ["dcapi",{nonce,recipientPublicKey}]
-  const cResp = await wallet.respond(c.request);
+  // 仕様準拠 wire（issue #13）: data は {deviceRequest, encryptionInfo} の2メンバーのみ
+  assert.deepEqual(Object.keys(c.request).sort(), ['deviceRequest', 'encryptionInfo']);
+  const cResp = await wallet.respond(c.request, null, { origin: c.origin });
   assert.ok(cResp.enc && cResp.cipherText);
   const cOut = await v.verifyResponse({ transactionId: c.transactionId, encryptedResponse: cResp });
   assert.ok(cOut.valid, cOut.errors?.join());

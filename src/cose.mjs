@@ -53,14 +53,18 @@ export function decodePayload24(payloadContent) {
   return cborDecodeMap(inner);
 }
 
-// ---- detached COSE_Sign1 for mdoc DeviceAuth (payload is external) ----------
-export function coseSign1Detached({ detachedPayload, privateKeyPem }) {
+// ---- detached COSE_Sign1 for mdoc DeviceAuth / readerAuth (payload external) --
+// x5chain（任意）: readerAuth は Reader 証明書チェーンを unprotected 33 に同梱する
+export function coseSign1Detached({ detachedPayload, privateKeyPem, x5chain = null }) {
   const protectedContent = cborEncode(new Map([[HDR_ALG, ALG_ES256]]));
+  const unprotected = x5chain
+    ? new Map([[HDR_X5CHAIN, x5chain.map((d) => new Uint8Array(d))]])
+    : new Map();
   const toSign = sigStructure(protectedContent, detachedPayload);
   const signature = new Uint8Array(
     nodeSign('sha256', Buffer.from(toSign), { key: toKeyStr(privateKeyPem), dsaEncoding: 'ieee-p1363' }),
   );
-  return [protectedContent, new Map(), null, signature]; // payload = null (detached)
+  return [protectedContent, unprotected, null, signature]; // payload = null (detached)
 }
 
 export function coseVerifyDetached(coseArr, detachedPayload, publicKey) {
