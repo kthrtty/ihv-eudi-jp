@@ -228,3 +228,28 @@ test('パス検証は任意長: 3層チェーン（root pathlen:1→中間→lea
     sessionTranscriptBytes: st, trustedReaderCaDers: [tier('ok3', 'root')] });
   assert.equal(okAnchored.verified, true, okAnchored.error);
 });
+
+test('Workers 注入経路（issue #20）: encPrivatePem+reader鍵を明示注入すると fs 無しでも readerAuth が付く', async () => {
+  const st = () => transcript();
+  const encPem = readFileSync(root('pki/verifier/rp-enc.key'));
+  const specs = [{ id: 'q1', configId: 'pid_mdoc', claims: ['family_name'] }];
+
+  // 注入あり（新シークレット相当）→ readerAuth 付き
+  const withKeys = new VerifierService({
+    encPrivatePem: encPem, // _ensurePki を早期 return させ、ディスク読込経路を通さない
+    readerKeyPem: readerKeyPem, readerCertDer, readerCaDer,
+  });
+  const a = await withKeys.createRequest({ specs, protocol: 'annex-c' });
+  const da = parseDeviceRequest(fromB64url(a.request.deviceRequest)).docRequests[0];
+  assert.ok(da.readerAuth, 'injected reader keys sign the request');
+  const ra = verifyReaderAuth({ readerAuth: da.readerAuth, itemsRequestBytes: da.itemsRequestBytes,
+    sessionTranscriptBytes: annexCSessionTranscript({ base64EncryptionInfo: a.request.encryptionInfo, serializedOrigin: a.origin }),
+    trustedReaderCaDer: readerCaDer });
+  assert.equal(ra.verified, true, ra.error);
+
+  // 注入なし（旧シークレット相当）→ readerAuth 省略で組める（graceful・18013-5 上 optional）
+  const withoutKeys = new VerifierService({ encPrivatePem: encPem });
+  const b = await withoutKeys.createRequest({ specs, protocol: 'annex-c' });
+  const db = parseDeviceRequest(fromB64url(b.request.deviceRequest)).docRequests[0];
+  assert.equal(db.readerAuth, null, 'no keys -> readerAuth omitted, request still well-formed');
+});

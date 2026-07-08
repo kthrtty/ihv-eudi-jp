@@ -373,6 +373,9 @@ export function createVerifierApp(opts = {}) {
     encPrivatePem: rest.encPrivatePem ?? verifierPki?.encKey ?? null,
     trustedIacaDer: rest.trustedIacaDer ?? verifierPki?.iacaCert ?? null,
     trustedIssuerCaDer: rest.trustedIssuerCaDer ?? verifierPki?.sdjwtCaCert ?? null,
+    readerKeyPem: rest.readerKeyPem ?? verifierPki?.readerKey ?? null,
+    readerCertDer: rest.readerCertDer ?? verifierPki?.readerCert ?? null,
+    readerCaDer: rest.readerCaDer ?? verifierPki?.readerCa ?? null,
     // resolve revocation against the issuer's Token Status List
     statusResolver: rest.statusResolver ?? (async () => (await issuerFetch('/status-lists/0')).text()),
   });

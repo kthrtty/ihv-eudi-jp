@@ -36,6 +36,10 @@ const bundle = {
   },
   verifier: {
     encKey: pem('pki/verifier/rp-enc.key'),
+    // Annex C readerAuth 署名用（issue #20）— 無いと Workers では readerAuth 省略に落ちる
+    readerKey: pem('pki/reader/reader.key'),
+    readerCert: derB64('pki/reader/reader.crt'),
+    readerCa: derB64('pki/reader/reader-ca.crt'),
   },
   status: {
     key: pem('pki/sdjwt/pid.key'),
