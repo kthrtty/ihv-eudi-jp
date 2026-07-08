@@ -55,27 +55,87 @@ export function parseDeviceRequest(deviceRequestBytes) {
   return { version: get(dr, 'version'), docRequests };
 }
 
-/** readerAuth 検証: 署名（x5chain の leaf 公開鍵）＋（アンカー指定時）Reader CA チェーン。 */
-export function verifyReaderAuth({ readerAuth, itemsRequestBytes, sessionTranscriptBytes, trustedReaderCaDer = null }) {
-  if (!readerAuth) return { present: false, verified: false };
+// 18013-5 の mdoc Reader Authentication 用 EKU。leaf はこの OID を必須とする
+// （TLS 等の別用途証明書を readerAuth に流用する事故・攻撃を弾く）
+export const READER_AUTH_EKU = '1.0.18013.5.1.6';
+
+// Trusted List（trust/trust-list.json）の reader_auth アンカーを遅延読込（Node のみ・キャッシュ）。
+// Workers 等 fs の無い環境では null → 呼び出し側が明示注入しない限り readerAuth は fail-closed。
+let _tlAnchors;
+export async function loadTrustedReaderCAs() {
+  if (_tlAnchors !== undefined) return _tlAnchors;
   try {
+    const { readFileSync } = await import('node:fs');
+    const { fileURLToPath } = await import('node:url');
+    const tl = JSON.parse(readFileSync(fileURLToPath(new URL('../trust/trust-list.json', import.meta.url)), 'utf8'));
+    const anchors = (tl.reader_auth?.trusted_reader_ca || []).map((e) => new X509Certificate(e.certificate_pem).raw);
+    _tlAnchors = anchors.length ? anchors : null;
+  } catch { _tlAnchors = null; }
+  return _tlAnchors;
+}
+
+const inValidity = (cert, at) => {
+  const nb = Date.parse(cert.validFrom), na = Date.parse(cert.validTo);
+  return Number.isFinite(nb) && Number.isFinite(na) && nb <= at && at <= na;
+};
+
+/** readerAuth 検証（fail-closed）。チェックの内訳を checks に返す:
+ *  signature  … leaf 公開鍵で ReaderAuthenticationBytes の COSE 署名を検証
+ *  validity   … チェーン全証明書＋アンカーの有効期間（at はテスト用の時計注入）
+ *  profile    … leaf が CA:FALSE かつ EKU 1.0.18013.5.1.6（mdoc reader auth 専用）
+ *  path       … パス階層: アンカー直接発行のみ（chain長≦2。Reader CA は pathlen:0 プロファイル。
+ *               中間CAは Node が pathlen を公開しないため長さ制約として実装）
+ *  trustList  … 発行者が Trusted List の reader_auth アンカーのいずれかとバイト同一（fp256）
+ *  アンカー未指定/未取得（trust list が読めない環境）は verified=false（黙って通さない）。 */
+export function verifyReaderAuth({ readerAuth, itemsRequestBytes, sessionTranscriptBytes,
+  trustedReaderCaDers = null, trustedReaderCaDer = null, at = Date.now() }) {
+  if (!readerAuth) return { present: false, verified: false };
+  const fail = (error, checks = {}) => ({ present: true, verified: false, error, checks });
+  try {
+    const anchors = trustedReaderCaDers ?? (trustedReaderCaDer ? [trustedReaderCaDer] : null);
     const unprot = readerAuth[1];
-    const chain = unprot instanceof Map ? unprot.get(HDR_X5CHAIN) : unprot?.[HDR_X5CHAIN];
-    if (!chain?.length) return { present: true, verified: false, error: 'readerAuth: missing x5chain' };
-    const leaf = new X509Certificate(Buffer.from(chain[0]));
+    const chainDer = unprot instanceof Map ? unprot.get(HDR_X5CHAIN) : unprot?.[HDR_X5CHAIN];
+    if (!chainDer?.length) return fail('readerAuth: missing x5chain');
+    const chain = chainDer.map((d) => new X509Certificate(Buffer.from(d)));
+    const leaf = chain[0];
+    const checks = {};
+
+    // ① 署名: detached の ReaderAuthenticationBytes を独立再構成して leaf 公開鍵で検証
     const detached = readerAuthenticationBytes(sessionTranscriptBytes, itemsRequestBytes);
-    if (!coseVerifyDetached(readerAuth, detached, leaf.publicKey)) {
-      return { present: true, verified: false, error: 'readerAuth: signature invalid' };
+    checks.signature = coseVerifyDetached(readerAuth, detached, leaf.publicKey);
+    if (!checks.signature) return fail('readerAuth: signature invalid', checks);
+
+    // ② 有効期間（チェーン全証明書）
+    checks.validity = chain.every((c) => inValidity(c, at));
+    if (!checks.validity) return fail('readerAuth: certificate expired or not yet valid', checks);
+
+    // ③ プロファイル: leaf は末端（CA:FALSE）かつ mdoc reader auth 専用 EKU
+    checks.profile = leaf.ca === false && (leaf.keyUsage || []).includes(READER_AUTH_EKU);
+    if (!checks.profile) {
+      return fail(leaf.ca ? 'readerAuth: leaf must not be a CA certificate'
+        : `readerAuth: leaf lacks EKU ${READER_AUTH_EKU} (mdoc reader authentication)`, checks);
     }
-    if (trustedReaderCaDer) {
-      const ca = new X509Certificate(Buffer.from(trustedReaderCaDer));
-      const issuer = chain.length > 1 ? new X509Certificate(Buffer.from(chain[1])) : ca;
-      const chainOk = leaf.verify(issuer.publicKey)
-        && (chain.length === 1 || issuer.fingerprint256 === ca.fingerprint256);
-      if (!chainOk) return { present: true, verified: false, error: 'readerAuth: not issued by trusted reader CA' };
+
+    // ④ パス階層: アンカー直接発行のみ（Reader CA pathlen:0 プロファイル → 中間CA不許可）
+    checks.path = chain.length <= 2;
+    if (!checks.path) return fail(`readerAuth: chain too deep (${chain.length}); reader certs must be issued directly by a trusted reader CA (pathlen:0)`, checks);
+    if (chain.length === 2) {
+      checks.path = chain[1].ca === true && leaf.verify(chain[1].publicKey);
+      if (!checks.path) return fail('readerAuth: x5chain[1] is not the issuing CA of the leaf', checks);
     }
-    return { present: true, verified: true, readerSubject: leaf.subject };
+
+    // ⑤ Trusted List 入り: 発行者がアンカーのいずれかと fp256 同一（同梱CAはヒントに過ぎない）。
+    //    アンカーが無い環境では検証不能 = fail-closed。
+    if (!anchors?.length) return fail('readerAuth: no trusted reader CA anchors (trust list unavailable)', checks);
+    const anchorCerts = anchors.map((d) => new X509Certificate(Buffer.from(d)));
+    const anchor = chain.length === 2
+      ? anchorCerts.find((a) => a.fingerprint256 === chain[1].fingerprint256)
+      : anchorCerts.find((a) => { try { return leaf.verify(a.publicKey); } catch { return false; } });
+    checks.trustList = !!anchor && anchor.ca === true && inValidity(anchor, at);
+    if (!checks.trustList) return fail('readerAuth: issuer is not on the trusted reader list', checks);
+
+    return { present: true, verified: true, readerSubject: leaf.subject, checks };
   } catch (e) {
-    return { present: true, verified: false, error: `readerAuth: ${e.message}` };
+    return fail(`readerAuth: ${e.message}`);
   }
 }
