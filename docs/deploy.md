@@ -50,14 +50,16 @@ wrangler kv namespace create IHV_KV --config wrangler.verifier.toml
 # → id を wrangler.verifier.toml に貼る
 ```
 
-### 3. PKI シークレット投入
+### 3. PKI 投入（KV `_pki:config`）
 
-3 Worker に同じ `ISSUER_PKI_JSON` を投入する（各 Worker は必要部分のみ使用）。
+PKI JSON は約 21KB で **Workers secret の上限 5.1KB を超える**ため、
+共有 KV の `_pki:config` キーに投入する（3 Worker は同一 namespace を共有し、
+`env.ISSUER_PKI_JSON ?? KV(_pki:config)` の順で読む）。更新後はデプロイで isolate を更新。
 
 ```bash
-npm run gen-pki-json | wrangler secret put ISSUER_PKI_JSON
-npm run gen-pki-json | wrangler secret put ISSUER_PKI_JSON --config wrangler.verifier.toml
-npm run gen-pki-json | wrangler secret put ISSUER_PKI_JSON --config wrangler.wallet.toml
+node scripts/gen-worker-pki.mjs > /tmp/pki.json
+wrangler kv key put "_pki:config" --path /tmp/pki.json --binding IHV_KV --config wrangler.verifier.toml --remote
+rm /tmp/pki.json && npm run deploy
 ```
 
 各 Worker が使う PKI 部分:
