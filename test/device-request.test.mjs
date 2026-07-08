@@ -169,12 +169,12 @@ test('readerAuth 強化チェック: 有効期間・EKU・leaf=CA・パス階層
   assert.equal(caFail.verified, false);
   assert.match(caFail.error, /must not be a CA/);
 
-  // パス階層: 3枚チェーン（中間CA相当を挟む）→ pathlen:0 プロファイルとして拒否
+  // パス検証: 発行関係のない証明書を間に挟んだチェーン → リンク切れとして拒否
   const deep = [...d.readerAuth];
   deep[1] = new Map([[33, [readerCertDer, rpCaDer, readerCaDer]]]);
   const deepFail = verifyReaderAuth({ readerAuth: deep, itemsRequestBytes: d.itemsRequestBytes, sessionTranscriptBytes: st, trustedReaderCaDer: readerCaDer });
   assert.equal(deepFail.verified, false);
-  assert.match(deepFail.error, /chain too deep/);
+  assert.match(deepFail.error, /path broken at depth 0/);
 
   // アンカー未指定（Trusted List が読めない環境相当）→ 黙って通さない
   const noAnchor = verifyReaderAuth({ readerAuth: d.readerAuth, itemsRequestBytes: d.itemsRequestBytes, sessionTranscriptBytes: st });
@@ -187,4 +187,44 @@ test('readerAuth 強化チェック: 有効期間・EKU・leaf=CA・パス階層
   const viaTl = verifyReaderAuth({ readerAuth: d.readerAuth, itemsRequestBytes: d.itemsRequestBytes, sessionTranscriptBytes: st, trustedReaderCaDers: tlAnchors });
   assert.equal(viaTl.verified, true, viaTl.error);
   assert.deepEqual(viaTl.checks, { signature: true, validity: true, profile: true, path: true, trustList: true });
+});
+
+test('パス検証は任意長: 3層チェーン（root pathlen:1→中間→leaf）はアンカー接地で成功、pathlen 宣言違反は拒否', async () => {
+  const { pathLenConstraint } = await import('../src/device-request.mjs');
+  const st = transcript();
+  const tier = (name, f) => {
+    const dir = `test/fixtures/reader-tiers/${name}/`;
+    return f === 'key' ? readFileSync(root(dir + 'leaf.key'))
+      : new X509Certificate(readFileSync(root(dir + f + '.crt'))).raw;
+  };
+
+  // 正例 ok3: root(pathlen:1) → int(pathlen:0) → leaf。アンカー=root（非同梱・chain=[leaf,int]）
+  const okReq = buildDeviceRequest({
+    ...FIXED, sessionTranscriptBytes: st,
+    readerKeyPem: tier('ok3', 'key'), readerCertDer: tier('ok3', 'leaf'), readerCaDer: tier('ok3', 'int'),
+  });
+  const okD = parseDeviceRequest(okReq).docRequests[0];
+  const ok = verifyReaderAuth({ readerAuth: okD.readerAuth, itemsRequestBytes: okD.itemsRequestBytes,
+    sessionTranscriptBytes: st, trustedReaderCaDers: [tier('ok3', 'root')] });
+  assert.equal(ok.verified, true, ok.error);
+  assert.equal(pathLenConstraint(tier('ok3', 'root')), 1, 'fixture sanity: root declares pathlen:1');
+
+  // 負例 bad3: root が pathlen:0 を宣言しているのに中間CAが居る → アンカーの宣言違反で拒否
+  const badReq = buildDeviceRequest({
+    ...FIXED, sessionTranscriptBytes: st,
+    readerKeyPem: tier('bad3', 'key'), readerCertDer: tier('bad3', 'leaf'), readerCaDer: tier('bad3', 'int'),
+  });
+  const badD = parseDeviceRequest(badReq).docRequests[0];
+  const bad = verifyReaderAuth({ readerAuth: badD.readerAuth, itemsRequestBytes: badD.itemsRequestBytes,
+    sessionTranscriptBytes: st, trustedReaderCaDers: [tier('bad3', 'root')] });
+  assert.equal(bad.verified, false);
+  assert.match(bad.error, /pathLenConstraint violated/);
+  assert.equal(pathLenConstraint(tier('bad3', 'root')), 0, 'fixture sanity: root declares pathlen:0');
+
+  // アンカー同梱形（chain=[leaf,int,root]）でも同様に成功する
+  const okFull = [...okD.readerAuth];
+  okFull[1] = new Map([[33, [tier('ok3', 'leaf'), tier('ok3', 'int'), tier('ok3', 'root')]]]);
+  const okAnchored = verifyReaderAuth({ readerAuth: okFull, itemsRequestBytes: okD.itemsRequestBytes,
+    sessionTranscriptBytes: st, trustedReaderCaDers: [tier('ok3', 'root')] });
+  assert.equal(okAnchored.verified, true, okAnchored.error);
 });
