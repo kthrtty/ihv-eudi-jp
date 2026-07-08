@@ -74,6 +74,27 @@ export async function loadTrustedReaderCAs() {
   return _tlAnchors;
 }
 
+// basicConstraints(OID 2.5.29.19) から pathLenConstraint を読む最小 DER パーサ。
+// Node の X509Certificate は pathlen を公開しないため。absent は null（=制限なし）。
+export function pathLenConstraint(der) {
+  const b = Buffer.from(der);
+  let i = b.indexOf(Buffer.from([0x06, 0x03, 0x55, 0x1d, 0x13])); // OID 2.5.29.19
+  if (i < 0) return null;
+  i += 5;
+  if (b[i] === 0x01 && b[i + 1] === 0x01) i += 3;        // critical BOOLEAN
+  if (b[i] !== 0x04) return null;                        // extnValue OCTET STRING
+  let len = b[i + 1]; i += 2;
+  if (len & 0x80) { const n = len & 0x7f; i += n; }      // 長形式長は読み飛ばし
+  if (b[i] !== 0x30) return null;                        // BasicConstraints SEQUENCE
+  let j = i + 2;
+  if (b[i + 1] & 0x80) j += (b[i + 1] & 0x7f);
+  if (b[j] === 0x01) j += 2 + b[j + 1];                  // cA BOOLEAN
+  if (b[j] !== 0x02) return null;                        // pathLenConstraint INTEGER
+  const l = b[j + 1]; let v = 0;
+  for (let k = 0; k < l; k++) v = v * 256 + b[j + 2 + k];
+  return v;
+}
+
 const inValidity = (cert, at) => {
   const nb = Date.parse(cert.validFrom), na = Date.parse(cert.validTo);
   return Number.isFinite(nb) && Number.isFinite(na) && nb <= at && at <= na;
@@ -83,8 +104,8 @@ const inValidity = (cert, at) => {
  *  signature  … leaf 公開鍵で ReaderAuthenticationBytes の COSE 署名を検証
  *  validity   … チェーン全証明書＋アンカーの有効期間（at はテスト用の時計注入）
  *  profile    … leaf が CA:FALSE かつ EKU 1.0.18013.5.1.6（mdoc reader auth 専用）
- *  path       … パス階層: アンカー直接発行のみ（chain長≦2。Reader CA は pathlen:0 プロファイル。
- *               中間CAは Node が pathlen を公開しないため長さ制約として実装）
+ *  path       … パス検証: 任意長チェーンを RFC 5280 流に辿る（各リンクの署名+CA:TRUE、
+ *               各CAが自ら宣言する pathLenConstraint の順守。固定階層は強制しない）
  *  trustList  … 発行者が Trusted List の reader_auth アンカーのいずれかとバイト同一（fp256）
  *  アンカー未指定/未取得（trust list が読めない環境）は verified=false（黙って通さない）。 */
 export function verifyReaderAuth({ readerAuth, itemsRequestBytes, sessionTranscriptBytes,
@@ -116,21 +137,51 @@ export function verifyReaderAuth({ readerAuth, itemsRequestBytes, sessionTranscr
         : `readerAuth: leaf lacks EKU ${READER_AUTH_EKU} (mdoc reader authentication)`, checks);
     }
 
-    // ④ パス階層: アンカー直接発行のみ（Reader CA pathlen:0 プロファイル → 中間CA不許可）
-    checks.path = chain.length <= 2;
-    if (!checks.path) return fail(`readerAuth: chain too deep (${chain.length}); reader certs must be issued directly by a trusted reader CA (pathlen:0)`, checks);
-    if (chain.length === 2) {
-      checks.path = chain[1].ca === true && leaf.verify(chain[1].publicKey);
-      if (!checks.path) return fail('readerAuth: x5chain[1] is not the issuing CA of the leaf', checks);
-    }
-
-    // ⑤ Trusted List 入り: 発行者がアンカーのいずれかと fp256 同一（同梱CAはヒントに過ぎない）。
-    //    アンカーが無い環境では検証不能 = fail-closed。
+    // ④⑤ パス検証 + Trusted List 接地（RFC 5280 流・任意長）:
+    //   - chain 内にアンカーと fp256 同一の証明書があればそこまでをパスとする
+    //   - 各リンクで 子.verify(発行者公開鍵)・発行者 CA:TRUE を検証
+    //   - 各 CA が「自ら宣言する pathLenConstraint」を守っているか検証
+    //     （固定の階層数は強制しない — 仕様は trusted root までのパス検証を求めるのみで、
+    //      深さの上限は各証明書の basicConstraints が宣言する）
+    //   - chain がアンカーで終わらない場合は、末尾がアンカーから発行されていること
+    //   アンカー未指定/未取得は fail-closed。
     if (!anchors?.length) return fail('readerAuth: no trusted reader CA anchors (trust list unavailable)', checks);
     const anchorCerts = anchors.map((d) => new X509Certificate(Buffer.from(d)));
-    const anchor = chain.length === 2
-      ? anchorCerts.find((a) => a.fingerprint256 === chain[1].fingerprint256)
-      : anchorCerts.find((a) => { try { return leaf.verify(a.publicKey); } catch { return false; } });
+    let anchor = null;
+    let pathEnd = chain.length; // パスに含める chain 要素数
+    for (let i = 1; i < chain.length; i++) {
+      const hit = anchorCerts.find((a) => a.fingerprint256 === chain[i].fingerprint256);
+      if (hit) { anchor = hit; pathEnd = i + 1; break; } // アンカー自体が同梱されていた
+    }
+    checks.path = true;
+    for (let i = 0; i < pathEnd - 1; i++) {
+      const issuer = chain[i + 1];
+      if (!(issuer.ca === true && chain[i].verify(issuer.publicKey))) {
+        checks.path = false;
+        return fail(`readerAuth: certificate path broken at depth ${i} (x5chain[${i + 1}] did not issue x5chain[${i}])`, checks);
+      }
+      // pathLenConstraint: 発行者(位置 i+1)の下にある中間CA数は i。宣言値を超えたら違反
+      const plc = pathLenConstraint(issuer.raw);
+      if (plc != null && i > plc) {
+        checks.path = false;
+        return fail(`readerAuth: pathLenConstraint violated (CA at depth ${i + 1} declares ${plc}, but ${i} intermediate CA(s) follow)`, checks);
+      }
+    }
+    if (!anchor) {
+      // chain の末尾がアンカーから直接発行されているか（アンカー非同梱の通常形）
+      const last = chain[pathEnd - 1];
+      anchor = anchorCerts.find((a) => {
+        try { return a.ca === true && last.verify(a.publicKey); } catch { return false; }
+      });
+      // アンカー自身の pathLenConstraint: その下の中間CA数 = pathEnd - 1
+      if (anchor) {
+        const plc = pathLenConstraint(anchor.raw);
+        if (plc != null && pathEnd - 1 > plc) {
+          checks.path = false;
+          return fail(`readerAuth: pathLenConstraint violated (trust anchor declares ${plc}, but ${pathEnd - 1} intermediate CA(s) follow)`, checks);
+        }
+      }
+    }
     checks.trustList = !!anchor && anchor.ca === true && inValidity(anchor, at);
     if (!checks.trustList) return fail('readerAuth: issuer is not on the trusted reader list', checks);
 
