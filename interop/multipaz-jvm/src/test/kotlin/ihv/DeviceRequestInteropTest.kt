@@ -72,4 +72,23 @@ class DeviceRequestInteropTest {
         }
         assertEquals(false, authenticated, "tampered items with the old signature must NOT authenticate the reader")
     }
+
+    @Test
+    fun `Multipaz parses a request WITHOUT readerAuth as unauthenticated (not rejected)`() = runBlocking {
+        val fx = Json.parseToJsonElement(
+            this::class.java.getResource("/fixture-noreader.json")!!.readText()
+        ).jsonObject
+        val deviceRequest = hexToBytes(fx["deviceRequestHex"]!!.jsonPrimitive.content)
+        val sessionTranscript = hexToBytes(fx["sessionTranscriptHex"]!!.jsonPrimitive.content)
+
+        // readerAuth 省略（18013-5 上 optional）: パースは成功し、要求内容は読める。
+        // ただし reader は「認証されていない」= readerAuth/chain は null、readerAuthenticated=false。
+        // アプリ（Multipaz Wallet）はこの状態を「要求元不明」として利用者に警告しつつ提示可否を委ねる。
+        val parsed = DeviceRequestParser(deviceRequest, sessionTranscript).parse()
+        val dr = parsed.docRequests[0]
+        assertEquals("jp.go.pid.1", dr.docType, "request itself is still well-formed and readable")
+        assertEquals(null, dr.readerAuth, "no readerAuth present")
+        assertEquals(null, dr.readerCertificateChain, "no reader certificate chain")
+        assertEquals(false, dr.readerAuthenticated, "reader is NOT authenticated when readerAuth is omitted")
+    }
 }
