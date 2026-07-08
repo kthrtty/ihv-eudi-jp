@@ -142,6 +142,9 @@ devlog は `portrait|portrait_b64` をマスク。テスト `test/portrait.test.
 ## 自己改善ハーネス（2026-07-07 導入・正本は AgentVault テンプレ）
 `memory/`=5階層メモリ（L0憲法/L1作業状態/L2議論ログ/L3蒸留知見/L4圧縮）・実体は Vault、リポジトリには symlink（gitignore済み）。
 意思決定=`/loop`（多職種サブエージェント協議→PM裁定→ADR）／振り返り+ハーネス自体の改善=`/retro`／区切り=`/checkpoint`・`/distill`。
+**PreCompact 退避（2026-07-09）**: /compact 前フックが transcript から直近対話を**逐語退避**
+（`precompact-snapshot.py`→`.compact-snapshot.md`・32KB上限・ユーザー指示原文+報告のみ、tool往復除外）し、
+SessionStart(compact) が**30分以内なら注入**＝規定要約に任せきりにしない（有効確認後テンプレ正本へ還元予定）。
 **進行状態は都度 `memory/L1-working/current-sprint.md` へ**——compact 後は SessionStart hook（resume-brief.sh）が L1+決定索引を再注入して対話の代替になる（CLAUDE.md と auto-memory は自動再注入）。
 人間への即質問は禁止：`harness/loop.md` の判断依頼フォーマット（選択肢+PM推奨+デフォルト前進）で提示する。
 **正本の排他分割**: 可変の進行状態（いま何をしているか・次に何をするか）の正本は L1。本ファイルは規約・確定仕様・落とし穴のみ（両方に書かない）。
