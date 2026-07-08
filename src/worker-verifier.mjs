@@ -16,6 +16,10 @@ function parseVerifierPki(json) {
     encKey: raw.verifier?.encKey ?? null,
     iacaCert: raw.mdoc?.iaca ? b64ToDer(raw.mdoc.iaca) : null,
     sdjwtCaCert: raw.sdjwt?.caCert ? b64ToDer(raw.sdjwt.caCert) : null,
+    // Annex C readerAuth 署名鍵（issue #20）。旧シークレット（フィールド無し）でも null で動く
+    readerKey: raw.verifier?.readerKey ?? null,
+    readerCert: raw.verifier?.readerCert ? b64ToDer(raw.verifier.readerCert) : null,
+    readerCa: raw.verifier?.readerCa ? b64ToDer(raw.verifier.readerCa) : null,
   };
 }
 
