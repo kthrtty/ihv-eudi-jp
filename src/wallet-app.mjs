@@ -211,7 +211,9 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
   app.get('/', async (c) => {
     const s = await loadSession(c);
     const cat = await catalogList();
-    const statuses = Object.fromEntries(await Promise.all(s.creds.map(async (cr) => [cr.id, await store?.get(`wst:${cr.id}`)])));
+    // ホームのバッジも実状態を出す: KV 5分キャッシュ付きの credStatus を全カードで評価
+    //（未キャッシュ時のみ Status List を取得。issuer で失効→ホームに最大5分で反映）
+    const statuses = Object.fromEntries(await Promise.all(s.creds.map(async (cr) => [cr.id, await credStatus(s, cr.id)])));
     return c.html(home(s, issuerUrl, verifierUrl, cat, statuses)); // view-only: don't persist
   });
 
@@ -987,8 +989,10 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       sub: cr.configId,
       fmt: cr.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT',
       href: `/cred/${cr.id}`,
-      status: st?.checked ? (st.revoked ? '失効' : '有効') : '有効',
+      // 未確認（オフライン等でリストを引けない場合）を既定「有効」と偽らない
+      status: st?.checked ? (st.revoked ? '失効' : '有効') : '未確認',
       revoked: !!st?.revoked,
+      unknown: !st?.checked,
     });
   };
   const stackBody = n

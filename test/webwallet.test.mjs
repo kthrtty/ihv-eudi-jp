@@ -8,7 +8,7 @@ import { createApp, createVerifierApp } from '../src/app.mjs';
 import { createWalletApp } from '../src/wallet-app.mjs';
 import { renderVerifyHistory, renderVerifyConsole } from '../src/verifier-demo.mjs';
 import { allConfigIds, configInfo } from '../src/issuer.mjs';
-import { groupCatalog } from '../src/authcode-demo.mjs';
+import { groupCatalog, walletCardCss, vcardHtml, renderHistory } from '../src/authcode-demo.mjs';
 import { kvStore } from '../src/oid4vci.mjs';
 
 // A fake Cloudflare KV (string store) wrapped by the real kvStore codec, with a
@@ -866,4 +866,68 @@ test('web wallet /present/confirm: a request without response_uri errors instead
     await new Promise((r) => issuer.close(r));
     await new Promise((r) => stubSrv.close(r));
   }
+});
+
+test('wallet home: issuer で失効させるとホームのバッジが「失効」になる（既定「有効」と偽らない）', async () => {
+  const IP = 8925, WP = 8926;
+  const ISSUER = `http://127.0.0.1:${IP}`, WALLET = `http://127.0.0.1:${WP}`;
+  const issuer = serve({ fetch: createApp({ credentialIssuer: ISSUER }).fetch, port: IP });
+  try {
+    const wallet = createWalletApp({ walletOrigin: WALLET, issuerUrl: ISSUER });
+    const made = await (await fetch(`${ISSUER}/offer`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'] }),
+    })).json();
+    const add = await wallet.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${made.offer_id}`));
+    const { cookie } = await driveAdd(wallet, add);
+
+    // ホーム: 実チェック済みの 有効 バッジ（未確認ではない）
+    let home = await (await wallet.request('/', { headers: { cookie } })).text();
+    assert.match(home, /class="vst">有効</, 'live-checked valid badge');
+    assert.doesNotMatch(home, /未確認/);
+
+    // issuer 側で失効 → ホームのバッジが 失効 に変わる（store なし=毎回実チェック）
+    const { issuances } = await (await fetch(`${ISSUER}/issuances`)).json();
+    await fetch(`${ISSUER}/revoke`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ index: issuances[0].idx, reason: 'test' }),
+    });
+    home = await (await wallet.request('/', { headers: { cookie } })).text();
+    assert.match(home, /class="vst revoked">失効</, 'revocation reaches the home badge');
+  } finally { await new Promise((r) => issuer.close(r)); }
+});
+
+test('vcard: 状態チップは上段配置+isolation でスタック時も自カードの状態が見える（z漏れ回帰 pin）', () => {
+  const css = walletCardCss();
+  assert.match(css, /\.vcard\{[^}]*isolation:isolate/, 'each card is its own stacking context (no chip bleed-through)');
+  assert.match(css, /\.vcard \.vst\{[^}]*top:44px/, 'status chip sits in the top cluster (visible in the stacked home)');
+  assert.doesNotMatch(css.match(/\.vcard \.vst\{[^}]*\}/)[0], /bottom:14px/);
+  // 未確認は na クラス（灰ドット）で描画される
+  const html = vcardHtml('pid', { title: 'PID', status: '未確認', unknown: true });
+  assert.match(html, /class="vst na">未確認</);
+});
+
+test('履歴ページネーション: 発行履歴20件/頁・提示履歴10件/頁で古い記録へ辿れる', () => {
+  const user = { id: 'u_001', family: '山田', given: '太郎' };
+  const iss = Array.from({ length: 45 }, (_, i) => ({
+    idx: i, configId: 'pid_mdoc', format: 'mso_mdoc', holder: 'x.y',
+    issued_at: new Date(Date.now() - i * 60000).toISOString(),
+    expires_at: new Date(Date.now() + 864e5).toISOString(), revoked: false,
+  }));
+  const p2 = renderHistory(user, iss, { page: 2 });
+  assert.match(p2, /2 \/ 3 ページ/);
+  assert.equal((p2.match(/class="hrow"/g) || []).length, 20, '20 rows per page');
+  assert.match(p2, /\?p=1/); assert.match(p2, /\?p=3/);
+  // 範囲外ページはクランプ（クラッシュしない）
+  assert.match(renderHistory(user, iss, { page: 99 }), /3 \/ 3 ページ/);
+
+  const entries = Array.from({ length: 25 }, (_, i) => ({
+    at: new Date(Date.now() - i * 60000).toISOString(), via: 'web', valid: true,
+    creds: [{ format: 'mso_mdoc', type: 'jp.go.pid.1' }], claims: { family_name: '山田' }, errors: [],
+  }));
+  const v1 = renderVerifyHistory(entries);
+  assert.equal((v1.match(/class="hcard"/g) || []).length, 10, '10 cards per page');
+  assert.match(v1, /1 \/ 3 ページ/);
+  const v3 = renderVerifyHistory(entries, { page: 3 });
+  assert.equal((v3.match(/class="hcard"/g) || []).length, 5);
 });
