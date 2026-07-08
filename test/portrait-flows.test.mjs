@@ -16,6 +16,7 @@ import { createApp, createVerifierApp } from '../src/app.mjs';
 import { createWalletApp } from '../src/wallet-app.mjs';
 import { createWallet } from '../src/wallet.mjs';
 import { maskBody, partialMask } from '../src/devlog.mjs';
+import { kvStore } from '../src/oid4vci.mjs';
 import portraits from '../assets/portraits.json' with { type: 'json' };
 
 // ポートは npm test の並列実行で他ファイルと衝突しない番号を使う（webwallet が 8975/8976 を使用）
@@ -208,6 +209,31 @@ test('更新の防御と表示: 256KB 超は拒否（マジックバイトが正
   assert.match(page, /id="pfprev"[^>]*src="data:image\/jpeg;base64,/, 'upload panel previews the current photo');
   assert.match(page, /<img class="pimg" src="data:image\/jpeg;base64,/, 'provenance table renders the portrait');
   assert.match(page, /現在: 既定イラスト/, 'default state is labelled (no reset button)');
+});
+
+test('旧キャッシュ自己修復: 「(N bytes)」のままの portrait 表示キャッシュは閲覧時に生データから再導出される', async () => {
+  // 顔写真対応前に受領した券は表示キャッシュに "(6 bytes)" 等の文字列が残る。
+  // /cred/:id を開いた時に生クレデンシャルから heal されることを、キャッシュを
+  // 旧形式に書き戻して再現する（実画像を含む券 → data URI に修復される）。
+  const kv = new Map();
+  const store = kvStore({ get: async (k) => kv.get(k) ?? null, put: async (k, v) => { kv.set(k, v); }, delete: async (k) => { kv.delete(k); } });
+  const made = await (await J(`${ISSUER}/offer`, { credential_configuration_ids: ['pid_mdoc'] })).json();
+  const wapp = createWalletApp({ walletOrigin: 'http://127.0.0.1:8957', issuerUrl: ISSUER, store });
+  const add = await wapp.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${made.offer_id}`));
+  const { cookie } = await driveAdd(wapp, add);
+  const sid = cookie.split('=')[1];
+
+  // 表示キャッシュを旧形式（(N bytes) 文字列）に退行させる
+  const snap = await store.get(`wsess:${sid}`);
+  snap.creds[0].claims.portrait = '(6 bytes)';
+  await store.set(`wsess:${sid}`, snap, 3600);
+
+  // 詳細を開くと heal され、実画像（data URI）が描画・永続化される
+  const detail = await (await wapp.request(`/cred/${snap.creds[0].id}`, { headers: { cookie } })).text();
+  assert.match(detail, /<img class="pimg" src="data:image\/jpeg;base64,/, 'healed to a real thumbnail');
+  assert.doesNotMatch(detail, /\(6 bytes\)/);
+  const healed = await store.get(`wsess:${sid}`);
+  assert.match(healed.creds[0].claims.portrait, DATA_URI, 'healed cache is persisted');
 });
 
 test('ログ: devlog は portrait/portrait_b64/credential をマスクし、生の写真データを保存しない', async () => {
