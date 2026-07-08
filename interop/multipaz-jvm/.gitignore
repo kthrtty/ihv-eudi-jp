@@ -1,0 +1,5 @@
+.gradle/
+build/
+# フィクスチャは run.sh が再生成するので resources 側は追跡しない（ルートの fixture*.json も生成物）
+src/test/resources/fixture*.json
+fixture*.json

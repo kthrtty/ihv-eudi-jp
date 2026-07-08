@@ -28,7 +28,8 @@
     "deploy": "node scripts/deploy.mjs",
     "gen-pki-json": "node scripts/gen-worker-pki.mjs",
     "gen-pki-json:wallet": "node scripts/gen-worker-pki.mjs --wallet",
-    "deploy:pki": "node scripts/gen-worker-pki.mjs | wrangler kv key put _pki:config --namespace-id 84ba206f1832417ea3dcfc0db2960d6d"
+    "deploy:pki": "node scripts/gen-worker-pki.mjs | wrangler kv key put _pki:config --namespace-id 84ba206f1832417ea3dcfc0db2960d6d",
+    "interop:multipaz": "bash interop/multipaz-jvm/run.sh"
   },
   "description": "eIDAS2/ARF IHV demo (OID4VCI/OID4VP/HAIP, mdoc+SD-JWT, DC API)",
   "engines": {
