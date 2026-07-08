@@ -2,7 +2,7 @@
 // can present, the format (mdoc / SD-JWT via the configId variant), the protocol
 // (Annex D OID4VP/JWE or Annex C org-iso-mdoc/HPKE), and which claims to request
 // (selective disclosure). Shows the actual request JSON, then the verified result.
-import { shell, typeIcon, renderClaimsModal } from './authcode-demo.mjs';
+import { shell, typeIcon, renderClaimsModal, paginate, pagerHtml } from './authcode-demo.mjs';
 import { allConfigIds, configInfo } from './issuer.mjs';
 
 // union ja-label map across every config (family_name -> 姓 …). Keys that repeat
@@ -398,8 +398,11 @@ export function renderWebVerifyResult(result) {
 
 /** Global presentation history — one shared log of every presentation this Verifier
  *  verified (no per-holder session). Newest first. */
-export function renderVerifyHistory(entries = []) {
+export function renderVerifyHistory(entries = [], { page = 1, per = 10 } = {}) {
   const esc = (s) => String(s).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+  // 各エントリは raw vp_token（顔写真 data URI 含む）を折りたたみに抱えて重いので、
+  // 1ページ10件に切る（newest-first: 次ページ=より古い提示）
+  const { slice, p, pages, total } = paginate(entries, page, per);
   const fmtAt = (iso) => { try { return new Date(iso).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', hour12: false }); } catch { return iso; } };
   const credLine = (creds = []) => creds.map((cr) =>
     `<span class="pill">${esc(cr.type || '?')} · ${cr.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT'}</span>`).join(' ') || '<span class="muted">—</span>';
@@ -444,16 +447,17 @@ export function renderVerifyHistory(entries = []) {
         ${e.errors?.length ? `<div class="hint" style="color:#9E3A3A;margin-top:8px">${esc(e.errors.join('; '))}</div>` : ''}
       </div>
     </div>`;
-  const body = entries.length
-    ? entries.map(card).join('')
+  const body = slice.length
+    ? slice.map(card).join('')
     : '<div class="muted" style="padding:8px 2px">まだ提示を受け取っていません。</div>';
   return shell('提示履歴', `
     <div class="card">
       <div class="step" style="display:flex;align-items:center;justify-content:space-between;gap:10px">提示履歴 — グローバル（全提示の共有ログ）
         <a href="/verifier" style="font-weight:700;color:var(--verify);text-decoration:none">← 検証ポータルトップへ</a></div>
       <h1 style="font-size:18px;margin:6px 0 4px">この検証者が受け取った提示</h1>
-      <div class="muted" style="font-size:12px;margin-bottom:12px">ホルダー単位のセッションは保持しません。直近 ${entries.length} 件（最大 50 件）。</div>
+      <div class="muted" style="font-size:12px;margin-bottom:12px">ホルダー単位のセッションは保持しません。全 ${total} 件（最大 50 件・${per} 件/ページ）。</div>
       ${body}
+      ${pagerHtml(p, pages, '/verifier/history')}
       <div class="navrow"><a class="btn ghost" href="/verifier">検証ポータルトップへ</a></div>
     </div>
     <style>

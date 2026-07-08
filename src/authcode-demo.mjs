@@ -112,7 +112,7 @@ export const WALLET_CARD_THEME = {
 // ::after=ホログラム虹彩（IDカードのセキュリティホログラム風の極薄conic）+
 // ::before=hoverで横切る光スイープ。角丸16px・M3 elevationトークン・チップはM3(角丸8px)。
 export const walletCardCss = () => `
-  .vcard{position:relative;display:block;width:100%;max-width:420px;margin:0 auto;aspect-ratio:1.586;border-radius:16px;padding:18px 20px;box-sizing:border-box;color:#fff;text-decoration:none;
+  .vcard{position:relative;isolation:isolate;display:block;width:100%;max-width:420px;margin:0 auto;aspect-ratio:1.586;border-radius:16px;padding:18px 20px;box-sizing:border-box;color:#fff;text-decoration:none;
     box-shadow:0 1px 2px rgba(0,0,0,.3),0 1px 3px 1px rgba(0,0,0,.15);
     background:radial-gradient(120% 90% at 88% -12%,var(--c3) 0%,transparent 55%),radial-gradient(90% 130% at -8% 112%,rgba(255,255,255,.16) 0%,transparent 50%),linear-gradient(135deg,var(--c1) 0%,var(--c2) 100%);
     transition:transform .18s ease,box-shadow .18s ease}
@@ -123,12 +123,16 @@ export const walletCardCss = () => `
     background:linear-gradient(115deg,transparent 42%,rgba(255,255,255,.20) 50%,transparent 58%) no-repeat 130% 0/300% 100%}
   a.vcard:hover::before,a.vcard:focus-visible::before{background-position:-30% 0;transition:background-position .8s ease}
   .vcard .vt{font-size:17px;font-weight:500;letter-spacing:.01em;text-shadow:0 1px 2px rgba(0,0,0,.28);position:relative;z-index:1;line-height:1.35}
-  .vcard .vs{font-size:11px;color:rgba(255,255,255,.75);position:relative;z-index:1}
+  .vcard .vs{font-size:11px;color:rgba(255,255,255,.75);position:relative;z-index:1;padding-right:92px}
   .vcard .vfmt{position:absolute;top:14px;right:16px;font-size:10.5px;font-weight:500;letter-spacing:.04em;padding:4px 12px;border-radius:8px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.55);z-index:1}
   .vcard .viss{position:absolute;left:20px;bottom:16px;font-size:11px;color:rgba(255,255,255,.78);z-index:1;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .vcard .vst{position:absolute;right:16px;bottom:14px;font-size:11px;font-weight:500;padding:4px 11px;border-radius:8px;background:rgba(255,255,255,.22);z-index:1}
+  /* 状態チップは上段（fmtチップの下）— ホームのスタックで全カードの状態が見えるように（2026-07-09）。
+     isolation:isolate と対: 旧右下配置は次のカードに隠れ、かつ z-index:1 の子が
+     次のカードを突き抜けて「隣のカードのチップ」に見える二重表示を起こしていた */
+  .vcard .vst{position:absolute;right:16px;top:44px;font-size:11px;font-weight:500;padding:4px 11px;border-radius:8px;background:rgba(255,255,255,.22);z-index:1}
   .vcard .vst::before{content:"●";margin-right:4px;color:#7CE3B1}
   .vcard .vst.revoked::before{color:#FF8A80}
+  .vcard .vst.na::before{color:rgba(255,255,255,.55)}
   /* consent "peek": keep the ID-1 ratio, show only the top, fade into the sheet */
   .vpeek{position:relative;height:118px;overflow:hidden;margin-top:12px}
   .vpeek .vcard{-webkit-mask-image:linear-gradient(180deg,#000 30%,transparent 96%);mask-image:linear-gradient(180deg,#000 30%,transparent 96%);box-shadow:none}
@@ -136,14 +140,14 @@ export const walletCardCss = () => `
 
 /** One wallet card face. NO personal data on the face (Apple Wallet / EUDI
  *  practice): type name, issuer, format badge and status only. */
-export function vcardHtml(type, { title, sub = '', fmt = '', issuer = 'デジタル資格証発行ポータル', status = '有効', revoked = false, href = '', style = '' } = {}) {
+export function vcardHtml(type, { title, sub = '', fmt = '', issuer = 'デジタル資格証発行ポータル', status = '有効', revoked = false, unknown = false, href = '', style = '' } = {}) {
   const t = WALLET_CARD_THEME[type] || WALLET_CARD_THEME.pid;
   const tag = href ? 'a' : 'div';
   return `<${tag} ${href ? `href="${esc(href)}"` : ''} class="vcard" style="--c1:${t.c1};--c2:${t.c2};--c3:${t.c3};${style}">
     <div class="vt">${esc(title)}</div>${sub ? `<div class="vs">${esc(sub)}</div>` : ''}
     ${fmt ? `<span class="vfmt">${esc(fmt)}</span>` : ''}
     <span class="viss">${esc(issuer)}</span>
-    <span class="vst${revoked ? ' revoked' : ''}">${esc(status)}</span>
+    <span class="vst${revoked ? ' revoked' : unknown ? ' na' : ''}">${esc(status)}</span>
   </${tag}>`;
 }
 
@@ -850,12 +854,29 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
 }
 
 /** Issuance history ledger page (account menu → 発行履歴). */
-export function renderHistory(user, issuances) {
+// ページャ（発行履歴/提示履歴 共通）。newest-first のリスト前提: 次ページ=より古い記録
+export function paginate(list, page, per) {
+  const pages = Math.max(1, Math.ceil(list.length / per));
+  const p = Math.min(Math.max(1, Number(page) || 1), pages);
+  return { slice: list.slice((p - 1) * per, p * per), p, pages, total: list.length };
+}
+export const pagerHtml = (p, pages, base) => (pages <= 1 ? '' : `
+  <div class="pager">
+    ${p > 1 ? `<a href="${base}?p=${p - 1}">← 新しい記録</a>` : '<span></span>'}
+    <span class="pinfo">${p} / ${pages} ページ</span>
+    ${p < pages ? `<a href="${base}?p=${p + 1}">古い記録 →</a>` : '<span></span>'}
+  </div>
+  <style>.pager{display:flex;align-items:center;justify-content:space-between;margin:14px 2px 4px;font-size:13px}
+    .pager a{color:var(--civic,#1C3F94);text-decoration:none;font-weight:700}
+    .pager .pinfo{color:var(--muted,#5B6B82);font-size:12px}</style>`);
+
+export function renderHistory(user, issuances, { page = 1, per = 20 } = {}) {
   const short = (holder) => 'sha256:' + createHash('sha256').update(String(holder)).digest('hex').slice(0, 8);
   // JST (Asia/Tokyo): the verifier history is shown in JST, so align the issuer
   // ledger too. Japan has no DST, so a fixed +9h offset is exact and ICU-independent.
   const dt = (iso) => { try { return iso ? new Date(Date.parse(iso) + 9 * 3600e3).toISOString().slice(0, 16).replace('T', ' ') : '—'; } catch { return '—'; } };
-  const rows = issuances.map((e) => {
+  const { slice, p, pages, total } = paginate(issuances, page, per);
+  const rows = slice.map((e) => {
     const type = e.configId.replace(/_(mdoc|sdjwt)$/, '');
     const name = (TYPE_META[type]?.name || e.configId).replace(/（.*）/, '');
     const t = WALLET_CARD_THEME[type] || WALLET_CARD_THEME.pid;
@@ -882,8 +903,9 @@ export function renderHistory(user, issuances) {
       <div style="background:#EAF4EF;border:1px solid #CDE6DB;border-radius:10px;padding:14px 18px;margin:16px 0 8px;font-size:13.5px;color:#1f5c46">
         ⓘ <b>Issuer は提示を追跡しません</b>（issuer-verifier unlinkability）。この台帳は自分が発行した記録のみで、いつ・どこで提示されたか（提示回数・提示先）は保持しません。
       </div>
-      <div class="hlegend">発行日時 (JST)・有効期限 (JST) は各行に表示。失効は Token Status List に即時反映されます。</div>
+      <div class="hlegend">発行日時 (JST)・有効期限 (JST) は各行に表示。失効は Token Status List に即時反映されます。全 ${total} 件。</div>
       ${rows || '<div class="hrow"><span class="muted" style="padding:8px 2px">発行記録がありません。</span></div>'}
+      ${pagerHtml(p, pages, '/history')}
     </div>
     <script>
       document.querySelectorAll('.revoke.on').forEach((b) => { b.onclick = async () => {

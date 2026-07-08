@@ -75,14 +75,13 @@ export class IssuerService {
       issuerCertDer: statusPki?.cert ?? null,
     });
     this.issuanceLog = []; // issuer's own ledger (NOT presentation tracking)
-    this._stateLoaded = false;
     this.users = userStore;
   }
 
   // ---- KV state persistence (issuanceLog + status bits survive isolate restarts) ----
+  // 毎回 KV から読み直す（メモリは KV のキャッシュ）。once ガードにすると、isolate A の
+  // 失効が isolate B の配る status list / 発行履歴に永遠に反映されない（本番で実害）。
   async _loadState() {
-    if (this._stateLoaded) return;
-    this._stateLoaded = true;
     const saved = await this.store.get('_persist:state');
     if (!saved) return;
     if (saved.issuanceLog) this.issuanceLog = saved.issuanceLog;
@@ -336,7 +335,8 @@ export class IssuerService {
   }
 
   // ---- Status List (revocation) ----
-  statusListToken() { return this.statusList.token(); }
+  // 配布前に必ず永続状態を読み直す — 別 isolate で行われた失効を反映するため
+  async statusListToken() { await this._loadState(); return this.statusList.token(); }
   async revoke(idx, reason) {
     await this._loadState();
     this.statusList.revoke(idx, reason);

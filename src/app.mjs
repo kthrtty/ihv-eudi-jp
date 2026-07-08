@@ -94,7 +94,7 @@ export function createApp(opts = {}) {
   app.get('/history', async (c) => {
     const user = await svc.sessionUser(sid(c));
     if (!user) return c.redirect('/login?next=/history', 302);
-    return c.html(renderHistory(user, await svc.issuances()));
+    return c.html(renderHistory(user, await svc.issuances(), { page: c.req.query('p') }));
   });
 
   // Account menu → account settings (edit persona data)
@@ -495,7 +495,7 @@ export function createVerifierApp(opts = {}) {
   // ---- lay-audience scenario demo (/verifier) vs expert builder (/verifier/builder) ----
   app.get('/verifier', (c) => c.html(renderScenarioHome(scenarioList())));
   app.get('/verifier/builder', (c) => c.html(renderVerifyConsole(groupCatalog(allConfigIds().map(configInfo)))));
-  app.get('/verifier/history', async (c) => c.html(renderVerifyHistory(await getHistory())));
+  app.get('/verifier/history', async (c) => c.html(renderVerifyHistory(await getHistory(), { page: c.req.query('p') })));
   // scenario correlation record per transaction: {id, step, txn1?, wallet?}.
   // Drives the step dispatch on the result pages; never stored inside the
   // OID4VP request itself. `wallet` (a serialized ephemeral wallet) is only

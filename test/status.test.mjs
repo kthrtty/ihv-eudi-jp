@@ -103,3 +103,45 @@ test('issuer issuance ledger is returned newest-first (issued_at desc)', async (
     '2026-06-29T12:00:00.000Z', '2026-06-15T08:30:00.000Z', '2026-06-01T00:00:00.000Z',
   ]);
 });
+
+test('isolate 跨ぎの失効伝播: 失効を書いた isolate と別のインスタンスが最新の Status List を配る', async () => {
+  // Workers では /revoke を処理する isolate と /status-lists を配る isolate が別になり得る。
+  // statusListToken() が配布前に KV(_persist:state) を読み直すことを、共有 store を持つ
+  // 2 つの createApp インスタンス（=2 isolates）で pin する。
+  const kv = new Map();
+  const store = {
+    get: async (k) => (kv.has(k) ? JSON.parse(kv.get(k)) : null),
+    set: async (k, v) => { kv.set(k, JSON.stringify(v)); },
+    del: async (k) => { kv.delete(k); },
+  };
+  const A = createApp({ credentialIssuer: ISSUER, store });
+  const B = createApp({ credentialIssuer: ISSUER, store });
+
+  // isolate A で発行
+  const offer = await (await A.request('/offer', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'] }),
+  })).json();
+  const wallet = createWallet();
+  await wallet.receive({ request: A.request.bind(A), offer: offer.credential_offer, credentialIssuer: ISSUER });
+  const { issuances } = await (await A.request('/issuances')).json();
+  const idx = issuances[0].idx;
+
+  // A が一度リストを配ってメモリを温める（旧実装はここで固まる）→ この時点では有効
+  const resolveA = async () => (await A.request('/status-lists/1')).text();
+  assert.equal((await verifyStatus({ idx, uri: `${ISSUER}/status-lists/1` }, resolveA)).revoked, false);
+
+  // isolate B で失効
+  const rv = await B.request('/revoke', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ index: idx, reason: 'test' }),
+  });
+  assert.equal(rv.status, 200);
+
+  // A が配るリストにも失効が反映される（KV 再読込）
+  assert.equal((await verifyStatus({ idx, uri: `${ISSUER}/status-lists/1` }, resolveA)).revoked, true,
+    'the OTHER isolate must serve the updated list');
+  // 発行履歴（A 経由）にも失効が見える
+  const after = await (await A.request('/issuances')).json();
+  assert.equal(after.issuances.find((e) => e.idx === idx).revoked, true);
+});
