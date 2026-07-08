@@ -9,6 +9,7 @@ import { annexDSessionTranscript, annexCSessionTranscript, oid4vpRedirectSession
 import { fromB64url } from './cbor.mjs';
 import { decryptResponse, calculateJwkThumbprint } from './jwe.mjs';
 import { buildDcql, satisfies, missingPresentations } from './dcql.mjs';
+import { buildDeviceRequest } from './device-request.mjs';
 import { rawVpRepr } from './vpdebug.mjs';
 import { verifyStatus } from './status.mjs';
 import { memoryStore } from './oid4vci.mjs';
@@ -24,9 +25,11 @@ export class VerifierService {
     origin = 'https://verifier.ihv.example',
     clientName = 'IHV デモ検証者（RP）',
     encPrivatePem = null, trustedIacaDer = null, trustedIssuerCaDer = null,
+    readerKeyPem = null, readerCertDer = null, readerCaDer = null,
     statusResolver = null } = {}) {
     this.store = store; this.clientId = clientId; this.origin = origin;
     this.clientName = clientName;
+    this.readerKeyPem = readerKeyPem; this.readerCertDer = readerCertDer; this.readerCaDer = readerCaDer;
     this.statusResolver = statusResolver;
     this._trustedIacaDer = trustedIacaDer;
     this._trustedIssuerCaDer = trustedIssuerCaDer;
@@ -68,6 +71,12 @@ export class VerifierService {
       this._trustedIacaDer ?? der('pki/mdoc/iaca/iaca.crt'),
       this._trustedIssuerCaDer ?? der('pki/sdjwt/issuer-ca.crt'),
     );
+    // Reader Authentication 用鍵（Annex C readerAuth）。無ければ署名なしで組む（optional）
+    try {
+      this.readerKeyPem ??= readFileSync(root('pki/reader/reader.key'));
+      this.readerCertDer ??= der('pki/reader/reader.crt');
+      this.readerCaDer ??= der('pki/reader/reader-ca.crt');
+    } catch { /* reader PKI 未生成環境では readerAuth を省略 */ }
   }
 
   /** Build a presentation request. protocol: 'annex-d' (OID4VP/HAIP over DC API,
@@ -95,15 +104,25 @@ export class VerifierService {
         protocol: 'annex-c', nonce, dcql: dcql_query, transcript, base64EncryptionInfo,
         sessionId: sessionId ?? transactionId, linkTo,
       });
+      // 仕様準拠の wire（issue #13）: data は {deviceRequest, encryptionInfo} の2メンバーのみ。
+      // 要求項目は DCQL でなく 18013-5 DeviceRequest（ItemsRequest）で運び、readerAuth
+      // （COSE_Sign1・x5chain=pki/reader）で要求と origin/暗号鍵を Reader 署名に束縛する。
+      // DCQL は内部の検証簿記（dcqlSatisfied）にのみ使う。
+      const q = dcql_query.credentials[0];
+      const elements = {};
+      for (const c of q.claims || []) {
+        const [ns, el] = c.path;
+        (elements[ns] ??= {})[el] = !!c.intent_to_retain;
+      }
+      const deviceRequest = buildDeviceRequest({
+        docType: q.meta.doctype_value, elements, sessionTranscriptBytes: transcript,
+        readerKeyPem: this.readerKeyPem, readerCertDer: this.readerCertDer, readerCaDer: this.readerCaDer,
+      });
       const request = {
-        protocol: 'org-iso-mdoc',
-        client_id: this.clientId,
-        nonce: b64url(nonceBytes),
-        origin: this.origin,
-        dcql_query,
-        encryption_info: base64EncryptionInfo, // ["dcapi",{nonce,recipientPublicKey:COSE_Key}]
+        deviceRequest: b64url(deviceRequest),
+        encryptionInfo: base64EncryptionInfo, // ["dcapi",{nonce,recipientPublicKey:COSE_Key}]
       };
-      return { transactionId, request };
+      return { transactionId, request, origin: this.origin };
     }
 
     // ---- Annex D : OID4VP / HAIP over DC API (JWE) ----
