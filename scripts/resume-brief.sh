@@ -17,6 +17,14 @@ else
   files=("$ROOT"/memory/L1-working/*.md)
   for f in "${files[@]}"; do echo "===== ${f#$ROOT/} ====="; cat "$f"; echo; done
 fi
+# compact 直前に退避した逐語スナップショット（precompact-snapshot.py）。
+# 30分以内のものだけ注入（古いものは過去の compact の残骸なので黙って捨てる）
+SNAP="$ROOT/memory/L1-working/.compact-snapshot.md"
+if [ -f "$SNAP" ] && [ -n "$(find "$SNAP" -newermt '-30 minutes' 2>/dev/null)" ]; then
+  echo "===== compact 直前の対話スナップショット（逐語・規定要約の補完） ====="
+  cat "$SNAP"
+  echo
+fi
 # 決定は索引行のみ(全文catはADR蓄積で無限成長するため)
 if [ -f "$ROOT/memory/L0-core/decisions.md" ]; then
   echo "===== 決定索引(L0-core/decisions.md) ====="
