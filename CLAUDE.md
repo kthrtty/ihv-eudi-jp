@@ -98,6 +98,9 @@ mdoc注意: 検証claims は**ワイヤ名**（`resident_address`）で返る・
 **2026-07-07 M3化**: 角丸16px・M3 elevationトークン・チップM3(角丸8px)・青海波→**ホログラム虹彩**conic＋
 hover**光スイープ**(`::before` background-position)・issuerカタログ `.vccard` も同意匠）＋
 FAB ➕（カタログシート: metadata駆動8タイル×形式チップ・**複数選択→複数scopeを1認可**）/QR（オファー受領シート）。
+**並び順（2026-07-09）**: 新規受領は**既存の並びの一番上**（バッチ内は発行順・`record(s,rec,at)` 先頭splice、
+受領票 added は `slice(0,N)`）。**長押し(450ms)ドラッグで並び替え**（スタック展開+ドロップ枠→`POST /reorder`=
+保有idの順列のみ受理・セッション永続。短押しは通常の詳細遷移・ドラッグ後クリック1回抑止）。
 `/cred/:id`=詳細（属性4件+折りたたみ・**アクティビティ=ARF取引ログ**（値は保存せず日時/提示先/項目名のみ、
 `s.activity` 30件）・**失効状態**（wallet が Status List 全体取得→局所判定・**リスト単位キャッシュ** `wstl:<uri>`・再確認POST=強制再取得）・
 開発者fold=生データ/鍵）。同意画面=ボトムシート（RP+検証バッジ→purpose→**peekカード**（ID-1維持・下端mask-imageフェード）→
