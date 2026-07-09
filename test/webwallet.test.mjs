@@ -1004,3 +1004,55 @@ test('履歴ページネーション: 発行履歴20件/頁・提示履歴10件/
   const v3 = renderVerifyHistory(entries, { page: 3 });
   assert.equal((v3.match(/class="hcard"/g) || []).length, 5);
 });
+
+test('カード順序: 新規発行は既存の並びの一番上に入り、バッチ内は発行順を保つ + /reorder で並び替え', async () => {
+  const IP = 8921, WP = 8922;
+  const ISSUER = `http://127.0.0.1:${IP}`, WALLET = `http://127.0.0.1:${WP}`;
+  const issuer = serve({ fetch: createApp({ credentialIssuer: ISSUER }).fetch, port: IP });
+  try {
+    const wallet = createWalletApp({ walletOrigin: WALLET, issuerUrl: ISSUER });
+    const mk = async (ids) => (await (await fetch(`${ISSUER}/offer`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ credential_configuration_ids: ids }),
+    })).json()).offer_id;
+
+    // 1枚目: pid → 2回目のオファーでバッチ2枚（juminhyo, tax）
+    const add1 = await wallet.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${await mk(['pid_mdoc'])}`));
+    const { cookie } = await driveAdd(wallet, add1);
+    const add2 = await wallet.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${await mk(['juminhyo_mdoc', 'tax_mdoc'])}`), { headers: { cookie } });
+    await driveAdd(wallet, add2);
+
+    // 新規（バッチ）が上・バッチ内は発行順・既存 pid は下へ
+    let creds = await (await wallet.request('/creds', { headers: { cookie } })).json();
+    assert.deepEqual(creds.map((c) => c.configId), ['juminhyo_mdoc', 'tax_mdoc', 'pid_mdoc'],
+      'newest batch on top (in issuance order), older cred pushed down');
+    // ホームの描画順も一致（href の並び）
+    const home = await (await wallet.request('/', { headers: { cookie } })).text();
+    const hrefOrder = [...home.matchAll(/href="\/cred\/(cred-\d+)"/g)].map((m) => m[1]);
+    assert.deepEqual(hrefOrder, creds.map((c) => c.id), 'home stack renders in stored order');
+    assert.match(home, /長押しすると並び替え/, 'reorder hint shown');
+
+    // /reorder: 順列を入れ替え → 反映・永続
+    const newOrder = [creds[2].id, creds[0].id, creds[1].id];
+    const r = await wallet.request('/reorder', {
+      method: 'POST', headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ order: newOrder }),
+    });
+    assert.equal(r.status, 200);
+    creds = await (await wallet.request('/creds', { headers: { cookie } })).json();
+    assert.deepEqual(creds.map((c) => c.id), newOrder, 'reorder persisted');
+
+    // 不正: 欠け・重複・未知 id は 400（保有の順列のみ受理）
+    for (const bad of [[creds[0].id], [creds[0].id, creds[0].id, creds[1].id], [...newOrder.slice(0, 2), 'cred-999']]) {
+      const res = await wallet.request('/reorder', {
+        method: 'POST', headers: { cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ order: bad }),
+      });
+      assert.equal(res.status, 400, `rejects ${JSON.stringify(bad)}`);
+    }
+    // 受領票（added）は新着＝先頭側を表示している（回帰: slice(0,N) 修正）
+    const add3 = await wallet.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${await mk(['single_mdoc'])}`), { headers: { cookie } });
+    const { receipt } = await driveAdd(wallet, add3);
+    assert.match(receipt, /独身証明書/, 'receipt shows the newly received card, not an old one');
+  } finally { await new Promise((r) => issuer.close(r)); }
+});

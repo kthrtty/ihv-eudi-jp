@@ -221,10 +221,12 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     } catch { return { checked: false }; }
   };
 
-  const record = async (s, rec) => {
+  // 新規受領は既存の並びの「上」に追加する（at=バッチ内の挿入位置。1回のオファーで
+  // 複数件受けるときは発行順を保ったまま、まとまり全体が先頭に来る）
+  const record = async (s, rec, at = 0) => {
     let claims = {};
     try { const v = await verifyCredential(rec.configId, s.wallet.get(rec.id).credential); claims = v.claims; } catch {}
-    s.creds.push({ ...rec, claims: Object.fromEntries(Object.entries(claims).map(([k, v]) => [k, k === 'portrait' ? toImgUri(v) : fmt(v)])) });
+    s.creds.splice(at, 0, { ...rec, claims: Object.fromEntries(Object.entries(claims).map(([k, v]) => [k, k === 'portrait' ? toImgUri(v) : fmt(v)])) });
   };
 
   app.get('/', async (c) => {
@@ -275,6 +277,19 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     return c.redirect('/cred/' + c.req.param('id'), 302);
   });
   app.get('/creds', async (c) => { const s = await loadSession(c); return c.json(s.creds.map(({ id, configId, format }) => ({ id, configId, format }))); });
+
+  // カード並び替えの確定（ホームの長押しドラッグから）。保有 id の順列のみ受理
+  app.post('/reorder', async (c) => {
+    const s = await loadSession(c);
+    const { order } = await c.req.json().catch(() => ({}));
+    if (!Array.isArray(order)) return c.json({ ok: false, error: 'order[] required' }, 400);
+    const cur = new Map(s.creds.map((x) => [x.id, x]));
+    const ok = order.length === cur.size && new Set(order).size === order.length && order.every((id) => cur.has(id));
+    if (!ok) return c.json({ ok: false, error: 'order must be a permutation of held credential ids' }, 400);
+    s.creds = order.map((id) => cur.get(id));
+    await saveSession(s);
+    return c.json({ ok: true });
+  });
 
   // ウォレット設定: Status List のキャッシュ時間（既定 5 分・0 = 毎回サーバーから取得）
   app.get('/settings', async (c) => {
@@ -465,7 +480,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
           request: httpTo(p.issuerBase), accessToken: p.accessToken,
           configId: p.configIds[i], credentialIssuer: p.issuerBase,
         });
-        await record(s, rec);
+        await record(s, rec, i); // 先頭ブロックに発行順で積む
         p.recs.push(rec);
         await saveSession(s);
       }
@@ -1031,7 +1046,7 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
     });
   };
   const stackBody = n
-    ? `<div class="wstack">${s.creds.map(cardOf).join('')}</div>`
+    ? `<div class="wstack" id="wstack">${s.creds.map(cardOf).join('')}</div>${n > 1 ? '<div class="rhint">カードを長押しすると並び替えできます（新しく受け取ったカードは一番上に入ります）</div>' : ''}`
     : `<div class="ghost-card">クレデンシャルがありません<br><span style="font-size:11.5px">右下の ＋ から発行を受けられます</span></div>`;
 
   // ＋カタログ: 8種タイル × issuer式チップ（クリック=選択・複数可）→ 複数 scope で認可へ
@@ -1120,6 +1135,58 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       document.getElementById('goIssue').onclick=function(){
         location.href='/request?scope='+encodeURIComponent([...sel].join(' '));
       };
+      // ── カード並び替え: 長押し(450ms)で掴む → スタック展開 → ドラッグ → 離して確定 ──
+      (function(){
+        var stack=document.getElementById('wstack'); if(!stack)return;
+        var holdTimer=null,dragging=null,slot=null,sx=0,sy=0,gx=0,gy=0,suppress=false;
+        function cards(){return [].slice.call(stack.querySelectorAll('a.vcard'));}
+        function cancelHold(){if(holdTimer){clearTimeout(holdTimer);holdTimer=null;}}
+        function start(card,x,y){
+          dragging=card;suppress=true;
+          document.body.classList.add('reordering');
+          var r=card.getBoundingClientRect();gx=x-r.left;gy=y-r.top;
+          slot=document.createElement('div');slot.className='drop-slot';slot.style.height=r.height+'px';
+          card.parentNode.insertBefore(slot,card);
+          card.classList.add('drag-ghost');card.style.width=r.width+'px';
+          move(x,y);
+          if(navigator.vibrate)navigator.vibrate(15);
+        }
+        function move(x,y){
+          if(!dragging)return;
+          dragging.style.left=(x-gx)+'px';dragging.style.top=(y-gy)+'px';
+          var el=document.elementsFromPoint(x,y).find(function(e){return e.classList&&e.classList.contains('vcard')&&e!==dragging;});
+          if(el){var r=el.getBoundingClientRect();
+            if(y<r.top+r.height/2)el.parentNode.insertBefore(slot,el);
+            else el.parentNode.insertBefore(slot,el.nextSibling);}
+        }
+        function drop(){
+          if(!dragging)return;
+          dragging.classList.remove('drag-ghost');dragging.style.left=dragging.style.top=dragging.style.width='';
+          slot.parentNode.insertBefore(dragging,slot);slot.remove();slot=null;
+          document.body.classList.remove('reordering');
+          var order=cards().map(function(a2){return a2.getAttribute('href').split('/').pop();});
+          fetch('/reorder',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({order:order})})
+            .then(function(r){if(!r.ok)location.reload();}).catch(function(){location.reload();});
+          dragging=null;
+          setTimeout(function(){suppress=false;},50);
+        }
+        stack.addEventListener('pointerdown',function(e){
+          var card=e.target.closest&&e.target.closest('a.vcard');if(!card)return;
+          sx=e.clientX;sy=e.clientY;
+          holdTimer=setTimeout(function(){start(card,sx,sy);},450);
+        });
+        stack.addEventListener('pointermove',function(e){
+          if(dragging){move(e.clientX,e.clientY);return;}
+          if(holdTimer&&(Math.abs(e.clientX-sx)>8||Math.abs(e.clientY-sy)>8))cancelHold();
+        });
+        ['pointerup','pointercancel'].forEach(function(ev){
+          document.addEventListener(ev,function(){cancelHold();drop();});
+        });
+        // ドラッグ直後のクリック（詳細遷移）を1回だけ握りつぶす
+        stack.addEventListener('click',function(e){if(suppress){e.preventDefault();e.stopPropagation();}},true);
+        // ドラッグ中のタッチスクロール抑止
+        stack.addEventListener('touchmove',function(e){if(dragging)e.preventDefault();},{passive:false});
+      })();
       function askReset(){var d=document.getElementById('resetConfirm');if(d)d.hidden=false;}
       function cancelReset(){var d=document.getElementById('resetConfirm');if(d)d.hidden=true;}
     </script>`, { ...WALLET, width: 'mid' });
@@ -1197,6 +1264,13 @@ const WSTYLE = `<style>
   .wpop a,.wpop button{font:inherit;font-size:13px;text-align:left;padding:9px 12px;border:0;background:none;color:var(--ink);text-decoration:none;border-radius:8px;cursor:pointer}
   .wpop a:hover,.wpop button:hover{background:#f0f7f5}
   .wstack{max-width:420px;margin:0 auto}
+  /* 並び替え（長押しドラッグ）: 掴んだらスタックを展開して落とし所を見せる */
+  body.reordering .wstack{display:grid;gap:12px}
+  body.reordering .wstack .vcard{margin-top:0!important}
+  .vcard.drag-ghost{position:fixed;z-index:99;pointer-events:none;margin:0;
+    transform:rotate(2.2deg) scale(1.02);box-shadow:0 18px 34px rgba(14,26,43,.42);transition:none}
+  .drop-slot{border:2px dashed #7FB3A5;border-radius:16px;background:rgba(46,125,107,.06)}
+  .rhint{text-align:center;font-size:11px;color:var(--muted);margin-top:10px}
   .wstack .vcard:not(:first-child){margin-top:-96px}
   @media(min-width:720px){.wstack{max-width:880px;display:grid;grid-template-columns:repeat(2,minmax(0,420px));gap:18px;justify-content:center}.wstack .vcard:not(:first-child){margin-top:0}}
   .ghost-card{border:2px dashed #C4D6D0;border-radius:22px;aspect-ratio:1.586;display:grid;place-items:center;color:var(--muted);font-size:13px;text-align:center;max-width:420px;margin:0 auto;line-height:1.8}
@@ -1407,7 +1481,7 @@ function settingsPage(ttlSec, saved = false) {
 
 function added(s, recs, grant) {
   const list = Array.isArray(recs) ? recs : [recs];
-  const newCreds = s.creds.slice(-list.length);
+  const newCreds = s.creds.slice(0, list.length); // 新規受領は先頭に積まれる
   const cards = newCreds.map((c) => vcardHtml(credType(c.configId), {
     title: typeName(credType(c.configId)), sub: c.configId,
     fmt: c.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT', style: 'margin-top:12px',
