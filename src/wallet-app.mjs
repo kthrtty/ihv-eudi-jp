@@ -1184,6 +1184,9 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
         });
         // ドラッグ直後のクリック（詳細遷移）を1回だけ握りつぶす
         stack.addEventListener('click',function(e){if(suppress){e.preventDefault();e.stopPropagation();}},true);
+        // <a> のネイティブドラッグ（デスクトップ）が pointer ドラッグと競合しないように
+        stack.addEventListener('dragstart',function(e){e.preventDefault();});
+        stack.addEventListener('contextmenu',function(e){e.preventDefault();});
         // ドラッグ中のタッチスクロール抑止
         stack.addEventListener('touchmove',function(e){if(dragging)e.preventDefault();},{passive:false});
       })();
@@ -1265,6 +1268,9 @@ const WSTYLE = `<style>
   .wpop a:hover,.wpop button:hover{background:#f0f7f5}
   .wstack{max-width:420px;margin:0 auto}
   /* 並び替え（長押しドラッグ）: 掴んだらスタックを展開して落とし所を見せる */
+  /* iOS: <a> の長押しは OS のリンクプレビューが先に開いてドラッグできないため
+     callout/選択/ネイティブドラッグを抑止する（タップ遷移・スクロールは影響なし） */
+  #wstack a.vcard{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;-webkit-user-drag:none}
   body.reordering .wstack{display:grid;gap:12px}
   body.reordering .wstack .vcard{margin-top:0!important}
   .vcard.drag-ghost{position:fixed;z-index:99;pointer-events:none;margin:0;
