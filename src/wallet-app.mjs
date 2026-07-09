@@ -1135,60 +1135,103 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       document.getElementById('goIssue').onclick=function(){
         location.href='/request?scope='+encodeURIComponent([...sel].join(' '));
       };
-      // ── カード並び替え: 長押し(450ms)で掴む → スタック展開 → ドラッグ → 離して確定 ──
+      // ── カード並び替え（スタック維持型・2026-07-09 GIF協議で選定）──
+      // 長押し(450ms)で掴む → レイアウトはそのまま（座標を凍結）→ 掴んだカードだけ持ち上げ、
+      // 通過スロットのカードが避ける。z はスロット位置に常時追従（下ほど手前・掴み中のみ最前面）。
+      // 画面端に近づくとエッジ・オートスクロール。離すとその場に収まり POST /reorder。
       (function(){
         var stack=document.getElementById('wstack'); if(!stack)return;
-        var holdTimer=null,dragging=null,slot=null,sx=0,sy=0,gx=0,gy=0,suppress=false;
-        function cards(){return [].slice.call(stack.querySelectorAll('a.vcard'));}
-        function cancelHold(){if(holdTimer){clearTimeout(holdTimer);holdTimer=null;}}
-        function start(card,x,y){
-          dragging=card;suppress=true;
-          document.body.classList.add('reordering');
-          var r=card.getBoundingClientRect();gx=x-r.left;gy=y-r.top;
-          slot=document.createElement('div');slot.className='drop-slot';slot.style.height=r.height+'px';
-          card.parentNode.insertBefore(slot,card);
-          card.classList.add('drag-ghost');card.style.width=r.width+'px';
-          move(x,y);
-          if(navigator.vibrate)navigator.vibrate(15);
+        var cards=[].slice.call(stack.querySelectorAll('a.vcard'));
+        if(cards.length<2)return;
+        var holdTimer=null,drag=null,suppress=false;
+        var tops=[],slots=[],curSlot=0,slice=0,grabDY=0,pY=0,pX=0,raf=null;
+        var edgeB=document.createElement('div');edgeB.className='scrolledge bottom';document.body.appendChild(edgeB);
+        var edgeT=document.createElement('div');edgeT.className='scrolledge top';document.body.appendChild(edgeT);
+        function zFor(slot){return 10+slot;}
+        function freeze(){
+          // 現在の見た目の座標をそのまま absolute に写す（レイアウトジャンプさせない）
+          tops=cards.map(function(el){return el.offsetTop;});
+          slice=cards.length>1?tops[1]-tops[0]:el0h();
+          stack.classList.add('freeze');
+          stack.style.height=(tops[tops.length-1]+cards[0].offsetHeight)+'px';
+          cards.forEach(function(el,i){el.style.top=tops[i]+'px';el.style.zIndex=zFor(i);});
+          slots=cards.map(function(_,i){return i;});
         }
-        function move(x,y){
-          if(!dragging)return;
-          dragging.style.left=(x-gx)+'px';dragging.style.top=(y-gy)+'px';
-          var el=document.elementsFromPoint(x,y).find(function(e){return e.classList&&e.classList.contains('vcard')&&e!==dragging;});
-          if(el){var r=el.getBoundingClientRect();
-            if(y<r.top+r.height/2)el.parentNode.insertBefore(slot,el);
-            else el.parentNode.insertBefore(slot,el.nextSibling);}
+        function el0h(){return cards[0].offsetHeight;}
+        function setSlot(target){
+          if(target===curSlot)return;
+          var dir=target>curSlot?1:-1;
+          while(curSlot!==target){
+            var next=curSlot+dir;
+            var passing=slots[next];               // 通過先スロットのカードが避ける
+            slots[curSlot]=passing;slots[next]=null;
+            var pel=cards[passing];
+            pel.style.top=tops[curSlot]+'px';pel.style.zIndex=zFor(curSlot);
+            curSlot=next;
+          }
+          slots[curSlot]=drag.idx;
+        }
+        function start(card,x,y){
+          // 2カラム格子（PC幅）はスタック重なりが無く slice が定義できないため対象外
+          if(cards.length>1&&cards[1].offsetTop<=cards[0].offsetTop)return;
+          suppress=true;freeze();
+          var idx=cards.indexOf(card);
+          drag={el:card,idx:idx};curSlot=idx;
+          grabDY=(y+window.scrollY)-stack.offsetTop-tops[idx];
+          card.classList.add('lift');card.style.zIndex=99;card.style.transition='transform .28s ease,filter .28s ease';
+          if(navigator.vibrate)navigator.vibrate(15);
+          pX=x;pY=y;loop();
+        }
+        function loop(){
+          if(!drag)return;
+          // エッジ・オートスクロール（下端/上端 120px）
+          var vh=window.innerHeight,step=0;
+          if(pY>vh-120)step=10; else if(pY<130&&window.scrollY>0)step=-10;
+          edgeB.classList.toggle('on',step>0);edgeT.classList.toggle('on',step<0);
+          if(step)window.scrollBy(0,step);
+          // 掴んだカードは指に追従（content 座標）
+          var cy=(pY+window.scrollY)-stack.offsetTop-grabDY;
+          var max=tops[tops.length-1];
+          cy=Math.max(tops[0]-20,Math.min(max+20,cy));
+          drag.el.style.top=cy+'px';
+          // 挿入先スロット = カード上端がどのスライスに居るか
+          var target=Math.round((cy-tops[0])/slice);
+          target=Math.max(0,Math.min(cards.length-1,target));
+          setSlot(target);
+          raf=requestAnimationFrame(loop);
         }
         function drop(){
-          if(!dragging)return;
-          dragging.classList.remove('drag-ghost');dragging.style.left=dragging.style.top=dragging.style.width='';
-          slot.parentNode.insertBefore(dragging,slot);slot.remove();slot=null;
-          document.body.classList.remove('reordering');
-          var order=cards().map(function(a2){return a2.getAttribute('href').split('/').pop();});
+          if(!drag)return;
+          cancelAnimationFrame(raf);raf=null;
+          edgeB.classList.remove('on');edgeT.classList.remove('on');
+          var el=drag.el;
+          el.style.transition='';           // top も .28s アニメに戻して着地
+          el.style.top=tops[curSlot]+'px';
+          el.classList.remove('lift');el.style.zIndex=zFor(curSlot);
+          drag=null;
+          var order=slots.map(function(ci){return cards[ci].getAttribute('href').split('/').pop();});
           fetch('/reorder',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({order:order})})
             .then(function(r){if(!r.ok)location.reload();}).catch(function(){location.reload();});
-          dragging=null;
-          setTimeout(function(){suppress=false;},50);
+          setTimeout(function(){suppress=false;},60);
         }
+        function cancelHold(){if(holdTimer){clearTimeout(holdTimer);holdTimer=null;}}
+        var sx=0,sy=0;
         stack.addEventListener('pointerdown',function(e){
           var card=e.target.closest&&e.target.closest('a.vcard');if(!card)return;
-          sx=e.clientX;sy=e.clientY;
+          sx=e.clientX;sy=e.clientY;pX=sx;pY=sy;
           holdTimer=setTimeout(function(){start(card,sx,sy);},450);
         });
-        stack.addEventListener('pointermove',function(e){
-          if(dragging){move(e.clientX,e.clientY);return;}
-          if(holdTimer&&(Math.abs(e.clientX-sx)>8||Math.abs(e.clientY-sy)>8))cancelHold();
+        document.addEventListener('pointermove',function(e){
+          pX=e.clientX;pY=e.clientY;
+          if(!drag&&holdTimer&&(Math.abs(pX-sx)>8||Math.abs(pY-sy)>8))cancelHold();
         });
         ['pointerup','pointercancel'].forEach(function(ev){
           document.addEventListener(ev,function(){cancelHold();drop();});
         });
-        // ドラッグ直後のクリック（詳細遷移）を1回だけ握りつぶす
         stack.addEventListener('click',function(e){if(suppress){e.preventDefault();e.stopPropagation();}},true);
-        // <a> のネイティブドラッグ（デスクトップ）が pointer ドラッグと競合しないように
         stack.addEventListener('dragstart',function(e){e.preventDefault();});
         stack.addEventListener('contextmenu',function(e){e.preventDefault();});
-        // ドラッグ中のタッチスクロール抑止
-        stack.addEventListener('touchmove',function(e){if(dragging)e.preventDefault();},{passive:false});
+        document.addEventListener('touchmove',function(e){if(drag)e.preventDefault();},{passive:false});
       })();
       function askReset(){var d=document.getElementById('resetConfirm');if(d)d.hidden=false;}
       function cancelReset(){var d=document.getElementById('resetConfirm');if(d)d.hidden=true;}
@@ -1267,15 +1310,18 @@ const WSTYLE = `<style>
   .wpop a,.wpop button{font:inherit;font-size:13px;text-align:left;padding:9px 12px;border:0;background:none;color:var(--ink);text-decoration:none;border-radius:8px;cursor:pointer}
   .wpop a:hover,.wpop button:hover{background:#f0f7f5}
   .wstack{max-width:420px;margin:0 auto}
-  /* 並び替え（長押しドラッグ）: 掴んだらスタックを展開して落とし所を見せる */
+  /* 並び替え（長押しドラッグ・スタック維持型）: レイアウトを一切動かさず、
+     掴んだカードだけ持ち上げて他カードがスロット単位で避ける（z はスロット位置に常時追従） */
   /* iOS: <a> の長押しは OS のリンクプレビューが先に開いてドラッグできないため
      callout/選択/ネイティブドラッグを抑止する（タップ遷移・スクロールは影響なし） */
   #wstack a.vcard{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;-webkit-user-drag:none}
-  body.reordering .wstack{display:grid;gap:12px}
-  body.reordering .wstack .vcard{margin-top:0!important}
-  .vcard.drag-ghost{position:fixed;z-index:99;pointer-events:none;margin:0;
-    transform:rotate(2.2deg) scale(1.02);box-shadow:0 18px 34px rgba(14,26,43,.42);transition:none}
-  .drop-slot{border:2px dashed #7FB3A5;border-radius:16px;background:rgba(46,125,107,.06)}
+  #wstack.freeze{position:relative}
+  #wstack.freeze a.vcard{position:absolute;left:0;right:0;margin:0!important;transition:top .28s ease,transform .28s ease,filter .28s ease;will-change:top}
+  #wstack a.vcard.lift{transform:scale(1.05);filter:drop-shadow(0 20px 30px rgba(14,26,43,.45));transition:transform .28s ease,filter .28s ease}
+  .scrolledge{position:fixed;left:0;right:0;height:56px;pointer-events:none;opacity:0;transition:opacity .25s;z-index:150}
+  .scrolledge.bottom{bottom:0;background:linear-gradient(180deg,transparent,rgba(46,125,107,.20))}
+  .scrolledge.top{top:0;background:linear-gradient(0deg,transparent,rgba(46,125,107,.20))}
+  .scrolledge.on{opacity:1}
   .rhint{text-align:center;font-size:11px;color:var(--muted);margin-top:10px}
   .wstack .vcard:not(:first-child){margin-top:-96px}
   @media(min-width:720px){.wstack{max-width:880px;display:grid;grid-template-columns:repeat(2,minmax(0,420px));gap:18px;justify-content:center}.wstack .vcard:not(:first-child){margin-top:0}}
