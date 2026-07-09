@@ -18,7 +18,7 @@
   },
   "scripts": {
     "setup": "bash scripts/gen-pki.sh && node scripts/gen-trust.mjs && node scripts/gen-schemas.mjs",
-    "test": "node --test",
+    "test": "node --test \"test/*.test.mjs\"",
     "coverage": "c8 --include 'src/**' --reporter=text --reporter=lcov node --test",
     "demo:handover": "node scripts/handover.mjs",
     "interop": "node scripts/interop-vectors.mjs",
