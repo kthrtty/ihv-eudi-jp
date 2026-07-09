@@ -1046,7 +1046,7 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
     });
   };
   const stackBody = n
-    ? `<div class="wstack" id="wstack">${s.creds.map(cardOf).join('')}</div>${n > 1 ? '<div class="rhint">カードを長押しすると並び替えできます（新しく受け取ったカードは一番上に入ります）</div>' : ''}`
+    ? `<div class="wstack" id="wstack">${s.creds.map(cardOf).join('')}</div>${n > 1 ? '<div class="rhint"><span class="rh-touch">カードを長押しすると並び替えできます</span><span class="rh-pc">カードをドラッグすると並び替えできます（タッチは長押し）</span>（新しく受け取ったカードは一番上に入ります）</div>' : ''}`
     : `<div class="ghost-card">クレデンシャルがありません<br><span style="font-size:11.5px">右下の ＋ から発行を受けられます</span></div>`;
 
   // ＋カタログ: 8種タイル × issuer式チップ（クリック=選択・複数可）→ 複数 scope で認可へ
@@ -1145,6 +1145,8 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
         if(cards.length<2)return;
         var holdTimer=null,drag=null,suppress=false;
         var tops=[],slots=[],curSlot=0,slice=0,grabDY=0,pY=0,pX=0,raf=null,armed=false;
+        // PC 2カラム格子用（外枠プレースホルダ型）: pos[slot]={x,y}・破線スロットが挿入先を示す
+        var pos=[],cw=0,chh=0,slotEl=null,grabDX=0,stackPageLeft=0,pendingCard=null;
         var edgeB=document.createElement('div');edgeB.className='scrolledge bottom';document.body.appendChild(edgeB);
         var edgeT=document.createElement('div');edgeT.className='scrolledge top';document.body.appendChild(edgeT);
         function zFor(slot){return 10+slot;}
@@ -1246,19 +1248,115 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
             suppress=false;
           },320);
         }
+        // ---- PC 格子エンジン: 破線の外枠が挿入先に表示され、掴んだカードはポインタに2次元追従 ----
+        function gfreeze(){
+          var srect=stack.getBoundingClientRect();
+          stackPageTop=srect.top+window.scrollY;stackPageLeft=srect.left+window.scrollX;
+          var measured=cards.map(function(el,i){return {i:i,x:el.offsetLeft-stack.offsetLeft,y:el.offsetTop-stack.offsetTop};})
+            .sort(function(a,b){return (a.y-b.y)||(a.x-b.x);});   // 行優先（上→下・左→右）
+          pos=measured.map(function(m){return {x:m.x,y:m.y};});
+          slots=measured.map(function(m){return m.i;});
+          cw=cards[0].offsetWidth;chh=cards[0].offsetHeight;
+          // モバイル同様、明示 height を先に固定してから absolute 化（高さ0クランプ回避）
+          stack.style.height=(pos[pos.length-1].y+chh)+'px';
+          stack.classList.add('gfreeze');
+          slots.forEach(function(ci,slot){var el=cards[ci];
+            el.style.left=pos[slot].x+'px';el.style.top=pos[slot].y+'px';el.style.width=cw+'px';});
+          if(!slotEl){slotEl=document.createElement('div');slotEl.className='dropslot';stack.appendChild(slotEl);}
+          slotEl.style.width=cw+'px';slotEl.style.height=chh+'px';
+          return true;
+        }
+        function gsetSlot(target){
+          if(target===curSlot)return;
+          var dir=target>curSlot?1:-1;
+          while(curSlot!==target){
+            var next=curSlot+dir;
+            var passing=slots[next];
+            slots[curSlot]=passing;slots[next]=null;
+            var pel=cards[passing];
+            pel.style.left=pos[curSlot].x+'px';pel.style.top=pos[curSlot].y+'px';
+            curSlot=next;
+          }
+          slots[curSlot]=drag.idx;
+          slotEl.style.left=pos[curSlot].x+'px';slotEl.style.top=pos[curSlot].y+'px';
+        }
+        function gstart(card,x,y){
+          if(!gfreeze())return;
+          suppress=true;
+          var idx=cards.indexOf(card);
+          drag={el:card,idx:idx,grid:true};curSlot=slots.indexOf(idx);
+          armed=false;
+          document.documentElement.style.overflowAnchor='none';
+          grabDX=(x+window.scrollX)-stackPageLeft-pos[curSlot].x;
+          grabDY=(y+window.scrollY)-stackPageTop-pos[curSlot].y;
+          slotEl.style.left=pos[curSlot].x+'px';slotEl.style.top=pos[curSlot].y+'px';slotEl.style.opacity=1;
+          card.classList.add('lift');card.style.zIndex=99;card.style.transition='transform .28s ease,filter .28s ease';
+          if(navigator.vibrate)navigator.vibrate(15);
+          pX=x;pY=y;gloop();
+        }
+        function gloop(){
+          if(!drag)return;
+          if(!armed&&Math.abs(pY-sy)+Math.abs(pX-sx)>16)armed=true;
+          var vh=window.innerHeight,step=0;
+          if(armed){ if(pY>vh-120)step=10; else if(pY<130&&window.scrollY>0)step=-10; }
+          edgeB.classList.toggle('on',step>0);edgeT.classList.toggle('on',step<0);
+          if(step)window.scrollBy(0,step);
+          var cx=(pX+window.scrollX)-stackPageLeft-grabDX;
+          var cy=(pY+window.scrollY)-stackPageTop-grabDY;
+          cx=Math.max(-20,Math.min(stack.offsetWidth-cw+20,cx));
+          cy=Math.max(pos[0].y-20,Math.min(pos[pos.length-1].y+20,cy));
+          drag.el.style.left=cx+'px';drag.el.style.top=cy+'px';
+          // 挿入先 = カード中心に最も近いスロット
+          var bcx=cx+cw/2,bcy=cy+chh/2,best=0,bd=Infinity;
+          for(var k=0;k<pos.length;k++){
+            var dx=bcx-(pos[k].x+cw/2),dy=bcy-(pos[k].y+chh/2),d=dx*dx+dy*dy;
+            if(d<bd){bd=d;best=k;}
+          }
+          gsetSlot(best);
+          raf=requestAnimationFrame(gloop);
+        }
+        function gdrop(){
+          if(!drag)return;
+          cancelAnimationFrame(raf);raf=null;
+          edgeB.classList.remove('on');edgeT.classList.remove('on');
+          var el=drag.el;
+          el.style.transition='';           // left/top も .28s アニメに戻して外枠へ着地
+          el.style.left=pos[curSlot].x+'px';el.style.top=pos[curSlot].y+'px';
+          el.classList.remove('lift');
+          slotEl.style.opacity=0;
+          drag=null;
+          var finalSlots=slots.slice();
+          var order=finalSlots.map(function(ci){return cards[ci].getAttribute('href').split('/').pop();});
+          fetch('/reorder',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({order:order})})
+            .then(function(r){if(!r.ok)location.reload();}).catch(function(){location.reload();});
+          setTimeout(function(){
+            if(drag)return;
+            finalSlots.forEach(function(ci){stack.appendChild(cards[ci]);});
+            cards=[].slice.call(stack.querySelectorAll('a.vcard'));
+            cards.forEach(function(c2){c2.style.left='';c2.style.top='';c2.style.width='';c2.style.zIndex='';c2.style.transition='';c2.classList.remove('lift');});
+            stack.classList.remove('gfreeze');stack.style.height='';
+            document.documentElement.style.overflowAnchor='';
+            suppress=false;
+          },320);
+        }
         function cancelHold(){if(holdTimer){clearTimeout(holdTimer);holdTimer=null;}}
         var sx=0,sy=0;
         stack.addEventListener('pointerdown',function(e){
           var card=e.target.closest&&e.target.closest('a.vcard');if(!card)return;
           sx=e.clientX;sy=e.clientY;pX=sx;pY=sy;
-          holdTimer=setTimeout(function(){start(card,sx,sy);},450);
+          var isGrid=getComputedStyle(stack).display==='grid';
+          if(isGrid&&e.pointerType==='mouse'){pendingCard=card;return;}   // マウスは8px動いたら開始（クリック温存）
+          holdTimer=setTimeout(function(){(isGrid?gstart:start)(card,sx,sy);},450);
         });
         document.addEventListener('pointermove',function(e){
           pX=e.clientX;pY=e.clientY;
           if(!drag&&holdTimer&&(Math.abs(pX-sx)>8||Math.abs(pY-sy)>8))cancelHold();
+          if(!drag&&pendingCard&&(Math.abs(pX-sx)>8||Math.abs(pY-sy)>8)){
+            var c2=pendingCard;pendingCard=null;gstart(c2,pX,pY);
+          }
         });
         ['pointerup','pointercancel'].forEach(function(ev){
-          document.addEventListener(ev,function(){cancelHold();drop();});
+          document.addEventListener(ev,function(){cancelHold();pendingCard=null;if(drag&&drag.grid)gdrop();else drop();});
         });
         stack.addEventListener('click',function(e){if(suppress){e.preventDefault();e.stopPropagation();}},true);
         stack.addEventListener('dragstart',function(e){e.preventDefault();});
@@ -1355,6 +1453,11 @@ const WSTYLE = `<style>
   .scrolledge.top{top:0;background:linear-gradient(0deg,transparent,rgba(46,125,107,.20))}
   .scrolledge.on{opacity:1}
   .rhint{text-align:center;font-size:11px;color:var(--muted);margin-top:10px}
+  .rh-pc{display:none}
+  @media(min-width:720px){.rh-touch{display:none}.rh-pc{display:inline}}
+  #wstack.gfreeze{position:relative}
+  #wstack.gfreeze a.vcard{position:absolute;margin:0!important;transition:left .28s ease,top .28s ease,transform .28s ease,filter .28s ease;will-change:left,top}
+  #wstack .dropslot{position:absolute;border:2px dashed #7FB3A5;border-radius:16px;background:rgba(46,125,107,.06);opacity:0;transition:left .28s ease,top .28s ease,opacity .2s;pointer-events:none}
   .wstack .vcard:not(:first-child){margin-top:-96px}
   @media(min-width:720px){.wstack{max-width:880px;display:grid;grid-template-columns:repeat(2,minmax(0,420px));gap:18px;justify-content:center}.wstack .vcard:not(:first-child){margin-top:0}}
   .ghost-card{border:2px dashed #C4D6D0;border-radius:22px;aspect-ratio:1.586;display:grid;place-items:center;color:var(--muted);font-size:13px;text-align:center;max-width:420px;margin:0 auto;line-height:1.8}
