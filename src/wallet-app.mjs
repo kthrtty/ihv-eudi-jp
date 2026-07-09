@@ -1149,15 +1149,19 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
         var edgeT=document.createElement('div');edgeT.className='scrolledge top';document.body.appendChild(edgeT);
         function zFor(slot){return 10+slot;}
         function freeze(){
-          // 現在の見た目の座標をそのまま absolute に写す（レイアウトジャンプさせない）
-          tops=cards.map(function(el){return el.offsetTop;});
-          slice=cards.length>1?tops[1]-tops[0]:el0h();
+          // 現在の見た目の座標をそのまま absolute に写す（レイアウトジャンプさせない）。
+          // スロット割当は DOM 順でなく実座標から導出する（並び替え後の再ドラッグでも安全）
+          var measured=cards.map(function(el,i){return {i:i,top:el.offsetTop};})
+            .sort(function(a,b){return a.top-b.top;});
+          tops=measured.map(function(m){return m.top;});
+          slots=measured.map(function(m){return m.i;});   // slots[slot] = カード index
+          slice=cards.length>1?tops[1]-tops[0]:cards[0].offsetHeight;
+          if(slice<=0)return false;                        // 2カラム格子等では凍結しない
           stack.classList.add('freeze');
           stack.style.height=(tops[tops.length-1]+cards[0].offsetHeight)+'px';
-          cards.forEach(function(el,i){el.style.top=tops[i]+'px';el.style.zIndex=zFor(i);});
-          slots=cards.map(function(_,i){return i;});
+          slots.forEach(function(ci,slot){cards[ci].style.top=tops[slot]+'px';cards[ci].style.zIndex=zFor(slot);});
+          return true;
         }
-        function el0h(){return cards[0].offsetHeight;}
         function setSlot(target){
           if(target===curSlot)return;
           var dir=target>curSlot?1:-1;
@@ -1172,11 +1176,10 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
           slots[curSlot]=drag.idx;
         }
         function start(card,x,y){
-          // 2カラム格子（PC幅）はスタック重なりが無く slice が定義できないため対象外
-          if(cards.length>1&&cards[1].offsetTop<=cards[0].offsetTop)return;
-          suppress=true;freeze();
+          if(!freeze())return;                             // 2カラム格子等は対象外
+          suppress=true;
           var idx=cards.indexOf(card);
-          drag={el:card,idx:idx};curSlot=idx;
+          drag={el:card,idx:idx};curSlot=slots.indexOf(idx);
           grabDY=(y+window.scrollY)-stack.offsetTop-tops[idx];
           card.classList.add('lift');card.style.zIndex=99;card.style.transition='transform .28s ease,filter .28s ease';
           if(navigator.vibrate)navigator.vibrate(15);
@@ -1209,10 +1212,21 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
           el.style.top=tops[curSlot]+'px';
           el.classList.remove('lift');el.style.zIndex=zFor(curSlot);
           drag=null;
-          var order=slots.map(function(ci){return cards[ci].getAttribute('href').split('/').pop();});
+          var finalSlots=slots.slice();
+          var order=finalSlots.map(function(ci){return cards[ci].getAttribute('href').split('/').pop();});
           fetch('/reorder',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({order:order})})
             .then(function(r){if(!r.ok)location.reload();}).catch(function(){location.reload();});
-          setTimeout(function(){suppress=false;},60);
+          // 着地アニメ後: DOM を新順序に並べ直して凍結解除 —— フロー配置＝凍結時の座標と
+          // 同一なので見た目は変わらず、次のドラッグは常に素の状態から始まる
+          //（凍結が残ると再ドラッグ時の前提が崩れ、隙間残留・ドラッグ不能になる）
+          setTimeout(function(){
+            if(drag)return;                  // 既に次のドラッグ中なら触らない
+            finalSlots.forEach(function(ci){stack.appendChild(cards[ci]);});
+            cards=[].slice.call(stack.querySelectorAll('a.vcard'));
+            cards.forEach(function(c2){c2.style.top='';c2.style.zIndex='';c2.style.transition='';c2.classList.remove('lift');});
+            stack.classList.remove('freeze');stack.style.height='';
+            suppress=false;
+          },320);
         }
         function cancelHold(){if(holdTimer){clearTimeout(holdTimer);holdTimer=null;}}
         var sx=0,sy=0;
