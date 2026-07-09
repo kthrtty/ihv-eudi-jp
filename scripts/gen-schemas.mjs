@@ -42,6 +42,7 @@ const pid = {
     c('portrait', 'jpeg/bstr', { ja: '顔写真', en: 'Portrait' }, { ns: PID_NS, note: 'mdoc: bstr(JPEG); sd-jwt: base64url string' }),
     // PID metadata + derived
     c('age_over_18', 'bool', { ja: '18歳以上', en: 'Age over 18' }, { ns: PID_NS, note: 'derived; lets verifier age-check without birth_date' }),
+    c('age_over_20', 'bool', { ja: '20歳以上', en: 'Age over 20' }, { ns: PID_NS, note: 'derived; lets verifier age-check without birth_date' }),
     c('document_number', 'string', { ja: '証明書番号', en: 'Document number' }, { ns: PID_NS, optional: true }),
     c('issuing_country', 'string', { ja: '発行国', en: 'Issuing country' }, { ns: PID_NS, sd: false }),
     c('issuing_authority', 'string', { ja: '発行者', en: 'Issuing authority' }, { ns: PID_NS, sd: false }),
@@ -71,6 +72,7 @@ const juminhyo = {
     c('municipality', 'string', { ja: '市区町村', en: 'Municipality' }, { ns: JU_NS }),
     c('head_of_household_name', 'string', { ja: '世帯主氏名', en: 'Head of household' }, { ns: JU_NS }),
     c('relationship_to_head', 'string', { ja: '続柄', en: 'Relationship to head' }, { ns: JU_NS }),
+    c('household_members', 'array', { ja: '世帯員（続柄付き）', en: 'Household members' }, { ns: JU_NS, optional: true, sensitive: true }),
     c('date_of_moving_in', 'full-date', { ja: '住定日', en: 'Date of moving in' }, { ns: JU_NS }),
     c('previous_address', 'string', { ja: '前住所', en: 'Previous address' }, { ns: JU_NS, optional: true }),
     c('domicile', 'string', { ja: '本籍', en: 'Registered domicile' }, { ns: JU_NS, optional: true, sensitive: true }),
