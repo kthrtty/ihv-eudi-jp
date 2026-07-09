@@ -19,7 +19,7 @@
 | `handover` | golden + property | Annex C/D の SessionTranscript バイト固定、HPKE seal→open 往復、改ざん/誤info で復号失敗、origin欠落でabort、tag(64)/tag(259) 不使用 |
 | `mdoc`(発行/検証) | 発行→検証 + 否定 | PID 発行が検証通過・claims 往復、要素改ざんで digest 不一致、IACA不一致、docType不一致、有効期限切れ |
 | `sdjwt`(発行/検証) | 発行→検証 + 否定 | 発行が検証通過、**選択的開示**で開示分のみ復元、disclosure 改ざん拒否、CA不一致、KB-JWT で nonce/aud/sd_hash 束縛 |
-| `issuer`(カタログ) | マイルストーン | **全6構成(クレデンシャル×形式)が mint→verify 通過**、基本四情報+portrait、国家資格=医師/厚労省、claim 上書き |
+| `issuer`(カタログ) | マイルストーン | **全6構成(クレデンシャル×形式)が mint→verify 通過**、基本四情報+portrait、国家資格=医師/デモ厚労省、claim 上書き |
 | `oid4vci`(HTTP) | フルフロー + 否定 | offer→token(pre-auth)→nonce→proof→credential の往復で発行・検証、holder binding(mdoc deviceKey / sdjwt cnf)、access token 無し401、c_nonce/aud 不正、pre-auth/c_nonce の単回使用 |
 | `ihv`(I→H→V) | **背骨の往復** | 発行(OID4VCI)→wallet 保管→提示(mdoc DeviceResponse/SD-JWT+KB)→検証 を PID/国家資格で。選択的開示(出した属性のみ復元)、mdoc デバイス署名/SD-JWT KB-JWT の nonce 束縛、別 nonce でリプレイ拒否 |
 | `wallet` | クライアント | OID4VCI 受領・保管・提示振分け・`respond()`(DCQL→JWE応答) |

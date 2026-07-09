@@ -7,8 +7,8 @@
   },
   "issuer_ref": "vaccine",
   "authority": {
-    "ja": "デモ市区町村 (厚生労働省)",
-    "en": "Demo Municipality (MHLW)"
+    "ja": "デモ市区町村 (デモ厚労省)",
+    "en": "Demo Municipality (Demo MHLW)"
   },
   "formats": {
     "mso_mdoc": {

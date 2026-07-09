@@ -48,7 +48,7 @@ const SAMPLE = {
     // 実JPEG（バンドル済みイラスト・山田太郎の既定）。persona ログイン時は
     // personaOverrides が本人の portrait（base64url）で上書きする
     portrait: new Uint8Array(Buffer.from(portraits.u_001, 'base64url')), age_over_18: true,
-    document_number: 'PID-0001', issuing_country: 'JP', issuing_authority: 'デジタル庁',
+    document_number: 'PID-0001', issuing_country: 'JP', issuing_authority: 'デモデジ庁',
     issuance_date: '2026-01-01', expiry_date: '2031-01-01',
   },
   juminhyo: {
@@ -69,7 +69,7 @@ const SAMPLE = {
     holder_family_name: '山田', holder_given_name: '太郎', holder_birth_date: '1990-01-15',
     qualification_name: '医師', qualification_category: '国家資格(業務独占)',
     registration_number: '第123456号', registration_date: '2016-04-01',
-    competent_authority: '厚生労働省', valid_from: '2016-04-01', valid_until: null, status: '有効',
+    competent_authority: 'デモ厚労省', valid_from: '2016-04-01', valid_until: null, status: '有効',
   },
   koseki: {
     honseki: '東京都千代田区千代田1番', head_of_family: '山田 太郎', family_name: '山田', given_name: '太郎',

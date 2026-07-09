@@ -89,7 +89,7 @@ mdoc の場合は `claims[].path = ["jp.go.pid.1", "<element>"]`、`intent_to_re
 `test/verifier.test.mjs` で往復検証済み:
 
 - **A. PID 単発**: mdoc / SD-JWT 双方。DCQL で要求属性のみ開示、JWE(ECDH-ES+A128GCM)で暗号化応答
-- **B. EAA 単発**: 国家資格(mdoc)。医師/厚労省 を検証
+- **B. EAA 単発**: 国家資格(mdoc)。医師/デモ厚労省 を検証
 - **C. PID→EAA 連続（セッションリンク）**: round1=PID, round2=EAA を `linkTo` で連結し、
   **同一保持者鍵**であることを検証（mdoc=MSO deviceKey / SD-JWT=cnf）。別ウォレット(別鍵)は拒否
 
