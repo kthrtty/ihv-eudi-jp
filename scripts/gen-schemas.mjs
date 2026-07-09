@@ -94,7 +94,7 @@ const qualification = {
     mso_mdoc: { doctype: QU_NS, namespace: QU_NS },
     'dc+sd-jwt': { vct: 'urn:jp:national-qualification:1' },
   },
-  example: { qualification_name: '医師', competent_authority: '厚生労働省' },
+  example: { qualification_name: '医師', competent_authority: 'デモ厚労省' },
   claims: [
     c('holder_family_name', 'string', { ja: '姓', en: 'Holder family name' }, { ns: QU_NS }),
     c('holder_given_name', 'string', { ja: '名', en: 'Holder given name' }, { ns: QU_NS }),
@@ -103,7 +103,7 @@ const qualification = {
     c('qualification_category', 'string', { ja: '資格区分', en: 'Qualification category' }, { ns: QU_NS }),
     c('registration_number', 'string', { ja: '登録番号', en: 'Registration number' }, { ns: QU_NS }),
     c('registration_date', 'full-date', { ja: '登録年月日', en: 'Registration date' }, { ns: QU_NS }),
-    c('competent_authority', 'string', { ja: '所管庁', en: 'Competent authority' }, { ns: QU_NS, sd: false, note: 'e.g. 厚生労働省' }),
+    c('competent_authority', 'string', { ja: '所管庁', en: 'Competent authority' }, { ns: QU_NS, sd: false, note: 'e.g. デモ厚労省' }),
     c('valid_from', 'full-date', { ja: '有効期間開始', en: 'Valid from' }, { ns: QU_NS, optional: true }),
     c('valid_until', 'full-date', { ja: '有効期限', en: 'Valid until' }, { ns: QU_NS, optional: true, note: 'null = lifetime' }),
     c('status', 'string', { ja: '状態', en: 'Status' }, { ns: QU_NS, sd: false, note: '有効/停止/取消 — or status list' }),
@@ -115,7 +115,7 @@ const KO_NS = 'jp.go.koseki.1';
 const koseki = {
   id: 'koseki', category: 'EAA',
   display: { ja: '戸籍謄本', en: 'Family Register (Koseki)' },
-  issuer_ref: 'koseki', authority: { ja: 'デモ市区町村 (法務省)', en: 'Demo Municipality (MOJ)' },
+  issuer_ref: 'koseki', authority: { ja: 'デモ市区町村 (デモ法務省)', en: 'Demo Municipality (Demo MOJ)' },
   formats: { mso_mdoc: { doctype: KO_NS, namespace: KO_NS }, 'dc+sd-jwt': { vct: 'urn:jp:koseki:1' } },
   basic_four: [],
   claims: [
@@ -210,7 +210,7 @@ const VC_NS = 'jp.go.vaccine.1';
 const vaccine = {
   id: 'vaccine', category: 'EAA',
   display: { ja: 'ワクチン接種証明書', en: 'Vaccination Certificate' },
-  issuer_ref: 'vaccine', authority: { ja: 'デモ市区町村 (厚生労働省)', en: 'Demo Municipality (MHLW)' },
+  issuer_ref: 'vaccine', authority: { ja: 'デモ市区町村 (デモ厚労省)', en: 'Demo Municipality (Demo MHLW)' },
   formats: { mso_mdoc: { doctype: VC_NS, namespace: VC_NS }, 'dc+sd-jwt': { vct: 'urn:jp:vaccine:1' } },
   basic_four: [],
   claims: [

@@ -21,7 +21,7 @@
   },
   "example": {
     "qualification_name": "医師",
-    "competent_authority": "厚生労働省"
+    "competent_authority": "デモ厚労省"
   },
   "claims": [
     {
@@ -192,7 +192,7 @@
           "competent_authority"
         ]
       },
-      "note": "e.g. 厚生労働省"
+      "note": "e.g. デモ厚労省"
     },
     {
       "key": "valid_from",

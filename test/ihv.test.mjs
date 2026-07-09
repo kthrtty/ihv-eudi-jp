@@ -93,5 +93,5 @@ test('I→H→V: EAA 国家資格 mdoc — full slice', async () => {
   const r = verifyDeviceResponse(dr, { trustedIacaDer: iacaDer, sessionTranscript: st, expectedDocType: docType });
   assert.equal(r.valid, true, r.errors?.join(';'));
   assert.equal(r.claims.qualification_name, '医師');
-  assert.equal(r.claims.competent_authority, '厚生労働省');
+  assert.equal(r.claims.competent_authority, 'デモ厚労省');
 });

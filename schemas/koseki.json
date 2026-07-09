@@ -7,8 +7,8 @@
   },
   "issuer_ref": "koseki",
   "authority": {
-    "ja": "デモ市区町村 (法務省)",
-    "en": "Demo Municipality (MOJ)"
+    "ja": "デモ市区町村 (デモ法務省)",
+    "en": "Demo Municipality (Demo MOJ)"
   },
   "formats": {
     "mso_mdoc": {

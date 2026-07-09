@@ -44,7 +44,7 @@ test('issuer: 国家資格 carries qualification_name 医師 (mdoc)', async () =
   const { credential } = await mint('qualification_mdoc', { holderJwk: holderJwk() });
   const r = await verify('qualification_mdoc', credential);
   assert.equal(r.claims.qualification_name, '医師');
-  assert.equal(r.claims.competent_authority, '厚生労働省');
+  assert.equal(r.claims.competent_authority, 'デモ厚労省');
 });
 
 test('issuer: custom claim override works', async () => {
