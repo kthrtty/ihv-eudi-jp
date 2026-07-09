@@ -1144,7 +1144,7 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
         var cards=[].slice.call(stack.querySelectorAll('a.vcard'));
         if(cards.length<2)return;
         var holdTimer=null,drag=null,suppress=false;
-        var tops=[],slots=[],curSlot=0,slice=0,grabDY=0,pY=0,pX=0,raf=null;
+        var tops=[],slots=[],curSlot=0,slice=0,grabDY=0,pY=0,pX=0,raf=null,armed=false;
         var edgeB=document.createElement('div');edgeB.className='scrolledge bottom';document.body.appendChild(edgeB);
         var edgeT=document.createElement('div');edgeT.className='scrolledge top';document.body.appendChild(edgeT);
         function zFor(slot){return 10+slot;}
@@ -1162,10 +1162,14 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
             .sort(function(a,b){return a.top-b.top;});
           tops=measured.map(function(m){return m.top;});
           slots=measured.map(function(m){return m.i;});   // slots[slot] = カード index
-          slice=cards.length>1?tops[1]-tops[0]:cards[0].offsetHeight;
+          var cardH=cards[0].offsetHeight;                 // クラス適用前に読む（後述の順序が重要）
+          slice=cards.length>1?tops[1]-tops[0]:cardH;
           if(slice<=0)return false;                        // 2カラム格子等では凍結しない
+          // 順序が生命線: 明示 height を先に固定してから absolute 化する。
+          // 逆順だと「子が absolute・stack 高さ auto」の瞬間に強制レイアウトが走って
+          // stack が高さ0に潰れ、ページ縮小でブラウザが scrollY をクランプ（=画面が跳ぶ）
+          stack.style.height=(tops[tops.length-1]+cardH)+'px';
           stack.classList.add('freeze');
-          stack.style.height=(tops[tops.length-1]+cards[0].offsetHeight)+'px';
           slots.forEach(function(ci,slot){cards[ci].style.top=tops[slot]+'px';cards[ci].style.zIndex=zFor(slot);});
           return true;
         }
@@ -1187,6 +1191,10 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
           suppress=true;
           var idx=cards.indexOf(card);
           drag={el:card,idx:idx};curSlot=slots.indexOf(idx);
+          armed=false;  // エッジスクロールは「指が動き始めてから」有効化（下端で掴んだ瞬間の誤発火防止）
+          // freeze の absolute 置換をブラウザの scroll anchoring が「内容変化」と誤認して
+          // スクロール位置を勝手に補正することがある（実機で最後尾カード掴み時に顕在化）
+          document.documentElement.style.overflowAnchor='none';
           grabDY=(y+window.scrollY)-stackPageTop-tops[curSlot];
           card.classList.add('lift');card.style.zIndex=99;card.style.transition='transform .28s ease,filter .28s ease';
           if(navigator.vibrate)navigator.vibrate(15);
@@ -1194,9 +1202,11 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
         }
         function loop(){
           if(!drag)return;
-          // エッジ・オートスクロール（下端/上端 120px）
+          // エッジ・オートスクロール（下端/上端 120px）。掴んだ位置がそもそも端の場合に
+          // 静止したまま発火すると「画面が勝手に動く」ため、指が 16px 以上動いてから有効化
+          if(!armed&&Math.abs(pY-sy)+Math.abs(pX-sx)>16)armed=true;
           var vh=window.innerHeight,step=0;
-          if(pY>vh-120)step=10; else if(pY<130&&window.scrollY>0)step=-10;
+          if(armed){ if(pY>vh-120)step=10; else if(pY<130&&window.scrollY>0)step=-10; }
           edgeB.classList.toggle('on',step>0);edgeT.classList.toggle('on',step<0);
           if(step)window.scrollBy(0,step);
           // 掴んだカードは指に追従（content 座標）
@@ -1232,6 +1242,7 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
             cards=[].slice.call(stack.querySelectorAll('a.vcard'));
             cards.forEach(function(c2){c2.style.top='';c2.style.zIndex='';c2.style.transition='';c2.classList.remove('lift');});
             stack.classList.remove('freeze');stack.style.height='';
+            document.documentElement.style.overflowAnchor='';
             suppress=false;
           },320);
         }
