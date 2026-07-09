@@ -1148,10 +1148,17 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
         var edgeB=document.createElement('div');edgeB.className='scrolledge bottom';document.body.appendChild(edgeB);
         var edgeT=document.createElement('div');edgeT.className='scrolledge top';document.body.appendChild(edgeT);
         function zFor(slot){return 10+slot;}
+        var stackPageTop=0;
         function freeze(){
           // 現在の見た目の座標をそのまま absolute に写す（レイアウトジャンプさせない）。
-          // スロット割当は DOM 順でなく実座標から導出する（並び替え後の再ドラッグでも安全）
-          var measured=cards.map(function(el,i){return {i:i,top:el.offsetTop};})
+          // 測定は必ず「stack 基準」の getBoundingClientRect 差分で行う —— offsetTop は
+          // 最寄りの positioned 祖先基準のため、absolute(=stack基準) に写すと祖先内
+          // オフセット分だけ全カードが下へ平行移動するバグになる（実機で顕在化）
+          var srect=stack.getBoundingClientRect();
+          stackPageTop=srect.top+window.scrollY;
+          // offsetTop はレイアウト座標（hover の translateY 等 transform の影響を受けない）。
+          // stack と cards は同じ offsetParent（stack は static）なので差分が stack 相対値になる
+          var measured=cards.map(function(el,i){return {i:i,top:el.offsetTop-stack.offsetTop};})
             .sort(function(a,b){return a.top-b.top;});
           tops=measured.map(function(m){return m.top;});
           slots=measured.map(function(m){return m.i;});   // slots[slot] = カード index
@@ -1180,7 +1187,7 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
           suppress=true;
           var idx=cards.indexOf(card);
           drag={el:card,idx:idx};curSlot=slots.indexOf(idx);
-          grabDY=(y+window.scrollY)-stack.offsetTop-tops[idx];
+          grabDY=(y+window.scrollY)-stackPageTop-tops[curSlot];
           card.classList.add('lift');card.style.zIndex=99;card.style.transition='transform .28s ease,filter .28s ease';
           if(navigator.vibrate)navigator.vibrate(15);
           pX=x;pY=y;loop();
@@ -1193,7 +1200,7 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
           edgeB.classList.toggle('on',step>0);edgeT.classList.toggle('on',step<0);
           if(step)window.scrollBy(0,step);
           // 掴んだカードは指に追従（content 座標）
-          var cy=(pY+window.scrollY)-stack.offsetTop-grabDY;
+          var cy=(pY+window.scrollY)-stackPageTop-grabDY;
           var max=tops[tops.length-1];
           cy=Math.max(tops[0]-20,Math.min(max+20,cy));
           drag.el.style.top=cy+'px';
