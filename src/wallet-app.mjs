@@ -1475,7 +1475,7 @@ const WSTYLE = `<style>
   #wstack.gfreeze{position:relative}
   #wstack.gfreeze a.vcard{position:absolute;margin:0!important;transition:left .28s ease,top .28s ease,transform .28s ease,filter .28s ease;will-change:left,top}
   #wstack .dropslot{position:absolute;border:2px dashed #7FB3A5;border-radius:16px;background:rgba(46,125,107,.06);opacity:0;transition:left .28s ease,top .28s ease,opacity .2s;pointer-events:none}
-  .wstack .vcard:not(:first-child){margin-top:-96px}
+  .wstack .vcard:not(:first-child){margin-top:-120px} /* 重なりを増やし密に。可視帯は状態チップ(top:44px・下端~68px)を割らない */
   @media(min-width:720px){.wstack{max-width:880px;display:grid;grid-template-columns:repeat(2,minmax(0,420px));gap:18px;justify-content:center}.wstack .vcard:not(:first-child){margin-top:0}}
   .ghost-card{border:2px dashed #C4D6D0;border-radius:22px;aspect-ratio:1.586;display:grid;place-items:center;color:var(--muted);font-size:13px;text-align:center;max-width:420px;margin:0 auto;line-height:1.8}
   .wfoot{text-align:center;margin-top:22px;font-size:12px}
