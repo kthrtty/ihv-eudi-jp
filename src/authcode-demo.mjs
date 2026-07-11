@@ -929,8 +929,10 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       .railcol{display:none}
       @media(min-width:820px){
         .catwrap{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:20px;align-items:start}
-        .railcol{display:block}
-        .rail{position:sticky;top:16px;background:#F7F9FC;border:1px solid var(--line);border-radius:16px;padding:16px}
+        /* レールは列内で縦中央寄せ＝左の長い一覧に対して上下の余白を均し、左右の高さ
+           バランスを取る。ビューポートより高い場合のみ上寄せに戻す（見切れ回避） */
+        .railcol{display:block;align-self:center}
+        .rail{background:#F7F9FC;border:1px solid var(--line);border-radius:16px;padding:16px}
         .rail-h{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;color:var(--muted);margin-bottom:8px}
         .rail .pstack{margin:2px 0}
         .rail-issue{width:100%;margin-top:12px}
