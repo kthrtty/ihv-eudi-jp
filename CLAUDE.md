@@ -154,6 +154,8 @@ devlog は `portrait|portrait_b64` をマスク。テスト `test/portrait.test.
   Cookie 無しなので不介入・Origin 無しのテストも素通し）／**R2 SSRF**=`makeSsrfSafeFetch(fetch, allowlist)`（wallet の
   `doFetch` をラップ。非 http(s) は常時遮断・許可リスト設定時はオリジン限定。env `SSRF_ALLOWED_ORIGINS`＝`deploy.mjs` が3オリジン
   自動導出。未設定＝許容＝評価テストの RP 任意オリジン fetch を温存、本番は toml プレースホルダで fail-closed）
+- **R6 削除済**: 無認証の `/users` 保守 API（list/get/**put**＝誰でも persona を読み書き＝発行元データ改ざん）を撤去。
+  編集は**セッション束縛の `/account` のみ**。プロセス内テスト/埋め込みは `createApp(...).svc`（IssuerService・HTTP 非公開）で読む
 - **セッション連動データ**: `/login`→access_token に userId→`credential()` が persona を mint。`/users` 保守が次回発行へ反映
 - **検証**: Annex C(HPKE) / Annex D(JWE) を `createRequest({protocol})` で選択ディスパッチ。`verifyResponse` が session.protocol で分岐。Annex C は mdoc専用
 - **検証者コンソール** `/demo/verify`(+/catalog /prepare /present): 16構成・mdoc/SD-JWT・項目選択(選択開示)・プロトコル・DCQL JSON・結果

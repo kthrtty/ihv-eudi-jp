@@ -88,18 +88,18 @@ test('portrait: /account アップロード（検証つき）とリセットが 
 
   // 非 JPEG（マジックバイト不一致）は無視され、既定イラストのまま
   await post({ portrait_b64: Buffer.from('not a jpeg').toString('base64url') });
-  let u = await (await app.request('/users/u_004')).json();
+  let u = await app.svc.getUser('u_004');
   assert.equal(u.portrait, portraits.u_004, 'invalid upload is ignored');
 
   // 正当な JPEG は保存され、アカウントページにも data URI で出る
   await post({ portrait_b64: portraits.u_001 });
-  u = await (await app.request('/users/u_004')).json();
+  u = await app.svc.getUser('u_004');
   assert.equal(u.portrait, portraits.u_001, 'valid upload stored');
   const page = await (await app.request('/account', { headers: { cookie: `sid=${sid}` } })).text();
   assert.match(page, /初期イラストに戻す/, 'reset button appears for a custom photo');
 
   // リセットで既定イラストへ
   await post({ portrait_reset: '1' });
-  u = await (await app.request('/users/u_004')).json();
+  u = await app.svc.getUser('u_004');
   assert.equal(u.portrait, portraits.u_004, 'reset returns to the bundled default');
 });
