@@ -2,6 +2,8 @@
 // headers, responses) for the issuer / verifier / web-wallet and renders them in a
 // togglable bottom drawer. Sensitive VALUES are partially masked server-side (head…
 // (len)…tail) so plaintext secrets never reach the browser; keys/structure stay.
+// Storage is DevTools-style: per-isolate memory ring on the server (always on),
+// accumulated into the browser tab's sessionStorage — no KV reads/writes at all.
 
 // ---- masking --------------------------------------------------------------------
 const SENSITIVE_KEY = /^(access_token|refresh_token|id_token|pre-authorized_code|code|code_verifier|tx_code|proof|proofs|jwt|response|vp_token|credential|encryption_info|enc|cipherText|portrait|portrait_b64)$/i;
@@ -93,9 +95,12 @@ export function grpOf(ep) {
   return 'OID4VCI';
 }
 
-/** Build a masked log entry from a raw exchange. */
+/** Build a masked log entry from a raw exchange. `id` はブラウザ側 sessionStorage
+ *  集積のマージキー（isolate を跨いだ二重表示を防ぐ）。 */
+let seq = 0;
 export function buildEntry({ dir, method, ep, status, grp, note, reqHeaders, reqBody, reqCT, resHeaders, resBody, resCT }) {
   return {
+    id: `${Date.now().toString(36)}-${(seq++).toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
     ts: new Date().toISOString(), dir, method, ep: maskEp(ep), status: status ?? null,
     grp: grp || grpOf(String(ep)), note: note || null,
     reqHeaders: maskHeaders(headerPairs(reqHeaders)),
@@ -105,39 +110,37 @@ export function buildEntry({ dir, method, ep, status, grp, note, reqHeaders, req
   };
 }
 
-// ---- storage (per-app global ring buffer) --------------------------------------
-// The issuer/verifier/wallet share ONE KV namespace, so the key MUST be namespaced
-// per app (`devlog:<appId>`) — otherwise one app's log shows another app's traffic.
-const MAX = 40, TTL = 60 * 60 * 24; // 1 day
-const logKey = (appId) => `devlog:${appId || 'app'}`;
-export async function pushLog(store, entry, appId) {
-  if (!store) return;
-  try {
-    const key = logKey(appId);
-    const list = (await store.get(key)) || [];
-    list.unshift(entry);
-    await store.set(key, list.slice(0, MAX), TTL);
-  } catch { /* best-effort */ }
+// ---- storage (per-app in-memory ring buffer) ------------------------------------
+// KV には永続化しない（ブラウザの DevTools と同じ思想）: サーバは isolate メモリの
+// リングに常時記録するだけ（=記録漏れも KV write もゼロ）。永続はブラウザ側 —
+// 各ページが /dev/log を取得して sessionStorage に集積する。isolate 再起動・跨ぎで
+// リング側が欠けても、集積済みの分はブラウザに残る（デモ用コンソールとして許容）。
+const MAX = 40;
+export function createLogRing() { return []; }
+export function pushLog(ring, entry) {
+  if (!ring) return;
+  ring.unshift(entry);
+  if (ring.length > MAX) ring.length = MAX;
 }
-export async function getLog(store, appId) { return (store ? (await store.get(logKey(appId))) : null) || []; }
+export function getLog(ring) { return ring || []; }
 
 // ---- capture: wallet outbound (wrap fetch) -------------------------------------
 /** Wrap a fetch so every OID4VCI/OID4VP call the wallet makes is logged (masked). */
-export function recordingFetch(baseFetch, store, appId = 'wallet') {
+export function recordingFetch(baseFetch, ring) {
   return async (url, opts = {}) => {
     const res = await baseFetch(url, opts);
     try {
       const u = new URL(typeof url === 'string' ? url : url.url, 'http://x');
       const r = res.clone();
       const resText = await r.text().catch(() => '');
-      await pushLog(store, buildEntry({
+      pushLog(ring, buildEntry({
         // outbound は宛先オリジン付きで記録（wallet→issuer / wallet→verifier を区別できるように）
         dir: 'out', method: (opts.method || 'GET').toUpperCase(),
         ep: (u.origin !== 'http://x' ? u.origin : '') + u.pathname + (u.search || ''),
         status: res.status, reqHeaders: opts.headers, reqBody: typeof opts.body === 'string' ? opts.body : null,
         reqCT: (headerPairs(opts.headers).find(([k]) => k.toLowerCase() === 'content-type') || [])[1],
         resHeaders: r.headers, resBody: resText, resCT: r.headers.get('content-type'),
-      }), appId);
+      }));
     } catch { /* never break the real call */ }
     return res;
   };
@@ -145,7 +148,7 @@ export function recordingFetch(baseFetch, store, appId = 'wallet') {
 
 // ---- capture: issuer/verifier inbound (Hono middleware) ------------------------
 /** Hono middleware: log inbound protocol requests + their responses (masked). */
-export function captureInbound(store, match, appId) {
+export function captureInbound(ring, match) {
   return async (c, next) => {
     const url = new URL(c.req.url);
     if (!match(url.pathname)) return next();
@@ -156,12 +159,10 @@ export function captureInbound(store, match, appId) {
     try {
       const r = c.res.clone();
       const resBody = await r.text().catch(() => '');
-      const entry = buildEntry({
+      pushLog(ring, buildEntry({
         dir: 'in', method: c.req.method, ep: url.pathname + (url.search || ''), status: c.res.status,
         reqHeaders, reqBody, reqCT, resHeaders: r.headers, resBody, resCT: r.headers.get('content-type'),
-      });
-      const p = pushLog(store, entry, appId);
-      if (c.executionCtx?.waitUntil) c.executionCtx.waitUntil(p); else await p;
+      }));
     } catch { /* best-effort */ }
   };
 }
@@ -336,11 +337,32 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
     }).join('')+'</div>';
     renderMini();
   }
-  function load(){
+  // サーバは isolate メモリのリング（揮発）なので、取得のたびにタブの sessionStorage
+  // へ集積する（DevTools と同じ「ページを見ている間の記録」）。id でマージ＝isolate
+  // 跨ぎ・再取得の二重表示を防ぐ。ページ表示時にも同期するので、コンソールを後から
+  // 開いても表示中に流れた通信は失われない。
+  var SKEY='ihv-devlog';
+  function readSaved(){try{return JSON.parse(sessionStorage.getItem(SKEY))||[];}catch(x){return [];}}
+  function writeSaved(list){
+    try{sessionStorage.setItem(SKEY,JSON.stringify(list));}
+    catch(x){try{sessionStorage.setItem(SKEY,JSON.stringify(list.slice(0,40)));}catch(y){}}
+  }
+  function merge(fresh){
+    var seen={},out=[];
+    (fresh||[]).concat(readSaved()).forEach(function(e){
+      var k=e.id||(e.ts+' '+e.ep);if(seen[k])return;seen[k]=1;out.push(e);
+    });
+    out.sort(function(a,b){return a.ts<b.ts?1:a.ts>b.ts?-1:0;});
+    out=out.slice(0,120);
+    writeSaved(out);
+    return out;
+  }
+  function sync(then){
     fetch(ORIGIN+'/dev/log',{credentials:'include'}).then(function(r){return r.json();}).then(function(d){
-      state.entries=d.entries||[];render();
+      state.entries=merge(d.entries);if(then)then();
     }).catch(function(){});
   }
+  function load(){sync(render);}
   function renderEps(d){
     var el=document.getElementById('devEps');if(!el)return;
     var eps=(d&&d.endpoints)||[];
@@ -398,7 +420,7 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
       '<span class="mb-hint" title="クリックで展開">▴</span>'+
       '<button type="button" class="mb-x" onclick="event.stopPropagation();window.__dev.close()">×</button>';
   }
-  function startPoll(){if(size.poll)return;size.poll=setInterval(function(){if(!drawer().hidden&&size.mode==='mini')load();},8000);}
+  function startPoll(){if(size.poll)return;size.poll=setInterval(function(){if(!document.hidden&&!drawer().hidden&&size.mode==='mini')load();},8000);}
   function stopPoll(){if(size.poll){clearInterval(size.poll);size.poll=null;}}
   window.__dev={
     open:function(){localStorage.setItem('ihv-dev','1');drawer().hidden=false;setIcon(true);applySize();load();},
@@ -416,7 +438,7 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
     // The icon itself opens/closes the console; inverted icon = open. Persisted.
     var t=document.getElementById('devToggle');
     if(t)t.onclick=function(){ document.getElementById('devDrawer').hidden ? window.__dev.open() : window.__dev.close(); };
-    if(localStorage.getItem('ihv-dev')==='1')window.__dev.open(); else setIcon(false);
+    if(localStorage.getItem('ihv-dev')==='1')window.__dev.open(); else {setIcon(false);sync();}
     // height presets（▁ミニ/◱小/◧半分/⬒最大）
     document.querySelectorAll('#devSize button').forEach(function(b){b.onclick=function(){
       b.dataset.h==='mini'?setMode('mini'):setH(parseFloat(b.dataset.h));

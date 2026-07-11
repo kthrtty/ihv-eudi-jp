@@ -14,7 +14,7 @@ import { shell, pkce, typeIcon, typeName, vcardHtml, walletCardCss, WALLET_CARD_
 import { catalog, configInfo } from './issuer.mjs';
 import { verifyStatus } from './status.mjs';
 import { storedCredRepr } from './vpdebug.mjs';
-import { recordingFetch, getLog } from './devlog.mjs';
+import { recordingFetch, getLog, createLogRing } from './devlog.mjs';
 
 // type prefix of a configId (pid_mdoc -> pid) for the issuer-matched icon
 const credType = (configId) => String(configId || '').replace(/_(mdoc|sdjwt)$/, '');
@@ -107,10 +107,12 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
   const SESSION_TTL = 60 * 60 * 24 * 30; // 30 days — wallet contents persist long-term
 
   // Use Service Binding-aware fetch when available (Workers production/dev),
-  // fall back to global fetch() in local Node.js server and unit tests. When a store
-  // is present, wrap it so the developer console can show every OID4VCI/OID4VP call.
+  // fall back to global fetch() in local Node.js server and unit tests. Always wrap
+  // it so the developer console can show every OID4VCI/OID4VP call — the log is an
+  // isolate-memory ring (no KV), so recording costs nothing.
   const baseFetch = boundFetch ?? fetch;
-  const doFetch = store ? recordingFetch(baseFetch, store, 'wallet') : baseFetch;
+  const devlog = createLogRing();
+  const doFetch = recordingFetch(baseFetch, devlog);
 
   // Persistent wallet cookie so the session (and its VCs) survives browser restarts.
   // SameSite=Lax (NOT None): the OID4VP redirect into /present is a cross-site
@@ -193,16 +195,23 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     return Number.isFinite(v) && v >= 0 ? v : DEFAULT_STATUS_TTL_SEC;
   };
   const memStl = new Map(); // store なしローカル実行時のフォールバック
-  const fetchStatusList = async (uri, ttlSec, { force = false } = {}) => {
+  const stlInflight = new Map(); // uri -> 取得中 Promise。ホームは全カードの credStatus を
+  // 並行実行するので、相乗りしないとキャッシュミス時にカード枚数ぶん fetch+KV write が走る
+  const fetchStatusList = (uri, ttlSec, { force = false } = {}) => {
     const key = `wstl:${uri}`;
-    const now = Date.now();
-    const hit = (await store?.get(key)) ?? memStl.get(key);
-    if (!force && hit && ttlSec > 0 && now - hit.at < ttlSec * 1000) return hit;
-    const token = await (await doFetch(uri)).text();
-    const rec = { token, at: now };
-    memStl.set(key, rec);
-    await store?.set(key, rec, 86400); // 物理TTLは長め・鮮度判定は at + 設定TTL で行う
-    return rec;
+    if (stlInflight.has(key)) return stlInflight.get(key);
+    const p = (async () => {
+      const now = Date.now();
+      const hit = (await store?.get(key)) ?? memStl.get(key);
+      if (!force && hit && ttlSec > 0 && now - hit.at < ttlSec * 1000) return hit;
+      const token = await (await doFetch(uri)).text();
+      const rec = { token, at: now };
+      memStl.set(key, rec);
+      await store?.set(key, rec, 86400); // 物理TTLは長め・鮮度判定は at + 設定TTL で行う
+      return rec;
+    })().finally(() => stlInflight.delete(key));
+    stlInflight.set(key, p);
+    return p;
   };
   const credStatus = async (s, credId, { force = false } = {}) => {
     try {
@@ -307,7 +316,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     return c.redirect('/settings?saved=1', 302);
   });
   // developer console: the OID4VCI/OID4VP calls this wallet made (masked, newest-first)
-  app.get('/dev/log', async (c) => c.json({ entries: await getLog(store, 'wallet') }));
+  app.get('/dev/log', (c) => c.json({ entries: getLog(devlog) }));
 
   // Reset (initialize) the wallet: drop all stored VCs and the device-bound key.
   app.post('/reset', async (c) => {

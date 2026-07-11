@@ -1059,3 +1059,32 @@ test('カード順序: 新規発行は既存の並びの一番上に入り、バ
     assert.match(receipt, /独身証明書/, 'receipt shows the newly received card, not an old one');
   } finally { await new Promise((r) => issuer.close(r)); }
 });
+
+// ---- KV 節約: ホームの全カード同時 credStatus は同一 Status List 取得に相乗りする ----
+// （回帰: キャッシュミス時にカード枚数ぶん fetch + 同一キーへの KV write が並走していた）
+test('web wallet home: concurrent status checks coalesce into one status-list fetch + one KV write', async () => {
+  const IP = 8905, WP = 8906;
+  const ISSUER = `http://127.0.0.1:${IP}`, WALLET = `http://127.0.0.1:${WP}`;
+  const issuer = serve({ fetch: createApp({ credentialIssuer: ISSUER }).fetch, port: IP });
+  try {
+    const base = fakeKvStore();
+    let stlWrites = 0;
+    const store = { ...base, set: async (k, v, t) => { if (k.startsWith('wstl:')) stlWrites++; return base.set(k, v, t); } };
+    const wallet = createWalletApp({ walletOrigin: WALLET, issuerUrl: ISSUER, store });
+    const made = await (await fetch(`${ISSUER}/offer`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc', 'juminhyo_mdoc', 'qualification_mdoc'] }),
+    })).json();
+    const add = await wallet.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${made.offer_id}`));
+    const { cookie } = await driveAdd(wallet, add);
+
+    // ホーム表示 = 3カードの credStatus が Promise.all で並行実行（全カード同一リスト・全て未キャッシュ）
+    const home = await wallet.request('/', { headers: { cookie } });
+    assert.equal(home.status, 200);
+
+    const { entries } = await (await wallet.request('/dev/log')).json();
+    const stlFetches = entries.filter((e) => e.dir === 'out' && /\/status-lists\//.test(e.ep));
+    assert.equal(stlFetches.length, 1, `status list fetched once, not per card (got ${stlFetches.length})`);
+    assert.equal(stlWrites, 1, `wstl: written once, not per card (got ${stlWrites})`);
+  } finally { await new Promise((r) => issuer.close(r)); }
+});

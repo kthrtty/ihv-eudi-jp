@@ -123,7 +123,7 @@ test('verifier /dev/log captures inbound OID4VP (request/response)', async () =>
 });
 
 // ---- URL 表示対応（フル URL 行）: maskEp + outbound オリジン記録 ----------------
-const { maskEp, recordingFetch, getLog } = await import('../src/devlog.mjs');
+const { maskEp, recordingFetch, getLog, pushLog, createLogRing } = await import('../src/devlog.mjs');
 
 test('maskEp: sensitive query VALUES are masked, others keep original encoding', () => {
   const m = maskEp('/oidc/cb?code=SplxlOBeZQQYbYS6WxSbIA&state=af0ifjsldkj');
@@ -146,12 +146,22 @@ test('maskEp: credential_offer by value — nested pre-authorized_code is deep-m
 });
 
 test('recordingFetch: outbound ep records the destination origin (+ query mask)', async () => {
-  const kv = new Map();
-  const store = { get: async (k) => kv.get(k), set: async (k, v) => kv.set(k, v) };
+  const ring = createLogRing();
   const fake = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
-  const f = recordingFetch(fake, store, 'wallet');
+  const f = recordingFetch(fake, ring);
   await f('https://issuer.example.test/token?code=SplxlOBeZQQYbYS6WxSbIA', { method: 'POST' });
-  const [e] = await getLog(store, 'wallet');
+  const [e] = getLog(ring);
   assert.match(e.ep, /^https:\/\/issuer\.example\.test\/token/); // オリジン付き
   assert.doesNotMatch(e.ep, /SplxlOBeZQQYbYS6WxSbIA/);           // クエリもマスク
+});
+
+// ---- KV 節約: 記録は isolate メモリのリング（KV 不使用）・ブラウザ集積用の id 付き --
+test('pushLog: in-memory ring caps at 40 and entries carry unique merge ids', () => {
+  const ring = createLogRing();
+  for (let i = 0; i < 45; i++) pushLog(ring, buildEntry({ dir: 'in', method: 'GET', ep: `/e/${i}`, status: 200 }));
+  assert.equal(getLog(ring).length, 40, 'ring capped at 40');
+  assert.equal(getLog(ring)[0].ep, '/e/44', 'newest first');
+  const ids = getLog(ring).map((e) => e.id);
+  assert.ok(ids.every(Boolean), 'every entry has an id');
+  assert.equal(new Set(ids).size, ids.length, 'ids are unique');
 });
