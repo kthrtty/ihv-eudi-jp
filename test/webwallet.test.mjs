@@ -404,10 +404,11 @@ test('web wallet developer console: OID4VCI calls are captured at /dev/log with 
 
     const { entries } = await (await wallet.request('/dev/log')).json();
     const eps = entries.map((e) => e.ep);
-    assert.ok(eps.some((e) => e.startsWith('/token')), 'logged /token');
-    assert.ok(eps.some((e) => e.startsWith('/credential')), 'logged /credential');
+    // outbound は宛先オリジン付きで記録される（wallet→issuer の区別のため）
+    assert.ok(eps.some((e) => e === `${ISSUER}/token`), 'logged /token (origin-prefixed)');
+    assert.ok(eps.some((e) => e.endsWith('/credential')), 'logged /credential');
 
-    const token = entries.find((e) => e.ep.startsWith('/token'));
+    const token = entries.find((e) => e.ep.endsWith('/token'));
     // request body: pre-authorized_code + tx_code are masked, grant_type is not
     assert.match(JSON.stringify(token.reqBody['pre-authorized_code']), /…|••••/);
     assert.match(JSON.stringify(token.reqBody.tx_code), /••••/);
@@ -416,7 +417,7 @@ test('web wallet developer console: OID4VCI calls are captured at /dev/log with 
     assert.match(String(token.resBody.access_token), /…|••••/);
     assert.ok(!/eyJ[\w-]{20,}/.test(JSON.stringify(token)), 'no full JWT leaks into the log');
 
-    const cred = entries.find((e) => e.ep.startsWith('/credential'));
+    const cred = entries.find((e) => e.ep.endsWith('/credential'));
     const authH = cred.reqHeaders.find((h) => h[0].toLowerCase() === 'authorization');
     assert.ok(authH && authH[2] === 1 && /Bearer /.test(authH[1]), 'Authorization header masked, Bearer kept');
   } finally {
