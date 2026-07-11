@@ -1077,10 +1077,8 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       <div class="whead"><h1>ウォレット</h1><span class="wn">${n} 枚</span>
         <details class="wmenu"><summary>⋯</summary>
           <div class="wpop">
-            <a href="/settings">⚙ 設定（Status List キャッシュ）</a>
-            <a href="/dev/holder-key">🔑 バインディング鍵を表示</a>
+            <a href="/settings">⚙ 設定</a>
             <a href="${esc(verifierUrl)}/verifier">✅ 検証者コンソールへ</a>
-            ${n ? `<button type="button" onclick="askReset()">⚠ ウォレットを初期化</button>` : ''}
           </div>
         </details></div>
       ${stackBody}
@@ -1128,7 +1126,6 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       </div>
     </div>
 
-    ${n ? RESET_CONFIRM : ''}
     ${WSTYLE}
     <script>
       function openSheet(id){document.getElementById(id).hidden=false;document.body.style.overflow='hidden'}
@@ -1372,8 +1369,6 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
         stack.addEventListener('contextmenu',function(e){e.preventDefault();});
         document.addEventListener('touchmove',function(e){if(drag)e.preventDefault();},{passive:false});
       })();
-      function askReset(){var d=document.getElementById('resetConfirm');if(d)d.hidden=false;}
-      function cancelReset(){var d=document.getElementById('resetConfirm');if(d)d.hidden=true;}
     </script>`, { ...WALLET, width: 'mid' });
 }
 
@@ -1652,6 +1647,7 @@ function receivingScreen(configIds, issuerBase) {
 
 // ウォレット設定画面: Status List キャッシュ時間（分）。キャッシュが有効な間は
 // 手元のリストで失効判定し、期限切れ/未取得/再確認時のみサーバーから取得する。
+// 末尾=ウォレットの管理（バインディング鍵の表示・初期化。ホームの⋯メニューから移設）
 function settingsPage(ttlSec, saved = false) {
   const min = Math.round(ttlSec / 60);
   return shell('設定', `
@@ -1672,7 +1668,20 @@ function settingsPage(ttlSec, saved = false) {
         </div>
         <button type="submit" class="btn">保存する</button>
       </form>
-    </div>${STYLE}`, WALLET);
+      <div style="margin-top:26px;border-top:1px solid var(--line);padding-top:16px">
+        <div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:10px">ウォレットの管理</div>
+        <a href="/dev/holder-key" style="display:block;font-size:13.5px;font-weight:700;color:#2E7D6B;text-decoration:none;padding:10px 0">🔑 バインディング鍵を表示 →</a>
+        <button type="button" onclick="askReset()"
+          style="display:block;font:inherit;font-size:13.5px;font-weight:700;color:#C8453C;background:none;border:none;padding:10px 0;cursor:pointer">⚠ ウォレットを初期化…</button>
+        <div class="hint" style="margin-top:2px">初期化は保管中のすべてのクレデンシャルとホルダーバインディング鍵を削除します。</div>
+      </div>
+    </div>
+    ${RESET_CONFIRM}
+    <script>
+      function askReset(){var d=document.getElementById('resetConfirm');if(d)d.hidden=false;}
+      function cancelReset(){var d=document.getElementById('resetConfirm');if(d)d.hidden=true;}
+    </script>
+    ${VC_MODAL_STYLE}${STYLE}`, WALLET);
 }
 
 function added(s, recs, grant) {
