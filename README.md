@@ -44,7 +44,7 @@ npm run coverage    # c8（対象 src/**）
 
 | ① クレデンシャルを選択して発行 | ② ウォレットへの受け渡し（QR とリンク） |
 |---|---|
-| ![発行者: PID と住民票を選択](docs/images/readme-issue-select.png) | ![受け渡しカード: QR / Web ウォレット / カスタムスキーマ / コピー](docs/images/readme-issue-handoff.png) |
+| ![発行者: PID と住民票の写しを選択](docs/images/readme-issue-select.png) | ![受け渡しカード: QR / Web ウォレット / カスタムスキーマ / コピー](docs/images/readme-issue-handoff.png) |
 
 | ③ Web ウォレットが受領（OID4VCI） | ④ 保管一覧（選択的開示のソースになる） |
 |---|---|
@@ -53,10 +53,10 @@ npm run coverage    # c8（対象 src/**）
 ### 検証 — Holder → Verifier（OID4VP + HAIP・ステップ型シナリオ）
 
 検証者は実在の手続きを模した **9 シナリオ**（8 種の文書を全て使用）を提供。代表例
-**「子どもの銀行口座開設」**では、Step1 で保護者の本人確認（PID）、Step2 で住民票（世帯全員・続柄記載）を
+**「子どもの銀行口座開設」**では、Step1 で保護者の本人確認（PID）、Step2 で住民票の写し（世帯全員・続柄記載）を
 `linkTo` 連鎖で提示し、**世帯員に「子」がいること＋2 回の提示が同一の保有者鍵で署名されたこと**を検証して受理します。
 
-| ① シナリオを選ぶ | ② ウォレットの同意画面（Step2: 住民票） |
+| ① シナリオを選ぶ | ② ウォレットの同意画面（Step2: 住民票の写し） |
 |---|---|
 | ![検証者: 9シナリオのランディング](docs/images/readme-verify-scenarios.png) | ![ウォレット: 提示先/利用目的/世帯全員開示の警告/送信プレビュー](docs/images/readme-verify-consent.png) |
 

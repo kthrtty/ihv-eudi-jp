@@ -159,7 +159,8 @@ devlog は `portrait|portrait_b64` をマスク。テスト `test/portrait.test.
 **フル URL 表示（2026-07-10）**: リクエスト節に URL 行（パス黒/クエリ紫・折り返し最大4行+内部縦スクロール・⧉コピー）+
 「クエリ (n)」分解フォールド（デコード済み値）。outbound は**宛先オリジン付き**で記録。クエリ値も `maskEp` でマスク
 （JSON 値渡し—credential_offer 等—は deep-mask で入れ子の pre-authorized_code も平文が出ない）。
-ボディの生バイト数（マスク前 UTF-8）を `reqBytes/resBytes` で記録し、行=レスポンスサイズ・詳細=↑/↓チップ表示（2026-07-11）
+ボディの生バイト数（マスク前 UTF-8）を `reqBytes/resBytes` で記録し、行=レスポンスサイズ・詳細=↑/↓チップ表示。
+折りたたみ行/ミニバーはオリジン省略（`shortEp`）・展開後のリクエスト節とコピーはフル URL（2026-07-11）
 - [~] M6 Android(Multipaz) 実機: **発行 done**（Pixel 10 + Multipaz で pre-auth mdoc 発行 E2E 成功）。残: DC API 提示（unsigned client_id→origin 適合含む）。
   Multipaz 固有要求2つ＝(1) AS metadata に `pushed_authorization_request_endpoint`(PAR/RFC 9126) が**文字列必須**（`asMetadata`+`POST /par`）、
   (2) Credential EP はトークンを **`DPoP` スキーム**で提示（`Bearer` 固定だと 401。両受理に修正、DPoP鍵バインド検証は未実装＝issue #4）

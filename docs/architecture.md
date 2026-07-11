@@ -25,7 +25,7 @@ DC API（同一端末）フロー: エミュレータ Chrome で Verifier ペー
 | id | 種別 | doctype / vct |
 |---|---|---|
 | pid | PID（写真付き・基本四情報＝氏名/住所/生年月日/性別＋顔写真） | `jp.go.pid.1` / `urn:jp:pid:1` |
-| juminhyo | EAA 住民票 | `jp.go.juminhyo.1` / `urn:jp:juminhyo:1` |
+| juminhyo | EAA 住民票の写し | `jp.go.juminhyo.1` / `urn:jp:juminhyo:1` |
 | qualification | EAA 国家資格 | `jp.go.qualification.1` / `urn:jp:national-qualification:1` |
 
 発行時に「クレデンシャル × 形式」の6構成から選択（`schemas/credential-catalog.json` の
