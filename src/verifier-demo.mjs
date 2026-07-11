@@ -2,7 +2,7 @@
 // can present, the format (mdoc / SD-JWT via the configId variant), the protocol
 // (Annex D OID4VP/JWE or Annex C org-iso-mdoc/HPKE), and which claims to request
 // (selective disclosure). Shows the actual request JSON, then the verified result.
-import { shell, typeIcon, renderClaimsModal, paginate, pagerHtml } from './authcode-demo.mjs';
+import { shell, typeIcon, typeNote, renderClaimsModal, paginate, pagerHtml } from './authcode-demo.mjs';
 import { allConfigIds, configInfo } from './issuer.mjs';
 
 // union ja-label map across every config (family_name -> 姓 …). Keys that repeat
@@ -84,10 +84,12 @@ export function renderVerifyConsole(groups = []) {
   const cfgCards = groups.map((g) => {
     const chips = g.formats.map((f) =>
       `<button type="button" class="vcs-chip" data-cfg="${f.configId}">${f.label}</button>`).join('');
+    const note = typeNote(g.type);
     return `<div class="vcs-card">
       <button type="button" class="vcinfo" title="含まれる項目を見る" onclick="event.stopPropagation();openClaims('${g.type}')">i</button>
       <div class="vcs-art">${typeIcon(g.type)}</div>
       <div class="vcs-name">${g.name}</div>
+      ${note ? `<div class="vcs-note">${escj(note)}</div>` : ''}
       <div class="vcs-chips">${chips}</div>
     </div>`;
   }).join('');
@@ -315,6 +317,7 @@ export function renderVerifyConsole(groups = []) {
       .vcs-card.sel::after{content:"";position:absolute;inset:0;border-radius:12px;box-shadow:0 0 0 2px var(--civic) inset;pointer-events:none}
       .vcs-art .vcicon{height:62px;width:auto;display:block;filter:drop-shadow(0 4px 10px rgba(14,26,43,.16))}
       .vcs-name{font-size:12.5px;font-weight:700;line-height:1.3}
+      .vcs-note{font-size:10px;color:#8A6D1F;line-height:1.45;margin-top:3px}
       .vcs-chips{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
       .vcs-chip{font:inherit;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--muted);cursor:pointer;transition:all .12s}
       .vcs-chip:hover{border-color:#aebbd3}

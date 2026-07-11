@@ -10,7 +10,7 @@ import { getCookie, setCookie } from 'hono/cookie';
 import { randomBytes, createHash } from 'node:crypto';
 import { createWallet } from './wallet.mjs';
 import { verify as verifyCredential } from './issuer.mjs';
-import { shell, pkce, typeIcon, typeName, vcardHtml, walletCardCss, WALLET_CARD_THEME } from './authcode-demo.mjs';
+import { shell, pkce, typeIcon, typeName, typeNote, vcardHtml, walletCardCss, WALLET_CARD_THEME } from './authcode-demo.mjs';
 import { catalog, configInfo } from './issuer.mjs';
 import { verifyStatus } from './status.mjs';
 import { storedCredRepr } from './vpdebug.mjs';
@@ -915,10 +915,12 @@ function credCard(c, { interactive = true } = {}) {
   const more = interactive
     ? `<div class="held-more">▤ すべての属性・生データ を表示${extra > 0 ? ` ＋${extra}項目` : ''} →</div>`
     : (extra > 0 ? `<div class="held-more static">ほか ${extra} 項目</div>` : '');
+  const note = typeNote(credType(c.configId));
   return `<div class="held${interactive ? '' : ' static'}"${open}>
     <div class="hd"><span class="hd-ic">${typeIcon(credType(c.configId))}</span>
       <span class="hd-t"><b>${esc(name)}</b><small>${esc(c.configId)}</small></span>
       <span class="fmt">${c.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT'}</span></div>
+    ${note ? `<div class="cred-note">${esc(note)}</div>` : ''}
     <table class="cl">${rows}</table>
     ${more}</div>`;
 }
@@ -942,6 +944,7 @@ function credModal(c, raw) {
     <div class="sheet">
       <div class="mh">${typeIcon(credType(c.configId))}<div class="mh-nm">${esc(name)}</div>
         <button type="button" class="mh-x" onclick="closeCred('${esc(c.id)}')" aria-label="閉じる">×</button></div>
+      ${typeNote(credType(c.configId)) ? `<div class="cred-note" style="margin:0 18px 4px">${esc(typeNote(credType(c.configId)))}</div>` : ''}
       <div class="seg">
         <button type="button" class="on" data-pan="attr">属性（全${entries.length}件）</button>
         <button type="button" data-pan="raw">生データ</button></div>
@@ -1391,6 +1394,7 @@ function credDetail(cr, raw, st, acts = []) {
     <div class="wstage">
       <div class="back"><a href="/">← ウォレット</a></div>
       ${vcardHtml(type, { title: typeName(type), sub: cr.configId, fmt: cr.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT', status: st?.checked ? (st.revoked ? '失効' : '有効') : '有効', revoked: !!st?.revoked })}
+      ${typeNote(type) ? `<div style="font-size:10.5px;color:#8A6D1F;line-height:1.5;margin:8px 2px 0">${esc(typeNote(type))}</div>` : ''}
       <div class="panel">
         <div class="ph">属性データ</div>
         <table class="attrs">${head.map(row).join('')}</table>
@@ -1821,6 +1825,7 @@ function offerForm(issuerBase) {
 
 const STYLE = `<style>
   .held{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-top:12px}
+  .cred-note{font-size:10.5px;color:#8A6D1F;line-height:1.5;margin:-2px 0 8px}
   .held .hd{display:flex;align-items:center;gap:11px;margin-bottom:6px}
   .held .hd-ic .vcicon{width:42px;height:auto;display:block}
   .held .hd-t{flex:1;min-width:0}
