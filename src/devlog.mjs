@@ -292,7 +292,7 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
 (function(){
   var ORIGIN=${JSON.stringify(origin)};
   var state={filter:'all',entries:[]};
-  function esc(s){return String(s).replace(/[&<>"]/g,function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m];});}
+  function esc(s){return String(s).replace(/[&<>"']/g,function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m];});}
   function code(v){return v==null?'':'<pre class="dev-code">'+esc(typeof v==='string'?v:JSON.stringify(v,null,2))+'</pre>';}
   function hdrs(rows){if(!rows||!rows.length)return '';return '<div class="dev-hdrs">'+rows.map(function(r){return '<div class="dev-hrow"><span class="dev-hk">'+esc(r[0])+'</span><span class="dev-hv'+(r[2]?' m':'')+'">'+(r[2]?'🔒 ':'')+esc(r[1])+'</span></div>';}).join('')+'</div>';}
   // リクエスト節のフル URL ブロック: パス黒/クエリ紫・コピー・「クエリ (n)」分解（デコード済み値）

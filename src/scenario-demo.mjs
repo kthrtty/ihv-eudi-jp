@@ -5,7 +5,7 @@ import { shell } from './authcode-demo.mjs';
 import { configInfo } from './issuer.mjs';
 import { claimVal } from './scenarios.mjs';
 
-const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 const label = (configId, key) => configInfo(configId).claimLabels?.[key] || key;
 // specs may carry format alternatives (configIds); UI labels use the first one —
 // claim labels cover both schema keys AND mdoc wire names, so they render
@@ -102,7 +102,7 @@ function stepActions(s, step, { txn1 = null, selftest = true } = {}) {
     ${step === 1 ? selfBtn : ''}
     <div id="msg"></div>
     <script>
-      const esc2 = (x) => String(x).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+      const esc2 = (x) => String(x).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
       const msg = (m) => document.getElementById('msg').innerHTML = '<div class="hint" style="color:#9E3A3A">' + esc2(m) + '</div>';
       async function build(target) {
         const d = await (await fetch('/vp/build', { method: 'POST', headers: { 'content-type': 'application/json' },
