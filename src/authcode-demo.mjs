@@ -571,64 +571,35 @@ export function groupCatalog(configs) {
   }));
 }
 
-/** Issuer portal top page: card tiles (multi-select type+format) + offer options
- *  + JSON-preview and issue buttons. Fully client-side against POST /offer. */
+/** Issuer portal top page: document-catalog rows (multi-select type+format) with a
+ *  fixed action bar + bottom-sheet "wallet card" preview whose stack tracks the
+ *  selection count. Offer options + JSON-preview + issue. Client-side vs POST /offer. */
 export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
-  // ID-1 (1.586) gradient cards — the SAME visual object the holder will see in
-  // the wallet after issuance (WALLET_CARD_THEME is shared), so I→H reads as
-  // "the card you mint here is the card that lands in the wallet".
-  const cards = groups.map((g) => {
-    const t = WALLET_CARD_THEME[g.type] || WALLET_CARD_THEME.pid;
+  // 書類カタログ行: 旧アイコン資産（typeIcon）＋2段組（名前は全幅・省略なし／説明+形式チップ）。
+  // 発行済みの「実体」＝ウォレットのカードは、下部シートのプレビュー（walletCardCss）で見せる。
+  const rows = groups.map((g) => {
     const chips = g.formats.map((f) =>
-      `<button type="button" class="fmtchip" data-cfg="${esc(f.configId)}" style="--cc:${t.c1}">${esc(f.label)}</button>`).join('');
-    return `<div class="vccard" style="--c1:${t.c1};--c2:${t.c2};--c3:${t.c3}">
-      <span class="vcck">✓</span>
-      <button type="button" class="vcinfo" title="含まれる項目を見る" onclick="event.stopPropagation();openClaims('${esc(g.type)}')">i</button>
-      <div class="vcname">${esc(g.name)}</div>
-      <div class="vcdesc">${esc(g.desc)}</div>
-      ${g.note ? `<div class="vcnote">${esc(g.note)}</div>` : ''}
-      <span class="vciss">デジタル資格証発行ポータル</span>
-      <div class="vcchips">${chips}</div>
+      `<button type="button" class="fmtchip" data-cfg="${esc(f.configId)}" data-type="${esc(g.type)}" data-fmt="${esc(f.label)}">${esc(f.label)}</button>`).join('');
+    return `<div class="crow" data-type="${esc(g.type)}">
+      <span class="cic">${typeIcon(g.type)}</span>
+      <div class="cbody">
+        <div class="cn">${esc(g.name)}</div>
+        <div class="cl2">
+          <span class="cd">${esc(g.desc)}</span>
+          <span class="cchips">${chips}</span>
+          <button type="button" class="cinfo" title="含まれる項目を見る" onclick="openClaims('${esc(g.type)}')">ⓘ</button>
+        </div>
+      </div>
     </div>`;
   }).join('');
+  // cfg → {type, name, fmt}（プレビューのミニカード描画用）
+  const cfgMeta = {};
+  for (const g of groups) for (const f of g.formats) cfgMeta[f.configId] = { type: g.type, name: g.name, fmt: f.label };
   return appShell('クレデンシャルを発行する', `
-    <div style="margin-top:24px">
+    <div class="catwrap">
       <h2 class="h2">発行できるクレデンシャル</h2>
-      <div class="hint" style="margin:0 0 14px">カードの形式チップ（mdoc / SD-JWT）をクリックで複数選択できます。複数種別・複数形式をまとめて1つのオファーに含められます。</div>
-      <div class="vcgrid">${cards}</div>
-
-      <div class="card ibar" style="margin-top:20px">
-        <div class="actions" style="margin-top:0;align-items:center;gap:12px">
-          <span id="selnote" class="hint" style="margin-top:0">選択中: <b id="selcount">0</b> 構成</span>
-          <button class="btn" id="issue" style="margin-left:auto">発行（オファーを生成）</button>
-          <button type="button" class="gearbtn" id="optbtn" title="発行オプション（開発者向け）— 既定: Pre-Auth グラント / by reference / PIN なし" aria-expanded="false">⚙</button>
-        </div>
-        <details class="optfold" id="optfold">
-          <summary>発行オプション（開発者向け）</summary>
-          <div class="optrow">
-            <div class="optlbl">グラント（発行フロー）</div>
-            <select id="grant" class="sel">
-              <option value="pre-authorized_code" selected>Pre-Auth グラント（認可不要・即交換）</option>
-              <option value="authorization_code">Authorization Code グラント（認可あり）</option>
-              <option value="both">両方（ウォレットが選択）</option>
-            </select>
-          </div>
-          <div class="optrow">
-            <div class="optlbl">受け渡し</div>
-            <div class="radios">
-              <label><input type="radio" name="delivery" value="reference" checked> by reference（URI は取得先のみ／QR 向き）</label>
-              <label><input type="radio" name="delivery" value="value"> by value（オファー本体を URI に埋め込み）</label>
-            </div>
-          </div>
-          <div class="optrow">
-            <div class="optlbl">tx_code</div>
-            <label class="inline"><input type="checkbox" id="txcode"> PIN を要求（Pre-Auth のみ・発行時に動的生成）</label>
-          </div>
-          <div class="actions" style="margin-top:8px">
-            <button class="btn ghost" id="showjson">オファリング JSON を表示（発行せずプレビュー）</button>
-          </div>
-        </details>
-      </div>
+      <div class="hint" style="margin:0 0 14px">形式チップ（mdoc / SD-JWT）で複数選択できます。複数種別・複数形式をまとめて1つのオファーに含められます。<b>下のバーの「発行」でそのまま発行</b>、「プレビュー」でウォレットに入る姿を確認できます。</div>
+      <div class="catlist">${rows}</div>
 
       <div id="out" class="hidden">
         <div id="pinbanner" class="pinbanner hidden">
@@ -669,27 +640,106 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
         </div>
       </div>
     </div>
+
+    <!-- 発行オプション（⚙）: 固定バーの上に開く。既定は Pre-Auth / by reference / PIN なし -->
+    <div class="optpanel" id="optpanel" hidden>
+      <div class="optrow">
+        <div class="optlbl">グラント（発行フロー）</div>
+        <select id="grant" class="sel">
+          <option value="pre-authorized_code" selected>Pre-Auth グラント（認可不要・即交換）</option>
+          <option value="authorization_code">Authorization Code グラント（認可あり）</option>
+          <option value="both">両方（ウォレットが選択）</option>
+        </select>
+      </div>
+      <div class="optrow">
+        <div class="optlbl">受け渡し</div>
+        <div class="radios">
+          <label><input type="radio" name="delivery" value="reference" checked> by reference（URI は取得先のみ／QR 向き）</label>
+          <label><input type="radio" name="delivery" value="value"> by value（オファー本体を URI に埋め込み）</label>
+        </div>
+      </div>
+      <div class="optrow">
+        <div class="optlbl">tx_code</div>
+        <label class="inline"><input type="checkbox" id="txcode"> PIN を要求（Pre-Auth のみ・発行時に動的生成）</label>
+      </div>
+      <div class="actions" style="margin-top:8px">
+        <button class="btn ghost" id="showjson">オファリング JSON を表示（発行せずプレビュー）</button>
+      </div>
+    </div>
+
+    <!-- 固定アクションバー: 選択画面から直接発行 / プレビュー / ⚙ -->
+    <div class="actbar" id="actbar">
+      <div class="ab-thumb" id="abThumb" title="プレビュー" onclick="openSheet()"></div>
+      <div class="ab-cnt" id="abCnt">クレデンシャルを選択</div>
+      <button type="button" class="gearbtn" id="optbtn" title="発行オプション（開発者向け）" aria-expanded="false">⚙</button>
+      <button type="button" class="ab-prev" id="prevBtn" onclick="openSheet()" disabled>プレビュー</button>
+      <button type="button" class="btn ab-issue" id="issue" disabled>発行</button>
+    </div>
+
+    <!-- ボトムシート: ウォレットに入る姿（重なりスタック・選択数連動）。画面遷移なし -->
+    <div class="psheet-scrim" id="psheetScrim" onclick="closeSheet()"></div>
+    <div class="psheet" id="psheet" aria-hidden="true">
+      <div class="ps-grab"></div>
+      <div class="ps-h">ウォレットに入る姿 <span class="ps-cnt" id="psCnt">0</span>
+        <button type="button" class="ps-x" onclick="closeSheet()" aria-label="閉じる">×</button></div>
+      <div class="ps-body"><div class="pstack" id="pstack"></div>
+        <div class="ps-cap">発行するとこの姿でウォレットに追加されます</div></div>
+      <button type="button" class="btn ps-issue" id="issueSheet">発行</button>
+    </div>
+
     <script>
       const $ = (id) => document.getElementById(id);
-      $('optbtn').onclick = () => {
-        const f = $('optfold');
-        f.open = !f.open;
-        $('optbtn').setAttribute('aria-expanded', String(f.open));
-      };
+      const CFG = ${JSON.stringify(cfgMeta)};
+      const THEME = ${JSON.stringify(WALLET_CARD_THEME)};
       const selected = new Set();
+      $('optbtn').onclick = () => {
+        const p = $('optpanel'); const open = p.hidden;
+        p.hidden = !open; $('optbtn').setAttribute('aria-expanded', String(open));
+        $('optbtn').classList.toggle('on', open);
+      };
+      function miniCard(cfg) {
+        const m = CFG[cfg]; if (!m) return '';
+        const th = THEME[m.type] || THEME.pid;
+        return '<div class="vcard" style="--c1:' + th.c1 + ';--c2:' + th.c2 + ';--c3:' + th.c3 + '">'
+          + '<div class="vt">' + m.name + '</div><div class="vs">' + cfg + '</div>'
+          + '<span class="vfmt">' + m.fmt + '</span><span class="vst">有効</span>'
+          + '<span class="viss">デジタル資格証発行ポータル</span></div>';
+      }
+      function renderStack() {
+        const el = $('pstack'), arr = [...selected], OV = 46;
+        el.innerHTML = arr.map(miniCard).join('');
+        el.querySelectorAll('.vcard').forEach((c, i) => { c.style.top = (i * OV) + 'px'; c.style.zIndex = i + 1; });
+        el.style.height = (arr.length ? (arr.length - 1) * OV + 150 : 0) + 'px';
+        $('psCnt').textContent = arr.length;
+        $('issueSheet').textContent = arr.length ? ('発行（' + arr.length + '）') : '発行';
+      }
+      function renderBar() {
+        const n = selected.size, arr = [...selected];
+        $('abCnt').innerHTML = n ? ('<b>' + n + '</b> 構成を選択中') : 'クレデンシャルを選択';
+        $('issue').disabled = !n; $('issue').textContent = n ? ('発行（' + n + '）') : '発行';
+        $('prevBtn').disabled = !n;
+        const th = $('abThumb'); th.innerHTML = '';
+        // 種別ごとに 1 枚（重複形式はまとめる）でサムネイルを最大3枚重ねる
+        const types = [...new Set(arr.map((c) => (CFG[c] || {}).type))].filter(Boolean);
+        types.slice(0, 3).forEach((ty, i) => {
+          const c = THEME[ty] || THEME.pid, d = document.createElement('div');
+          d.className = 'ab-mc'; d.style.setProperty('--c1', c.c1); d.style.setProperty('--c2', c.c2);
+          d.style.left = (i * 5) + 'px'; d.style.top = (i * 3) + 'px'; d.style.zIndex = i; th.appendChild(d);
+        });
+      }
       document.querySelectorAll('.fmtchip').forEach((chip) => {
         chip.onclick = () => {
           const cfg = chip.dataset.cfg;
           if (selected.has(cfg)) { selected.delete(cfg); chip.classList.remove('on'); }
           else { selected.add(cfg); chip.classList.add('on'); }
-          // highlight the whole card when any of its formats is selected
-          const card = chip.closest('.vccard');
-          const on = !!card.querySelector('.fmtchip.on');
-          card.classList.toggle('sel', on);
-          const ck = card.querySelector('.vcck'); if (ck) ck.style.display = on ? 'grid' : 'none';
-          $('selcount').textContent = selected.size;
+          const row = chip.closest('.crow');
+          row.classList.toggle('on', !!row.querySelector('.fmtchip.on'));
+          renderBar();
+          if ($('psheet').classList.contains('open')) renderStack();
         };
       });
+      window.openSheet = function () { if (!selected.size) return; renderStack(); $('psheet').classList.add('open'); $('psheetScrim').classList.add('show'); $('psheet').setAttribute('aria-hidden', 'false'); };
+      window.closeSheet = function () { $('psheet').classList.remove('open'); $('psheetScrim').classList.remove('show'); $('psheet').setAttribute('aria-hidden', 'true'); };
       async function buildOffer(withQr) {
         if (!selected.size) { alert('クレデンシャルの形式を1つ以上選択してください'); return null; }
         const grant = $('grant').value;
@@ -751,47 +801,90 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       // 位置は受け渡しコンテナ先頭が sticky ヘッダーの直下（+12px）に来るように。
       // ヘッダー高を引かないと見出しがヘッダー裏に食い込み「QR 直上ビッタリ」になる。
       function revealOut() {
-        const out = $('out'), dock = document.querySelector('.ibar'), hdr = document.querySelector('.topwrap,.ahdr,.top');
+        const out = $('out'), dock = document.querySelector('.actbar'), hdr = document.querySelector('.topwrap,.ahdr,.top');
         const dockH = dock ? dock.getBoundingClientRect().height : 0;
         const hdrH = hdr ? hdr.getBoundingClientRect().height : 0;
         const r = out.getBoundingClientRect();
         if (r.top >= hdrH && r.bottom <= window.innerHeight - dockH) return;
         window.scrollTo({ top: window.scrollY + r.top - hdrH - 12, behavior: 'smooth' });
       }
+      async function doIssue() { const d = await buildOffer(true); if (d) { closeSheet(); showResult(d, true); revealOut(); } }
       $('showjson').onclick = async (e) => { e.preventDefault(); const d = await buildOffer(false); if (d) showResult(d, false); };
-      $('issue').onclick = async (e) => { e.preventDefault(); const d = await buildOffer(true); if (d) { showResult(d, true); revealOut(); } };
+      $('issue').onclick = (e) => { e.preventDefault(); doIssue(); };
+      $('issueSheet').onclick = (e) => { e.preventDefault(); doIssue(); };
     </script>
     <style>
-      /* issue dock (案B): full-bleed at the very bottom — no gap for cards to
-         peek through; frosted glass so scrolling cards fade behind it deliberately.
-         One compact row (count / issue / ⚙); options expand INSIDE the dock. */
-      .ibar{position:fixed;left:0;right:0;bottom:0;margin:0 !important;z-index:50;
-        border-radius:16px 16px 0 0;border:none;border-top:1px solid #D4DEF5;
-        background:rgba(255,255,255,.88);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
-        box-shadow:0 -8px 28px rgba(14,26,43,.12);box-sizing:border-box;
-        padding:12px 18px calc(12px + env(safe-area-inset-bottom));
-        max-height:calc(100vh - 60px);overflow-y:auto}
-      .ibar>.actions,.ibar>.optfold{max-width:1104px;margin-left:auto;margin-right:auto}
-      .ibar>.actions{flex-wrap:nowrap} /* 320px でも「選択中/発行/⚙」を1行に保つ（QA L-1） */
-      #selnote{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-      #issue{flex:none}
+      /* 書類カタログ（2段行・名前は全幅で省略なし）＋固定アクションバー＋ボトムシート */
+      .catwrap{margin-top:24px}
+      .catlist{display:flex;flex-direction:column;gap:8px}
+      .crow{display:grid;grid-template-columns:56px 1fr;column-gap:12px;align-items:center;
+        background:#fff;border:1px solid var(--line);border-radius:12px;padding:11px 14px;transition:border-color .15s,box-shadow .15s}
+      .crow.on{border-color:var(--civic);box-shadow:0 0 0 1.5px var(--civic)}
+      .cic{width:56px;display:grid;place-items:center}
+      .cic svg{display:block;max-width:56px;height:auto}
+      .cbody{min-width:0}
+      .cn{font-size:14px;font-weight:700;line-height:1.35}          /* 全幅・折り返し可・省略なし */
+      .cl2{display:flex;align-items:center;gap:10px;margin-top:3px}
+      .cd{font-size:11px;color:var(--muted);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .cchips{display:flex;gap:6px;flex:none}
+      .fmtchip{font:inherit;font-size:11px;font-weight:700;padding:5px 12px;border-radius:8px;background:#fff;border:1px solid var(--line);color:var(--muted);cursor:pointer;transition:all .12s}
+      .fmtchip:hover{border-color:#aebbd3}
+      .fmtchip.on{background:var(--civic);border-color:var(--civic);color:#fff}
+      .cinfo{flex:none;border:0;background:none;color:var(--muted);font-size:15px;cursor:pointer;padding:0 2px;line-height:1}
+      @media(max-width:520px){
+        /* 狭幅では説明を隠して名前とチップに幅を割く（名前は絶対に省略しない） */
+        .cl2{flex-wrap:wrap}
+        .cd{flex-basis:100%;order:3}
+      }
+
+      /* 固定アクションバー */
+      .actbar{position:fixed;left:0;right:0;bottom:0;z-index:50;display:flex;align-items:center;gap:10px;
+        padding:10px 16px calc(10px + env(safe-area-inset-bottom));box-sizing:border-box;
+        background:rgba(255,255,255,.94);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+        border-top:1px solid #D4DEF5;box-shadow:0 -8px 28px rgba(14,26,43,.12)}
+      .ab-thumb{position:relative;width:56px;height:36px;flex:none;cursor:pointer}
+      .ab-mc{position:absolute;width:46px;height:29px;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.28);
+        background:linear-gradient(135deg,var(--c1),var(--c2))}
+      .ab-cnt{flex:1;min-width:0;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .ab-cnt b{color:#0E1A2B;font-size:14px}
       .gearbtn{flex:none;width:40px;height:40px;border:1px solid #D4DEF5;background:#fff;border-radius:10px;font-size:17px;cursor:pointer;color:#3C4A61}
-      .gearbtn[aria-expanded="true"]{background:#EAF0FA;border-color:#B7C7EE}
-      body{padding-bottom:150px} /* keep the last card row reachable above the dock */
-      /* dev console open: lift the dock to sit right on top of the drawer, so
-         you can trigger issuance WHILE watching the logs (devlog syncBody) */
-      body.dev-open .ibar{bottom:var(--dev-drawer-h,40vh);
-        max-height:calc(100vh - var(--dev-drawer-h,40vh) - 8px)} /* 85%最大化+⚙展開でも画面外に出ない（QA M-1） */
-      .optfold{margin-top:0;border-top:none;padding-top:0}
-      .optfold[open]{margin-top:12px;border-top:1px solid var(--line);padding-top:12px}
-      .optfold>summary{display:none} /* the ⚙ button drives open/close */
-      .optfold>summary,.jsonfold>summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--muted);list-style:none;user-select:none}
-      .optfold>summary::-webkit-details-marker,.jsonfold>summary::-webkit-details-marker{display:none}
-      .optfold>summary::before,.jsonfold>summary::before{content:"▸ ";font-size:10px}
-      .optfold[open]>summary::before,.jsonfold[open]>summary::before{content:"▾ "}
-      .optfold[open]>summary{margin-bottom:10px}
+      .gearbtn.on{background:#EAF0FA;border-color:#B7C7EE}
+      .ab-prev{flex:none;background:#fff;border:1px solid var(--civic);color:var(--civic);border-radius:10px;padding:9px 14px;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}
+      .ab-prev:disabled{opacity:.42;cursor:default}
+      .ab-issue{flex:none}
+      .ab-issue:disabled{opacity:.42;cursor:default}
+      body{padding-bottom:150px} /* keep the last row reachable above the bar */
+      body.dev-open .actbar{bottom:var(--dev-drawer-h,40vh)}
+
+      /* ⚙オプションパネル（バー直上に開く） */
+      .optpanel{position:fixed;left:0;right:0;bottom:64px;z-index:49;box-sizing:border-box;
+        max-width:1104px;margin:0 auto;background:#fff;border:1px solid var(--line);border-radius:14px 14px 0 0;
+        box-shadow:0 -8px 28px rgba(14,26,43,.14);padding:16px 18px;max-height:60vh;overflow-y:auto}
+      body.dev-open .optpanel{bottom:calc(var(--dev-drawer-h,40vh) + 64px)}
+      .optpanel[hidden]{display:none}
       .jsonfold{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+      .jsonfold>summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--muted);list-style:none;user-select:none}
+      .jsonfold>summary::-webkit-details-marker{display:none}
+      .jsonfold>summary::before{content:"▸ ";font-size:10px}
+      .jsonfold[open]>summary::before{content:"▾ "}
       .jsonfold[open]>summary{margin-bottom:8px}
+
+      /* ボトムシート・プレビュー（重なりスタック連動） */
+      .psheet-scrim{position:fixed;inset:0;z-index:58;background:rgba(14,26,43,.4);opacity:0;pointer-events:none;transition:opacity .3s}
+      .psheet-scrim.show{opacity:1;pointer-events:auto}
+      .psheet{position:fixed;left:0;right:0;bottom:0;z-index:59;background:#fff;border-radius:18px 18px 0 0;
+        box-shadow:0 -10px 30px rgba(0,0,0,.25);transform:translateY(100%);transition:transform .34s cubic-bezier(.2,.7,.2,1);
+        max-height:84vh;display:flex;flex-direction:column;max-width:560px;margin:0 auto}
+      .psheet.open{transform:translateY(0)}
+      .ps-grab{width:44px;height:5px;border-radius:3px;background:#C6D0DC;margin:9px auto 4px}
+      .ps-h{display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:700;padding:2px 18px 8px}
+      .ps-cnt{background:var(--civic);color:#fff;border-radius:999px;font-size:11px;font-weight:800;padding:2px 9px}
+      .ps-x{margin-left:auto;border:0;background:none;font-size:22px;line-height:1;color:var(--muted);cursor:pointer;padding:0 2px}
+      .ps-body{overflow:auto;padding:6px 18px 10px}
+      .pstack{position:relative}
+      .pstack .vcard{max-width:none;position:absolute;left:0;right:0;transition:top .32s cubic-bezier(.2,.7,.2,1)}
+      .ps-cap{font-size:11px;color:var(--muted);margin-top:8px}
+      .ps-issue{margin:8px 18px calc(14px + env(safe-area-inset-bottom))}
       /* hand-off: a centered grid pairing the QR with the action-list rows.
          - the PAIR is centered inside the card (justify-content:center), so the
            QR no longer hugs the left edge and both sides get symmetric margins
@@ -829,32 +922,13 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       .sect{background:#fff;border:1px solid var(--line);border-left:4px solid var(--verify);border-radius:10px;padding:14px 18px;font-size:13px;color:var(--muted);letter-spacing:.04em}
       .sect b{color:var(--ink);font-weight:700}
       .h2{font-size:20px;margin:24px 0 6px;font-weight:700}
-      .vcgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
-      /* 最後のカードと受け渡し領域の間隔はカード間 gap と同じ 14px に揃える */
+      /* 最後の行と受け渡し領域の間隔は行間 gap と同じ 14px に揃える */
       #out{margin-top:14px}
-      /* The selection ring is drawn on an absolutely-positioned ::after overlay,
-         so it never participates in the card's box model: no resize, no shift,
-         and no overlap with neighbouring cards. */
-      .vccard{position:relative;width:100%;min-width:0;box-sizing:border-box;aspect-ratio:1.586;border-radius:16px;padding:14px 16px;color:#fff;
-        background:radial-gradient(120% 90% at 88% -12%,var(--c3) 0%,transparent 55%),radial-gradient(90% 130% at -8% 112%,rgba(255,255,255,.16) 0%,transparent 50%),linear-gradient(135deg,var(--c1) 0%,var(--c2) 100%);
-        box-shadow:0 1px 2px rgba(0,0,0,.3),0 1px 3px 1px rgba(0,0,0,.15);transition:transform .15s,box-shadow .15s}
-      .vccard::before{content:"";position:absolute;inset:0;border-radius:16px;opacity:.55;pointer-events:none;
-        background:conic-gradient(from 200deg at 82% 14%,rgba(255,64,160,.16),rgba(64,224,255,.13),rgba(255,240,96,.14),rgba(160,64,255,.15),rgba(255,64,160,.16))}
-      .vccard:hover{transform:translateY(-4px);box-shadow:0 4px 8px 3px rgba(0,0,0,.15),0 1px 3px rgba(0,0,0,.3)}
-      .vccard.sel{outline:3px solid #fff;outline-offset:-3px;box-shadow:0 0 0 3px var(--civic),0 10px 24px rgba(14,26,43,.26)}
-      .vcck{display:none;position:absolute;top:12px;right:14px;width:23px;height:23px;border-radius:50%;background:#fff;color:var(--civic);place-items:center;font-size:13px;font-weight:800;z-index:2}
-      .vcname{font-size:14.5px;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,.3);line-height:1.35;position:relative;z-index:1;max-width:82%}
-      .vcdesc{font-size:10.5px;color:rgba(255,255,255,.78);position:relative;z-index:1}
-      .vcnote{font-size:9px;color:rgba(255,255,255,.62);position:relative;z-index:1;margin-top:2px}
-      .vciss{position:absolute;left:16px;bottom:44px;font-size:10px;color:rgba(255,255,255,.62);z-index:1}
-      .vcchips{position:absolute;left:14px;bottom:11px;display:flex;gap:6px;z-index:1}
-      .fmtchip{font:inherit;font-size:10.5px;font-weight:700;padding:4px 12px;border-radius:8px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.4);color:#fff;cursor:pointer;transition:all .12s;backdrop-filter:blur(2px)}
-      .fmtchip:hover{background:rgba(255,255,255,.3)}
-      .fmtchip.on{background:#fff;color:var(--cc,var(--civic));border-color:#fff}
+      ${walletCardCss()}
       .optrow{display:flex;align-items:center;gap:16px;margin-bottom:14px}
       .optlbl{font-size:12px;color:var(--muted);font-weight:700;width:140px;flex-shrink:0}
-      /* scope to the <select> element: a bare .sel also matched selected .vccard
-         (which toggles a 'sel' class), shrinking the chosen card to width:280px */
+      /* scope width:280px to the <select> element only (a bare .sel could collide
+         with other 'sel'-toggled elements) */
       select.sel{font:inherit;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;width:280px;max-width:100%}
       .radios{display:flex;gap:18px;flex-wrap:wrap;font-size:13.5px;min-width:0}
       .radios label,.inline{display:flex;align-items:center;gap:7px}
