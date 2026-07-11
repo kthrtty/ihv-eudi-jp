@@ -12,7 +12,7 @@ import { shell, renderAuthStart, renderCallback, renderOfferAuthcode, completeIs
 import { renderVerifyConsole, renderWebVerify, renderWebVerifyResult, renderVerifyHistory, renderVerifierSettings } from './verifier-demo.mjs';
 import { scenarioList, getScenario, evaluateScenario, scenarioConfigIds } from './scenarios.mjs';
 import { renderScenarioHome, renderScenarioRun, renderScenarioStep1Done, renderScenarioAccept, renderScenarioGone } from './scenario-demo.mjs';
-import { captureInbound, getLog, pushLog, buildEntry } from './devlog.mjs';
+import { captureInbound, getLog, pushLog, buildEntry, createLogRing } from './devlog.mjs';
 import { createWallet } from './wallet.mjs';
 import { allConfigIds, configInfo, jwks as issuerJwks, accountCatalog } from './issuer.mjs';
 
@@ -37,8 +37,10 @@ export function createApp(opts = {}) {
   const issuerBase = (c) => configuredIssuer || new URL(c.req.url).origin;
 
   // Developer console: log the inbound OID4VCI exchanges (masked).
-  app.use('*', captureInbound(svc.store, (p) => /^\/(token|par|nonce|credential|offer|jwks|\.well-known|status-lists)(\/|$)/.test(p), 'issuer'));
-  app.get('/dev/log', async (c) => c.json({ entries: await getLog(svc.store, 'issuer') }));
+  // isolate メモリのリング（KV 不使用）— 永続はブラウザ側 sessionStorage が担う。
+  const devlog = createLogRing();
+  app.use('*', captureInbound(devlog, (p) => /^\/(token|par|nonce|credential|offer|jwks|\.well-known|status-lists)(\/|$)/.test(p)));
+  app.get('/dev/log', (c) => c.json({ entries: getLog(devlog) }));
   // Endpoint inventory for the developer console's エンドポイント tab. Metadata-returning
   // endpoints carry their current value; operational ones list method/path/desc only.
   app.get('/dev/endpoints', async (c) => {
@@ -389,25 +391,33 @@ export function createVerifierApp(opts = {}) {
     return saved != null && Number.isFinite(n) && n >= 0 ? n : DEFAULT_STATUS_TTL_SEC;
   };
   const memStl = new Map(); // store が効かないローカル実行時のフォールバック
+  const stlInflight = new Map(); // uri -> 取得中 Promise（同一応答内の複数クレデンシャルで1回に相乗り）
   const rawStatusResolver = v.statusResolver;
   if (rawStatusResolver) {
-    v.statusResolver = async (uri) => {
-      const ttl = await getStatusTtlSec();
+    v.statusResolver = (uri) => {
       const key = `vstl:${uri || 'default'}`;
-      const now = Date.now();
-      const hit = (await v.store.get(key)) ?? memStl.get(key);
-      if (hit && ttl > 0 && now - hit.at < ttl * 1000) return hit.token;
-      const token = await rawStatusResolver(uri);
-      const rec = { token, at: now };
-      memStl.set(key, rec);
-      try { await v.store.set(key, rec, 86400); } catch { /* 鮮度判定は at + 設定TTL */ }
-      return token;
+      if (stlInflight.has(key)) return stlInflight.get(key);
+      const p = (async () => {
+        const ttl = await getStatusTtlSec();
+        const now = Date.now();
+        const hit = (await v.store.get(key)) ?? memStl.get(key);
+        if (hit && ttl > 0 && now - hit.at < ttl * 1000) return hit.token;
+        const token = await rawStatusResolver(uri);
+        const rec = { token, at: now };
+        memStl.set(key, rec);
+        try { await v.store.set(key, rec, 86400); } catch { /* 鮮度判定は at + 設定TTL */ }
+        return token;
+      })().finally(() => stlInflight.delete(key));
+      stlInflight.set(key, p);
+      return p;
     };
   }
   const app = new Hono();
   // Developer console: log the inbound OID4VP exchanges (masked).
-  app.use('*', captureInbound(v.store, (p) => /^\/(oid4vp\/(request|response)|vp\/(build|verify)|demo\/verify\/(prepare|present)|client-metadata|jwks|\.well-known)/.test(p), 'verifier'));
-  app.get('/dev/log', async (c) => c.json({ entries: await getLog(v.store, 'verifier') }));
+  // isolate メモリのリング（KV 不使用）— 永続はブラウザ側 sessionStorage が担う。
+  const devlog = createLogRing();
+  app.use('*', captureInbound(devlog, (p) => /^\/(oid4vp\/(request|response)|vp\/(build|verify)|demo\/verify\/(prepare|present)|client-metadata|jwks|\.well-known)/.test(p)));
+  app.get('/dev/log', (c) => c.json({ entries: getLog(devlog) }));
   // Client-side beacon: the verify console posts each DC API phase (dispatch/success/
   // error) here so a manually-operated wallet (e.g. an Android emulator) is observable
   // in /dev/log — including failures that never reach the server (wallet rejects the
@@ -423,8 +433,7 @@ export function createVerifierApp(opts = {}) {
         reqHeaders: [], reqBody: b.request ?? null, reqCT: 'application/json',
         resHeaders: [], resBody: b.response ?? (b.error ? { error: b.error } : null), resCT: 'application/json',
       });
-      const p = pushLog(v.store, entry, 'verifier');
-      if (c.executionCtx?.waitUntil) c.executionCtx.waitUntil(p); else await p;
+      pushLog(devlog, entry);
       return c.json({ ok: true });
     } catch (e) { return c.json({ ok: false, error: e.message }, 200); }
   });
