@@ -7,6 +7,9 @@ compatibility_flags = ["nodejs_compat"]
 WALLET_ORIGIN   = "https://web-wallet.example.test"
 ISSUER_URL      = "https://issuer.example.test"
 VERIFIER_ORIGIN = "https://verifier.example.test"
+# R2 SSRF guard: server-side fetch is restricted to these origins (space/comma-separated).
+# Placeholder only; real origins are injected by `npm run deploy` (scripts/deploy.mjs).
+SSRF_ALLOWED_ORIGINS = "https://issuer.example.test https://verifier.example.test https://web-wallet.example.test"
 
 # Secrets: TRUST_ANCHORS_JSON (IACA cert + SD-JWT CA cert only, ~1 kB)
 #   node scripts/gen-worker-pki.mjs --wallet | wrangler secret put TRUST_ANCHORS_JSON --config wrangler.wallet.toml

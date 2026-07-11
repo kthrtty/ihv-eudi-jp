@@ -13,6 +13,7 @@ import { renderVerifyConsole, renderWebVerify, renderWebVerifyResult, renderVeri
 import { scenarioList, getScenario, evaluateScenario, scenarioConfigIds } from './scenarios.mjs';
 import { renderScenarioHome, renderScenarioRun, renderScenarioStep1Done, renderScenarioAccept, renderScenarioGone } from './scenario-demo.mjs';
 import { captureInbound, getLog, pushLog, buildEntry, createLogRing } from './devlog.mjs';
+import { securityHeaders, csrfGuard } from './security.mjs';
 import { createWallet } from './wallet.mjs';
 import { allConfigIds, configInfo, jwks as issuerJwks, accountCatalog } from './issuer.mjs';
 
@@ -28,6 +29,9 @@ export function createApp(opts = {}) {
   const { issuerHtml = null, verifierPki = null, statusPki = null, walletOrigin: issuerWalletOrigin = '', ...svcOpts } = opts;
   const svc = new IssuerService({ ...svcOpts, statusPki });
   const app = new Hono();
+  // R3 security headers + R5 CSRF guard (session cookies: sid / demo).
+  app.use('*', securityHeaders());
+  app.use('*', csrfGuard(['sid', 'demo']));
 
   // Resolve the public issuer base URL: an explicitly configured value (ISSUER_URL —
   // authoritative when behind an LB/proxy) takes priority; otherwise derive it from
@@ -413,6 +417,10 @@ export function createVerifierApp(opts = {}) {
     };
   }
   const app = new Hono();
+  // R3 security headers + R5 CSRF guard (session cookie: vdemo). The machine API
+  // (oid4vp/response, vp/verify — txn-id auth, no cookie) is unaffected by the guard.
+  app.use('*', securityHeaders());
+  app.use('*', csrfGuard(['vdemo']));
   // Developer console: log the inbound OID4VP exchanges (masked).
   // isolate メモリのリング（KV 不使用）— 永続はブラウザ側 sessionStorage が担う。
   const devlog = createLogRing();

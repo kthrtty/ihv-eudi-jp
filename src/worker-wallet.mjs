@@ -55,6 +55,9 @@ export default {
         issuerUrl:     env.ISSUER_URL      || 'https://issuer.example.test',
         verifierUrl:   env.VERIFIER_ORIGIN || 'https://verifier.example.test',
         boundFetch:    makeBoundFetch(env),
+        // R2 SSRF allowlist: restrict server-side fetch to the known origins.
+        // Injected at deploy time (scripts/deploy.mjs) — repo carries placeholders.
+        fetchAllowlist: env.SSRF_ALLOWED_ORIGINS || '',
         // Durable session storage across isolates (holder key + stored VCs survive).
         store:         env.IHV_KV ? kvStore(env.IHV_KV) : null,
       });

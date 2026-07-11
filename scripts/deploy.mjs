@@ -36,6 +36,10 @@ for (const [k, v] of Object.entries(vars)) {
 // Extra dev/local origins can be appended via the REDIRECT_URI_ALLOWLIST override.
 vars.REDIRECT_URI_ALLOWLIST = env.REDIRECT_URI_ALLOWLIST
   || `${vars.ISSUER_URL}/demo/cb ${vars.WALLET_ORIGIN}/oidc/cb`;
+// R2 SSRF: the wallet Worker may only fetch these origins server-side. Derived
+// from the real origins unless overridden in .deploy.env.
+vars.SSRF_ALLOWED_ORIGINS = env.SSRF_ALLOWED_ORIGINS
+  || `${vars.ISSUER_URL} ${vars.VERIFIER_ORIGIN} ${vars.WALLET_ORIGIN}`;
 
 const varArgs = Object.entries(vars).flatMap(([k, v]) => ['--var', `${k}:${v}`]);
 const configs = [null, 'wrangler.verifier.toml', 'wrangler.wallet.toml'];
