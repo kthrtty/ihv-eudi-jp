@@ -70,7 +70,7 @@ function resolvePresentation(request, creds) {
   return out;
 }
 
-const esc = (s) => String(s).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+const esc = (s) => String(s).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 const rand = () => randomBytes(16).toString('hex');
 const b64url = (b) => Buffer.from(b).toString('base64url');
 const fmt = (v) => {

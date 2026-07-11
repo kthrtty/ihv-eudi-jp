@@ -12,7 +12,7 @@ import { offerQrSvg } from './offer.mjs';
 
 const b64url = (b) => Buffer.from(b).toString('base64url');
 const s256 = (s) => b64url(createHash('sha256').update(Buffer.from(s, 'ascii')).digest());
-const esc = (s) => String(s).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+const esc = (s) => String(s).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 
 const dispName = (configId) => {
   const c = catalog.credential_configurations_supported[configId];
@@ -168,7 +168,7 @@ export const roleHead = (role, title) => {
 };
 // 全画面共通ディスクレーマー（issuer/verifier/wallet）— ヘッダー直下の極細バンド（案Ｂ）。
 // topwrap ごと sticky なのでスクロール中も常時見える。
-const DEMO_BAND = '<div class="demoband">記載の組織名・クレデンシャル名は全て架空のものです</div>';
+const DEMO_BAND = '<div class="demoband">本デモに記載された組織名・クレデンシャル名は全て架空のものです</div>';
 // header compact-on-scroll: one sentinel + IntersectionObserver (no scroll handler)
 const STICKY_JS = `<script>(function(){var h=document.querySelector('header.top,header.ahdr');var s=document.getElementById('hdr-sent');
 if(h&&s&&'IntersectionObserver' in window)new IntersectionObserver(function(e){h.classList.toggle('compact',!e[0].isIntersecting)}).observe(s)})();</script>`;
@@ -222,8 +222,10 @@ export function renderCallback({ code, state }) {
           const r = await fetch('/demo/complete', { method:'POST' });
           const d = await r.json();
           if (d.error) throw new Error(d.error);
+          const esc = (s) => String(s).replace(/[&<>"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+          const IMG_RE = /^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=]+$/;
           const rows = Object.entries(d.claims).map(([k,v]) =>
-            '<tr><td>'+k+'</td><td>'+(String(v).indexOf('data:image/')===0 ? '<img class="pimg" src="'+v+'" alt="顔写真">' : v)+'</td></tr>').join('');
+            '<tr><td>'+esc(k)+'</td><td>'+(IMG_RE.test(String(v)) ? '<img class="pimg" src="'+esc(v)+'" alt="顔写真">' : esc(String(v)))+'</td></tr>').join('');
           document.getElementById('result').innerHTML =
             '<div class="ok">✓ /credential で '+d.configId+' を発行しました（署名検証済み）</div>'+
             '<table class="cl">'+rows+'</table>'+
@@ -328,7 +330,7 @@ export function renderLogin(users, next = '/', { note = null } = {}) {
         <span style="width:8px;height:8px;border-radius:50%;background:#0E8A6B;flex-shrink:0;display:inline-block"></span>
         パスワード不要のデモ用サインイン。実環境ではマイナンバーカードやパスキーを用いて当人認証します。
       </div>
-      <footer style="margin-top:18px;font-size:11px;color:#5B6B82">記載の組織名・クレデンシャル名は全て架空のものです</footer>
+      <footer style="margin-top:18px;font-size:11px;color:#5B6B82">本デモに記載された組織名・クレデンシャル名は全て架空のものです</footer>
     </div>
   </body></html>`;
 }

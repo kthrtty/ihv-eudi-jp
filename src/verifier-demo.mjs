@@ -25,7 +25,7 @@ const CHECKS = [
   '失効なし（Token Status List）',
 ];
 
-const escj = (s) => String(s).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+const escj = (s) => String(s).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 // portrait は verifier アプリ層で data URI に正規化済み → <img> 描画（.pimg は共有CSS）
 export const dispClaim = (v) =>
   (typeof v === 'string' && v.startsWith('data:image/')
@@ -182,7 +182,7 @@ export function renderVerifyConsole(groups = []) {
       function reset() { $('reqbox').classList.add('hidden'); $('result').innerHTML = ''; built = null; }
       // Escape BEFORE any innerHTML: claim values come from an external wallet
       // (untrusted input on the native DC API path) and errors may echo them.
-      const esc = (s) => String(s).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+      const esc = (s) => String(s).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
       function err(m) { $('result').innerHTML = '<div class="hint" style="color:#9E3A3A">'+esc(m)+'</div>'; }
 
       claimsEl.addEventListener('click', (e) => {
@@ -281,8 +281,10 @@ export function renderVerifyConsole(groups = []) {
           ? (holderRaw.x != null ? holderRaw.x + (holderRaw.y != null ? '.' + holderRaw.y : '') : JSON.stringify(holderRaw))
           : holderRaw;
         const fmt = (v) => (v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v));
-        // portrait はサーバ側で data URI に正規化済み → サムネイル描画
-        const cell = (v) => (typeof v === 'string' && v.indexOf('data:image/') === 0 ? '<img class="pimg" src="'+v+'" alt="顔写真">' : esc(fmt(v)));
+        // portrait はサーバ側で data URI に正規化済み → サムネイル描画。
+        // 値は外部ウォレット由来（DC API）で untrusted のため data-URI を厳格判定し src も esc。
+        const IMG_RE = /^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=]+$/;
+        const cell = (v) => (typeof v === 'string' && IMG_RE.test(v) ? '<img class="pimg" src="'+esc(v)+'" alt="顔写真">' : esc(fmt(v)));
         const rows = Object.entries(claims).map(([k, v]) => '<tr><td>'+esc(k)+'</td><td>'+cell(v)+'</td></tr>').join('');
         const checks = CHECKS.map((l) => '<div class="ck2"><span class="'+(d.valid?'cok':'cng')+'">'+(d.valid?'✓':'—')+'</span> '+l+'</div>').join('');
         $('result').innerHTML =
@@ -425,7 +427,7 @@ export function renderVerifierSettings(ttlSec, saved = false) {
 }
 
 export function renderVerifyHistory(entries = [], { page = 1, per = 10 } = {}) {
-  const esc = (s) => String(s).replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+  const esc = (s) => String(s).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
   // 各エントリは raw vp_token（顔写真 data URI 含む）を折りたたみに抱えて重いので、
   // 1ページ10件に切る（newest-first: 次ページ=より古い提示）
   const { slice, p, pages, total } = paginate(entries, page, per);
