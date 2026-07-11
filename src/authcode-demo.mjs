@@ -168,7 +168,7 @@ export const roleHead = (role, title) => {
 };
 // 全画面共通ディスクレーマー（issuer/verifier/wallet）— ヘッダー直下の極細バンド（案Ｂ）。
 // topwrap ごと sticky なのでスクロール中も常時見える。
-const DEMO_BAND = '<div class="demoband">本デモに記載された組織名・クレデンシャル名は全て架空のものです</div>';
+const DEMO_BAND = '<div class="demoband">本デモ中の組織・資格証・人物・属性は全て架空のものです</div>';
 // header compact-on-scroll: one sentinel + IntersectionObserver (no scroll handler)
 const STICKY_JS = `<script>(function(){var h=document.querySelector('header.top,header.ahdr');var s=document.getElementById('hdr-sent');
 if(h&&s&&'IntersectionObserver' in window)new IntersectionObserver(function(e){h.classList.toggle('compact',!e[0].isIntersecting)}).observe(s)})();</script>`;
@@ -330,7 +330,7 @@ export function renderLogin(users, next = '/', { note = null } = {}) {
         <span style="width:8px;height:8px;border-radius:50%;background:#0E8A6B;flex-shrink:0;display:inline-block"></span>
         パスワード不要のデモ用サインイン。実環境ではマイナンバーカードやパスキーを用いて当人認証します。
       </div>
-      <footer style="margin-top:18px;font-size:11px;color:#5B6B82">本デモに記載された組織名・クレデンシャル名は全て架空のものです</footer>
+      <footer style="margin-top:18px;font-size:11px;color:#5B6B82">本デモ中の組織・資格証・人物・属性は全て架空のものです</footer>
     </div>
   </body></html>`;
 }
