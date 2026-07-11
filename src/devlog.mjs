@@ -96,13 +96,16 @@ export function grpOf(ep) {
 }
 
 /** Build a masked log entry from a raw exchange. `id` はブラウザ側 sessionStorage
- *  集積のマージキー（isolate を跨いだ二重表示を防ぐ）。 */
+ *  集積のマージキー（isolate を跨いだ二重表示を防ぐ）。reqBytes/resBytes は
+ *  マスク・整形前の生ボディの UTF-8 バイト数（ワイヤ上のペイロード量の目安）。 */
 let seq = 0;
+const byteLen = (s) => (s == null || s === '' ? 0 : new TextEncoder().encode(typeof s === 'string' ? s : JSON.stringify(s)).length);
 export function buildEntry({ dir, method, ep, status, grp, note, reqHeaders, reqBody, reqCT, resHeaders, resBody, resCT }) {
   return {
     id: `${Date.now().toString(36)}-${(seq++).toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
     ts: new Date().toISOString(), dir, method, ep: maskEp(ep), status: status ?? null,
     grp: grp || grpOf(String(ep)), note: note || null,
+    reqBytes: byteLen(reqBody), resBytes: byteLen(resBody),
     reqHeaders: maskHeaders(headerPairs(reqHeaders)),
     reqBody: maskBody(parseBody(reqBody, reqCT)),
     resHeaders: maskHeaders(headerPairs(resHeaders)),
@@ -261,8 +264,11 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
   .dev-st{font-size:10px;font-weight:800;border-radius:999px;padding:2px 7px;background:#E7F3EE;color:#1f7a52}.dev-st.s4,.dev-st.s5{background:#FBE9E7;color:#9E3A3A}
   .dev-grp{font-size:10px;color:var(--muted,#5B6B82)}
   .dev-ts{font-size:10px;color:var(--muted,#5B6B82);font-family:ui-monospace,monospace;white-space:nowrap;flex:none}
-  /* 狭幅: ミリ秒とグループチップを隠してエンドポイント表示に幅を返す（詳細側の grp は残る） */
-  @media(max-width:480px){.dev-tsms,.dev-head .dev-grp,.dev-minibar .dev-grp{display:none}}
+  /* ボディバイト数: 行=レスポンスサイズ（.dev-hsz）・詳細=節見出しの ↑/↓ チップ（.dev-bytes） */
+  .dev-hsz{font-size:10px;color:var(--muted,#5B6B82);font-family:ui-monospace,monospace;white-space:nowrap;flex:none}
+  .dev-bytes{font-size:10px;font-weight:700;color:var(--muted,#5B6B82);font-family:ui-monospace,monospace;background:#f0f3f8;border-radius:5px;padding:2px 6px;vertical-align:1px}
+  /* 狭幅: ミリ秒・グループチップ・行サイズを隠してエンドポイント表示に幅を返す（詳細側は残る） */
+  @media(max-width:480px){.dev-tsms,.dev-head .dev-grp,.dev-minibar .dev-grp,.dev-hsz{display:none}}
   .dev-body{margin-top:8px}
   .dev-sect{font-size:11.5px;font-weight:800;margin:10px 0 4px}
   .dev-blab{font-size:11px;font-weight:700;color:var(--muted,#5B6B82);margin:8px 0 0}
@@ -307,12 +313,20 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
     }
     return box+fold;
   }
+  // ボディの生バイト数（マスク前・UTF-8）。旧フォーマットのエントリ（bytes 無し）は非表示
+  function fmtBytes(n){
+    if(n==null)return '';
+    if(n<1024)return n+' B';
+    if(n<1048576)return (n/1024).toFixed(1)+' KB';
+    return (n/1048576).toFixed(2)+' MB';
+  }
+  function szChip(arrow,n){var s=fmtBytes(n);return s?'<span class="dev-bytes" title="ボディの生バイト数（マスク前）">'+arrow+' '+s+'</span>':'';}
   function detail(e){
-    return '<div class="dev-sect">リクエスト <button type="button" class="dev-copy" data-u="'+esc(e.ep)+'" onclick="window.__dev.copyUrl(this)">⧉ URL をコピー</button></div>'+
+    return '<div class="dev-sect">リクエスト '+szChip('↑',e.reqBytes)+' <button type="button" class="dev-copy" data-u="'+esc(e.ep)+'" onclick="window.__dev.copyUrl(this)">⧉ URL をコピー</button></div>'+
       urlBlock(e)+
       '<details class="dev-fold"><summary>ヘッダー ('+e.reqHeaders.length+')</summary>'+hdrs(e.reqHeaders)+'</details>'+
       (e.reqBody!=null?'<div class="dev-blab">ボディ</div>'+code(e.reqBody):'')+
-      '<div class="dev-sect">レスポンス <span class="dev-grp">('+e.status+')</span></div>'+
+      '<div class="dev-sect">レスポンス <span class="dev-grp">('+e.status+')</span> '+szChip('↓',e.resBytes)+'</div>'+
       '<details class="dev-fold"><summary>ヘッダー ('+e.resHeaders.length+')</summary>'+hdrs(e.resHeaders)+'</details>'+
       (e.resBody!=null?'<div class="dev-blab">ボディ</div>'+code(e.resBody):'')+
       (e.note?'<div class="dev-blab" style="color:#1f5c46">ⓘ '+esc(e.note)+'</div>':'');
@@ -333,8 +347,9 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
       var dir='<span class="dev-dir '+e.dir+'">'+(e.dir==='out'?'→':'←')+'</span>';
       var st='<span class="dev-st s'+String(e.status).charAt(0)+'">'+esc(e.status)+'</span>';
       var mp='<span class="dev-mp '+esc(e.method)+'">'+esc(e.method)+'</span>';
+      var sz=fmtBytes(e.resBytes)?'<span class="dev-hsz" title="レスポンスボディのバイト数">'+fmtBytes(e.resBytes)+'</span>':'';
       return '<div class="dev-step'+(open?' open':'')+'"><div class="dev-num">'+(i+1)+'</div><div>'+
-        '<div class="dev-head" onclick="window.__dev.toggleStep(this)">'+dir+mp+'<span class="dev-ep">'+esc(e.ep)+'</span>'+st+fmtTs(e.ts)+'<span class="dev-grp">'+esc(e.grp)+'</span></div>'+
+        '<div class="dev-head" onclick="window.__dev.toggleStep(this)">'+dir+mp+'<span class="dev-ep">'+esc(e.ep)+'</span>'+st+sz+fmtTs(e.ts)+'<span class="dev-grp">'+esc(e.grp)+'</span></div>'+
         '<div class="dev-body" '+(open?'':'hidden')+'>'+detail(e)+'</div></div></div>';
     }).join('')+'</div>';
     renderMini();

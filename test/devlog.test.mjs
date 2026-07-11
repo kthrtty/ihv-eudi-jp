@@ -57,6 +57,24 @@ test('buildEntry: parses urlencoded + JSON bodies and masks them', () => {
   assert.ok(Math.abs(Date.now() - Date.parse(e.ts)) < 5000, 'ts is "now"');
 });
 
+test('buildEntry: records raw body byte sizes (UTF-8, pre-mask)', () => {
+  const reqBody = 'grant_type=g&pre-authorized_code=SECRETVALUE123';
+  const resBody = JSON.stringify({ name: '山田太郎', token: 'eyJ.longtokenvalue.sig' });
+  const e = buildEntry({
+    dir: 'in', method: 'POST', ep: '/token', status: 200,
+    reqBody, reqCT: 'application/x-www-form-urlencoded',
+    resBody, resCT: 'application/json',
+  });
+  assert.equal(e.reqBytes, Buffer.byteLength(reqBody), 'request bytes = raw UTF-8 length');
+  assert.equal(e.resBytes, Buffer.byteLength(resBody), 'response bytes count multibyte chars correctly');
+  assert.ok(e.resBytes > resBody.length, 'UTF-8 bytes, not JS string length'); // 和字4文字ぶん大きい
+  // マスクはバイト数計測の後（サイズは生ボディを反映）
+  assert.match(String(e.reqBody['pre-authorized_code']), /…|••••/);
+  const empty = buildEntry({ dir: 'in', method: 'GET', ep: '/jwks', status: 200 });
+  assert.equal(empty.reqBytes, 0);
+  assert.equal(empty.resBytes, 0);
+});
+
 const ISSUER = 'https://issuer.ihv.example';
 
 test('issuer /dev/log captures inbound OID4VCI (token/credential) with masking', async () => {
