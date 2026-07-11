@@ -125,8 +125,13 @@ export const walletCardCss = () => `
   .vcard::before{content:"";position:absolute;inset:0;border-radius:16px;pointer-events:none;
     background:linear-gradient(115deg,transparent 42%,rgba(255,255,255,.20) 50%,transparent 58%) no-repeat 130% 0/300% 100%}
   a.vcard:hover::before,a.vcard:focus-visible::before{background-position:-30% 0;transition:background-position .8s ease}
-  .vcard .vt{font-size:17px;font-weight:500;letter-spacing:.01em;text-shadow:0 1px 2px rgba(0,0,0,.28);position:relative;z-index:1;line-height:1.35}
-  .vcard .vs{font-size:11px;color:rgba(255,255,255,.75);position:relative;z-index:1;padding-right:92px}
+  /* 行頭エンブレム（案E1 浮き彫り・白シルエット）: 上辺に光/下辺に影のベベル。
+     スタックの可視帯（上部）に載るので重なっても全カードで見える */
+  .vcard .vemb{position:absolute;left:19px;top:15px;width:28px;height:28px;z-index:1}
+  .vcard .vemb svg{width:28px;height:28px;display:block;color:rgba(255,255,255,.92);
+    filter:drop-shadow(0 1.2px 0 rgba(0,0,0,.5)) drop-shadow(0 -1px .5px rgba(255,255,255,.35))}
+  .vcard .vt{font-size:17px;font-weight:500;letter-spacing:.01em;text-shadow:0 1px 2px rgba(0,0,0,.28);position:relative;z-index:1;line-height:1.35;padding-left:36px}
+  .vcard .vs{font-size:11px;color:rgba(255,255,255,.75);position:relative;z-index:1;padding-left:36px;padding-right:92px}
   .vcard .vfmt{position:absolute;top:14px;right:16px;font-size:10.5px;font-weight:500;letter-spacing:.04em;padding:4px 12px;border-radius:8px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.55);z-index:1}
   .vcard .viss{position:absolute;left:20px;bottom:16px;font-size:11px;color:rgba(255,255,255,.78);z-index:1;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* 状態チップは上段（fmtチップの下）— ホームのスタックで全カードの状態が見えるように（2026-07-09）。
@@ -141,12 +146,30 @@ export const walletCardCss = () => `
   .vpeek .vcard{-webkit-mask-image:linear-gradient(180deg,#000 30%,transparent 96%);mask-image:linear-gradient(180deg,#000 30%,transparent 96%);box-shadow:none}
 `;
 
+// カード面の行頭エンブレム（案E1 浮き彫り）用の単色シルエット。8種＋fallback。
+export const CARD_SIL = {
+  pid: `<path d="M3 5.5h18c.6 0 1 .4 1 1v11c0 .6-.4 1-1 1H3c-.6 0-1-.4-1-1v-11c0-.6.4-1 1-1zM7 9a2.2 2.2 0 100 4.4A2.2 2.2 0 007 9zm6 .3h6V11h-6zm0 3h5v1.6h-5zM5 15.6h8v1.6H5z"/>`,
+  juminhyo: `<path d="M12 3 2 11.2h3V20h5v-5.5h4V20h5v-8.8h3z"/>`,
+  qualification: `<path d="M12 4 1 9l11 5 9-4.1V15.5h1.8V9zM4.5 12.4v3.1C4.5 17.3 8 18.6 12 18.6s7.5-1.3 7.5-3.1v-3.1L12 15.8z"/>`,
+  koseki: `<path d="M6 3h8l4 4v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm2 7h8v1.6H8zm0 3.2h8v1.6H8zm0 3.2h5v1.6H8z"/>`,
+  tax: `<path d="M6 2l1.5 1.2L9 2l1.5 1.2L12 2l1.5 1.2L15 2l1.5 1.2L18 2v18l-1.5-1.2L15 20l-1.5 1.2L12 20l-1.5-1.2L9 20l-1.5 1.2L6 22zm2.5 5h7v1.6h-7zm0 3.2h7v1.6h-7zm0 3.2h4.5v1.6H8.5z"/>`,
+  single: `<path d="M12 8.2a4.4 4.4 0 100 8.8 4.4 4.4 0 000-8.8zm0 1.8a2.6 2.6 0 110 5.2 2.6 2.6 0 010-5.2zM9.6 2h4.8l1.3 3.1-3.7 2.3L8.3 5.1z"/>`,
+  disaster: `<path d="M12 3 22 20.5H2zM11 9h2v6h-2zM11 16.4h2v2.2h-2z"/>`,
+  vaccine: `<path d="M20.7 3.3a1 1 0 00-1.4 0l-1.9 1.9 1.4 1.4-1.3 1.3-2.3-2.3-1.3 1.3 1 1L4 17.6V20h2.4l8.7-8.7 1 1 1.3-1.3-2.3-2.3 1.3-1.3 1.4 1.4 1.9-1.9a1 1 0 000-1.4z"/>`,
+};
+export function cardEmblemHtml(type) {
+  const p = CARD_SIL[type];
+  return p ? `<span class="vemb"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${p}</svg></span>` : '';
+}
+
 /** One wallet card face. NO personal data on the face (Apple Wallet / EUDI
- *  practice): type name, issuer, format badge and status only. */
+ *  practice): type name, issuer, format badge and status only. 行頭にエンボスの
+ *  資格証エンブレム（案E1 浮き彫り）を載せる。 */
 export function vcardHtml(type, { title, sub = '', fmt = '', issuer = 'デジタル資格証発行ポータル', status = '有効', revoked = false, unknown = false, href = '', style = '' } = {}) {
   const t = WALLET_CARD_THEME[type] || WALLET_CARD_THEME.pid;
   const tag = href ? 'a' : 'div';
   return `<${tag} ${href ? `href="${esc(href)}"` : ''} class="vcard" style="--c1:${t.c1};--c2:${t.c2};--c3:${t.c3};${style}">
+    ${cardEmblemHtml(type)}
     <div class="vt">${esc(title)}</div>${sub ? `<div class="vs">${esc(sub)}</div>` : ''}
     ${fmt ? `<span class="vfmt">${esc(fmt)}</span>` : ''}
     <span class="viss">${esc(issuer)}</span>
@@ -704,6 +727,7 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       const $ = (id) => document.getElementById(id);
       const CFG = ${JSON.stringify(cfgMeta)};
       const THEME = ${JSON.stringify(WALLET_CARD_THEME)};
+      const SIL = ${JSON.stringify(CARD_SIL)};
       const selected = new Set();
       function toggleOpts() {
         const p = $('optpanel'); const open = p.hidden;
@@ -714,7 +738,9 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       function miniCard(cfg) {
         const m = CFG[cfg]; if (!m) return '';
         const th = THEME[m.type] || THEME.pid;
+        const emb = SIL[m.type] ? '<span class="vemb"><svg viewBox="0 0 24 24" fill="currentColor">' + SIL[m.type] + '</svg></span>' : '';
         return '<div class="vcard" style="--c1:' + th.c1 + ';--c2:' + th.c2 + ';--c3:' + th.c3 + '">'
+          + emb
           + '<div class="vt">' + m.name + '</div><div class="vs">' + cfg + '</div>'
           + '<span class="vfmt">' + m.fmt + '</span><span class="vst">有効</span>'
           + '<span class="viss">デジタル資格証発行ポータル</span></div>';
