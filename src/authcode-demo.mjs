@@ -739,16 +739,15 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       // 発行後は「ウォレットへの受け渡し」へ誘導する。判定は sticky ヘッダーと固定
       // ドック（.ibar）に隠れる帯を除いた実可視領域で行う: 全体が見えていれば何も
       // しない（PC の広い画面）、見切れていればスクロール（SP は実質常に移動）。
-      // 位置は先頭ピッタリでなく、直前のカード下端を少し残す（peek）= カード列が
-      // ここで終わり受け渡しに続くという文脈が読めるように。
+      // 位置は受け渡しコンテナ先頭が sticky ヘッダーの直下（+12px）に来るように。
+      // ヘッダー高を引かないと見出しがヘッダー裏に食い込み「QR 直上ビッタリ」になる。
       function revealOut() {
         const out = $('out'), dock = document.querySelector('.ibar'), hdr = document.querySelector('.ahdr,.top');
         const dockH = dock ? dock.getBoundingClientRect().height : 0;
         const hdrH = hdr ? hdr.getBoundingClientRect().height : 0;
         const r = out.getBoundingClientRect();
         if (r.top >= hdrH && r.bottom <= window.innerHeight - dockH) return;
-        const peek = 104; // 直前カードのチップ行が見える程度
-        window.scrollTo({ top: window.scrollY + r.top - hdrH - peek, behavior: 'smooth' });
+        window.scrollTo({ top: window.scrollY + r.top - hdrH - 12, behavior: 'smooth' });
       }
       $('showjson').onclick = async (e) => { e.preventDefault(); const d = await buildOffer(false); if (d) showResult(d, false); };
       $('issue').onclick = async (e) => { e.preventDefault(); const d = await buildOffer(true); if (d) { showResult(d, true); revealOut(); } };
