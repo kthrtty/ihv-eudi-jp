@@ -235,6 +235,8 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
   .dev-tab{font:inherit;font-size:12px;font-weight:700;padding:8px 14px;border:0;border-radius:8px 8px 0 0;color:var(--muted,#5B6B82);background:none;cursor:pointer}
   .dev-tab.on{background:#0E1A2B;color:#fff}
   .dev-pane{display:flex;flex-direction:column;min-height:0;overflow:auto}
+  /* display:flex は hidden 属性の UA display:none を上書きするため明示（非アクティブタブのペインが常時露出するバグ） */
+  .dev-pane[hidden]{display:none}
   .dev-legend{font-size:10px;color:#7a5b13;background:#FFF7E6;border:1px solid #F2D98B;border-radius:8px;padding:4px 9px;margin:8px 14px 0;line-height:1.5}
   .dev-ep{border:1px solid var(--line,#E3E8EF);border-radius:10px;padding:10px 12px;margin-top:8px}
   .dev-ep.meta{border-color:#F2D98B;background:#FFFDF6}
