@@ -736,15 +736,19 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
         }
         $('out').classList.remove('hidden');
       }
-      // 発行後は「ウォレットへの受け渡し」へ誘導する。判定は固定ドック（.ibar）に
-      // 隠れる帯を除いた実可視領域で行う: 全体が見えていれば何もしない（PC の広い
-      // 画面）、見切れていればセクション先頭へスクロール（SP は実質常に移動）。
+      // 発行後は「ウォレットへの受け渡し」へ誘導する。判定は sticky ヘッダーと固定
+      // ドック（.ibar）に隠れる帯を除いた実可視領域で行う: 全体が見えていれば何も
+      // しない（PC の広い画面）、見切れていればスクロール（SP は実質常に移動）。
+      // 位置は先頭ピッタリでなく、直前のカード下端を少し残す（peek）= カード列が
+      // ここで終わり受け渡しに続くという文脈が読めるように。
       function revealOut() {
-        const out = $('out'), dock = document.querySelector('.ibar');
+        const out = $('out'), dock = document.querySelector('.ibar'), hdr = document.querySelector('.ahdr,.top');
         const dockH = dock ? dock.getBoundingClientRect().height : 0;
+        const hdrH = hdr ? hdr.getBoundingClientRect().height : 0;
         const r = out.getBoundingClientRect();
-        if (r.top >= 0 && r.bottom <= window.innerHeight - dockH) return;
-        window.scrollTo({ top: window.scrollY + r.top - 12, behavior: 'smooth' });
+        if (r.top >= hdrH && r.bottom <= window.innerHeight - dockH) return;
+        const peek = 104; // 直前カードのチップ行が見える程度
+        window.scrollTo({ top: window.scrollY + r.top - hdrH - peek, behavior: 'smooth' });
       }
       $('showjson').onclick = async (e) => { e.preventDefault(); const d = await buildOffer(false); if (d) showResult(d, false); };
       $('issue').onclick = async (e) => { e.preventDefault(); const d = await buildOffer(true); if (d) { showResult(d, true); revealOut(); } };
@@ -818,6 +822,8 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       .sect b{color:var(--ink);font-weight:700}
       .h2{font-size:20px;margin:24px 0 6px;font-weight:700}
       .vcgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
+      /* 最後のカードと受け渡し領域の間隔はカード間 gap と同じ 14px に揃える */
+      #out{margin-top:14px}
       /* The selection ring is drawn on an absolutely-positioned ::after overlay,
          so it never participates in the card's box model: no resize, no shift,
          and no overlap with neighbouring cards. */
