@@ -29,6 +29,9 @@ export function createApp(opts = {}) {
   const { issuerHtml = null, verifierPki = null, statusPki = null, walletOrigin: issuerWalletOrigin = '', ...svcOpts } = opts;
   const svc = new IssuerService({ ...svcOpts, statusPki });
   const app = new Hono();
+  // Expose the IssuerService to the embedding runtime / tests (in-process only —
+  // NOT an HTTP route). Replaces the removed public /users maintenance API.
+  app.svc = svc;
   // R3 security headers + R5 CSRF guard (session cookies: sid / demo).
   app.use('*', securityHeaders());
   app.use('*', csrfGuard(['sid', 'demo']));
@@ -316,12 +319,11 @@ export function createApp(opts = {}) {
   // (The interactive Verifier console moved to the Verifier app at /verifier.)
 
   // ---- user-data maintenance ----
-  app.get('/users', async (c) => c.json({ users: await svc.listUsers() }));
-  app.get('/users/:id', async (c) => { const u = await svc.getUser(c.req.param('id')); return u ? c.json(u) : c.json({ error: 'not found' }, 404); });
-  app.put('/users/:id', async (c) => {
-    try { return c.json(await svc.updateUser(c.req.param('id'), await c.req.json())); }
-    catch (e) { return fail(c, e); }
-  });
+  // NOTE: the unauthenticated /users maintenance API (list/get/put) was removed —
+  // it let any anonymous caller read and REWRITE the persona data that gets minted
+  // (R6, broken access control). User self-service edits go through the
+  // session-bound /account instead; the in-process store is reachable via app.svc
+  // for the embedding runtime / tests (not an HTTP surface).
 
   app.post('/nonce', async (c) => {
     const n = await svc.nonce();

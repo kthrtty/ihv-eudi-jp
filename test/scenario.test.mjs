@@ -362,8 +362,7 @@ test('XSS: a hostile household member name is escaped on ALL surfaces (account, 
   const app = createApp({ credentialIssuer: ISSUER });
   // 1) /account re-render escapes the stored value into the input attribute
   const login = await (await app.request('/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_001' }) })).json();
-  await app.request('/users/u_001', { method: 'PUT', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ household: [{ family: HOSTILE, given: '莉子', birth: '2015-06-10', rel: '子' }] }) });
+  await app.svc.updateUser('u_001', { household: [{ family: HOSTILE, given: '莉子', birth: '2015-06-10', rel: '子' }] });
   const account = await (await app.request('/account', { headers: { cookie: `sid=${login.session_id}` } })).text();
   assert.ok(!account.includes(HOSTILE), 'account page neutralises the raw tag');
   // 2) verifier accept page + 3) history: mint via claims override, run kidbank presentation
