@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createApp } from '../src/app.mjs';
 import { createWallet } from '../src/wallet.mjs';
-import { IssuerService, httpErr } from '../src/oid4vci.mjs';
+import { IssuerService, httpErr, parseRedirectAllowlist, isRedirectAllowed } from '../src/oid4vci.mjs';
 import { verify as verifyCredential, allConfigIds, configInfo } from '../src/issuer.mjs';
 import { renderVcSelect, groupCatalog, renderHistory } from '../src/authcode-demo.mjs';
 
@@ -438,6 +438,47 @@ test('token rejects redirect_uri mismatch and reuse of code', async () => {
 test('login rejects unknown user', async () => {
   const svc = new IssuerService({ credentialIssuer: ISSUER });
   await assert.rejects(svc.login('ghost'), /unknown user/);
+});
+
+// ---- redirect_uri allowlist (open-redirector guard) ----
+test('redirect allowlist: exact origin + path-prefix match', () => {
+  const al = parseRedirectAllowlist('https://issuer.foo/demo/cb , https://wallet.foo/oidc/cb');
+  assert.equal(al.length, 2);
+  // allowed: exact path and a deeper sub-path on the same origin
+  assert.ok(isRedirectAllowed('https://wallet.foo/oidc/cb', al));
+  assert.ok(isRedirectAllowed('https://wallet.foo/oidc/cb?code=x', al), 'query is ignored');
+  assert.ok(isRedirectAllowed('https://wallet.foo/oidc/cb/extra', al), 'path prefix boundary');
+  // rejected: different origin (open redirector), path mismatch, port mismatch, garbage
+  assert.ok(!isRedirectAllowed('https://attacker.example/oidc/cb', al), 'foreign origin blocked');
+  assert.ok(!isRedirectAllowed('https://wallet.foo/other', al), 'path mismatch blocked');
+  assert.ok(!isRedirectAllowed('https://wallet.foo:8443/oidc/cb', al), 'port mismatch blocked');
+  assert.ok(!isRedirectAllowed('https://wallet.foo/oidc/cbextra', al), 'partial segment not a prefix boundary');
+  assert.ok(!isRedirectAllowed('not a url', al));
+  // empty allowlist = unconfigured -> permissive (dev/tests)
+  assert.ok(isRedirectAllowed('https://anything/at/all', []));
+});
+
+test('authorize enforces the redirect allowlist when configured', async () => {
+  const svc = new IssuerService({
+    credentialIssuer: ISSUER,
+    redirectAllowlist: 'https://wallet.foo/oidc/cb',
+  });
+  const { sessionId } = await svc.login('u_001');
+  const base = {
+    sessionId, response_type: 'code',
+    code_challenge: s256('verifier-fixed-0001'), code_challenge_method: 'S256', scope: 'pid_mdoc',
+  };
+  // open-redirector attempt -> refused before any code is minted
+  await assert.rejects(
+    svc.authorize({ ...base, redirect_uri: 'https://attacker.example/oidc/cb' }),
+    /redirect_uri not allowed/);
+  await assert.rejects(
+    svc.authorize({ ...base, redirect_uri: 'app://cb' }),
+    /redirect_uri not allowed/);
+  // the registered redirect_uri still works
+  const { redirect } = await svc.authorize({ ...base, redirect_uri: 'https://wallet.foo/oidc/cb', state: 's1' });
+  assert.ok(redirect.startsWith('https://wallet.foo/oidc/cb?'));
+  assert.match(redirect, /[?&]code=/);
 });
 
 // ---- issuer-initiated authorization_code (offer carries issuer_state, not a code) ----

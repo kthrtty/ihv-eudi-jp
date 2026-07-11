@@ -7,6 +7,9 @@ compatibility_flags = ["nodejs_compat"]
 ISSUER_URL         = "https://issuer.example.test"
 VERIFIER_ORIGIN    = "https://verifier.example.test"
 WALLET_ORIGIN      = "https://web-wallet.example.test"
+# Open-redirector guard: authorization redirect_uri allowlist (space/comma-separated).
+# Placeholder only; real origins are injected by `npm run deploy` (scripts/deploy.mjs).
+REDIRECT_URI_ALLOWLIST = "https://issuer.example.test/demo/cb https://web-wallet.example.test/oidc/cb"
 
 # Secrets (set once with `wrangler secret put`):
 #   ISSUER_PKI_JSON  — node scripts/gen-worker-pki.mjs | wrangler secret put ISSUER_PKI_JSON

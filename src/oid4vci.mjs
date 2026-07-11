@@ -30,6 +30,44 @@ function configIdsFromRequest(scope, authorization_details) {
   return [...ids];
 }
 
+/**
+ * Parse a redirect_uri allowlist spec into normalised {origin, path} entries.
+ * Spec is a whitespace/comma-separated list of absolute URLs (e.g.
+ * "https://issuer.foo/demo/cb https://wallet.foo/oidc/cb"), or an array of the
+ * same. Each entry pins an exact origin plus a path prefix. Unparseable tokens
+ * are dropped. Domains are injected at deploy time (see scripts/deploy.mjs), so
+ * the repo never carries the production origin.
+ */
+export function parseRedirectAllowlist(spec) {
+  const toks = Array.isArray(spec) ? spec : String(spec ?? '').split(/[\s,]+/);
+  const out = [];
+  for (const t of toks) {
+    const s = t && t.trim();
+    if (!s) continue;
+    let u; try { u = new URL(s); } catch { continue; }
+    out.push({ origin: u.origin, path: u.pathname.replace(/\/+$/, '') });
+  }
+  return out;
+}
+
+/**
+ * Is `redirectUri` permitted by `allowlist` (from parseRedirectAllowlist)?
+ * Match = exact origin AND path prefix (an empty entry path allows any path on
+ * that origin). Query/hash are ignored (we append code/state ourselves). An
+ * empty allowlist means "unconfigured" → permissive (dev/tests); production
+ * always carries a list (wrangler [vars] placeholder at minimum) so it is
+ * fail-closed against open-redirector abuse.
+ */
+export function isRedirectAllowed(redirectUri, allowlist) {
+  if (!allowlist || !allowlist.length) return true;
+  let u; try { u = new URL(redirectUri); } catch { return false; }
+  for (const e of allowlist) {
+    if (u.origin !== e.origin) continue;
+    if (e.path === '' || u.pathname === e.path || u.pathname.startsWith(e.path + '/')) return true;
+  }
+  return false;
+}
+
 /** Minimal TTL key-value store (in-memory). Workers: back with KV/D1. */
 export function memoryStore() {
   const m = new Map();
@@ -65,10 +103,13 @@ export class IssuerService {
   // statusPki: { key, cert } — injected by worker.mjs for Workers env;
   // null lets StatusListService lazy-load from disk in Node.js dev.
   constructor({ store = memoryStore(), credentialIssuer = 'https://issuer.ihv.example', proofMaxAgeSec = 300,
-    userStore = createUserStore(), statusPki = null } = {}) {
+    userStore = createUserStore(), statusPki = null, redirectAllowlist = [] } = {}) {
     this.store = store;
     this.credentialIssuer = credentialIssuer;
     this.proofMaxAgeSec = proofMaxAgeSec;
+    // Allowed authorization redirect_uris (open-redirector guard). Empty =
+    // unconfigured → permissive (dev/tests); prod injects a list at deploy time.
+    this.redirectAllowlist = parseRedirectAllowlist(redirectAllowlist);
     this.statusList = new StatusListService({
       uri: `${credentialIssuer}/status-lists/1`,
       issuerKeyPem: statusPki?.key ?? null,
@@ -142,6 +183,11 @@ export class IssuerService {
     const sess = sessionId && await this.store.get(`sess:${sessionId}`);
     if (!sess) throw httpErr(401, 'login_required', 'no active session; user must sign in first');
     if (code_challenge_method !== 'S256' || !code_challenge) throw httpErr(400, 'invalid_request', 'PKCE S256 required');
+    // Open-redirector guard: only hand an auth code to a registered redirect_uri.
+    // Skipped when no allowlist is configured (dev); prod always carries one.
+    if (!redirect_uri || !isRedirectAllowed(redirect_uri, this.redirectAllowlist)) {
+      throw httpErr(400, 'invalid_request', 'redirect_uri not allowed');
+    }
     const ids = await this.requestedIds({ scope, authorization_details, issuer_state });
     if (!ids.length) throw httpErr(400, 'invalid_scope', 'no credential configuration requested');
     const code = tok();

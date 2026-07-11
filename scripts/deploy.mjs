@@ -30,6 +30,12 @@ const vars = {
 for (const [k, v] of Object.entries(vars)) {
   if (!v) { console.error(`✗ ${k} が解決できません（WORKERS_SUBDOMAIN か ${k} を .deploy.env に設定）`); process.exit(1); }
 }
+// Open-redirector guard: derive the redirect_uri allowlist from the real origins
+// (issuer /demo/cb + wallet /oidc/cb) unless explicitly overridden in .deploy.env.
+// Closes the open redirector automatically on every deploy — no step to forget.
+// Extra dev/local origins can be appended via the REDIRECT_URI_ALLOWLIST override.
+vars.REDIRECT_URI_ALLOWLIST = env.REDIRECT_URI_ALLOWLIST
+  || `${vars.ISSUER_URL}/demo/cb ${vars.WALLET_ORIGIN}/oidc/cb`;
 
 const varArgs = Object.entries(vars).flatMap(([k, v]) => ['--var', `${k}:${v}`]);
 const configs = [null, 'wrangler.verifier.toml', 'wrangler.wallet.toml'];

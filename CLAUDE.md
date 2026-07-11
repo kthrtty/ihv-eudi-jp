@@ -143,7 +143,10 @@ devlog は `portrait|portrait_b64` をマスク。テスト `test/portrait.test.
 `test/portrait-flows.test.mjs`（更新→発行→提示→表示→履歴→ログの観点別E2E。`/creds` は claims を返さない軽量API）。
 
 ## 実装済みフロー
-- **発行**: pre-auth + **authorization_code(PKCE S256)**。wallet起点(scope) / 発行者起点(`grants.authorization_code.issuer_state`)
+- **発行**: pre-auth + **authorization_code(PKCE S256)**。wallet起点(scope) / 発行者起点(`grants.authorization_code.issuer_state`)。
+  `authorize` は **redirect_uri 許可リスト**でオープンリダイレクタを封じる（`isRedirectAllowed`＝オリジン完全一致＋パス前方一致）。
+  リストは env `REDIRECT_URI_ALLOWLIST`（`deploy.mjs` が ISSUER_URL/WALLET_ORIGIN から `/demo/cb`・`/oidc/cb` を自動導出・
+  本番ドメインは非コミット）。**未設定＝許容**（Node 直呼びテスト互換）だが Workers は toml プレースホルダで常に非空＝fail-closed
 - **セッション連動データ**: `/login`→access_token に userId→`credential()` が persona を mint。`/users` 保守が次回発行へ反映
 - **検証**: Annex C(HPKE) / Annex D(JWE) を `createRequest({protocol})` で選択ディスパッチ。`verifyResponse` が session.protocol で分岐。Annex C は mdoc専用
 - **検証者コンソール** `/demo/verify`(+/catalog /prepare /present): 16構成・mdoc/SD-JWT・項目選択(選択開示)・プロトコル・DCQL JSON・結果
