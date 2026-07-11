@@ -736,8 +736,18 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
         }
         $('out').classList.remove('hidden');
       }
+      // 発行後は「ウォレットへの受け渡し」へ誘導する。判定は固定ドック（.ibar）に
+      // 隠れる帯を除いた実可視領域で行う: 全体が見えていれば何もしない（PC の広い
+      // 画面）、見切れていればセクション先頭へスクロール（SP は実質常に移動）。
+      function revealOut() {
+        const out = $('out'), dock = document.querySelector('.ibar');
+        const dockH = dock ? dock.getBoundingClientRect().height : 0;
+        const r = out.getBoundingClientRect();
+        if (r.top >= 0 && r.bottom <= window.innerHeight - dockH) return;
+        window.scrollTo({ top: window.scrollY + r.top - 12, behavior: 'smooth' });
+      }
       $('showjson').onclick = async (e) => { e.preventDefault(); const d = await buildOffer(false); if (d) showResult(d, false); };
-      $('issue').onclick = async (e) => { e.preventDefault(); const d = await buildOffer(true); if (d) showResult(d, true); };
+      $('issue').onclick = async (e) => { e.preventDefault(); const d = await buildOffer(true); if (d) { showResult(d, true); revealOut(); } };
     </script>
     <style>
       /* issue dock (案B): full-bleed at the very bottom — no gap for cards to
