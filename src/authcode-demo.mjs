@@ -443,7 +443,7 @@ export function renderConsentScreen(q, user, infos = []) {
 // c1/c2: material-design gradient; glyph: emoji; shape: 'card' (landscape ID
 // card) or 'paper' (portrait certificate sheet).
 const TYPE_META = {
-  pid:           { name: '写真付き身分証（PID）',     desc: '基本四情報＋顔写真',    note: '※実際にはMNCはカード代替電磁的記録を利用', c1: '#3949AB', c2: '#283593', glyph: '🪪', shape: 'card' },
+  pid:           { name: '写真付き身分証（PID）',     desc: '基本四情報＋顔写真',    note: '※MNCの場合はカード代替電磁的記録を利用', c1: '#3949AB', c2: '#283593', glyph: '🪪', shape: 'card' },
   qualification: { name: '国家資格（EAA）',           desc: '医師・行政書士 等',     c1: '#8E24AA', c2: '#6A1B9A', glyph: '🎓', shape: 'card' },
   juminhyo:      { name: '住民票の写し（EAA）',        desc: '住所・世帯情報',        c1: '#00897B', c2: '#00695C', glyph: '🏠', shape: 'paper' },
   koseki:        { name: '戸籍謄本（EAA）',           desc: '本籍・続柄・親子関係',  c1: '#6D4C41', c2: '#4E342E', glyph: '📜', shape: 'paper' },
@@ -491,6 +491,12 @@ function paperIcon(type, m) {
  *  with the issuer instead of the catalog's metadata display name. */
 export function typeName(type) {
   return TYPE_META[type]?.name || type;
+}
+
+/** Curated caveat note for a credential type (e.g. PID: MNC uses a card-substitute
+ *  electronic record). '' when the type has none. Shared by issuer/wallet/verifier. */
+export function typeNote(type) {
+  return TYPE_META[type]?.note || '';
 }
 
 /** Per-type icon: landscape card for ID-style creds, portrait sheet for certs. */
@@ -589,6 +595,7 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
           <span class="cchips">${chips}</span>
           <button type="button" class="cinfo" title="含まれる項目を見る" onclick="openClaims('${esc(g.type)}')">ⓘ</button>
         </div>
+        ${g.note ? `<div class="cnote">${esc(g.note)}</div>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -601,45 +608,6 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       <h2 class="h2">発行できるクレデンシャル</h2>
       <div class="hint" style="margin:0 0 14px">形式チップ（mdoc / SD-JWT）で複数選択できます。複数種別・複数形式をまとめて1つのオファーに含められます。下のバーの<b>「発行」でそのまま発行</b>、「プレビュー」でウォレットに入る姿を確認できます。</div>
       <div class="catlist">${rows}</div>
-
-      <div id="out" class="hidden">
-        <div id="pinbanner" class="pinbanner hidden">
-          <div class="pin-k">発行者 PIN（tx_code）— ウォレットにこの番号を入力</div>
-          <div class="pin-v" id="pinval">––––</div>
-          <div class="pin-note">この PIN はオファー生成のたびに動的生成されます。発行者が利用者へ別経路で伝える想定です。</div>
-        </div>
-        <div class="card" id="qrcard">
-          <div class="eyebrow">ウォレットへの受け渡し</div>
-          <!-- wide: QR left / actions right. narrow: stacked & centered -->
-          <div class="handoff" id="wletrow">
-            <div class="qrside"><div id="qrbox"></div></div>
-            <div class="btnside">
-              <a class="act primary" id="openweb" href="#" target="_blank" rel="noopener">
-                <span class="act-ic">🌐</span>
-                <span class="act-tx"><b>Web ウォレットに追加</b><small>ブラウザのウォレットで受け取ります（コピー&ペースト不要）</small></span>
-                <span class="act-ch">›</span>
-              </a>
-              <a class="act" id="opendevice" href="#">
-                <span class="act-ic">📱</span>
-                <span class="act-tx"><b>この端末のウォレットで開く</b><small>ネイティブウォレット（Multipaz 等）が起動します</small></span>
-                <span class="act-ch">›</span>
-              </a>
-              <button type="button" class="act" id="copyoffer">
-                <span class="act-ic">📋</span>
-                <span class="act-tx"><b>オファーをコピー</b><small>その他のウォレットへ手動で渡す場合に</small></span>
-                <span class="act-ch">›</span>
-              </button>
-            </div>
-            <div class="qrcap">別の端末のウォレットは QR を読み取り</div>
-          </div>
-          <!-- 技術情報は既定で畳む: JSON と生URIは開発者向け -->
-          <details class="jsonfold" id="jsonfold">
-            <summary>Credential Offer（JSON）と URI を表示（開発者向け）</summary>
-            <pre id="offerjson" class="json"></pre>
-            <div class="k mono" style="font-size:11px;word-break:break-all;margin-top:8px" id="offeruri"></div>
-          </details>
-        </div>
-      </div>
      </div><!-- /catmain -->
     </div>
 
@@ -669,13 +637,56 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       </div>
     </div>
 
-    <!-- 固定アクションバー: 選択画面から直接発行 / プレビュー / ⚙ -->
+    <!-- 固定アクションバー: 選択数 + プレビュー / 発行 / ⚙設定。中央寄せグループで左右バランス -->
     <div class="actbar" id="actbar">
-      <div class="ab-thumb" id="abThumb" title="プレビュー" onclick="openSheet()"></div>
-      <div class="ab-cnt" id="abCnt">クレデンシャルを選択</div>
-      <button type="button" class="gearbtn" id="optbtn" title="発行オプション（開発者向け）" aria-expanded="false">⚙</button>
-      <button type="button" class="ab-prev" id="prevBtn" onclick="openSheet()" disabled>プレビュー</button>
-      <button type="button" class="btn ab-issue" id="issue" disabled>発行</button>
+      <div class="ab-in">
+        <span class="ab-cnt" id="abCnt">クレデンシャルを選択</span>
+        <button type="button" class="ab-prev" id="prevBtn" onclick="openSheet()" disabled>プレビュー</button>
+        <button type="button" class="btn ab-issue" id="issue" disabled>発行</button>
+        <button type="button" class="gearbtn" id="optbtn" title="発行オプション（設定）" aria-expanded="false">⚙</button>
+      </div>
+    </div>
+
+    <!-- 発行後の受け渡し（オファリング）もプレビューと同じボトムシートで下から出す -->
+    <div class="psheet-scrim" id="outScrim" onclick="closeOut()"></div>
+    <div class="psheet osheet" id="out" aria-hidden="true">
+      <div class="ps-grab"></div>
+      <div class="ps-h">ウォレットへの受け渡し
+        <button type="button" class="ps-x" onclick="closeOut()" aria-label="閉じる">×</button></div>
+      <div class="ps-body">
+        <div id="pinbanner" class="pinbanner hidden">
+          <div class="pin-k">発行者 PIN（tx_code）— ウォレットにこの番号を入力</div>
+          <div class="pin-v" id="pinval">––––</div>
+          <div class="pin-note">この PIN はオファー生成のたびに動的生成されます。発行者が利用者へ別経路で伝える想定です。</div>
+        </div>
+        <!-- wide: QR left / actions right. narrow: stacked & centered -->
+        <div class="handoff" id="wletrow">
+          <div class="qrside"><div id="qrbox"></div></div>
+          <div class="btnside">
+            <a class="act primary" id="openweb" href="#" target="_blank" rel="noopener">
+              <span class="act-ic">🌐</span>
+              <span class="act-tx"><b>Web ウォレットに追加</b><small>ブラウザのウォレットで受け取ります（コピー&ペースト不要）</small></span>
+              <span class="act-ch">›</span>
+            </a>
+            <a class="act" id="opendevice" href="#">
+              <span class="act-ic">📱</span>
+              <span class="act-tx"><b>この端末のウォレットで開く</b><small>ネイティブウォレット（Multipaz 等）が起動します</small></span>
+              <span class="act-ch">›</span>
+            </a>
+            <button type="button" class="act" id="copyoffer">
+              <span class="act-ic">📋</span>
+              <span class="act-tx"><b>オファーをコピー</b><small>その他のウォレットへ手動で渡す場合に</small></span>
+              <span class="act-ch">›</span>
+            </button>
+          </div>
+          <div class="qrcap">別の端末のウォレットは QR を読み取り</div>
+        </div>
+        <details class="jsonfold" id="jsonfold">
+          <summary>Credential Offer（JSON）と URI を表示（開発者向け）</summary>
+          <pre id="offerjson" class="json"></pre>
+          <div class="k mono" style="font-size:11px;word-break:break-all;margin-top:8px" id="offeruri"></div>
+        </details>
+      </div>
     </div>
 
     <!-- ボトムシート: ウォレットに入る姿（重なりスタック・選択数連動）。画面遷移なし -->
@@ -721,22 +732,10 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
         $('issueSheet').textContent = arr.length ? ('発行（' + arr.length + '）') : '発行';
       }
       function renderBar() {
-        const n = selected.size, arr = [...selected];
-        // 選択数はサムネイル上のバッジで表す（狭幅でテキストが見切れるのを回避）。
-        // テキスト「N 構成を選択」は幅に余裕のある画面でのみ併記（CSS で制御）。
-        $('abCnt').innerHTML = n ? ('<b>' + n + '</b> 構成を選択') : 'クレデンシャルを選択';
+        const n = selected.size;
+        $('abCnt').innerHTML = n ? ('<b>' + n + '</b> 構成を選択中') : 'クレデンシャルを選択';
         $('issue').disabled = !n; $('issue').textContent = n ? ('発行（' + n + '）') : '発行';
         $('prevBtn').disabled = !n;
-        const th = $('abThumb'); th.innerHTML = '';
-        // 種別ごとに 1 枚（重複形式はまとめる）でサムネイルを最大3枚重ねる
-        const types = [...new Set(arr.map((c) => (CFG[c] || {}).type))].filter(Boolean);
-        types.slice(0, 3).forEach((ty, i) => {
-          const c = THEME[ty] || THEME.pid, d = document.createElement('div');
-          d.className = 'ab-mc'; d.style.setProperty('--c1', c.c1); d.style.setProperty('--c2', c.c2);
-          d.style.left = (i * 5) + 'px'; d.style.top = (i * 3) + 'px'; d.style.zIndex = i; th.appendChild(d);
-        });
-        if (n) { const b = document.createElement('span'); b.className = 'ab-badge'; b.textContent = n; th.appendChild(b); }
-        th.style.visibility = n ? 'visible' : 'hidden';
       }
       document.querySelectorAll('.fmtchip').forEach((chip) => {
         chip.onclick = () => {
@@ -804,23 +803,13 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
         } else {
           $('offeruri').textContent = d.delivery?.offer_uri || '';
         }
-        $('out').classList.remove('hidden');
+        openOut();
       }
-      // 発行後は「ウォレットへの受け渡し」へ誘導する。判定は sticky ヘッダーと固定
-      // ドック（.ibar）に隠れる帯を除いた実可視領域で行う: 全体が見えていれば何も
-      // しない（PC の広い画面）、見切れていればスクロール（SP は実質常に移動）。
-      // 位置は受け渡しコンテナ先頭が sticky ヘッダーの直下（+12px）に来るように。
-      // ヘッダー高を引かないと見出しがヘッダー裏に食い込み「QR 直上ビッタリ」になる。
-      function revealOut() {
-        const out = $('out'), dock = document.querySelector('.actbar'), hdr = document.querySelector('.topwrap,.ahdr,.top');
-        const dockH = dock ? dock.getBoundingClientRect().height : 0;
-        const hdrH = hdr ? hdr.getBoundingClientRect().height : 0;
-        const r = out.getBoundingClientRect();
-        if (r.top >= hdrH && r.bottom <= window.innerHeight - dockH) return;
-        window.scrollTo({ top: window.scrollY + r.top - hdrH - 12, behavior: 'smooth' });
-      }
-      async function doIssue() { const d = await buildOffer(true); if (d) { closeSheet(); showResult(d, true); revealOut(); } }
-      $('showjson').onclick = async (e) => { e.preventDefault(); const d = await buildOffer(false); if (d) showResult(d, false); };
+      // 受け渡し（オファリング）はプレビューと同じボトムシートで下から出す
+      window.openOut = function () { $('out').classList.add('open'); $('outScrim').classList.add('show'); $('out').setAttribute('aria-hidden', 'false'); };
+      window.closeOut = function () { $('out').classList.remove('open'); $('outScrim').classList.remove('show'); $('out').setAttribute('aria-hidden', 'true'); };
+      async function doIssue() { const d = await buildOffer(true); if (d) { closeSheet(); showResult(d, true); } }
+      $('showjson').onclick = async (e) => { e.preventDefault(); const d = await buildOffer(false); if (d) { closeSheet(); showResult(d, false); } };
       $('issue').onclick = (e) => { e.preventDefault(); doIssue(); };
       $('issueSheet').onclick = (e) => { e.preventDefault(); doIssue(); };
     </script>
@@ -842,28 +831,23 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       .fmtchip:hover{border-color:#aebbd3}
       .fmtchip.on{background:var(--civic);border-color:var(--civic);color:#fff}
       .cinfo{flex:none;border:0;background:none;color:var(--muted);font-size:15px;cursor:pointer;padding:0 2px;line-height:1}
+      .cnote{font-size:10.5px;color:#8A6D1F;margin-top:4px;line-height:1.5}
       @media(max-width:520px){
         /* 狭幅では説明を隠して名前とチップに幅を割く（名前は絶対に省略しない） */
         .cl2{flex-wrap:wrap}
         .cd{flex-basis:100%;order:3}
       }
 
-      /* 固定アクションバー */
-      .actbar{position:fixed;left:0;right:0;bottom:0;z-index:50;display:flex;align-items:center;gap:10px;
-        padding:10px 16px calc(10px + env(safe-area-inset-bottom));box-sizing:border-box;
+      /* 固定アクションバー: 中身は max-width で中央寄せし、間延びを防ぐ */
+      .actbar{position:fixed;left:0;right:0;bottom:0;z-index:50;box-sizing:border-box;
+        padding:10px 16px calc(10px + env(safe-area-inset-bottom));
         background:rgba(255,255,255,.94);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
         border-top:1px solid #D4DEF5;box-shadow:0 -8px 28px rgba(14,26,43,.12)}
-      .ab-thumb{position:relative;width:56px;height:36px;flex:none;cursor:pointer;overflow:visible}
-      .ab-mc{position:absolute;width:46px;height:29px;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.28);
-        background:linear-gradient(135deg,var(--c1),var(--c2))}
-      /* 選択数バッジ（サムネイル右上）— テキストが無くても数が分かる */
-      .ab-badge{position:absolute;top:-7px;right:-7px;min-width:19px;height:19px;padding:0 5px;box-sizing:border-box;
-        border-radius:999px;background:var(--civic);color:#fff;font-size:10.5px;font-weight:800;line-height:19px;text-align:center;
-        box-shadow:0 0 0 2px #fff;z-index:5}
-      .ab-cnt{flex:1;min-width:0;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      /* カウント＋ボタンを1つの中央グループにまとめて隙間なく配置（間延び防止） */
+      .ab-in{margin:0 auto;display:flex;align-items:center;justify-content:center;gap:12px}
+      .ab-cnt{flex:0 1 auto;min-width:0;font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-right:4px}
       .ab-cnt b{color:#0E1A2B;font-size:14px}
-      /* 狭幅ではテキストを省いてボタンに幅を譲る（数はバッジが担保） */
-      @media(max-width:460px){.ab-cnt{display:none}.actbar{gap:8px}.ab-prev{padding:9px 12px}}
+      @media(max-width:400px){.ab-cnt{font-size:11px;margin-right:0}.ab-in{gap:8px}.ab-prev{padding:9px 12px}}
       .gearbtn{flex:none;width:40px;height:40px;border:1px solid #D4DEF5;background:#fff;border-radius:10px;font-size:17px;cursor:pointer;color:#3C4A61}
       .gearbtn.on{background:#EAF0FA;border-color:#B7C7EE}
       .ab-prev{flex:none;background:#fff;border:1px solid var(--civic);color:var(--civic);border-radius:10px;padding:9px 14px;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}
@@ -902,6 +886,14 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       .pstack .vcard{max-width:none;position:absolute;left:0;right:0;transition:top .32s cubic-bezier(.2,.7,.2,1)}
       .ps-cap{font-size:11px;color:var(--muted);margin-top:8px}
       .ps-issue{margin:8px 18px calc(14px + env(safe-area-inset-bottom))}
+      /* 受け渡し（オファリング）シート: プレビューと同じ .psheet ベース。中の受け渡しは
+         シート幅に依存せず縦積み（QR→ボタン→キャプション）で崩れないように固定 */
+      .osheet .ps-body{padding-bottom:calc(16px + env(safe-area-inset-bottom))}
+      .osheet .handoff{grid-template-columns:1fr;justify-items:center;row-gap:8px;margin-top:2px}
+      .osheet .qrside{grid-column:1;grid-row:1}
+      .osheet .qrcap{grid-column:1;grid-row:2;margin-bottom:6px}
+      .osheet .btnside{grid-column:1;grid-row:3;width:100%;max-width:460px}
+      .osheet .qrside #qrbox img{width:200px;height:200px}
 
       /* 広幅では書類カタログをタイル格子に（プレビューは SP と同じバー＋シートに統一）。
          narrow=1列 → 760px〜=2列 → 広い画面で3列（各タイルは2段行のまま名前は省略しない） */
@@ -946,8 +938,6 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       .sect{background:#fff;border:1px solid var(--line);border-left:4px solid var(--verify);border-radius:10px;padding:14px 18px;font-size:13px;color:var(--muted);letter-spacing:.04em}
       .sect b{color:var(--ink);font-weight:700}
       .h2{font-size:20px;margin:24px 0 6px;font-weight:700}
-      /* 最後の行と受け渡し領域の間隔は行間 gap と同じ 14px に揃える */
-      #out{margin-top:14px}
       ${walletCardCss()}
       .optrow{display:flex;align-items:center;gap:16px;margin-bottom:14px}
       .optlbl{font-size:12px;color:var(--muted);font-weight:700;width:140px;flex-shrink:0}
