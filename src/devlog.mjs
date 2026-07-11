@@ -41,6 +41,30 @@ export function maskHeaders(pairs = []) {
   });
 }
 
+/** Mask sensitive query VALUES in an endpoint string (path?query). Non-sensitive
+ *  params keep their original encoding; sensitive ones get partialMask (and JSON
+ *  values — e.g. credential_offer by value — are deep-masked so nested secrets
+ *  like pre-authorized_code never reach the browser). */
+export function maskEp(ep) {
+  const s = String(ep);
+  const q = s.indexOf('?');
+  if (q < 0) return s;
+  const parts = s.slice(q + 1).split('&').map((p) => {
+    const eq = p.indexOf('=');
+    if (eq < 0) return p;
+    const k = p.slice(0, eq), v = p.slice(eq + 1);
+    let dk = k, dv = v;
+    try { dk = decodeURIComponent(k); } catch { /* keep raw */ }
+    try { dv = decodeURIComponent(v.replace(/\+/g, ' ')); } catch { /* keep raw */ }
+    if (/^[\[{]/.test(dv.trim())) {
+      try { return `${k}=${JSON.stringify(maskBody(JSON.parse(dv), SENSITIVE_KEY.test(dk)))}`; } catch { /* fall through */ }
+    }
+    if (!SENSITIVE_KEY.test(dk)) return p;
+    return `${k}=${partialMask(dv)}`;
+  });
+  return s.slice(0, q) + '?' + parts.join('&');
+}
+
 // ---- body parsing ---------------------------------------------------------------
 const parseBody = (text, contentType = '') => {
   if (text == null || text === '') return null;
@@ -72,7 +96,7 @@ export function grpOf(ep) {
 /** Build a masked log entry from a raw exchange. */
 export function buildEntry({ dir, method, ep, status, grp, note, reqHeaders, reqBody, reqCT, resHeaders, resBody, resCT }) {
   return {
-    ts: new Date().toISOString(), dir, method, ep, status: status ?? null,
+    ts: new Date().toISOString(), dir, method, ep: maskEp(ep), status: status ?? null,
     grp: grp || grpOf(String(ep)), note: note || null,
     reqHeaders: maskHeaders(headerPairs(reqHeaders)),
     reqBody: maskBody(parseBody(reqBody, reqCT)),
@@ -107,7 +131,9 @@ export function recordingFetch(baseFetch, store, appId = 'wallet') {
       const r = res.clone();
       const resText = await r.text().catch(() => '');
       await pushLog(store, buildEntry({
-        dir: 'out', method: (opts.method || 'GET').toUpperCase(), ep: u.pathname + (u.search || ''),
+        // outbound は宛先オリジン付きで記録（wallet→issuer / wallet→verifier を区別できるように）
+        dir: 'out', method: (opts.method || 'GET').toUpperCase(),
+        ep: (u.origin !== 'http://x' ? u.origin : '') + u.pathname + (u.search || ''),
         status: res.status, reqHeaders: opts.headers, reqBody: typeof opts.body === 'string' ? opts.body : null,
         reqCT: (headerPairs(opts.headers).find(([k]) => k.toLowerCase() === 'content-type') || [])[1],
         resHeaders: r.headers, resBody: resText, resCT: r.headers.get('content-type'),
@@ -245,6 +271,12 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
   .dev-hk{width:128px;flex:none;padding:6px 9px;color:var(--muted,#5B6B82);background:#f7f9fc;font-family:ui-monospace,monospace}
   .dev-hv{padding:6px 9px;font-family:ui-monospace,monospace;word-break:break-all}.dev-hv.m{color:#9a6a13;background:#FFFBF0}
   .dev-empty{color:var(--muted,#5B6B82);font-size:12px;padding:14px 2px}
+  /* リクエスト節のフル URL: 折り返し・最大4行で内部縦スクロール（行ヘッダの ellipsis の補完） */
+  .dev-url{font-family:ui-monospace,monospace;font-size:10.5px;background:#f7f9fc;border:1px solid var(--line,#E3E8EF);border-radius:8px;padding:8px 10px;line-height:1.6;color:#0E1A2B;word-break:break-all;max-height:84px;overflow-y:auto;overscroll-behavior:contain;margin-top:2px}
+  .dev-url .qs{color:#7A52A8}
+  .dev-url::-webkit-scrollbar{width:6px}.dev-url::-webkit-scrollbar-thumb{background:#C6D0DC;border-radius:3px}
+  .dev-copy{font:inherit;font-size:10px;font-weight:700;border:1px solid var(--line,#E3E8EF);border-radius:6px;background:#fff;color:#2E7D6B;padding:2px 8px;cursor:pointer}
+  .dev-copy.ok{color:#fff;background:#2E7D6B;border-color:#2E7D6B}
 </style>
 <script>
 (function(){
@@ -253,8 +285,28 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
   function esc(s){return String(s).replace(/[&<>"]/g,function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m];});}
   function code(v){return v==null?'':'<pre class="dev-code">'+esc(typeof v==='string'?v:JSON.stringify(v,null,2))+'</pre>';}
   function hdrs(rows){if(!rows||!rows.length)return '';return '<div class="dev-hdrs">'+rows.map(function(r){return '<div class="dev-hrow"><span class="dev-hk">'+esc(r[0])+'</span><span class="dev-hv'+(r[2]?' m':'')+'">'+(r[2]?'🔒 ':'')+esc(r[1])+'</span></div>';}).join('')+'</div>';}
+  // リクエスト節のフル URL ブロック: パス黒/クエリ紫・コピー・「クエリ (n)」分解（デコード済み値）
+  function urlBlock(e){
+    var ep=String(e.ep||''),q=ep.indexOf('?');
+    var path=q<0?ep:ep.slice(0,q),qs=q<0?'':ep.slice(q);
+    var box='<div class="dev-url">'+esc(path)+(qs?'<span class="qs">'+esc(qs)+'</span>':'')+'</div>';
+    var fold='';
+    if(qs){
+      var items=qs.slice(1).split('&').map(function(p){
+        var i=p.indexOf('=');var k=i<0?p:p.slice(0,i),v=i<0?'':p.slice(i+1);
+        var dk=k,dv=v;
+        try{dk=decodeURIComponent(k);}catch(x){}
+        try{dv=decodeURIComponent(v.replace(/\\+/g,' '));}catch(x){}
+        return [dk,dv];
+      });
+      fold='<details class="dev-fold"><summary>クエリ ('+items.length+')</summary><div class="dev-hdrs">'+
+        items.map(function(kv){return '<div class="dev-hrow"><span class="dev-hk">'+esc(kv[0])+'</span><span class="dev-hv">'+esc(kv[1])+'</span></div>';}).join('')+'</div></details>';
+    }
+    return box+fold;
+  }
   function detail(e){
-    return '<div class="dev-sect">リクエスト</div>'+
+    return '<div class="dev-sect">リクエスト <button type="button" class="dev-copy" data-u="'+esc(e.ep)+'" onclick="window.__dev.copyUrl(this)">⧉ URL をコピー</button></div>'+
+      urlBlock(e)+
       '<details class="dev-fold"><summary>ヘッダー ('+e.reqHeaders.length+')</summary>'+hdrs(e.reqHeaders)+'</details>'+
       (e.reqBody!=null?'<div class="dev-blab">ボディ</div>'+code(e.reqBody):'')+
       '<div class="dev-sect">レスポンス <span class="dev-grp">('+e.status+')</span></div>'+
@@ -353,6 +405,12 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
     close:function(){localStorage.setItem('ihv-dev','0');drawer().hidden=true;setIcon(false);stopPoll();syncBody();},
     load:load,
     toggleStep:function(h){var b=h.nextElementSibling;b.hidden=!b.hidden;h.parentNode.classList.toggle('open',!b.hidden);},
+    copyUrl:function(b){
+      var u=b.getAttribute('data-u')||'';
+      function done(){b.classList.add('ok');b.textContent='✓ コピーしました';setTimeout(function(){b.classList.remove('ok');b.textContent='⧉ URL をコピー';},1200);}
+      function fb(){var t=document.createElement('textarea');t.value=u;t.style.position='fixed';t.style.opacity='0';document.body.appendChild(t);t.select();try{document.execCommand('copy');done();}catch(x){}document.body.removeChild(t);}
+      if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(u).then(done,fb);else fb();
+    },
   };
   document.addEventListener('DOMContentLoaded',function(){
     // The icon itself opens/closes the console; inverted icon = open. Persisted.

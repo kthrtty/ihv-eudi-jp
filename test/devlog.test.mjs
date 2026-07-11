@@ -121,3 +121,37 @@ test('verifier /dev/log captures inbound OID4VP (request/response)', async () =>
     await new Promise((r) => issuer.close(r));
   }
 });
+
+// ---- URL 表示対応（フル URL 行）: maskEp + outbound オリジン記録 ----------------
+const { maskEp, recordingFetch, getLog } = await import('../src/devlog.mjs');
+
+test('maskEp: sensitive query VALUES are masked, others keep original encoding', () => {
+  const m = maskEp('/oidc/cb?code=SplxlOBeZQQYbYS6WxSbIA&state=af0ifjsldkj');
+  assert.doesNotMatch(m, /SplxlOBeZQQYbYS6WxSbIA/);      // code は SENSITIVE_KEY
+  assert.match(m, /state=af0ifjsldkj/);                   // state は素通し
+  assert.equal(maskEp('/offer/abc-123'), '/offer/abc-123'); // クエリ無しは不変
+  // 非機微パラメータの元エンコーディングを保つ（%3A%2F%2F のまま）
+  const u = maskEp('/add?credential_offer_uri=https%3A%2F%2Fissuer.example.test%2Foffer%2Fabc');
+  assert.match(u, /credential_offer_uri=https%3A%2F%2Fissuer\.example\.test/);
+});
+
+test('maskEp: credential_offer by value — nested pre-authorized_code is deep-masked', () => {
+  const offer = encodeURIComponent(JSON.stringify({
+    credential_issuer: 'https://issuer.example.test',
+    grants: { 'urn:ietf:params:oauth:grant-type:pre-authorized_code': { 'pre-authorized_code': 'QdEAXVUmKisCfWfKgLBUdD9d' } },
+  }));
+  const m = maskEp(`/add?credential_offer=${offer}`);
+  assert.doesNotMatch(m, /QdEAXVUmKisCfWfKgLBUdD9d/);
+  assert.match(m, /issuer\.example\.test/);              // 構造・非機微値は読める
+});
+
+test('recordingFetch: outbound ep records the destination origin (+ query mask)', async () => {
+  const kv = new Map();
+  const store = { get: async (k) => kv.get(k), set: async (k, v) => kv.set(k, v) };
+  const fake = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+  const f = recordingFetch(fake, store, 'wallet');
+  await f('https://issuer.example.test/token?code=SplxlOBeZQQYbYS6WxSbIA', { method: 'POST' });
+  const [e] = await getLog(store, 'wallet');
+  assert.match(e.ep, /^https:\/\/issuer\.example\.test\/token/); // オリジン付き
+  assert.doesNotMatch(e.ep, /SplxlOBeZQQYbYS6WxSbIA/);           // クエリもマスク
+});
