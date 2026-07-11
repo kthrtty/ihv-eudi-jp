@@ -599,7 +599,7 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
     <div class="catwrap">
      <div class="catmain">
       <h2 class="h2">発行できるクレデンシャル</h2>
-      <div class="hint" style="margin:0 0 14px">形式チップ（mdoc / SD-JWT）で複数選択できます。複数種別・複数形式をまとめて1つのオファーに含められます。右（スマホは下のバー）の<b>「発行」でそのまま発行</b>、「プレビュー」でウォレットに入る姿を確認できます。</div>
+      <div class="hint" style="margin:0 0 14px">形式チップ（mdoc / SD-JWT）で複数選択できます。複数種別・複数形式をまとめて1つのオファーに含められます。下のバーの<b>「発行」でそのまま発行</b>、「プレビュー」でウォレットに入る姿を確認できます。</div>
       <div class="catlist">${rows}</div>
 
       <div id="out" class="hidden">
@@ -641,17 +641,6 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
         </div>
       </div>
      </div><!-- /catmain -->
-
-     <!-- PC: 常時表示のサイドレール（案1）。ウォレットに入る姿を重なりスタックで見せる -->
-     <aside class="railcol">
-       <div class="rail">
-         <div class="rail-h">ウォレットに入る姿 <span class="ps-cnt" id="railCnt">0</span></div>
-         <div class="pstack" id="railStack"></div>
-         <div class="ps-cap" id="railCap">クレデンシャルを選択してください</div>
-         <button type="button" class="btn rail-issue" id="issueRail" disabled>発行</button>
-         <button type="button" class="rail-opt" id="optbtnRail">⚙ 発行オプション</button>
-       </div>
-     </aside>
     </div>
 
     <!-- 発行オプション（⚙）: 固定バーの上に開く。既定は Pre-Auth / by reference / PIN なし -->
@@ -711,7 +700,6 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
         $('optbtn').classList.toggle('on', open);
       }
       $('optbtn').onclick = toggleOpts;
-      $('optbtnRail').onclick = toggleOpts;
       function miniCard(cfg) {
         const m = CFG[cfg]; if (!m) return '';
         const th = THEME[m.type] || THEME.pid;
@@ -732,14 +720,6 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
         $('psCnt').textContent = arr.length;
         $('issueSheet').textContent = arr.length ? ('発行（' + arr.length + '）') : '発行';
       }
-      // PC サイドレール（常時表示）
-      function renderRail() {
-        const arr = [...selected], n = arr.length;
-        fillStack($('railStack'), arr);
-        $('railCnt').textContent = n;
-        $('railCap').textContent = n ? ('選択中 ' + n + ' 構成 — 発行するとこの姿でウォレットへ') : 'クレデンシャルを選択してください';
-        $('issueRail').disabled = !n; $('issueRail').textContent = n ? ('発行（' + n + '）') : '発行';
-      }
       function renderBar() {
         const n = selected.size, arr = [...selected];
         // 選択数はサムネイル上のバッジで表す（狭幅でテキストが見切れるのを回避）。
@@ -747,7 +727,6 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
         $('abCnt').innerHTML = n ? ('<b>' + n + '</b> 構成を選択') : 'クレデンシャルを選択';
         $('issue').disabled = !n; $('issue').textContent = n ? ('発行（' + n + '）') : '発行';
         $('prevBtn').disabled = !n;
-        renderRail();
         const th = $('abThumb'); th.innerHTML = '';
         // 種別ごとに 1 枚（重複形式はまとめる）でサムネイルを最大3枚重ねる
         const types = [...new Set(arr.map((c) => (CFG[c] || {}).type))].filter(Boolean);
@@ -844,7 +823,6 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       $('showjson').onclick = async (e) => { e.preventDefault(); const d = await buildOffer(false); if (d) showResult(d, false); };
       $('issue').onclick = (e) => { e.preventDefault(); doIssue(); };
       $('issueSheet').onclick = (e) => { e.preventDefault(); doIssue(); };
-      $('issueRail').onclick = (e) => { e.preventDefault(); doIssue(); };
     </script>
     <style>
       /* 書類カタログ（2段行・名前は全幅で省略なし）＋固定アクションバー＋ボトムシート */
@@ -925,29 +903,11 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       .ps-cap{font-size:11px;color:var(--muted);margin-top:8px}
       .ps-issue{margin:8px 18px calc(14px + env(safe-area-inset-bottom))}
 
-      /* PC サイドレール（案1）: 既定は非表示、広幅で2カラムの右側に常時表示 */
-      .railcol{display:none}
-      @media(min-width:820px){
-        .catwrap{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:20px;align-items:start}
-        /* sticky＋縦中央追従: 列をビューポート高で sticky にし、中身を縦中央寄せ。
-           スクロールしてもレールが画面中央あたりに付いてくる（左右バランスも保つ）。
-           レールが画面より高い時は safe center で上端を切らない（overflow で内部スクロール） */
-        .railcol{position:sticky;top:0;align-self:start;height:100vh;
-          display:flex;flex-direction:column;justify-content:safe center}
-        .rail{background:#F7F9FC;border:1px solid var(--line);border-radius:16px;padding:16px;
-          max-height:calc(100vh - 24px);overflow:auto}
-        .rail-h{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;color:var(--muted);margin-bottom:8px}
-        .rail .pstack{margin:2px 0}
-        .rail-issue{width:100%;margin-top:12px}
-        .rail-issue:disabled{opacity:.5;cursor:default}
-        .rail-opt{width:100%;margin-top:8px;background:none;border:0;color:var(--muted);font:inherit;font-size:12px;font-weight:700;cursor:pointer;padding:4px}
-        .rail-opt:hover{color:var(--civic)}
-        /* PC ではボトムバー/シートを使わず、レールに集約 */
-        .actbar,.psheet,.psheet-scrim{display:none !important}
-        body{padding-bottom:40px}
-        /* ⚙オプションはレール付近（右下）に浮かせる */
-        .optpanel{left:auto;right:20px;bottom:20px;max-width:420px;border-radius:14px;border:1px solid var(--line)}
-        body.dev-open .optpanel{bottom:calc(var(--dev-drawer-h,40vh) + 20px)}
+      /* 広幅では書類カタログをタイル格子に（プレビューは SP と同じバー＋シートに統一）。
+         narrow=1列 → 760px〜=2列 → 広い画面で3列（各タイルは2段行のまま名前は省略しない） */
+      @media(min-width:760px){
+        .catlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:12px}
+        .catlist .crow{align-content:center}
       }
       /* hand-off: a centered grid pairing the QR with the action-list rows.
          - the PAIR is centered inside the card (justify-content:center), so the
