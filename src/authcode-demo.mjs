@@ -715,7 +715,9 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       }
       function renderBar() {
         const n = selected.size, arr = [...selected];
-        $('abCnt').innerHTML = n ? ('<b>' + n + '</b> 構成を選択中') : 'クレデンシャルを選択';
+        // 選択数はサムネイル上のバッジで表す（狭幅でテキストが見切れるのを回避）。
+        // テキスト「N 構成を選択」は幅に余裕のある画面でのみ併記（CSS で制御）。
+        $('abCnt').innerHTML = n ? ('<b>' + n + '</b> 構成を選択') : 'クレデンシャルを選択';
         $('issue').disabled = !n; $('issue').textContent = n ? ('発行（' + n + '）') : '発行';
         $('prevBtn').disabled = !n;
         const th = $('abThumb'); th.innerHTML = '';
@@ -726,6 +728,8 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
           d.className = 'ab-mc'; d.style.setProperty('--c1', c.c1); d.style.setProperty('--c2', c.c2);
           d.style.left = (i * 5) + 'px'; d.style.top = (i * 3) + 'px'; d.style.zIndex = i; th.appendChild(d);
         });
+        if (n) { const b = document.createElement('span'); b.className = 'ab-badge'; b.textContent = n; th.appendChild(b); }
+        th.style.visibility = n ? 'visible' : 'hidden';
       }
       document.querySelectorAll('.fmtchip').forEach((chip) => {
         chip.onclick = () => {
@@ -842,11 +846,17 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
         padding:10px 16px calc(10px + env(safe-area-inset-bottom));box-sizing:border-box;
         background:rgba(255,255,255,.94);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
         border-top:1px solid #D4DEF5;box-shadow:0 -8px 28px rgba(14,26,43,.12)}
-      .ab-thumb{position:relative;width:56px;height:36px;flex:none;cursor:pointer}
+      .ab-thumb{position:relative;width:56px;height:36px;flex:none;cursor:pointer;overflow:visible}
       .ab-mc{position:absolute;width:46px;height:29px;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.28);
         background:linear-gradient(135deg,var(--c1),var(--c2))}
+      /* 選択数バッジ（サムネイル右上）— テキストが無くても数が分かる */
+      .ab-badge{position:absolute;top:-7px;right:-7px;min-width:19px;height:19px;padding:0 5px;box-sizing:border-box;
+        border-radius:999px;background:var(--civic);color:#fff;font-size:10.5px;font-weight:800;line-height:19px;text-align:center;
+        box-shadow:0 0 0 2px #fff;z-index:5}
       .ab-cnt{flex:1;min-width:0;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
       .ab-cnt b{color:#0E1A2B;font-size:14px}
+      /* 狭幅ではテキストを省いてボタンに幅を譲る（数はバッジが担保） */
+      @media(max-width:460px){.ab-cnt{display:none}.actbar{gap:8px}.ab-prev{padding:9px 12px}}
       .gearbtn{flex:none;width:40px;height:40px;border:1px solid #D4DEF5;background:#fff;border-radius:10px;font-size:17px;cursor:pointer;color:#3C4A61}
       .gearbtn.on{background:#EAF0FA;border-color:#B7C7EE}
       .ab-prev{flex:none;background:#fff;border:1px solid var(--civic);color:var(--civic);border-radius:10px;padding:9px 14px;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}
