@@ -56,7 +56,7 @@ const JU_NS = 'jp.go.juminhyo.1';
 const juminhyo = {
   id: 'juminhyo',
   category: 'EAA',
-  display: { ja: '住民票', en: 'Certificate of Residence (Juminhyo)' },
+  display: { ja: '住民票の写し', en: 'Certificate of Residence (Juminhyo)' },
   issuer_ref: 'juminhyo',
   authority: { ja: 'デモ市区町村', en: 'Demo Municipality' },
   formats: {

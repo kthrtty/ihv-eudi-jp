@@ -35,7 +35,7 @@ async function encJwkFromKey(keyPath) {
 
 const ISSUERS = [
   { id: 'pid',           authority: 'IHV Demo PID Provider (写真付き身分証/基本四情報)' },
-  { id: 'juminhyo',      authority: 'IHV Demo 市区町村 (住民票 EAA Provider)' },
+  { id: 'juminhyo',      authority: 'IHV Demo 市区町村 (住民票の写し EAA Provider)' },
   { id: 'qualification', authority: 'IHV Demo 所管庁 (国家資格 EAA Provider)' },
 ];
 

@@ -441,7 +441,7 @@ export function renderConsentScreen(q, user, infos = []) {
 const TYPE_META = {
   pid:           { name: '写真付き身分証（PID）',     desc: '基本四情報＋顔写真',    note: '※実際にはMNCはカード代替電磁的記録を利用', c1: '#3949AB', c2: '#283593', glyph: '🪪', shape: 'card' },
   qualification: { name: '国家資格（EAA）',           desc: '医師・行政書士 等',     c1: '#8E24AA', c2: '#6A1B9A', glyph: '🎓', shape: 'card' },
-  juminhyo:      { name: '住民票（EAA）',             desc: '住所・世帯情報',        c1: '#00897B', c2: '#00695C', glyph: '🏠', shape: 'paper' },
+  juminhyo:      { name: '住民票の写し（EAA）',        desc: '住所・世帯情報',        c1: '#00897B', c2: '#00695C', glyph: '🏠', shape: 'paper' },
   koseki:        { name: '戸籍謄本（EAA）',           desc: '本籍・続柄・親子関係',  c1: '#6D4C41', c2: '#4E342E', glyph: '📜', shape: 'paper' },
   tax:           { name: '課税証明書（EAA）',         desc: '所得・課税額',          c1: '#2E7D32', c2: '#1B5E20', glyph: '🧾', shape: 'paper' },
   single:        { name: '独身証明書（EAA）',         desc: '婚姻状況の証明',        c1: '#D81B60', c2: '#AD1457', glyph: '💍', shape: 'paper' },
@@ -1060,7 +1060,7 @@ export function renderAccount(user, docs = []) {
 
           <div style="border-top:1px solid var(--line);margin:18px 0 14px"></div>
           <div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:4px">世帯員（家族）</div>
-          <div class="hint" style="margin:0 0 10px">住民票（世帯全員・続柄記載）の <span class="mono">household_members</span> に「本人（世帯主）＋ここに登録した世帯員」が記載されます。続柄が「子」の世帯員は、子ども口座開設・親権者同意シナリオの親子関係確認に使われます。</div>
+          <div class="hint" style="margin:0 0 10px">住民票の写し（世帯全員・続柄記載）の <span class="mono">household_members</span> に「本人（世帯主）＋ここに登録した世帯員」が記載されます。続柄が「子」の世帯員は、子ども口座開設・親権者同意シナリオの親子関係確認に使われます。</div>
           <datalist id="rels"><option value="子"><option value="長男"><option value="長女"><option value="妻"><option value="夫"><option value="母"><option value="父"></datalist>
           <div id="hh-rows">${members.map((m, i) => memberRow(m, i)).join('')}</div>
           <button type="button" class="btn ghost2" id="hh-add" style="margin:4px 0 14px">＋ 世帯員を追加</button>

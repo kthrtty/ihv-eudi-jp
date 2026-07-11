@@ -164,8 +164,8 @@ export const SCENARIOS = {
 // 住民票ではなく親の世帯住民票を使う）。世帯主でない親（例: 配偶者が世帯主）は
 // 実務同様このデモでも突合できない簡略化がある。
 const JUMINHYO_STEP = {
-  name: '住民票（世帯全員・続柄記載）の提示',
-  shortName: '住民票',
+  name: '住民票の写し（世帯全員・続柄記載）の提示',
+  shortName: '住民票の写し',
   specs: [{ id: 'eaa', configIds: ['juminhyo_mdoc', 'juminhyo_sdjwt'],
     claims: ['family_name', 'given_name', 'relationship_to_head', 'household_members'] }],
 };
@@ -175,7 +175,7 @@ const childOf = (eaa) => (Array.isArray(eaa?.household_members) ? eaa.household_
 const householdChecks = (pid, eaa, r2) => {
   const child = childOf(eaa);
   return [
-    { ok: sameName(pid, eaa), label: '申請者（身分証の氏名）と住民票の氏名が一致（本人の世帯住民票）' },
+    { ok: sameName(pid, eaa), label: '申請者（身分証の氏名）と住民票の写しの氏名が一致（本人の世帯の住民票の写し）' },
     // 住民票の続柄は「世帯主から見た続柄」— 申請者が世帯主でない場合、世帯員の
     // 「子」は申請者の子とは限らない（その場合は戸籍での確認へ）
     { ok: String(cl(eaa, 'relationship_to_head')) === '世帯主',
@@ -191,8 +191,8 @@ SCENARIOS.kidbank = {
   title: '子どもの銀行口座開設',
   rp: 'みずなみ銀行',
   rpKind: '口座開設オンライン窓口',
-  tagline: '本人確認のうえ、世帯の住民票で親子関係を確認して子ども名義の口座を開設',
-  story: '保護者が子ども名義の口座を開設します。保護者の本人確認ののち、保護者自身の住民票（世帯全員・続柄記載）を提示し、世帯員に「子」がいることで親子関係を確認します。現行実務の「住民票の写し（続柄記載）の提出」の置き換えを想定した将来像のデモです（現行の犯収法にVC提示の確認方法は列挙されていません）。',
+  tagline: '本人確認のうえ、世帯の住民票の写しで親子関係を確認して子ども名義の口座を開設',
+  story: '保護者が子ども名義の口座を開設します。保護者の本人確認ののち、保護者自身の住民票の写し（世帯全員・続柄記載）を提示し、世帯員に「子」がいることで親子関係を確認します。現行実務の「住民票の写し（続柄記載）の提出」の置き換えを想定した将来像のデモです（現行の犯収法にVC提示の確認方法は列挙されていません）。',
   purpose: '口座名義人（子）の法定代理人であることの確認（親子関係の確認）と本人確認',
   steps: [PID_STEP, JUMINHYO_STEP],
   notDisclosed: '住民票の異動履歴・本籍・住民票コードなどは要求されず、開示もされません。',
@@ -200,7 +200,7 @@ SCENARIOS.kidbank = {
   checks: householdChecks,
   acceptText(pid, eaa) {
     const child = childOf(eaa);
-    return `${this.rp}は、保護者 ${name(pid)}様の本人確認と、住民票（世帯全員）による${child ? `お子様 ${child.family_name} ${child.given_name}様（続柄: ${child.relationship_to_head}）` : 'お子様'}との親子関係の確認を完了し、お子様名義の口座開設申請を受理しました。`;
+    return `${this.rp}は、保護者 ${name(pid)}様の本人確認と、住民票の写し（世帯全員）による${child ? `お子様 ${child.family_name} ${child.given_name}様（続柄: ${child.relationship_to_head}）` : 'お子様'}との親子関係の確認を完了し、お子様名義の口座開設申請を受理しました。`;
   },
 };
 
@@ -210,8 +210,8 @@ SCENARIOS['minor-mobile'] = {
   title: '未成年の携帯電話契約（親権者同意）',
   rp: 'みどりモバイル株式会社',
   rpKind: '未成年契約の親権者同意受付',
-  tagline: '本人確認のうえ、世帯の住民票で続柄を確認して親権者同意を登録',
-  story: '未成年者名義の携帯電話契約には親権者の同意が必要です。同意する保護者の本人確認ののち、住民票（世帯全員・続柄記載）で契約者（子）との親子関係を確認し、親権者同意を受け付けます。なお別世帯の親権者（子と別居の場合など）はこの方式では確認できず、戸籍による確認が必要です。',
+  tagline: '本人確認のうえ、世帯の住民票の写しで続柄を確認して親権者同意を登録',
+  story: '未成年者名義の携帯電話契約には親権者の同意が必要です。同意する保護者の本人確認ののち、住民票の写し（世帯全員・続柄記載）で契約者（子）との親子関係を確認し、親権者同意を受け付けます。なお別世帯の親権者（子と別居の場合など）はこの方式では確認できず、戸籍による確認が必要です。',
   purpose: '未成年者契約に対する親権者同意の受付（同意者の本人確認と親子関係の確認）',
   steps: [PID_STEP, JUMINHYO_STEP],
   notDisclosed: '住民票の異動履歴・本籍・住民票コードなどは要求されず、開示もされません。',
@@ -219,7 +219,7 @@ SCENARIOS['minor-mobile'] = {
   checks: householdChecks,
   acceptText(pid, eaa) {
     const child = childOf(eaa);
-    return `${this.rp}は、${name(pid)}様が${child ? `契約者 ${child.family_name} ${child.given_name}様（続柄: ${child.relationship_to_head}）` : '契約者'}の親権者であることを住民票で確認し、未成年契約への親権者同意を受理しました。`;
+    return `${this.rp}は、${name(pid)}様が${child ? `契約者 ${child.family_name} ${child.given_name}様（続柄: ${child.relationship_to_head}）` : '契約者'}の親権者であることを住民票の写しで確認し、未成年契約への親権者同意を受理しました。`;
   },
 };
 

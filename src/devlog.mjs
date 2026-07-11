@@ -259,9 +259,10 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
   .dev-step.open .dev-num{background:#2E7D6B}
   .dev-head{display:flex;align-items:center;gap:8px;padding:7px 9px;background:#f7f9fc;border:1px solid var(--line,#E3E8EF);border-radius:9px;cursor:pointer}
   .dev-dir{font-weight:800;font-size:13px}.dev-dir.out{color:#2E7D6B}.dev-dir.in{color:#9E3A3A}
-  .dev-mp{font-size:10px;font-weight:800;border-radius:5px;padding:2px 6px;color:#fff;background:#7A52A8}.dev-mp.GET{background:#3B6EA5}
+  /* メソッドチップ: inline-flex 中央揃え + min-width で GET/POST の箱幅と文字位置を揃える */
+  .dev-mp{display:inline-flex;align-items:center;justify-content:center;min-width:42px;flex:none;font-size:10px;font-weight:800;line-height:1;border-radius:5px;padding:4px 7px;box-sizing:border-box;color:#fff;background:#7A52A8}.dev-mp.GET{background:#3B6EA5}
   .dev-ep{font-family:ui-monospace,monospace;font-size:11px;color:#0E1A2B;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .dev-st{font-size:10px;font-weight:800;border-radius:999px;padding:2px 7px;background:#E7F3EE;color:#1f7a52}.dev-st.s4,.dev-st.s5{background:#FBE9E7;color:#9E3A3A}
+  .dev-st{display:inline-flex;align-items:center;flex:none;font-size:10px;font-weight:800;line-height:1;border-radius:999px;padding:4px 8px;background:#E7F3EE;color:#1f7a52}.dev-st.s4,.dev-st.s5{background:#FBE9E7;color:#9E3A3A}
   .dev-grp{font-size:10px;color:var(--muted,#5B6B82)}
   .dev-ts{font-size:10px;color:var(--muted,#5B6B82);font-family:ui-monospace,monospace;white-space:nowrap;flex:none}
   /* ボディバイト数: 行=レスポンスサイズ（.dev-hsz）・詳細=節見出しの ↑/↓ チップ（.dev-bytes） */
@@ -331,6 +332,9 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
       (e.resBody!=null?'<div class="dev-blab">ボディ</div>'+code(e.resBody):'')+
       (e.note?'<div class="dev-blab" style="color:#1f5c46">ⓘ '+esc(e.note)+'</div>':'');
   }
+  // 折りたたみ行・ミニバーの表示用: オリジン（https://{domain}）は省略してパスに幅を使う。
+  // 展開後のリクエスト節（urlBlock/コピー）はフル URL のまま。
+  function shortEp(ep){return String(ep).replace(/^https?:\\/\\/[^\\/]+/,'');}
   // 記録時刻（JST・ミリ秒付き）。ループ発行など連続呼び出しの間隔を読むために ms まで出す
   function fmtTs(iso){
     if(!iso)return '';
@@ -349,7 +353,7 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
       var mp='<span class="dev-mp '+esc(e.method)+'">'+esc(e.method)+'</span>';
       var sz=fmtBytes(e.resBytes)?'<span class="dev-hsz" title="レスポンスボディのバイト数">'+fmtBytes(e.resBytes)+'</span>':'';
       return '<div class="dev-step'+(open?' open':'')+'"><div class="dev-num">'+(i+1)+'</div><div>'+
-        '<div class="dev-head" onclick="window.__dev.toggleStep(this)">'+dir+mp+'<span class="dev-ep">'+esc(e.ep)+'</span>'+st+sz+fmtTs(e.ts)+'<span class="dev-grp">'+esc(e.grp)+'</span></div>'+
+        '<div class="dev-head" onclick="window.__dev.toggleStep(this)">'+dir+mp+'<span class="dev-ep">'+esc(shortEp(e.ep))+'</span>'+st+sz+fmtTs(e.ts)+'<span class="dev-grp">'+esc(e.grp)+'</span></div>'+
         '<div class="dev-body" '+(open?'':'hidden')+'>'+detail(e)+'</div></div></div>';
     }).join('')+'</div>';
     renderMini();
@@ -431,7 +435,7 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
     var e=state.entries[0];
     var body=e?'<span class="dev-st s'+String(e.status).charAt(0)+'">'+esc(e.status)+'</span>'+
       '<span class="dev-mp '+esc(e.method)+'">'+esc(e.method)+'</span>'+
-      '<span class="dev-ep">'+esc(e.ep)+'</span>'+fmtTs(e.ts)+'<span class="dev-grp">'+esc(e.grp||'')+'</span>'
+      '<span class="dev-ep">'+esc(shortEp(e.ep))+'</span>'+fmtTs(e.ts)+'<span class="dev-grp">'+esc(e.grp||'')+'</span>'
       :'<span class="dev-grp">通信記録はまだありません</span>';
     el.innerHTML='<span class="mb-ic">&gt;_</span>'+body+
       '<span class="mb-hint" title="クリックで展開">▴</span>'+
