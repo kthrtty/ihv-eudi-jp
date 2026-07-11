@@ -15,6 +15,7 @@ import { catalog, configInfo } from './issuer.mjs';
 import { verifyStatus } from './status.mjs';
 import { storedCredRepr } from './vpdebug.mjs';
 import { recordingFetch, getLog, createLogRing } from './devlog.mjs';
+import { securityHeaders, csrfGuard, makeSsrfSafeFetch } from './security.mjs';
 
 // type prefix of a configId (pid_mdoc -> pid) for the issuer-matched icon
 const credType = (configId) => String(configId || '').replace(/_(mdoc|sdjwt)$/, '');
@@ -99,8 +100,12 @@ const toImgUri = (v) => {
 const isImgVal = (v) => typeof v === 'string' && v.startsWith('data:image/');
 const dispVal = (v) => (isImgVal(v) ? `<img class="pimg" src="${esc(v)}" alt="顔写真">` : esc(v));
 
-export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer.example.test', verifierUrl = 'https://verifier.example.test', boundFetch = null, store = null } = {}) {
+export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer.example.test', verifierUrl = 'https://verifier.example.test', boundFetch = null, store = null, fetchAllowlist = '' } = {}) {
   const app = new Hono();
+  // R3 security headers + R5 CSRF guard on every route (mutations only bite when a
+  // cross-origin browser Origin arrives alongside our session cookie).
+  app.use('*', securityHeaders());
+  app.use('*', csrfGuard(['wsid']));
   // Per-isolate cache. On Workers, requests for one user may land on different
   // isolates, so the durable copy lives in `store` (KV); `mem` is just a fast path.
   const mem = new Map(); // wsid -> { wallet, creds, pending, present, _sid }
@@ -110,7 +115,11 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
   // fall back to global fetch() in local Node.js server and unit tests. Always wrap
   // it so the developer console can show every OID4VCI/OID4VP call — the log is an
   // isolate-memory ring (no KV), so recording costs nothing.
-  const baseFetch = boundFetch ?? fetch;
+  // R2 SSRF guard: the wallet fetches user/RP-supplied URLs (credential_offer_uri,
+  // request_uri, response_uri). Refuse non-http(s) always; when an allowlist is
+  // configured (prod), restrict to the issuer/verifier/wallet origins so the wallet
+  // can't be coerced into hitting internal/arbitrary hosts. Unconfigured = dev/tests.
+  const baseFetch = makeSsrfSafeFetch(boundFetch ?? fetch, fetchAllowlist);
   const devlog = createLogRing();
   const doFetch = recordingFetch(baseFetch, devlog);
 

@@ -147,6 +147,13 @@ devlog は `portrait|portrait_b64` をマスク。テスト `test/portrait.test.
   `authorize` は **redirect_uri 許可リスト**でオープンリダイレクタを封じる（`isRedirectAllowed`＝オリジン完全一致＋パス前方一致）。
   リストは env `REDIRECT_URI_ALLOWLIST`（`deploy.mjs` が ISSUER_URL/WALLET_ORIGIN から `/demo/cb`・`/oidc/cb` を自動導出・
   本番ドメインは非コミット）。**未設定＝許容**（Node 直呼びテスト互換）だが Workers は toml プレースホルダで常に非空＝fail-closed
+- **Web セキュリティ層** `src/security.mjs`（3アプリ共通 Hono ミドルウェア）: **R3 ヘッダ**=`securityHeaders()`（CSP は
+  `object-src/base-uri/frame-ancestors 'none'` のみ＝**default-src 無しで inline UI 非破壊**・nosniff・X-Frame-Options DENY・
+  Referrer-Policy strict-origin-when-cross-origin で URL 内 code の Referer 漏れ防止）／**R5 CSRF**=`csrfGuard(cookieNames)`
+  （SameSite=Lax の上乗せ。**Cookie 認証のある変更系メソッド＋クロスオリジン Origin** のみ 403。機械 API=token/credential/oid4vp は
+  Cookie 無しなので不介入・Origin 無しのテストも素通し）／**R2 SSRF**=`makeSsrfSafeFetch(fetch, allowlist)`（wallet の
+  `doFetch` をラップ。非 http(s) は常時遮断・許可リスト設定時はオリジン限定。env `SSRF_ALLOWED_ORIGINS`＝`deploy.mjs` が3オリジン
+  自動導出。未設定＝許容＝評価テストの RP 任意オリジン fetch を温存、本番は toml プレースホルダで fail-closed）
 - **セッション連動データ**: `/login`→access_token に userId→`credential()` が persona を mint。`/users` 保守が次回発行へ反映
 - **検証**: Annex C(HPKE) / Annex D(JWE) を `createRequest({protocol})` で選択ディスパッチ。`verifyResponse` が session.protocol で分岐。Annex C は mdoc専用
 - **検証者コンソール** `/demo/verify`(+/catalog /prepare /present): 16構成・mdoc/SD-JWT・項目選択(選択開示)・プロトコル・DCQL JSON・結果
