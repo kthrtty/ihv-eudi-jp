@@ -597,8 +597,9 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
   for (const g of groups) for (const f of g.formats) cfgMeta[f.configId] = { type: g.type, name: g.name, fmt: f.label };
   return appShell('クレデンシャルを発行する', `
     <div class="catwrap">
+     <div class="catmain">
       <h2 class="h2">発行できるクレデンシャル</h2>
-      <div class="hint" style="margin:0 0 14px">形式チップ（mdoc / SD-JWT）で複数選択できます。複数種別・複数形式をまとめて1つのオファーに含められます。<b>下のバーの「発行」でそのまま発行</b>、「プレビュー」でウォレットに入る姿を確認できます。</div>
+      <div class="hint" style="margin:0 0 14px">形式チップ（mdoc / SD-JWT）で複数選択できます。複数種別・複数形式をまとめて1つのオファーに含められます。右（スマホは下のバー）の<b>「発行」でそのまま発行</b>、「プレビュー」でウォレットに入る姿を確認できます。</div>
       <div class="catlist">${rows}</div>
 
       <div id="out" class="hidden">
@@ -639,6 +640,18 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
           </details>
         </div>
       </div>
+     </div><!-- /catmain -->
+
+     <!-- PC: 常時表示のサイドレール（案1）。ウォレットに入る姿を重なりスタックで見せる -->
+     <aside class="railcol">
+       <div class="rail">
+         <div class="rail-h">ウォレットに入る姿 <span class="ps-cnt" id="railCnt">0</span></div>
+         <div class="pstack" id="railStack"></div>
+         <div class="ps-cap" id="railCap">クレデンシャルを選択してください</div>
+         <button type="button" class="btn rail-issue" id="issueRail" disabled>発行</button>
+         <button type="button" class="rail-opt" id="optbtnRail">⚙ 発行オプション</button>
+       </div>
+     </aside>
     </div>
 
     <!-- 発行オプション（⚙）: 固定バーの上に開く。既定は Pre-Auth / by reference / PIN なし -->
@@ -692,11 +705,13 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       const CFG = ${JSON.stringify(cfgMeta)};
       const THEME = ${JSON.stringify(WALLET_CARD_THEME)};
       const selected = new Set();
-      $('optbtn').onclick = () => {
+      function toggleOpts() {
         const p = $('optpanel'); const open = p.hidden;
         p.hidden = !open; $('optbtn').setAttribute('aria-expanded', String(open));
         $('optbtn').classList.toggle('on', open);
-      };
+      }
+      $('optbtn').onclick = toggleOpts;
+      $('optbtnRail').onclick = toggleOpts;
       function miniCard(cfg) {
         const m = CFG[cfg]; if (!m) return '';
         const th = THEME[m.type] || THEME.pid;
@@ -705,13 +720,25 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
           + '<span class="vfmt">' + m.fmt + '</span><span class="vst">有効</span>'
           + '<span class="viss">デジタル資格証発行ポータル</span></div>';
       }
-      function renderStack() {
-        const el = $('pstack'), arr = [...selected], OV = 46;
+      function fillStack(el, arr) {
+        if (!el) return; const OV = 46;
         el.innerHTML = arr.map(miniCard).join('');
         el.querySelectorAll('.vcard').forEach((c, i) => { c.style.top = (i * OV) + 'px'; c.style.zIndex = i + 1; });
         el.style.height = (arr.length ? (arr.length - 1) * OV + 150 : 0) + 'px';
+      }
+      function renderStack() {
+        const arr = [...selected];
+        fillStack($('pstack'), arr);   // SP: ボトムシート
         $('psCnt').textContent = arr.length;
         $('issueSheet').textContent = arr.length ? ('発行（' + arr.length + '）') : '発行';
+      }
+      // PC サイドレール（常時表示）
+      function renderRail() {
+        const arr = [...selected], n = arr.length;
+        fillStack($('railStack'), arr);
+        $('railCnt').textContent = n;
+        $('railCap').textContent = n ? ('選択中 ' + n + ' 構成 — 発行するとこの姿でウォレットへ') : 'クレデンシャルを選択してください';
+        $('issueRail').disabled = !n; $('issueRail').textContent = n ? ('発行（' + n + '）') : '発行';
       }
       function renderBar() {
         const n = selected.size, arr = [...selected];
@@ -720,6 +747,7 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
         $('abCnt').innerHTML = n ? ('<b>' + n + '</b> 構成を選択') : 'クレデンシャルを選択';
         $('issue').disabled = !n; $('issue').textContent = n ? ('発行（' + n + '）') : '発行';
         $('prevBtn').disabled = !n;
+        renderRail();
         const th = $('abThumb'); th.innerHTML = '';
         // 種別ごとに 1 枚（重複形式はまとめる）でサムネイルを最大3枚重ねる
         const types = [...new Set(arr.map((c) => (CFG[c] || {}).type))].filter(Boolean);
@@ -816,6 +844,7 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       $('showjson').onclick = async (e) => { e.preventDefault(); const d = await buildOffer(false); if (d) showResult(d, false); };
       $('issue').onclick = (e) => { e.preventDefault(); doIssue(); };
       $('issueSheet').onclick = (e) => { e.preventDefault(); doIssue(); };
+      $('issueRail').onclick = (e) => { e.preventDefault(); doIssue(); };
     </script>
     <style>
       /* 書類カタログ（2段行・名前は全幅で省略なし）＋固定アクションバー＋ボトムシート */
@@ -895,6 +924,26 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       .pstack .vcard{max-width:none;position:absolute;left:0;right:0;transition:top .32s cubic-bezier(.2,.7,.2,1)}
       .ps-cap{font-size:11px;color:var(--muted);margin-top:8px}
       .ps-issue{margin:8px 18px calc(14px + env(safe-area-inset-bottom))}
+
+      /* PC サイドレール（案1）: 既定は非表示、広幅で2カラムの右側に常時表示 */
+      .railcol{display:none}
+      @media(min-width:820px){
+        .catwrap{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:20px;align-items:start}
+        .railcol{display:block}
+        .rail{position:sticky;top:16px;background:#F7F9FC;border:1px solid var(--line);border-radius:16px;padding:16px}
+        .rail-h{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;color:var(--muted);margin-bottom:8px}
+        .rail .pstack{margin:2px 0}
+        .rail-issue{width:100%;margin-top:12px}
+        .rail-issue:disabled{opacity:.5;cursor:default}
+        .rail-opt{width:100%;margin-top:8px;background:none;border:0;color:var(--muted);font:inherit;font-size:12px;font-weight:700;cursor:pointer;padding:4px}
+        .rail-opt:hover{color:var(--civic)}
+        /* PC ではボトムバー/シートを使わず、レールに集約 */
+        .actbar,.psheet,.psheet-scrim{display:none !important}
+        body{padding-bottom:40px}
+        /* ⚙オプションはレール付近（右下）に浮かせる */
+        .optpanel{left:auto;right:20px;bottom:20px;max-width:420px;border-radius:14px;border:1px solid var(--line)}
+        body.dev-open .optpanel{bottom:calc(var(--dev-drawer-h,40vh) + 20px)}
+      }
       /* hand-off: a centered grid pairing the QR with the action-list rows.
          - the PAIR is centered inside the card (justify-content:center), so the
            QR no longer hugs the left edge and both sides get symmetric margins
