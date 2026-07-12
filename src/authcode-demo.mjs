@@ -962,10 +962,10 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       .osheet .btnside{grid-column:1;grid-row:3;width:100%;max-width:460px}
       .osheet .qrside #qrbox img{width:200px;height:200px}
 
-      /* 広幅では書類カタログをタイル格子に（プレビューは SP と同じバー＋シートに統一）。
-         narrow=1列 → 760px〜=2列 → 広い画面で3列（各タイルは2段行のまま名前は省略しない） */
+      /* 広幅では書類カタログを2列タイル格子に（プレビューは SP と同じバー＋シートに統一）。
+         narrow=1列 → 760px〜=常に2列（3列以上には広げない・各タイルは2段行のまま名前は省略しない） */
       @media(min-width:760px){
-        .catlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:12px}
+        .catlist{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
         .catlist .crow{align-content:center}
       }
       /* hand-off: a centered grid pairing the QR with the action-list rows.
