@@ -138,10 +138,13 @@ JS 無効時は従来のフルページ `credDetail` へフォールバック）
 **ホーム/並び替えには一切触れない**（複製方式）。**下部の他カード折り重ねスリーバ（旧 `#wdMFold`）は 2026-07-12 に撤去
 （不要と判断）**。PC は従来どおりオーバーレイ2カラム（属性右）。PC は DOM 順で全表示（`.wd-more` 非表示）。
 **詳細はタップしたカードのみ都度 `/cred/:id?embed=1` を取得（全カード先読みしない）・取得中は `.wd-loading` スピナー表示**。
-**PC 連動ホーム（増分2）**: `#whome` は **左=縦スタック `#wstack` / 右=一覧 `#wlist`**（900px 以上で2ペイン grid・未満は一覧を隠しスタックのみ）。
-一覧行/カードのホバーで対応カードがスタックからせり出し（`.lift-link`）＋行ハイライト（`.on`）連動、クリックで `openDetail`。
-**並び替えは左スタックの縦ドラッグを共用**（PC 格子ドラッグ `gfreeze/gdrop` は不使用に＝`.wstack` を grid 化しない）、drop 後に `#wlist` を
-新 id 順へ並べ替え＋`data-i` 振り直し。回帰=`test/webwallet.test.mjs` の「必ず表示バンド」「カード順序」。
+**PC ホーム（2026-07-12 刷新・左スタック廃止）**: PC（≥900px）は `#wstack` を `display:none` にし、`#wlist` を全幅（`max-width:760px`）で
+表示。**各行に券面 `vcardHtml` を等比縮小で埋め込む**（natural 420px→`transform:scale(.47619)` の `.wli-scaler`／`.wli-thumb` 200×126px）。
+行構成=左に**6点ドラッグハンドル `.wli-grip`**＋券面サムネ＋名称/configId/形式チップ/状態＋`詳細›`。**クリックは詳細（openDetail）**。
+**並び替えは一覧行のハンドル起点ドラッグ**（Pointer Events・掴んだ行を `position:fixed` で追従・破線 `.wli-slot` が挿入先・drop で
+`POST /reorder`＋隠れた `#wstack` も同順に同期）。ハンドルのドラッグ直後クリックは `window.__wlSuppress` で抑止。旧・左右連動
+（`.lift-link`/`.on` ホバー連動、`gfreeze/gdrop` 格子ドラッグ）は撤去。**モバイル（<900px）は従来のスタック＋長押しドラッグのまま**。
+回帰=`test/webwallet.test.mjs` の「必ず表示バンド」「カード順序」。
 **状態チップ実態化（2026-07-09）**: ホームのバッジは `credStatus` で毎表示チェック
 （未確認は「未確認」灰ドット=既定「有効」と偽らない）。発行履歴=20件/頁・提示履歴=10件/頁の `?p=` ページャ
 （`paginate/pagerHtml` を authcode-demo で共有）。
