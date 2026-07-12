@@ -157,14 +157,23 @@ export const CARD_SIL = {
   disaster: `<path d="M12 3 2 11h3v9h6.2l-1.3-3 2.6-2-2-2.4 2.5-1.8V20h6v-9h3z"/>`,
   vaccine: `<g transform="rotate(-40 12 12)"><rect x="1.6" y="11.25" width="6" height="1.5" rx=".2"/><rect x="7.4" y="7.8" width="1.7" height="8.4" rx=".4"/><rect x="9" y="9" width="7.6" height="6" rx=".7"/><rect x="11" y="9.3" width="1" height="1.6"/><rect x="12.8" y="9.3" width="1" height="1.6"/><rect x="14.6" y="9.3" width="1" height="1.6"/><rect x="16.4" y="6.6" width="1.9" height="10.8" rx=".4"/><rect x="18.3" y="10.8" width="2.2" height="2.4"/><rect x="20.2" y="8.6" width="1.8" height="6.8" rx=".4"/></g>`,
 };
-// シルエットの視覚中心を 24×24 枠の中央へ寄せる微調整（bbox 中心のズレ補正）。
-// swatch と券面エンボスの両方に効かせ、全面で同じ位置に見せる。
-const CARD_SIL_NUDGE = { single: [0, 1.5], koseki: [0.8, 0] };
+// シルエットの視覚中心・大きさを 24×24 枠に合わせる微調整（bbox のズレ/小ささ補正）。
+// swatch と券面エンボスの両方に効かせ、全面で同じ位置・比率に見せる。
+//   dx/dy=平行移動, s=中心(cx,cy)まわりの拡大。single は指輪が細身で小さく見えるため拡大。
+const CARD_SIL_ADJ = {
+  single: { s: 1.22, cx: 12, cy: 11, dy: 0.6 },
+  koseki: { dx: 0.8 },
+};
 function embInner(type) {
   const p = CARD_SIL[type];
   if (!p) return '';
-  const n = CARD_SIL_NUDGE[type];
-  return n ? `<g transform="translate(${n[0]} ${n[1]})">${p}</g>` : p;
+  const a = CARD_SIL_ADJ[type];
+  if (!a) return p;
+  const dx = a.dx || 0, dy = a.dy || 0, s = a.s || 1, cx = a.cx ?? 12, cy = a.cy ?? 12;
+  const parts = [];
+  if (dx || dy) parts.push(`translate(${dx} ${dy})`);
+  if (s !== 1) parts.push(`translate(${cx} ${cy}) scale(${s}) translate(${-cx} ${-cy})`);
+  return `<g transform="${parts.join(' ')}">${p}</g>`;
 }
 export function cardEmblemHtml(type) {
   const inner = embInner(type);
