@@ -241,8 +241,10 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
   /* display:flex は hidden 属性の UA display:none を上書きするため明示（非アクティブタブのペインが常時露出するバグ） */
   .dev-pane[hidden]{display:none}
   .dev-legend{font-size:10px;color:#7a5b13;background:#FFF7E6;border:1px solid #F2D98B;border-radius:8px;padding:4px 9px;margin:8px 14px 0;line-height:1.5}
-  .dev-ep{border:1px solid var(--line,#E3E8EF);border-radius:10px;padding:10px 12px;margin-top:8px}
-  .dev-ep.meta{border-color:#F2D98B;background:#FFFDF6}
+  /* エンドポイント一覧タブのカード。ログ行のパス（.dev-head>.dev-ep）と同名クラスが衝突して
+     パスに枠・余白が乗り縦センターがずれていたため、#devEps 配下にスコープする */
+  #devEps .dev-ep{border:1px solid var(--line,#E3E8EF);border-radius:10px;padding:10px 12px;margin-top:8px}
+  #devEps .dev-ep.meta{border-color:#F2D98B;background:#FFFDF6}
   .dev-ep-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .dev-ep-path{font-family:ui-monospace,monospace;font-size:12px;color:#0E1A2B}
   .dev-ep-desc{font-size:11px;color:var(--muted,#5B6B82);margin-top:5px}
@@ -261,7 +263,7 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
   .dev-dir{font-weight:800;font-size:13px}.dev-dir.out{color:#2E7D6B}.dev-dir.in{color:#9E3A3A}
   /* メソッドチップ: inline-flex 中央揃え + min-width で GET/POST の箱幅と文字位置を揃える */
   .dev-mp{display:inline-flex;align-items:center;justify-content:center;min-width:42px;flex:none;font-size:10px;font-weight:800;line-height:1;border-radius:5px;padding:4px 7px;box-sizing:border-box;color:#fff;background:#7A52A8}.dev-mp.GET{background:#3B6EA5}
-  .dev-ep{font-family:ui-monospace,monospace;font-size:11px;color:#0E1A2B;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dev-ep{font-family:ui-monospace,monospace;font-size:11px;color:#0E1A2B;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .dev-st{display:inline-flex;align-items:center;flex:none;font-size:10px;font-weight:800;line-height:1;border-radius:999px;padding:4px 8px;background:#E7F3EE;color:#1f7a52}.dev-st.s4,.dev-st.s5{background:#FBE9E7;color:#9E3A3A}
   .dev-grp{font-size:10px;color:var(--muted,#5B6B82)}
   .dev-ts{font-size:10px;color:var(--muted,#5B6B82);font-family:ui-monospace,monospace;white-space:nowrap;flex:none}
