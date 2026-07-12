@@ -1218,6 +1218,16 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       .wd-json{background:#0E1A2B;color:#D7E3F4;font-size:11px;border-radius:8px;padding:10px 12px;overflow:auto;white-space:pre;font-family:ui-monospace,monospace}
       .cbor-note{font-size:11.5px;color:var(--muted);margin-bottom:6px}
       .wd-del{width:100%;border:1px solid #E7C9C4;background:#fff;color:#C0392B;border-radius:12px;padding:11px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
+      /* 削除確認モーダル */
+      .wd-dc{position:fixed;inset:0;z-index:140;display:grid;place-items:center;padding:18px}
+      .wd-dc[hidden]{display:none}
+      .wd-dc-scrim{position:absolute;inset:0;background:rgba(14,26,43,.42)}
+      .wd-dc-box{position:relative;background:#fff;border-radius:18px;max-width:360px;width:100%;padding:22px 20px 18px;box-shadow:0 12px 40px rgba(0,0,0,.28)}
+      .wd-dc-h{margin:0 0 8px;font-size:16px;color:#0E1A2B}
+      .wd-dc-p{margin:0 0 16px;font-size:13px;line-height:1.7;color:#3C4A61}
+      .wd-dc-btns{display:flex;gap:10px}.wd-dc-btns>*{flex:1}.wd-dc-btns form{display:flex}
+      .wd-dc-cancel{width:100%;border:1px solid var(--line);background:#fff;color:#3C4A61;border-radius:11px;padding:11px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
+      .wd-dc-del{width:100%;border:0;background:#C0392B;color:#fff;border-radius:11px;padding:11px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
       body.wd-active{overflow:hidden}
 
       /* ── モバイル専用: 選択カードが持ち上がり、他カードが下部に折り重なる詳細 ── */
@@ -1227,12 +1237,16 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       .wd-mobile.show .wd-mscrim{opacity:1}
       .wd-mback{position:absolute;left:16px;top:14px;z-index:6;border:0;background:rgba(255,255,255,.92);border-radius:999px;width:36px;height:36px;font-size:18px;color:#2E7D6B;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.15);opacity:0;transition:opacity .3s}
       .wd-mobile.show .wd-mback{opacity:1}
-      .wd-mstage{position:absolute;inset:0;overflow-y:auto;padding:56px 16px 92px;
-        opacity:0;transform:translateY(10px);transition:opacity .34s,transform .42s cubic-bezier(.22,.8,.16,1)}
-      .wd-mobile.show .wd-mstage{opacity:1;transform:none}
+      .wd-mstage{position:absolute;inset:0;overflow-y:auto;padding:56px 16px 200px;
+        opacity:0;transition:opacity .28s}
+      .wd-mobile.show .wd-mstage{opacity:1}
       .wd-mobile.expanded .wd-mstage{padding-bottom:40px}
+      /* 入場: 選択カードは下から上へ「持ち上がる」／折り重ねは上から下へ「落ちる」＝逆方向の移動 */
+      .wd-mtop{transform:translateY(150px);transition:transform .55s cubic-bezier(.22,.8,.16,1)}
+      .wd-mobile.show .wd-mtop{transform:none}
       .wd-mtop .vcard{max-width:none}
-      .wd-mpanel{margin-top:14px}
+      .wd-mpanel{margin-top:14px;opacity:0;transform:translateY(10px);transition:opacity .4s .2s,transform .45s .2s cubic-bezier(.22,.8,.16,1)}
+      .wd-mobile.show .wd-mpanel{opacity:1;transform:none}
       .wd-mpanel .wd-wrap{display:block;max-width:none}      /* モバイルは常に1カラム */
       .wd-mpanel .wd-cardface{display:none}                  /* 券面は持ち上げた実カードが担う */
       .wd-mpanel .wd-attr{grid-column:auto;grid-row:auto}
@@ -1241,16 +1255,20 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       .wd-mpanel .wd-rest,.wd-mpanel .wd-extra{display:none}
       .wd-mobile.expanded .wd-mpanel .wd-rest,.wd-mobile.expanded .wd-mpanel .wd-extra{display:block}
       .wd-mobile.expanded .wd-mpanel .wd-more{display:none}
-      /* 下部の折り重ね（判読不可のスリーバ・最大4）。展開でフェードアウトして場所を空ける */
-      .wd-mfold{position:absolute;left:16px;right:16px;bottom:0;height:54px;overflow:hidden;z-index:4;pointer-events:none;
-        transition:opacity .3s,transform .38s cubic-bezier(.22,.8,.16,1)}
-      .wd-mobile.expanded .wd-mfold{opacity:0;transform:translateY(60px)}
+      /* 下部の折り重ね（フォーマットチップ直下まで見せるスリーバ・最大4）。上から落ちて着地し、
+         展開でフェードアウトして場所を空ける */
+      .wd-mfold{position:absolute;left:16px;right:16px;bottom:0;height:180px;overflow:hidden;z-index:4;pointer-events:none;
+        transform:translateY(-260px);transition:opacity .3s,transform .55s cubic-bezier(.22,.8,.16,1)}
+      .wd-mobile.show .wd-mfold{transform:none}
+      .wd-mobile.show.expanded .wd-mfold{opacity:0;transform:translateY(188px)}
       .wd-mfold .vcard{position:absolute;left:0;right:0;max-width:none;box-shadow:0 -6px 16px rgba(14,26,43,.14)}
     </style>
     ${WSTYLE}
     <script>
       function openSheet(id){document.getElementById(id).hidden=false;document.body.style.overflow='hidden'}
       function closeSheet(id){document.getElementById(id).hidden=true;document.body.style.overflow=''}
+      // 削除は確認モーダルを挟む（元に戻せない旨＋再発行必要の注記）
+      window.wdDelConfirm=function(el,show){var w=el.closest('.wd-wrap');if(!w)return;var dc=w.querySelector('.wd-dc');if(dc)dc.hidden=!show;};
       // ── カード詳細を同ページ内オーバーレイで開く（ページ遷移しない。#id で共有/戻る対応）──
       (function(){
         var ov=document.getElementById('wdOverlay'),body=document.getElementById('wdBody');
@@ -1278,7 +1296,7 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
           mTop.innerHTML=''; mFold.innerHTML=''; mPanel.innerHTML='';
           mTop.appendChild(cloneCard(cards[idx]));
           var others=cards.filter(function(_,i){return i!==idx;}).slice(0,4);
-          others.forEach(function(c,k){ var cl=cloneCard(c); cl.style.top=(k*13)+'px'; cl.style.transform='scale(.955)'; cl.style.zIndex=String(k); mFold.appendChild(cl); });
+          others.forEach(function(c,k){ var cl=cloneCard(c); cl.style.top=(k*44)+'px'; cl.style.transform='scale(.965)'; cl.style.zIndex=String(k); mFold.appendChild(cl); });
           mob.hidden=false; mob.classList.remove('expanded'); document.body.classList.add('wd-active');
           requestAnimationFrame(function(){mob.classList.add('show');});
           document.getElementById('wdMStage').scrollTop=0; mode='mob'; pushId(id,push);
@@ -1682,8 +1700,18 @@ function credFragment(cr, raw, st, acts = []) {
           <a href="/dev/holder-key" style="font-size:12px;font-weight:700;color:var(--muted)">🔑 バインディング鍵を表示 →</a>
         </div>
       </details>
-      <form method="POST" action="/cred/${esc(cr.id)}/delete" onsubmit="return confirm('${esc(typeName(type))} をウォレットから削除します。取り消せません。よろしいですか？')">
-        <button type="submit" class="wd-del">このクレデンシャルを削除</button></form>
+      <button type="button" class="wd-del" onclick="wdDelConfirm(this,true)">このクレデンシャルを削除</button>
+      <div class="wd-dc" hidden>
+        <div class="wd-dc-scrim" onclick="wdDelConfirm(this,false)"></div>
+        <div class="wd-dc-box">
+          <h3 class="wd-dc-h">クレデンシャルを削除</h3>
+          <p class="wd-dc-p"><b>${esc(typeName(type))}</b> をウォレットから削除します。<br>この操作は元に戻せません。再発行が必要となります。</p>
+          <div class="wd-dc-btns">
+            <button type="button" class="wd-dc-cancel" onclick="wdDelConfirm(this,false)">キャンセル</button>
+            <form method="POST" action="/cred/${esc(cr.id)}/delete"><button type="submit" class="wd-dc-del">削除する</button></form>
+          </div>
+        </div>
+      </div>
     </div>
   </div>`;
 }
