@@ -1266,6 +1266,11 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
          これらの半透明の角丸矩形が残ると、下のスリーバに重なって見えるため。 */
       .wd-mfold .vcard > *{opacity:0}
       .wd-mfold .vcard::after,.wd-mfold .vcard::before{opacity:0}
+      /* 詳細取得中のローディング（回線が遅いと fetch に時間がかかるため、取り寄せ中はスピナーを出す） */
+      .wd-loading{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:72px 20px;color:var(--muted);font-size:13px;font-weight:600}
+      .wd-spin{width:34px;height:34px;border-radius:50%;border:3px solid rgba(46,125,107,.22);border-top-color:#2E7D6B;animation:wd-spin .8s linear infinite}
+      @keyframes wd-spin{to{transform:rotate(360deg)}}
+      @media(prefers-reduced-motion:reduce){.wd-spin{animation-duration:1.6s}}
     </style>
     ${WSTYLE}
     <script>
@@ -1283,12 +1288,14 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
         function pushId(id,push){ openId=id; if(push!==false && location.hash!=='#'+id) history.pushState({wd:id},'','#'+id); }
         function cloneCard(a){ var d=document.createElement('div'); d.className='vcard'; d.setAttribute('style',a.getAttribute('style')||''); d.innerHTML=a.innerHTML; return d; }
         function fetchFrag(id){ return fetch('/cred/'+encodeURIComponent(id)+'?embed=1',{headers:{'x-requested-with':'fetch'}}).then(function(r){return r.ok?r.text():Promise.reject();}); }
-        // PC/広幅: オーバーレイ2カラム
+        var WDLOAD='<div class="wd-loading"><span class="wd-spin" role="status" aria-label="読み込み中"></span><span>読み込み中…</span></div>';
+        // PC/広幅: オーバーレイ2カラム。回線が遅くても即オーバーレイ＋スピナーを出し、取得後に差し替える
         function openOverlay(id,push){
+          body.innerHTML=WDLOAD; ov.hidden=false; document.body.classList.add('wd-active');
+          requestAnimationFrame(function(){ov.classList.add('show');});
+          ov.querySelector('.wd-sheet').scrollTop=0; mode='ov'; pushId(id,push);
           fetchFrag(id).then(function(html){
-            body.innerHTML=html; ov.hidden=false; document.body.classList.add('wd-active');
-            requestAnimationFrame(function(){ov.classList.add('show');});
-            ov.querySelector('.wd-sheet').scrollTop=0; mode='ov'; pushId(id,push);
+            if(openId!==id)return; body.innerHTML=html; ov.querySelector('.wd-sheet').scrollTop=0;
           }).catch(function(){ location.href='/cred/'+encodeURIComponent(id); });
         }
         // モバイル: 選択カードが持ち上がり、他カードは下部にスリーバで折り重なる。展開で折り重ねをフェード
@@ -1297,14 +1304,14 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
           var cards=stackEl?[].slice.call(stackEl.querySelectorAll('a.vcard')):[];
           var idx=-1; cards.forEach(function(c,i){var m=(c.getAttribute('href')||'').match(/\\/cred\\/([^/?#]+)/); if(m&&m[1]===id)idx=i;});
           if(idx<0){ return openOverlay(id,push); }
-          mTop.innerHTML=''; mFold.innerHTML=''; mPanel.innerHTML='';
+          mTop.innerHTML=''; mFold.innerHTML=''; mPanel.innerHTML=WDLOAD;
           mTop.appendChild(cloneCard(cards[idx]));
           var others=cards.filter(function(_,i){return i!==idx;}).slice(0,4);
           others.forEach(function(c,k){ var cl=cloneCard(c); cl.style.top=(k*12)+'px'; cl.style.transform='scale(.955)'; cl.style.zIndex=String(k); mFold.appendChild(cl); });
           mob.hidden=false; mob.classList.remove('expanded'); document.body.classList.add('wd-active');
           requestAnimationFrame(function(){mob.classList.add('show');});
           document.getElementById('wdMStage').scrollTop=0; mode='mob'; pushId(id,push);
-          fetchFrag(id).then(function(html){ mPanel.innerHTML=html; }).catch(function(){});
+          fetchFrag(id).then(function(html){ if(openId===id) mPanel.innerHTML=html; }).catch(function(){});
         }
         window.openDetail=function(id,push){ (isMobile()?openMobileDetail:openOverlay)(id,push); };
         window.closeDetail=function(fromPop){
