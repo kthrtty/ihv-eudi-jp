@@ -1031,8 +1031,12 @@ test('カード順序: 新規発行は既存の並びの一番上に入り、バ
       'newest batch on top (in issuance order), older cred pushed down');
     // ホームの描画順も一致（href の並び）
     const home = await (await wallet.request('/', { headers: { cookie } })).text();
-    const hrefOrder = [...home.matchAll(/href="\/cred\/(cred-\d+)"/g)].map((m) => m[1]);
+    // スタックのカード（vcard）だけを対象にする（右ペインの一覧行 .wli も同じ href を持つため）
+    const hrefOrder = [...home.matchAll(/href="\/cred\/(cred-\d+)" class="vcard"/g)].map((m) => m[1]);
     assert.deepEqual(hrefOrder, creds.map((c) => c.id), 'home stack renders in stored order');
+    // 右ペインの一覧も同じ順序で描画される
+    const listOrder = [...home.matchAll(/class="wli" href="\/cred\/(cred-\d+)"/g)].map((m) => m[1]);
+    assert.deepEqual(listOrder, creds.map((c) => c.id), 'home list renders in stored order');
     assert.match(home, /長押しすると並び替え/, 'reorder hint shown');
 
     // /reorder: 順列を入れ替え → 反映・永続
