@@ -10,7 +10,7 @@ import { getCookie, setCookie } from 'hono/cookie';
 import { randomBytes, createHash } from 'node:crypto';
 import { createWallet } from './wallet.mjs';
 import { verify as verifyCredential } from './issuer.mjs';
-import { shell, pkce, typeIcon, typeName, typeNote, vcardHtml, walletCardCss, WALLET_CARD_THEME } from './authcode-demo.mjs';
+import { shell, pkce, typeIcon, typeName, typeNote, vcardHtml, walletCardCss, WALLET_CARD_THEME, swatchEmblemHtml, swatchEmblemCss } from './authcode-demo.mjs';
 import { catalog, configInfo } from './issuer.mjs';
 import { verifyStatus } from './status.mjs';
 import { storedCredRepr } from './vpdebug.mjs';
@@ -1084,7 +1084,7 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
     const th = WALLET_CARD_THEME[t] || WALLET_CARD_THEME.pid;
     const chip = (cc, label) => cc ? `<button type="button" class="wchip" data-cfg="${esc(cc.configId)}">${label}</button>` : '';
     return `<div class="wtile" data-type="${esc(t)}">
-      <span class="sw" style="--c1:${th.c1};--c2:${th.c2}"></span>
+      <span class="sw" style="--c1:${th.c1};--c2:${th.c2}">${swatchEmblemHtml(t)}</span>
       <div class="tx"><b>${esc(typeName(t))}</b></div>
       <span class="wchips">${chip(mdoc, 'mdoc')}${chip(sdjwt, 'SD-JWT')}</span>
     </div>`;
@@ -1549,6 +1549,7 @@ const WSTYLE = `<style>
   .wtile{border:1px solid var(--line);border-radius:12px;padding:11px 12px;display:flex;gap:11px;align-items:center}
   .wtile.sel{background:#F3F8F6;box-shadow:0 0 0 2px #2E7D6B inset}
   .wtile .sw{width:46px;height:29px;border-radius:6px;flex:none;background:linear-gradient(135deg,var(--c1),var(--c2))}
+  ${swatchEmblemCss()}
   .wtile .tx{flex:1;min-width:0}.wtile b{font-size:13.5px;line-height:1.3}
   .wchips{display:flex;gap:5px;flex:none}
   .wchip{font:inherit;font-size:10.5px;font-weight:700;padding:4px 10px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--muted);cursor:pointer}
@@ -1810,7 +1811,7 @@ function authRequestPreview({ url, configIds = [], issuerBase }) {
     const type = credType(id);
     const t = WALLET_CARD_THEME[type] || WALLET_CARD_THEME.pid;
     const fmt = /_mdoc$/.test(id) ? 'mdoc' : 'SD-JWT';
-    return `<div class="reqrow"><span class="sw" style="--c1:${t.c1};--c2:${t.c2};--c3:${t.c3}"></span>
+    return `<div class="reqrow"><span class="sw" style="--c1:${t.c1};--c2:${t.c2};--c3:${t.c3}">${swatchEmblemHtml(type)}</span>
       <div><b>${esc(typeName(type))}</b><small class="mono">${esc(id)}</small></div>
       <span class="fmtb">${fmt}</span></div>`;
   }).join('');
@@ -1831,6 +1832,7 @@ function authRequestPreview({ url, configIds = [], issuerBase }) {
     <style>
       .reqrow{display:flex;gap:11px;align-items:center;border:1px solid var(--line);border-radius:11px;padding:10px 12px;margin-top:8px}
       .reqrow .sw{width:46px;height:29px;border-radius:6px;flex:none;background:radial-gradient(120% 90% at 88% -12%,var(--c3) 0%,transparent 55%),linear-gradient(135deg,var(--c1),var(--c2))}
+      ${swatchEmblemCss()}
       .reqrow b{font-size:13.5px;display:block;line-height:1.3}
       .reqrow small{font-size:10px;color:var(--muted)}
       .reqrow .fmtb{margin-left:auto;font-size:10px;font-weight:700;border:1px solid var(--line);border-radius:6px;padding:2px 8px;color:var(--muted)}
