@@ -1622,8 +1622,7 @@ function credDetail(cr, raw, st, acts = []) {
         <details class="rowfold"><summary><span class="ic">🕘</span>アクティビティ（提示履歴）<span class="cnt">${acts.length} 件</span></summary>
           <div class="acts">${actList}</div>
         </details>
-        <div class="prow"><span class="ic">◎</span>失効状態 ${stChip}
-          <form method="POST" action="/cred/${esc(cr.id)}/recheck" style="margin-left:auto"><button type="submit" class="mini2">再確認</button></form></div>
+        <div class="prow"><span class="ic">◎</span>失効状態 ${stChip}</div>
       </div>
       <details class="devfold"><summary>開発者向け（生データ / バインディング鍵）</summary>
         <div class="panel" style="margin-top:8px;padding:12px 14px">
@@ -1657,11 +1656,9 @@ function credFragment(cr, raw, st, acts = []) {
   const entries = Object.entries(cr.claims || {});
   const row = ([k, v]) => `<div class="wd-row"><span>${esc(labels[k] || k)}</span><b>${dispVal(v)}</b></div>`;
   const live = st?.checked && !st.revoked;
-  const stChip = st?.checked
-    ? (st.revoked ? `<span class="chip2 bad">● 失効しています</span>` : `<span class="chip2">● 有効 · ${esc(agoLabel(st.at))}</span>`)
-    : `<span class="chip2 na">未確認</span>`;
   // 「必ず表示する事項」— 全て手元データ由来（発行者は当デモの信頼済み発行者・失効は
-  // wallet が Token Status List を局所判定・有効期限/形式はクレデンシャル自体から）
+  // wallet が Token Status List を局所判定・有効期限/形式はクレデンシャル自体から）。
+  // 有効性確認（失効状態）はここに集約し、アクティビティ欄とは重複させない。
   const expiry = cr.claims?.expiry_date ? esc(String(cr.claims.expiry_date)) : null;
   const fmtLabel = cr.format === 'mso_mdoc' ? 'mdoc・対面提示 (ISO 18013-5)' : 'SD-JWT・オンライン提示';
   const mustBand = `<div class="wd-must">
@@ -1690,8 +1687,6 @@ function credFragment(cr, raw, st, acts = []) {
     <div class="wd-extra">
       <div class="wd-panel">
         <div class="wd-ph">アクティビティ（提示履歴）· ${acts.length} 件</div>${actList}
-        <div class="wd-prow">失効状態 ${stChip}
-          <form method="POST" action="/cred/${esc(cr.id)}/recheck" style="margin-left:auto"><button type="submit" class="mini2">再確認</button></form></div>
       </div>
       <details class="wd-dev"><summary>開発者向け（生データ / バインディング鍵）</summary>
         <div class="wd-panel" style="margin-top:8px">
@@ -1969,8 +1964,8 @@ function settingsPage(ttlSec, saved = false) {
         </label>
         <div class="hint" style="margin:10px 0 14px">
           失効確認はリスト全体を取得して手元で判定します（発行者にどの券かを明かさない）。
-          キャッシュが有効な間は再取得せず手元のリストで判定し、<b>期限切れ・未取得・カード詳細の「再確認」</b>のときだけ
-          サーバーから最新を取得します。<b>0 = キャッシュしない（毎回取得）</b>。既定は 5 分。
+          キャッシュが有効な間は再取得せず手元のリストで判定し、<b>期限切れ・未取得</b>のときだけ
+          サーバーから最新を自動取得します。<b>失効を早く反映したいときはこの時間を短く</b>してください（<b>0 = キャッシュしない＝毎回取得</b>）。既定は 5 分。
         </div>
         <button type="submit" class="btn">保存する</button>
       </form>
