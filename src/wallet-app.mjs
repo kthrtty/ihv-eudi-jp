@@ -1074,22 +1074,30 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
   };
   // 右ペイン（PC のみ表示）: 色キー＋名前＋状態のクリーンなリスト。行/カードのホバーで
   // 対応カードがスタックからせり出し連動、クリックで同ページ内詳細（openDetail）。
+  // PC 一覧行（左スタック廃止・各行に券面を等比縮小で埋め込む）。左端に6点ドラッグハンドル、
+  // クリックは詳細へ。券面は natural 420px を transform:scale で 200px 相当に縮小（内部レイアウト不変）。
+  const GRIP_SVG = '<svg width="18" height="26" viewBox="0 0 18 26" aria-hidden="true"><g fill="currentColor">'
+    + '<circle cx="6" cy="7" r="1.7"/><circle cx="12" cy="7" r="1.7"/><circle cx="6" cy="13" r="1.7"/>'
+    + '<circle cx="12" cy="13" r="1.7"/><circle cx="6" cy="19" r="1.7"/><circle cx="12" cy="19" r="1.7"/></g></svg>';
   const listRow = (cr, i) => {
     const type = credType(cr.configId);
-    const th = WALLET_CARD_THEME[type] || WALLET_CARD_THEME.pid;
     const st = statuses[cr.id];
     const label = st?.checked ? (st.revoked ? '失効' : '有効') : '未確認';
     const cls = st?.checked ? (st.revoked ? 'bad' : 'na') : 'na';
+    const fmt = cr.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT';
+    const face = vcardHtml(type, { title: typeName(type), sub: cr.configId, fmt, status: label, revoked: !!st?.revoked, unknown: !st?.checked });
     return `<a class="wli" href="/cred/${esc(cr.id)}" data-i="${i}">
-      <span class="sw" style="--c1:${th.c1};--c2:${th.c2};--c3:${th.c3}">${swatchEmblemHtml(type)}</span>
-      <span class="wli-tx"><b>${esc(typeName(type))}</b><small>${esc(cr.configId)}</small></span>
-      <span class="wli-st ${st?.checked && !st.revoked ? 'ok' : cls}">● ${label}</span></a>`;
+      <span class="wli-grip" title="ドラッグで並び替え" aria-label="ドラッグで並び替え">${GRIP_SVG}</span>
+      <span class="wli-thumb"><span class="wli-scaler">${face}</span></span>
+      <span class="wli-tx"><b>${esc(typeName(type))}</b><small>${esc(cr.configId)}</small>
+        <span class="wli-chips"><span class="wli-fmt">${fmt}</span><span class="wli-st ${st?.checked && !st.revoked ? 'ok' : cls}">● ${label}</span></span></span>
+      <span class="wli-chev">詳細 ›</span></a>`;
   };
   const stackBody = n
     ? `<div class="whome" id="whome">
         <div class="wstack" id="wstack">${s.creds.map(cardOf).join('')}</div>
         <div class="wlist" id="wlist">${s.creds.map(listRow).join('')}</div>
-       </div>${n > 1 ? '<div class="rhint"><span class="rh-touch">カードを長押しすると並び替えできます</span><span class="rh-pc">カードをドラッグすると並び替え（右の一覧はホバーで連動）</span>（新しく受け取ったカードは一番上に入ります）</div>' : ''}`
+       </div>${n > 1 ? '<div class="rhint"><span class="rh-touch">カードを長押しすると並び替えできます</span><span class="rh-pc">左のハンドル（⣿）をドラッグすると並び替えできます</span>（新しく受け取ったカードは一番上に入ります）</div>' : ''}`
     : `<div class="ghost-card">クレデンシャルがありません<br><span style="font-size:11.5px">右下の ＋ から発行を受けられます</span></div>`;
 
   // ＋カタログ: 8種タイル × issuer式チップ（クリック=選択・複数可）→ 複数 scope で認可へ
@@ -1320,26 +1328,55 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
         };
         // 「さらに表示」= 折り重ねをフェードしてスペースを空け、残り属性・履歴・開発者・削除を出す
         mPanel.addEventListener('click',function(e){ if(e.target.closest('[data-wd-more]')) mob.classList.add('expanded'); });
-        // カード/一覧行のクリックを横取り（ドラッグ中/抑止中は既存ハンドラが preventDefault 済み）
+        // カード/一覧行のクリックを横取り（ドラッグ中/抑止中は無視）
         var whome=document.getElementById('whome');
         if(whome) whome.addEventListener('click',function(e){
+          if(window.__wlSuppress)return;              // 一覧ハンドルのドラッグ直後は無視
           var a=e.target.closest&&e.target.closest('a.vcard,a.wli'); if(!a)return;
           if(e.defaultPrevented)return;              // ドラッグ由来のクリックは無視
           var href=a.getAttribute('href')||''; var m=href.match(/\\/cred\\/([^/?#]+)/);
           if(!m)return; e.preventDefault(); window.openDetail(m[1]);
         });
-        // 一覧行 × 左スタックの連動ハイライト（PC のみ意味を持つ。ドラッグ中は無効）
-        if(whome){
-          var wlist=document.getElementById('wlist'),wstk=document.getElementById('wstack');
-          var linkCards=function(){return wstk?[].slice.call(wstk.querySelectorAll('a.vcard')):[];};
-          var rowsOf=function(){return wlist?[].slice.call(wlist.querySelectorAll('a.wli')):[];};
-          var clearLink=function(){ linkCards().forEach(function(c){c.classList.remove('lift-link');}); rowsOf().forEach(function(r){r.classList.remove('on');}); };
-          var setLink=function(i){ if(document.body.classList.contains('wd-active'))return; clearLink();
-            var cs=linkCards(),rs=rowsOf(); if(cs[i])cs[i].classList.add('lift-link'); if(rs[i])rs[i].classList.add('on'); };
-          if(wlist) wlist.addEventListener('mouseover',function(e){ var r=e.target.closest('a.wli'); if(r)setLink(+r.dataset.i); });
-          if(wstk) wstk.addEventListener('mouseover',function(e){ var c=e.target.closest('a.vcard'); if(!c)return; setLink(linkCards().indexOf(c)); });
-          whome.addEventListener('mouseleave',clearLink);
-        }
+        // 一覧行のドラッグ並び替え（PC・ハンドル起点）: 掴んだ行を fixed で追従させ、破線プレース
+        // ホルダで挿入先を示す。drop で POST /reorder（保有 id の順列）。行クリックは詳細のまま。
+        (function(){
+          var wlist=document.getElementById('wlist'); if(!wlist)return;
+          function rows(){return [].slice.call(wlist.querySelectorAll('.wli'));}
+          var d=null;
+          wlist.addEventListener('pointerdown',function(e){
+            var grip=e.target.closest('.wli-grip'); if(!grip)return;
+            var row=grip.closest('.wli'); if(!row||rows().length<2)return;
+            e.preventDefault(); window.__wlSuppress=true;
+            var rect=row.getBoundingClientRect();
+            var ph=document.createElement('div'); ph.className='wli-slot'; ph.style.height=rect.height+'px';
+            row.parentNode.insertBefore(ph,row.nextSibling);
+            row.classList.add('wli-dragging');
+            row.style.width=rect.width+'px'; row.style.position='fixed'; row.style.left=rect.left+'px'; row.style.top=rect.top+'px'; row.style.margin='0';
+            d={row:row,ph:ph,dy:e.clientY-rect.top};
+            try{grip.setPointerCapture(e.pointerId);}catch(_){}
+          });
+          wlist.addEventListener('pointermove',function(e){
+            if(!d)return; e.preventDefault();
+            d.row.style.top=(e.clientY-d.dy)+'px';
+            var others=rows().filter(function(r){return r!==d.row;}),placed=false;
+            for(var i=0;i<others.length;i++){var rc=others[i].getBoundingClientRect(); if(e.clientY<rc.top+rc.height/2){wlist.insertBefore(d.ph,others[i]);placed=true;break;}}
+            if(!placed) wlist.appendChild(d.ph);
+          });
+          function end(){
+            if(!d)return;
+            wlist.insertBefore(d.row,d.ph); d.ph.remove();
+            d.row.classList.remove('wli-dragging');
+            d.row.style.position='';d.row.style.left='';d.row.style.top='';d.row.style.width='';d.row.style.margin='';
+            var order=rows().map(function(r){return r.getAttribute('href').split('/cred/')[1];});
+            rows().forEach(function(r,i){r.dataset.i=i;});
+            var stk=document.getElementById('wstack');       // 隠れているスタックも同順に（リサイズ整合）
+            if(stk){order.forEach(function(id){var c=stk.querySelector('a.vcard[href$="/cred/'+id+'"]');if(c)stk.appendChild(c);});}
+            fetch('/reorder',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({order:order})}).then(function(r){if(!r.ok)location.reload();}).catch(function(){location.reload();});
+            d=null; setTimeout(function(){window.__wlSuppress=false;},0);
+          }
+          wlist.addEventListener('pointerup',end);
+          wlist.addEventListener('pointercancel',end);
+        })();
         window.addEventListener('popstate',function(){
           var m=location.hash.match(/^#(.+)$/);
           if(m){ if(openId!==m[1]) window.openDetail(m[1],false); }
@@ -1755,18 +1792,27 @@ const WSTYLE = `<style>
      並び替えは左スタックの縦ドラッグを共用（格子ドラッグは不使用）。 */
   .whome{max-width:420px;margin:0 auto}
   .wlist{display:none}
-  @media(min-width:900px){
-    .whome{max-width:968px;display:grid;grid-template-columns:398px 1fr;gap:30px;align-items:start}
-    .whome .wstack{max-width:none;margin:0}
-    .wlist{display:flex;flex-direction:column;gap:9px}
-  }
-  .wli{display:grid;grid-template-columns:46px 1fr auto;gap:14px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:13px;padding:12px 15px;text-decoration:none;color:var(--ink);transition:box-shadow .16s,border-color .16s,transform .16s;cursor:pointer}
-  .wli:hover,.wli.on{border-color:#2E7D6B;box-shadow:0 8px 22px rgba(46,125,107,.15);transform:translateX(-2px)}
-  .wli .sw{width:46px;height:29px;border-radius:6px;background:radial-gradient(120% 90% at 88% -12%,var(--c3) 0%,transparent 55%),linear-gradient(135deg,var(--c1),var(--c2))}
   ${swatchEmblemCss()}
-  .wli-tx{min-width:0}.wli-tx b{font-size:14px;display:block;line-height:1.3}.wli-tx small{font-size:11px;color:var(--muted)}
+  /* PC(≥900px)は左スタック廃止＝一覧のみ全幅。各行に券面を等比縮小で埋め込む */
+  @media(min-width:900px){
+    .whome{max-width:760px;display:block}
+    .whome .wstack{display:none}
+    .wlist{display:flex;flex-direction:column;gap:12px}
+  }
+  .wli{display:grid;grid-template-columns:30px 200px 1fr auto;gap:16px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:16px;padding:12px 16px 12px 8px;text-decoration:none;color:var(--ink);transition:box-shadow .16s,border-color .16s}
+  .wli:hover{border-color:#2E7D6B;box-shadow:0 6px 18px rgba(46,125,107,.12)}
+  .wli-grip{display:flex;align-items:center;justify-content:center;color:#B4BCC8;cursor:grab;align-self:stretch;touch-action:none;-webkit-user-select:none;user-select:none}
+  .wli:hover .wli-grip{color:#2E7D6B}
+  .wli-thumb{width:200px;height:126px;position:relative;overflow:hidden;border-radius:12px}
+  .wli-scaler{position:absolute;top:0;left:0;transform-origin:top left;transform:scale(.47619);width:420px}
+  .wli-scaler .vcard{max-width:none;width:420px;margin:0}
+  .wli-tx{min-width:0;display:flex;flex-direction:column;gap:5px}.wli-tx b{font-size:16px;line-height:1.3}.wli-tx small{font-size:12px;color:var(--muted)}
+  .wli-chips{display:flex;gap:8px;align-items:center;margin-top:2px}
+  .wli-fmt{font-size:11px;font-weight:700;border:1px solid var(--line);border-radius:7px;padding:3px 9px;color:#334;background:#F7F9FB}
   .wli-st{font-size:12.5px;font-weight:700;white-space:nowrap}.wli-st.ok{color:#0E8A6B}.wli-st.bad{color:#C0392B}.wli-st.na{color:var(--muted)}
-  @media(min-width:900px){.wstack .vcard.lift-link{transform:translateX(22px) scale(1.03);z-index:90!important;box-shadow:0 18px 34px rgba(14,26,43,.32)}}
+  .wli-chev{font-size:13px;font-weight:700;color:#2E7D6B;white-space:nowrap}
+  .wli.wli-dragging{border-color:#2E7D6B;box-shadow:0 22px 40px rgba(14,26,43,.30);z-index:999}
+  .wli-slot{border:2px dashed #7FB3A5;border-radius:16px;background:rgba(46,125,107,.06)}
   .ghost-card{border:2px dashed #C4D6D0;border-radius:22px;aspect-ratio:1.586;display:grid;place-items:center;color:var(--muted);font-size:13px;text-align:center;max-width:420px;margin:0 auto;line-height:1.8}
   .wfoot{text-align:center;margin-top:22px;font-size:12px}
   .wfoot a{color:var(--muted);text-decoration:none}
