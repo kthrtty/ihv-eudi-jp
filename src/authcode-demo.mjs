@@ -618,13 +618,16 @@ export function groupCatalog(configs) {
  *  fixed action bar + bottom-sheet "wallet card" preview whose stack tracks the
  *  selection count. Offer options + JSON-preview + issue. Client-side vs POST /offer. */
 export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
-  // 書類カタログ行: 旧アイコン資産（typeIcon）＋2段組（名前は全幅・省略なし／説明+形式チップ）。
+  // 書類カタログ行（案A）: アイコン＝券面の和色スウォッチ＋白エンボス（swatchEmblemHtml）＝
+  // ウォレット券面と色が一致し「この券のカード」と一目でわかる（装飾は最小限、アクセントバーは不採用）。
+  // 2段組（名前は全幅・省略なし／説明+形式チップ）。PC=タイル格子／モバイル=1列の両方に反映。
   // 発行済みの「実体」＝ウォレットのカードは、下部シートのプレビュー（walletCardCss）で見せる。
   const rows = groups.map((g) => {
+    const th = WALLET_CARD_THEME[g.type] || WALLET_CARD_THEME.pid;
     const chips = g.formats.map((f) =>
       `<button type="button" class="fmtchip" data-cfg="${esc(f.configId)}" data-type="${esc(g.type)}" data-fmt="${esc(f.label)}">${esc(f.label)}</button>`).join('');
-    return `<div class="crow" data-type="${esc(g.type)}">
-      <span class="cic">${typeIcon(g.type)}</span>
+    return `<div class="crow" data-type="${esc(g.type)}" style="--c1:${th.c1};--c2:${th.c2};--c3:${th.c3}">
+      <span class="cic">${swatchEmblemHtml(g.type)}</span>
       <div class="cbody">
         <div class="cn">${esc(g.name)}</div>
         <div class="cl2">
@@ -860,8 +863,12 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       .crow{display:grid;grid-template-columns:56px 1fr;column-gap:12px;align-items:center;
         background:#fff;border:1px solid var(--line);border-radius:12px;padding:11px 14px;transition:border-color .15s,box-shadow .15s}
       .crow.on{border-color:var(--civic);box-shadow:0 0 0 1.5px var(--civic)}
-      .cic{width:56px;display:grid;place-items:center}
-      .cic svg{display:block;max-width:56px;height:auto}
+      /* カタログのアイコン＝券面の和色スウォッチ＋白エンボス（ウォレット券面と色を一致させる） */
+      .cic{width:46px;height:46px;justify-self:center;border-radius:12px;display:grid;place-items:center;overflow:hidden;
+        background:radial-gradient(120% 90% at 85% -12%,var(--c3) 0%,transparent 55%),linear-gradient(135deg,var(--c1) 0%,var(--c2) 100%);
+        box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 1px 2px rgba(0,0,0,.18)}
+      .cic .swemb{display:block;width:56%;height:56%;color:rgba(255,255,255,.95);
+        filter:drop-shadow(0 1px 0 rgba(0,0,0,.4)) drop-shadow(0 -.6px .4px rgba(255,255,255,.35))}
       .cbody{min-width:0}
       .cn{font-size:14px;font-weight:700;line-height:1.35}          /* 全幅・折り返し可・省略なし */
       .cl2{display:flex;align-items:center;gap:10px;margin-top:3px}
