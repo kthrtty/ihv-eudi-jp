@@ -1111,3 +1111,33 @@ test('回帰: 0枚ウォレットの authorization_code — pendingAuth は vola
   assert.doesNotMatch(cb, /state が一致する保留中/, '0枚でも pendingAuth が保存され state 照合が通る');
   assert.match(cb, /取得しています/, 'receivingScreen（段階発行）に進む');
 });
+
+test('カード詳細フラグメント /cred/:id?embed=1 は「必ず表示バンド」付きの部分HTML（同ページ内オーバーレイ用）', async () => {
+  const IP = 8983, WP = 8984;
+  const ISSUER = `http://127.0.0.1:${IP}`, WALLET = `http://127.0.0.1:${WP}`;
+  const issuer = serve({ fetch: createApp({ credentialIssuer: ISSUER }).fetch, port: IP });
+  try {
+    const wallet = createWalletApp({ walletOrigin: WALLET, issuerUrl: ISSUER });
+    const made = await (await fetch(`${ISSUER}/offer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'] }) })).json();
+    const add = await wallet.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${made.offer_id}`));
+    const { cookie } = await driveAdd(wallet, add);
+    const [cred] = await (await wallet.request('/creds', { headers: { cookie } })).json();
+    // embed=1 → シェルなしの部分HTML（必ず表示バンド＝発行者/信頼/状態/有効期限/形式）
+    const frag = await (await wallet.request(`/cred/${cred.id}?embed=1`, { headers: { cookie } })).text();
+    assert.match(frag, /wd-must/, '必ず表示バンド');
+    assert.match(frag, /信頼済み発行者/);
+    assert.match(frag, /有効期限/);       // pid は expiry_date を持つ
+    assert.match(frag, /mdoc・対面提示/);  // 形式
+    assert.match(frag, /属性データ/);
+    assert.doesNotMatch(frag, /<html|<body|<!doctype/i, 'シェルを含まない部分HTML');
+    // JS 無効フォールバック: /cred/:id 本体は従来どおりフルページ
+    const full = await (await wallet.request(`/cred/${cred.id}`, { headers: { cookie } })).text();
+    assert.match(full, /<html/i, 'フルページ（フォールバック）');
+    assert.match(full, /属性データ/);
+    // 不明IDは / へ（従来仕様の維持）
+    const nf = await wallet.request('/cred/nope?embed=1', { headers: { cookie } });
+    assert.equal(nf.status, 302);
+  } finally {
+    await new Promise((r) => issuer.close(r));
+  }
+});
