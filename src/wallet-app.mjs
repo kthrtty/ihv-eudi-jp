@@ -1171,8 +1171,10 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       <div class="wd-mstage" id="wdMStage"><div class="wd-mtop" id="wdMTop"></div><div class="wd-mpanel" id="wdMPanel"></div></div>
     </div>
     <style>
-      /* 同ページ内カード詳細オーバーレイ（PC=2カラム / モバイル=1カラム） */
-      .wd-overlay{position:fixed;inset:0;z-index:120}
+      /* 同ページ内カード詳細オーバーレイ（PC=2カラム / モバイル=1カラム）。
+         ロールヘッダ（.topwrap）は残す＝オーバーレイはヘッダの高さ(--wd-top)ぶん下げて開始し、
+         詳細表示中はヘッダを最前面へ上げる（body.wd-active .topwrap）。 */
+      .wd-overlay{position:fixed;top:var(--wd-top,0);left:0;right:0;bottom:0;z-index:120}
       .wd-overlay[hidden]{display:none}
       /* 展開制御: 既定（PC オーバーレイ）は全部表示・「さらに表示」は隠す */
       .wd-more{display:none}
@@ -1218,7 +1220,7 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       .cbor-note{font-size:11.5px;color:var(--muted);margin-bottom:6px}
       .wd-del{width:100%;border:1px solid #E7C9C4;background:#fff;color:#C0392B;border-radius:12px;padding:11px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
       /* 削除確認モーダル */
-      .wd-dc{position:fixed;inset:0;z-index:140;display:grid;place-items:center;padding:18px}
+      .wd-dc{position:fixed;inset:0;z-index:210;display:grid;place-items:center;padding:18px}
       .wd-dc[hidden]{display:none}
       .wd-dc-scrim{position:absolute;inset:0;background:rgba(14,26,43,.42)}
       .wd-dc-box{position:relative;background:#fff;border-radius:18px;max-width:360px;width:100%;padding:22px 20px 18px;box-shadow:0 12px 40px rgba(0,0,0,.28)}
@@ -1228,9 +1230,10 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       .wd-dc-cancel{width:100%;border:1px solid var(--line);background:#fff;color:#3C4A61;border-radius:11px;padding:11px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
       .wd-dc-del{width:100%;border:0;background:#C0392B;color:#fff;border-radius:11px;padding:11px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
       body.wd-active{overflow:hidden}
+      body.wd-active .topwrap{z-index:200}   /* 詳細表示中はロールヘッダをオーバーレイより前面に */
 
-      /* ── モバイル専用: 選択カードが持ち上がり、他カードが下部に折り重なる詳細 ── */
-      .wd-mobile{position:fixed;inset:0;z-index:121}
+      /* ── モバイル専用: 選択カードが持ち上がる詳細（ヘッダは残す＝--wd-top ぶん下げる） ── */
+      .wd-mobile{position:fixed;top:var(--wd-top,0);left:0;right:0;bottom:0;z-index:121}
       .wd-mobile[hidden]{display:none}
       .wd-mscrim{position:absolute;inset:0;background:#F1F4F8;opacity:0;transition:opacity .3s}
       .wd-mobile.show .wd-mscrim{opacity:1}
@@ -1276,8 +1279,11 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
         function cloneCard(a){ var d=document.createElement('div'); d.className='vcard'; d.setAttribute('style',a.getAttribute('style')||''); d.innerHTML=a.innerHTML; return d; }
         function fetchFrag(id){ return fetch('/cred/'+encodeURIComponent(id)+'?embed=1',{headers:{'x-requested-with':'fetch'}}).then(function(r){return r.ok?r.text():Promise.reject();}); }
         var WDLOAD='<div class="wd-loading"><span class="wd-spin" role="status" aria-label="読み込み中"></span><span>読み込み中…</span></div>';
+        // ロールヘッダ(.topwrap)を詳細表示中も残すため、その高さぶんオーバーレイを下げる
+        function setWdTop(){ var tw=document.querySelector('.topwrap'); var h=tw?Math.max(0,Math.round(tw.getBoundingClientRect().bottom)):0; document.documentElement.style.setProperty('--wd-top',h+'px'); }
         // PC/広幅: オーバーレイ2カラム。回線が遅くても即オーバーレイ＋スピナーを出し、取得後に差し替える
         function openOverlay(id,push){
+          setWdTop();
           body.innerHTML=WDLOAD; ov.hidden=false; document.body.classList.add('wd-active');
           requestAnimationFrame(function(){ov.classList.add('show');});
           ov.querySelector('.wd-sheet').scrollTop=0; mode='ov'; pushId(id,push);
@@ -1291,6 +1297,7 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
           var cards=stackEl?[].slice.call(stackEl.querySelectorAll('a.vcard')):[];
           var idx=-1; cards.forEach(function(c,i){var m=(c.getAttribute('href')||'').match(/\\/cred\\/([^/?#]+)/); if(m&&m[1]===id)idx=i;});
           if(idx<0){ return openOverlay(id,push); }
+          setWdTop();
           mTop.innerHTML=''; mPanel.innerHTML=WDLOAD;
           mTop.appendChild(cloneCard(cards[idx]));
           mob.hidden=false; mob.classList.remove('expanded'); document.body.classList.add('wd-active');
