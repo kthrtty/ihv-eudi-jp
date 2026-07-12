@@ -167,9 +167,12 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
   // skip the write so a propagation lag can't wipe the user's credentials.
   const saveSession = async (s) => {
     if (!store || !s?._sid) return;
-    // 段階発行の pendingReceive は書かないと /add/step が拾えず発行が止まる。
-    // （従来の /add 同期発行も完了時に creds 非空で書いていたので上書きリスクは同等）
-    if (s._volatile && (!s.creds || s.creds.length === 0) && !s.pendingReceive) return;
+    // 進行中フロー（段階発行 pendingReceive / authorization_code の pendingAuth）は
+    // creds が空でも必ず書く。書かないと別 isolate/再読込でフロー状態が消え、
+    // 段階発行は /add/step が拾えず、authorization_code は /oidc/cb で state 不一致になる
+    // （0枚のウォレットで auth-code 発行が必ず失敗していた本番バグ）。
+    const hasPendingAuth = s.pendingAuth && Object.keys(s.pendingAuth).length > 0;
+    if (s._volatile && (!s.creds || s.creds.length === 0) && !s.pendingReceive && !hasPendingAuth) return;
     await store.set(`wsess:${s._sid}`, {
       wallet: s.wallet.serialize(), creds: s.creds, pending: s.pending ?? null, pendingAuth: s.pendingAuth ?? {}, pendingReceive: s.pendingReceive ?? null, activity: s.activity ?? [], present: s.present ?? null, settings: s.settings ?? {},
     }, SESSION_TTL);
@@ -287,6 +290,9 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     } catch { return null; } })();
     const st = await credStatus(s, cr.id);
     const acts = (s.activity || []).filter((a) => (a.credIds || []).includes(cr.id));
+    // Apple Wallet 風の同ページ内展開が、詳細内容だけを AJAX で取り込むためのフラグメント
+    // （カード面・シェルなし）。JS 無効時はこの分岐に来ず、従来のフルページを返す。
+    if (c.req.query('embed')) return c.html(credFragment(cr, raw, st, acts));
     return c.html(credDetail(cr, raw, st, acts));
   });
   app.post('/cred/:id/recheck', async (c) => {
@@ -1360,6 +1366,7 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
         function cancelHold(){if(holdTimer){clearTimeout(holdTimer);holdTimer=null;}}
         var sx=0,sy=0;
         stack.addEventListener('pointerdown',function(e){
+          if(document.body.classList.contains('wd-active'))return;   // 詳細表示中は並び替えを掴まない
           var card=e.target.closest&&e.target.closest('a.vcard');if(!card)return;
           sx=e.clientX;sy=e.clientY;pX=sx;pY=sy;
           var isGrid=getComputedStyle(stack).display==='grid';
@@ -1437,6 +1444,48 @@ function credDetail(cr, raw, st, acts = []) {
         </form>
       </div></div>
     ${WSTYLE}${VC_MODAL_STYLE}`, WALLET);
+}
+
+// ---- 同ページ内詳細フラグメント（カード面なし・home へ AJAX 取り込み）----
+// base（属性4件＋「さらに表示」）と wd-extra（残り属性・アクティビティ・失効・開発者・削除）に
+// 分かれ、home 側 CSS が wd-extra の開閉と下部カードのフェードを制御する。
+function credFragment(cr, raw, st, acts = []) {
+  const type = credType(cr.configId);
+  const labels = (() => { try { return configInfo(cr.configId).claimLabels || {}; } catch { return {}; } })();
+  const entries = Object.entries(cr.claims || {});
+  const head = entries.slice(0, 4);
+  const rest = entries.slice(4);
+  const row = ([k, v]) => `<div class="wd-row"><span>${esc(labels[k] || k)}</span><b>${dispVal(v)}</b></div>`;
+  const stChip = st?.checked
+    ? (st.revoked ? `<span class="chip2 bad">● 失効しています</span>` : `<span class="chip2">● 有効 · ${esc(agoLabel(st.at))}</span>`)
+    : `<span class="chip2 na">未確認</span>`;
+  const actList = acts.length
+    ? acts.map((a) => `<div class="wd-act"><span>${esc(new Date(a.at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', hour12: false }))}</span><b>${esc(a.rp)}</b><small>${esc((a.claims || []).join(', '))}</small></div>`).join('')
+    : '<div class="wd-act"><small>このカードの提示履歴はまだありません（値は保存されません — 日時・提示先・項目名のみ）</small></div>';
+  const rawJson = raw ? esc(JSON.stringify(raw.json ?? {}, null, 2)) : '（生データを取得できませんでした）';
+  return `<div class="wd-base">
+      ${typeNote(type) ? `<div class="wd-note">${esc(typeNote(type))}</div>` : ''}
+      <div class="wd-panel"><div class="wd-ph">属性データ</div>${head.map(row).join('')}</div>
+      <button type="button" class="wd-more" data-wd-more>さらに表示（属性・アクティビティ・開発者データ）　▾</button>
+    </div>
+    <div class="wd-extra">
+      ${rest.length ? `<div class="wd-panel"><div class="wd-ph">ほかの属性</div>${rest.map(row).join('')}</div>` : ''}
+      <div class="wd-panel">
+        <div class="wd-ph">アクティビティ（提示履歴）· ${acts.length} 件</div>${actList}
+        <div class="wd-prow">失効状態 ${stChip}
+          <form method="POST" action="/cred/${esc(cr.id)}/recheck" style="margin-left:auto"><button type="submit" class="mini2">再確認</button></form></div>
+      </div>
+      <details class="wd-dev"><summary>開発者向け（生データ / バインディング鍵）</summary>
+        <div class="wd-panel" style="margin-top:8px">
+          ${raw?.note ? `<div class="cbor-note">ⓘ ${esc(raw.note)}</div>` : ''}
+          <pre class="wd-json">${rawJson}</pre>
+          <a href="/dev/holder-key" style="font-size:12px;font-weight:700;color:var(--muted)">🔑 バインディング鍵を表示 →</a>
+        </div>
+      </details>
+      <form method="POST" action="/cred/${esc(cr.id)}/delete" onsubmit="return confirm('${esc(typeName(type))} をウォレットから削除します。取り消せません。よろしいですか？')">
+        <button type="submit" class="wd-del">このクレデンシャルを削除</button></form>
+      <button type="button" class="wd-close" data-wd-close>▴ 閉じる</button>
+    </div>`;
 }
 
 const agoLabel = (t) => {

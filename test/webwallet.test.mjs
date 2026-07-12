@@ -1088,3 +1088,26 @@ test('web wallet home: concurrent status checks coalesce into one status-list fe
     assert.equal(stlWrites, 1, `wstl: written once, not per card (got ${stlWrites})`);
   } finally { await new Promise((r) => issuer.close(r)); }
 });
+
+test('回帰: 0枚ウォレットの authorization_code — pendingAuth は volatile でも KV に保存され /oidc/cb の state 照合が通る', async () => {
+  // 本番 Workers はリクエストごとに別 isolate に当たりうる。cookie はあるが KV が未伝播だと
+  // セッションは volatile。saveSession が volatile ガードで pendingAuth を書き落とすと、
+  // authorization_code の往復後 /oidc/cb で state 不一致になり 0枚ウォレットの発行が必ず失敗する。
+  const mem = new Map();
+  const fakeKV = { async put(k, v) { mem.set(k, v); }, async get(k) { return mem.has(k) ? mem.get(k) : null; }, async delete(k) { mem.delete(k); } };
+  const mk = () => createWalletApp({ walletOrigin: 'https://web-wallet.example', issuerUrl: 'https://issuer.example', store: kvStore(fakeKV) });
+  // 1) ホーム表示で wsid cookie を得る（view-only なので KV には書かれない）
+  const a1 = mk();
+  const home = await a1.request('/');
+  const cookie = home.headers.get('set-cookie').split(';')[0];
+  // 2) 別 isolate（cookie あり + KV miss = volatile・creds 0枚）で /request → pendingAuth を保存すべき
+  const a2 = mk();
+  const req = await a2.request('/request?scope=pid_mdoc', { headers: { cookie } });
+  const m = (await req.text()).match(/state=([A-Za-z0-9_-]+)/);
+  assert.ok(m, 'authorize URL に state が含まれる');
+  // 3) さらに別 isolate で /oidc/cb — pendingAuth が KV から読めて state 照合が通るべき
+  const a3 = mk();
+  const cb = await (await a3.request('/oidc/cb?code=DUMMY&state=' + m[1], { headers: { cookie } })).text();
+  assert.doesNotMatch(cb, /state が一致する保留中/, '0枚でも pendingAuth が保存され state 照合が通る');
+  assert.match(cb, /取得しています/, 'receivingScreen（段階発行）に進む');
+});
