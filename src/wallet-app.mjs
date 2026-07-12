@@ -1169,7 +1169,6 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       <div class="wd-mscrim" onclick="closeDetail()"></div>
       <button type="button" class="wd-mback" onclick="closeDetail()">‹</button>
       <div class="wd-mstage" id="wdMStage"><div class="wd-mtop" id="wdMTop"></div><div class="wd-mpanel" id="wdMPanel"></div></div>
-      <div class="wd-mfold" id="wdMFold"></div>
     </div>
     <style>
       /* 同ページ内カード詳細オーバーレイ（PC=2カラム / モバイル=1カラム） */
@@ -1237,11 +1236,10 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       .wd-mobile.show .wd-mscrim{opacity:1}
       .wd-mback{position:absolute;left:16px;top:14px;z-index:6;border:0;background:rgba(255,255,255,.92);border-radius:999px;width:36px;height:36px;font-size:18px;color:#2E7D6B;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.15);opacity:0;transition:opacity .3s}
       .wd-mobile.show .wd-mback{opacity:1}
-      .wd-mstage{position:absolute;inset:0;overflow-y:auto;padding:56px 16px 92px;
+      .wd-mstage{position:absolute;inset:0;overflow-y:auto;padding:56px 16px 40px;
         opacity:0;transition:opacity .28s}
       .wd-mobile.show .wd-mstage{opacity:1}
-      .wd-mobile.expanded .wd-mstage{padding-bottom:40px}
-      /* 入場: 選択カードは下から上へ「持ち上がる」／折り重ねは上から下へ「落ちる」＝逆方向の移動 */
+      /* 入場: 選択カードは下から上へ「持ち上がる」 */
       .wd-mtop{transform:translateY(150px);transition:transform .55s cubic-bezier(.22,.8,.16,1)}
       .wd-mobile.show .wd-mtop{transform:none}
       .wd-mtop .vcard{max-width:none}
@@ -1255,17 +1253,6 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       .wd-mpanel .wd-rest,.wd-mpanel .wd-extra{display:none}
       .wd-mobile.expanded .wd-mpanel .wd-rest,.wd-mobile.expanded .wd-mpanel .wd-extra{display:block}
       .wd-mobile.expanded .wd-mpanel .wd-more{display:none}
-      /* 下部の折り重ね（色しか判別できない深い重なり・最大4のスリーバ）。上から落ちて着地し、
-         展開でフェードアウトして場所を空ける */
-      .wd-mfold{position:absolute;left:16px;right:16px;bottom:0;height:52px;overflow:hidden;z-index:4;pointer-events:none;
-        transform:translateY(-120px);transition:opacity .3s,transform .5s cubic-bezier(.22,.8,.16,1)}
-      .wd-mobile.show .wd-mfold{transform:none}
-      .wd-mobile.show.expanded .wd-mfold{opacity:0;transform:translateY(60px)}
-      .wd-mfold .vcard{position:absolute;left:0;right:0;max-width:none;box-shadow:0 -6px 16px rgba(14,26,43,.14)}
-      /* スリーバは「色のみ」＝券面の中身（形式/状態チップ・文字・エンボス）とホログラム層を隠す。
-         これらの半透明の角丸矩形が残ると、下のスリーバに重なって見えるため。 */
-      .wd-mfold .vcard > *{opacity:0}
-      .wd-mfold .vcard::after,.wd-mfold .vcard::before{opacity:0}
       /* 詳細取得中のローディング（回線が遅いと fetch に時間がかかるため、取り寄せ中はスピナーを出す） */
       .wd-loading{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:72px 20px;color:var(--muted);font-size:13px;font-weight:600}
       .wd-spin{width:34px;height:34px;border-radius:50%;border:3px solid rgba(46,125,107,.22);border-top-color:#2E7D6B;animation:wd-spin .8s linear infinite}
@@ -1282,7 +1269,7 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       (function(){
         var ov=document.getElementById('wdOverlay'),body=document.getElementById('wdBody');
         if(!ov)return;
-        var mob=document.getElementById('wdMobile'),mTop=document.getElementById('wdMTop'),mPanel=document.getElementById('wdMPanel'),mFold=document.getElementById('wdMFold');
+        var mob=document.getElementById('wdMobile'),mTop=document.getElementById('wdMTop'),mPanel=document.getElementById('wdMPanel');
         var openId=null,mode=null; // mode: 'ov' | 'mob'
         function isMobile(){ return window.matchMedia('(max-width:899px)').matches; }
         function pushId(id,push){ openId=id; if(push!==false && location.hash!=='#'+id) history.pushState({wd:id},'','#'+id); }
@@ -1304,10 +1291,8 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
           var cards=stackEl?[].slice.call(stackEl.querySelectorAll('a.vcard')):[];
           var idx=-1; cards.forEach(function(c,i){var m=(c.getAttribute('href')||'').match(/\\/cred\\/([^/?#]+)/); if(m&&m[1]===id)idx=i;});
           if(idx<0){ return openOverlay(id,push); }
-          mTop.innerHTML=''; mFold.innerHTML=''; mPanel.innerHTML=WDLOAD;
+          mTop.innerHTML=''; mPanel.innerHTML=WDLOAD;
           mTop.appendChild(cloneCard(cards[idx]));
-          var others=cards.filter(function(_,i){return i!==idx;}).slice(0,4);
-          others.forEach(function(c,k){ var cl=cloneCard(c); cl.style.top=(k*12)+'px'; cl.style.transform='scale(.955)'; cl.style.zIndex=String(k); mFold.appendChild(cl); });
           mob.hidden=false; mob.classList.remove('expanded'); document.body.classList.add('wd-active');
           requestAnimationFrame(function(){mob.classList.add('show');});
           document.getElementById('wdMStage').scrollTop=0; mode='mob'; pushId(id,push);
@@ -1318,7 +1303,7 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
           if(!openId)return;
           if(mode==='mob'){
             mob.classList.remove('show'); document.body.classList.remove('wd-active');
-            setTimeout(function(){ if(!openId){mob.hidden=true;mob.classList.remove('expanded');mTop.innerHTML='';mFold.innerHTML='';mPanel.innerHTML='';} },360);
+            setTimeout(function(){ if(!openId){mob.hidden=true;mob.classList.remove('expanded');mTop.innerHTML='';mPanel.innerHTML='';} },360);
           } else {
             ov.classList.remove('show'); document.body.classList.remove('wd-active');
             setTimeout(function(){ if(!openId){ov.hidden=true;body.innerHTML='';} },340);
