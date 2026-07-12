@@ -1072,8 +1072,24 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       unknown: !st?.checked,
     });
   };
+  // 右ペイン（PC のみ表示）: 色キー＋名前＋状態のクリーンなリスト。行/カードのホバーで
+  // 対応カードがスタックからせり出し連動、クリックで同ページ内詳細（openDetail）。
+  const listRow = (cr, i) => {
+    const type = credType(cr.configId);
+    const th = WALLET_CARD_THEME[type] || WALLET_CARD_THEME.pid;
+    const st = statuses[cr.id];
+    const label = st?.checked ? (st.revoked ? '失効' : '有効') : '未確認';
+    const cls = st?.checked ? (st.revoked ? 'bad' : 'na') : 'na';
+    return `<a class="wli" href="/cred/${esc(cr.id)}" data-i="${i}">
+      <span class="sw" style="--c1:${th.c1};--c2:${th.c2};--c3:${th.c3}">${swatchEmblemHtml(type)}</span>
+      <span class="wli-tx"><b>${esc(typeName(type))}</b><small>${esc(cr.configId)}</small></span>
+      <span class="wli-st ${st?.checked && !st.revoked ? 'ok' : cls}">● ${label}</span></a>`;
+  };
   const stackBody = n
-    ? `<div class="wstack" id="wstack">${s.creds.map(cardOf).join('')}</div>${n > 1 ? '<div class="rhint"><span class="rh-touch">カードを長押しすると並び替えできます</span><span class="rh-pc">カードをドラッグすると並び替えできます（タッチは長押し）</span>（新しく受け取ったカードは一番上に入ります）</div>' : ''}`
+    ? `<div class="whome" id="whome">
+        <div class="wstack" id="wstack">${s.creds.map(cardOf).join('')}</div>
+        <div class="wlist" id="wlist">${s.creds.map(listRow).join('')}</div>
+       </div>${n > 1 ? '<div class="rhint"><span class="rh-touch">カードを長押しすると並び替えできます</span><span class="rh-pc">カードをドラッグすると並び替え（右の一覧はホバーで連動）</span>（新しく受け取ったカードは一番上に入ります）</div>' : ''}`
     : `<div class="ghost-card">クレデンシャルがありません<br><span style="font-size:11.5px">右下の ＋ から発行を受けられます</span></div>`;
 
   // ＋カタログ: 8種タイル × issuer式チップ（クリック=選択・複数可）→ 複数 scope で認可へ
@@ -1160,9 +1176,14 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       .wd-overlay.show .wd-sheet{transform:none;opacity:1}
       @media(min-width:760px){.wd-sheet{padding:22px max(28px,calc((100% - 1040px)/2))}}
       .wd-back{border:0;background:#fff;border-radius:999px;padding:8px 16px;font:inherit;font-size:13px;font-weight:700;color:#2E7D6B;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.1);margin-bottom:14px}
-      .wd-wrap{display:grid;grid-template-columns:1fr;gap:16px;max-width:1040px;margin:0 auto}
-      @media(min-width:760px){.wd-wrap{grid-template-columns:400px 1fr;align-items:start}}
-      .wd-col{display:flex;flex-direction:column;gap:14px;min-width:0}
+      /* モバイル=1カラム（DOM順: 券面→バンド→属性→履歴→…）。PC=2カラムで属性(.wd-attr)を右へ。 */
+      .wd-wrap{display:grid;grid-template-columns:1fr;gap:14px;max-width:560px;margin:0 auto}
+      .wd-wrap>*{min-width:0}
+      @media(min-width:760px){
+        .wd-wrap{grid-template-columns:398px 1fr;column-gap:26px;max-width:1040px;align-items:start}
+        .wd-wrap>*{grid-column:1}
+        .wd-attr{grid-column:2;grid-row:1 / span 99;align-self:start;margin:0}
+      }
       .wd-cardface .vcard{max-width:none}
       .wd-note{font-size:10.5px;color:#8A6D1F;line-height:1.5;margin:-4px 2px 0}
       .wd-panel{background:#fff;border:1px solid var(--line);border-radius:16px;padding:15px 17px}
@@ -1218,14 +1239,26 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
           var wasId=openId; openId=null;
           if(!fromPop && location.hash==='#'+wasId) history.pushState({},'',location.pathname+location.search);
         };
-        // カードのクリックを横取り（ドラッグ中/抑止中は既存ハンドラが preventDefault 済み）
-        var stack=document.getElementById('wstack');
-        if(stack) stack.addEventListener('click',function(e){
-          var a=e.target.closest&&e.target.closest('a.vcard'); if(!a)return;
+        // カード/一覧行のクリックを横取り（ドラッグ中/抑止中は既存ハンドラが preventDefault 済み）
+        var whome=document.getElementById('whome');
+        if(whome) whome.addEventListener('click',function(e){
+          var a=e.target.closest&&e.target.closest('a.vcard,a.wli'); if(!a)return;
           if(e.defaultPrevented)return;              // ドラッグ由来のクリックは無視
           var href=a.getAttribute('href')||''; var m=href.match(/\\/cred\\/([^/?#]+)/);
           if(!m)return; e.preventDefault(); window.openDetail(m[1]);
         });
+        // 一覧行 × 左スタックの連動ハイライト（PC のみ意味を持つ。ドラッグ中は無効）
+        if(whome){
+          var wlist=document.getElementById('wlist'),wstk=document.getElementById('wstack');
+          var linkCards=function(){return wstk?[].slice.call(wstk.querySelectorAll('a.vcard')):[];};
+          var rowsOf=function(){return wlist?[].slice.call(wlist.querySelectorAll('a.wli')):[];};
+          var clearLink=function(){ linkCards().forEach(function(c){c.classList.remove('lift-link');}); rowsOf().forEach(function(r){r.classList.remove('on');}); };
+          var setLink=function(i){ if(document.body.classList.contains('wd-active'))return; clearLink();
+            var cs=linkCards(),rs=rowsOf(); if(cs[i])cs[i].classList.add('lift-link'); if(rs[i])rs[i].classList.add('on'); };
+          if(wlist) wlist.addEventListener('mouseover',function(e){ var r=e.target.closest('a.wli'); if(r)setLink(+r.dataset.i); });
+          if(wstk) wstk.addEventListener('mouseover',function(e){ var c=e.target.closest('a.vcard'); if(!c)return; setLink(linkCards().indexOf(c)); });
+          whome.addEventListener('mouseleave',clearLink);
+        }
         window.addEventListener('popstate',function(){
           var m=location.hash.match(/^#(.+)$/);
           if(m){ if(openId!==m[1]) window.openDetail(m[1],false); }
@@ -1357,6 +1390,9 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
             cards.forEach(function(c2){c2.style.top='';c2.style.zIndex='';c2.style.transition='';c2.classList.remove('lift');});
             stack.classList.remove('freeze');stack.style.height='';
             document.documentElement.style.overflowAnchor='';
+            // 右ペイン一覧も新しい id 順に並べ替え＋data-i を振り直す（ホバー連動の index を保つ）
+            var wl=document.getElementById('wlist');
+            if(wl){ order.forEach(function(id,idx){ var row=wl.querySelector('a.wli[href$="/cred/'+id+'"]'); if(row){row.dataset.i=idx;wl.appendChild(row);} }); }
             suppress=false;
           },320);
         }
@@ -1541,8 +1577,6 @@ function credFragment(cr, raw, st, acts = []) {
   const type = credType(cr.configId);
   const labels = (() => { try { return configInfo(cr.configId).claimLabels || {}; } catch { return {}; } })();
   const entries = Object.entries(cr.claims || {});
-  const head = entries.slice(0, 6);
-  const rest = entries.slice(6);
   const row = ([k, v]) => `<div class="wd-row"><span>${esc(labels[k] || k)}</span><b>${dispVal(v)}</b></div>`;
   const live = st?.checked && !st.revoked;
   const stChip = st?.checked
@@ -1563,31 +1597,27 @@ function credFragment(cr, raw, st, acts = []) {
     ? acts.map((a) => `<div class="wd-act"><span>${esc(new Date(a.at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', hour12: false }))}</span><b>${esc(a.rp)}</b><small>${esc((a.claims || []).join(', '))}</small></div>`).join('')
     : '<div class="wd-act"><small>このカードの提示履歴はまだありません（値は保存されません — 日時・提示先・項目名のみ）</small></div>';
   const rawJson = raw ? esc(JSON.stringify(raw.json ?? {}, null, 2)) : '（生データを取得できませんでした）';
+  // フラットなブロック列（モバイルは DOM 順: 券面→注記→バンド→属性→履歴→開発者→削除）。
+  // PC は grid で「属性(.wd-attr)＝右カラム / それ以外＝左カラム」に振り分ける（属性は項目数が多い）。
   return `<div class="wd-wrap">
-    <div class="wd-col">
-      <div class="wd-cardface">${vcardHtml(type, { title: typeName(type), sub: cr.configId, fmt: cr.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT', status: st?.checked ? (st.revoked ? '失効' : '有効') : '未確認', revoked: !!st?.revoked, unknown: !st?.checked })}</div>
-      ${typeNote(type) ? `<div class="wd-note">${esc(typeNote(type))}</div>` : ''}
-      ${mustBand}
-      <div class="wd-panel"><div class="wd-ph">属性データ</div>${head.map(row).join('')}
-        ${rest.length ? `<details class="wd-fold"><summary>ほか ${rest.length} 項目を表示</summary>${rest.map(row).join('')}</details>` : ''}
-      </div>
+    <div class="wd-cardface">${vcardHtml(type, { title: typeName(type), sub: cr.configId, fmt: cr.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT', status: st?.checked ? (st.revoked ? '失効' : '有効') : '未確認', revoked: !!st?.revoked, unknown: !st?.checked })}</div>
+    ${typeNote(type) ? `<div class="wd-note">${esc(typeNote(type))}</div>` : ''}
+    ${mustBand}
+    <div class="wd-panel wd-attr"><div class="wd-ph">属性データ · ${entries.length} 項目</div>${entries.map(row).join('')}</div>
+    <div class="wd-panel">
+      <div class="wd-ph">アクティビティ（提示履歴）· ${acts.length} 件</div>${actList}
+      <div class="wd-prow">失効状態 ${stChip}
+        <form method="POST" action="/cred/${esc(cr.id)}/recheck" style="margin-left:auto"><button type="submit" class="mini2">再確認</button></form></div>
     </div>
-    <div class="wd-col">
-      <div class="wd-panel">
-        <div class="wd-ph">アクティビティ（提示履歴）· ${acts.length} 件</div>${actList}
-        <div class="wd-prow">失効状態 ${stChip}
-          <form method="POST" action="/cred/${esc(cr.id)}/recheck" style="margin-left:auto"><button type="submit" class="mini2">再確認</button></form></div>
+    <details class="wd-dev"><summary>開発者向け（生データ / バインディング鍵）</summary>
+      <div class="wd-panel" style="margin-top:8px">
+        ${raw?.note ? `<div class="cbor-note">ⓘ ${esc(raw.note)}</div>` : ''}
+        <pre class="wd-json">${rawJson}</pre>
+        <a href="/dev/holder-key" style="font-size:12px;font-weight:700;color:var(--muted)">🔑 バインディング鍵を表示 →</a>
       </div>
-      <details class="wd-dev"><summary>開発者向け（生データ / バインディング鍵）</summary>
-        <div class="wd-panel" style="margin-top:8px">
-          ${raw?.note ? `<div class="cbor-note">ⓘ ${esc(raw.note)}</div>` : ''}
-          <pre class="wd-json">${rawJson}</pre>
-          <a href="/dev/holder-key" style="font-size:12px;font-weight:700;color:var(--muted)">🔑 バインディング鍵を表示 →</a>
-        </div>
-      </details>
-      <form method="POST" action="/cred/${esc(cr.id)}/delete" onsubmit="return confirm('${esc(typeName(type))} をウォレットから削除します。取り消せません。よろしいですか？')">
-        <button type="submit" class="wd-del">このクレデンシャルを削除</button></form>
-    </div>
+    </details>
+    <form method="POST" action="/cred/${esc(cr.id)}/delete" onsubmit="return confirm('${esc(typeName(type))} をウォレットから削除します。取り消せません。よろしいですか？')">
+      <button type="submit" class="wd-del">このクレデンシャルを削除</button></form>
   </div>`;
 }
 
@@ -1628,7 +1658,22 @@ const WSTYLE = `<style>
   #wstack.gfreeze a.vcard{position:absolute;margin:0!important;transition:left .28s ease,top .28s ease,transform .28s ease,filter .28s ease;will-change:left,top}
   #wstack .dropslot{position:absolute;border:2px dashed #7FB3A5;border-radius:16px;background:rgba(46,125,107,.06);opacity:0;transition:left .28s ease,top .28s ease,opacity .2s;pointer-events:none}
   .wstack .vcard:not(:first-child){margin-top:-120px} /* 重なりを増やし密に。可視帯は状態チップ(top:44px・下端~68px)を割らない */
-  @media(min-width:720px){.wstack{max-width:880px;display:grid;grid-template-columns:repeat(2,minmax(0,420px));gap:18px;justify-content:center}.wstack .vcard:not(:first-child){margin-top:0}}
+  /* PC 2ペイン: 左=縦スタック / 右=一覧（ホバー連動）。モバイルはスタックのみ（一覧は隠す）。
+     並び替えは左スタックの縦ドラッグを共用（格子ドラッグは不使用）。 */
+  .whome{max-width:420px;margin:0 auto}
+  .wlist{display:none}
+  @media(min-width:900px){
+    .whome{max-width:968px;display:grid;grid-template-columns:398px 1fr;gap:30px;align-items:start}
+    .whome .wstack{max-width:none;margin:0}
+    .wlist{display:flex;flex-direction:column;gap:9px}
+  }
+  .wli{display:grid;grid-template-columns:46px 1fr auto;gap:14px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:13px;padding:12px 15px;text-decoration:none;color:var(--ink);transition:box-shadow .16s,border-color .16s,transform .16s;cursor:pointer}
+  .wli:hover,.wli.on{border-color:#2E7D6B;box-shadow:0 8px 22px rgba(46,125,107,.15);transform:translateX(-2px)}
+  .wli .sw{width:46px;height:29px;border-radius:6px;background:radial-gradient(120% 90% at 88% -12%,var(--c3) 0%,transparent 55%),linear-gradient(135deg,var(--c1),var(--c2))}
+  ${swatchEmblemCss()}
+  .wli-tx{min-width:0}.wli-tx b{font-size:14px;display:block;line-height:1.3}.wli-tx small{font-size:11px;color:var(--muted)}
+  .wli-st{font-size:12.5px;font-weight:700;white-space:nowrap}.wli-st.ok{color:#0E8A6B}.wli-st.bad{color:#C0392B}.wli-st.na{color:var(--muted)}
+  @media(min-width:900px){.wstack .vcard.lift-link{transform:translateX(22px) scale(1.03);z-index:90!important;box-shadow:0 18px 34px rgba(14,26,43,.32)}}
   .ghost-card{border:2px dashed #C4D6D0;border-radius:22px;aspect-ratio:1.586;display:grid;place-items:center;color:var(--muted);font-size:13px;text-align:center;max-width:420px;margin:0 auto;line-height:1.8}
   .wfoot{text-align:center;margin-top:22px;font-size:12px}
   .wfoot a{color:var(--muted);text-decoration:none}
