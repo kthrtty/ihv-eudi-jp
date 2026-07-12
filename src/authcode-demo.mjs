@@ -157,16 +157,25 @@ export const CARD_SIL = {
   disaster: `<path d="M12 3 2 11h3v9h6.2l-1.3-3 2.6-2-2-2.4 2.5-1.8V20h6v-9h3z"/>`,
   vaccine: `<g transform="rotate(-40 12 12)"><rect x="1.6" y="11.25" width="6" height="1.5" rx=".2"/><rect x="7.4" y="7.8" width="1.7" height="8.4" rx=".4"/><rect x="9" y="9" width="7.6" height="6" rx=".7"/><rect x="11" y="9.3" width="1" height="1.6"/><rect x="12.8" y="9.3" width="1" height="1.6"/><rect x="14.6" y="9.3" width="1" height="1.6"/><rect x="16.4" y="6.6" width="1.9" height="10.8" rx=".4"/><rect x="18.3" y="10.8" width="2.2" height="2.4"/><rect x="20.2" y="8.6" width="1.8" height="6.8" rx=".4"/></g>`,
 };
-export function cardEmblemHtml(type) {
+// シルエットの視覚中心を 24×24 枠の中央へ寄せる微調整（bbox 中心のズレ補正）。
+// swatch と券面エンボスの両方に効かせ、全面で同じ位置に見せる。
+const CARD_SIL_NUDGE = { single: [0, 1.5], koseki: [0.8, 0] };
+function embInner(type) {
   const p = CARD_SIL[type];
-  return p ? `<span class="vemb"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${p}</svg></span>` : '';
+  if (!p) return '';
+  const n = CARD_SIL_NUDGE[type];
+  return n ? `<g transform="translate(${n[0]} ${n[1]})">${p}</g>` : p;
+}
+export function cardEmblemHtml(type) {
+  const inner = embInner(type);
+  return inner ? `<span class="vemb"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${inner}</svg></span>` : '';
 }
 // 小型スウォッチ（.sw・色だけ揃ったカード表示）に埋めるエンボスシルエット。
 // 既存のグラデCSS(--c1/--c2/--c3)はそのまま、中へ載せるだけ。`swatchEmblemCss()` を
 // 併記して .sw を中央寄せ+はみ出しクリップにする。issuer 同意/履歴・wallet カタログ/認可要求で共有。
 export function swatchEmblemHtml(type) {
-  const p = CARD_SIL[type];
-  return p ? `<svg class="swemb" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${p}</svg>` : '';
+  const inner = embInner(type);
+  return inner ? `<svg class="swemb" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${inner}</svg>` : '';
 }
 export function swatchEmblemCss() {
   return `.sw{display:inline-flex;align-items:center;justify-content:center;overflow:hidden}
@@ -763,7 +772,9 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
           + '<span class="viss">デジタル資格証発行ポータル</span></div>';
       }
       function fillStack(el, arr) {
-        if (!el) return; const OV = 46;
+        // OV=重なりのオフセット。各カードの「有効」チップ（top44–bottom69）を次カードで
+        // 半端に切らず、下に少し余白を残して見せる（=69+余白）。ホームのスタック方針と統一。
+        if (!el) return; const OV = 78;
         el.innerHTML = arr.map(miniCard).join('');
         el.querySelectorAll('.vcard').forEach((c, i) => { c.style.top = (i * OV) + 'px'; c.style.zIndex = i + 1; });
         el.style.height = (arr.length ? (arr.length - 1) * OV + 150 : 0) + 'px';
@@ -867,7 +878,7 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       .cic{width:46px;height:46px;justify-self:center;border-radius:12px;display:grid;place-items:center;overflow:hidden;
         background:radial-gradient(120% 90% at 85% -12%,var(--c3) 0%,transparent 55%),linear-gradient(135deg,var(--c1) 0%,var(--c2) 100%);
         box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 1px 2px rgba(0,0,0,.18)}
-      .cic .swemb{display:block;width:56%;height:56%;color:rgba(255,255,255,.95);
+      .cic .swemb{display:block;width:72%;height:72%;color:rgba(255,255,255,.95);
         filter:drop-shadow(0 1px 0 rgba(0,0,0,.4)) drop-shadow(0 -.6px .4px rgba(255,255,255,.35))}
       .cbody{min-width:0}
       .cn{font-size:14px;font-weight:700;line-height:1.35}          /* 全幅・折り返し可・省略なし */
