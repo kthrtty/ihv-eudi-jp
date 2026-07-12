@@ -1262,6 +1262,10 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       .wd-mobile.show .wd-mfold{transform:none}
       .wd-mobile.show.expanded .wd-mfold{opacity:0;transform:translateY(60px)}
       .wd-mfold .vcard{position:absolute;left:0;right:0;max-width:none;box-shadow:0 -6px 16px rgba(14,26,43,.14)}
+      /* スリーバは「色のみ」＝券面の中身（形式/状態チップ・文字・エンボス）とホログラム層を隠す。
+         これらの半透明の角丸矩形が残ると、下のスリーバに重なって見えるため。 */
+      .wd-mfold .vcard > *{opacity:0}
+      .wd-mfold .vcard::after,.wd-mfold .vcard::before{opacity:0}
     </style>
     ${WSTYLE}
     <script>
