@@ -1237,7 +1237,7 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       .wd-mobile.show .wd-mscrim{opacity:1}
       .wd-mback{position:absolute;left:16px;top:14px;z-index:6;border:0;background:rgba(255,255,255,.92);border-radius:999px;width:36px;height:36px;font-size:18px;color:#2E7D6B;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.15);opacity:0;transition:opacity .3s}
       .wd-mobile.show .wd-mback{opacity:1}
-      .wd-mstage{position:absolute;inset:0;overflow-y:auto;padding:56px 16px 200px;
+      .wd-mstage{position:absolute;inset:0;overflow-y:auto;padding:56px 16px 312px;
         opacity:0;transition:opacity .28s}
       .wd-mobile.show .wd-mstage{opacity:1}
       .wd-mobile.expanded .wd-mstage{padding-bottom:40px}
@@ -1257,10 +1257,10 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       .wd-mobile.expanded .wd-mpanel .wd-more{display:none}
       /* 下部の折り重ね（フォーマットチップ直下まで見せるスリーバ・最大4）。上から落ちて着地し、
          展開でフェードアウトして場所を空ける */
-      .wd-mfold{position:absolute;left:16px;right:16px;bottom:0;height:180px;overflow:hidden;z-index:4;pointer-events:none;
-        transform:translateY(-260px);transition:opacity .3s,transform .55s cubic-bezier(.22,.8,.16,1)}
+      .wd-mfold{position:absolute;left:16px;right:16px;bottom:0;height:292px;overflow:hidden;z-index:4;pointer-events:none;
+        transform:translateY(-280px);transition:opacity .3s,transform .55s cubic-bezier(.22,.8,.16,1)}
       .wd-mobile.show .wd-mfold{transform:none}
-      .wd-mobile.show.expanded .wd-mfold{opacity:0;transform:translateY(188px)}
+      .wd-mobile.show.expanded .wd-mfold{opacity:0;transform:translateY(300px)}
       .wd-mfold .vcard{position:absolute;left:0;right:0;max-width:none;box-shadow:0 -6px 16px rgba(14,26,43,.14)}
     </style>
     ${WSTYLE}
@@ -1296,7 +1296,7 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
           mTop.innerHTML=''; mFold.innerHTML=''; mPanel.innerHTML='';
           mTop.appendChild(cloneCard(cards[idx]));
           var others=cards.filter(function(_,i){return i!==idx;}).slice(0,4);
-          others.forEach(function(c,k){ var cl=cloneCard(c); cl.style.top=(k*44)+'px'; cl.style.transform='scale(.965)'; cl.style.zIndex=String(k); mFold.appendChild(cl); });
+          others.forEach(function(c,k){ var cl=cloneCard(c); cl.style.top=(k*72)+'px'; cl.style.transform='scale(.965)'; cl.style.zIndex=String(k); mFold.appendChild(cl); });
           mob.hidden=false; mob.classList.remove('expanded'); document.body.classList.add('wd-active');
           requestAnimationFrame(function(){mob.classList.add('show');});
           document.getElementById('wdMStage').scrollTop=0; mode='mob'; pushId(id,push);
