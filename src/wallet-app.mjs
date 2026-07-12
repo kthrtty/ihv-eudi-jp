@@ -1752,7 +1752,7 @@ const WSTYLE = `<style>
   #wstack.gfreeze{position:relative}
   #wstack.gfreeze a.vcard{position:absolute;margin:0!important;transition:left .28s ease,top .28s ease,transform .28s ease,filter .28s ease;will-change:left,top}
   #wstack .dropslot{position:absolute;border:2px dashed #7FB3A5;border-radius:16px;background:rgba(46,125,107,.06);opacity:0;transition:left .28s ease,top .28s ease,opacity .2s;pointer-events:none}
-  .wstack .vcard:not(:first-child){margin-top:-158px} /* 重なりを深く: 可視帯は emblem/タイトル＋fmt＋状態チップ(有効/無効・下端~69px)まで見える程度 */
+  .wstack .vcard:not(:first-child){margin-top:-144px} /* 重なり: 可視帯は emblem/タイトル＋fmt＋状態チップ(有効/無効)＋下に少し余白まで */
   /* PC 2ペイン: 左=縦スタック / 右=一覧（ホバー連動）。モバイルはスタックのみ（一覧は隠す）。
      並び替えは左スタックの縦ドラッグを共用（格子ドラッグは不使用）。 */
   .whome{max-width:420px;margin:0 auto}
