@@ -161,6 +161,18 @@ export function cardEmblemHtml(type) {
   const p = CARD_SIL[type];
   return p ? `<span class="vemb"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${p}</svg></span>` : '';
 }
+// 小型スウォッチ（.sw・色だけ揃ったカード表示）に埋めるエンボスシルエット。
+// 既存のグラデCSS(--c1/--c2/--c3)はそのまま、中へ載せるだけ。`swatchEmblemCss()` を
+// 併記して .sw を中央寄せ+はみ出しクリップにする。issuer 同意/履歴・wallet カタログ/認可要求で共有。
+export function swatchEmblemHtml(type) {
+  const p = CARD_SIL[type];
+  return p ? `<svg class="swemb" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${p}</svg>` : '';
+}
+export function swatchEmblemCss() {
+  return `.sw{display:inline-flex;align-items:center;justify-content:center;overflow:hidden}
+    .swemb{width:56%;height:56%;color:rgba(255,255,255,.92);
+      filter:drop-shadow(0 .7px 0 rgba(0,0,0,.4)) drop-shadow(0 -.5px .4px rgba(255,255,255,.3))}`;
+}
 
 /** One wallet card face. NO personal data on the face (Apple Wallet / EUDI
  *  practice): type name, issuer, format badge and status only. 行頭にエンボスの
@@ -425,9 +437,10 @@ export function renderConsentScreen(q, user, infos = []) {
     .map((k) => `<input type="hidden" name="${k}" value="${esc(q[k] ?? '')}">`).join('');
   const n = infos.length;
   const rows = infos.map((i) => {
-    const t = WALLET_CARD_THEME[i.configId?.replace(/_(mdoc|sdjwt)$/, '')] || WALLET_CARD_THEME.pid;
+    const type = i.configId?.replace(/_(mdoc|sdjwt)$/, '');
+    const t = WALLET_CARD_THEME[type] || WALLET_CARD_THEME.pid;
     const fmt = i.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT';
-    return `<div class="reqrow"><span class="sw" style="--c1:${t.c1};--c2:${t.c2}"></span>
+    return `<div class="reqrow"><span class="sw" style="--c1:${t.c1};--c2:${t.c2}">${swatchEmblemHtml(type)}</span>
       <div><b>${esc(i.name.replace(/ \(.+\)$/, ''))}</b></div><span class="fmtb">${fmt}</span></div>`;
   }).join('');
   return appShell('発行への同意', `
@@ -453,6 +466,7 @@ export function renderConsentScreen(q, user, infos = []) {
     <style>
       .reqrow{display:flex;gap:11px;align-items:center;border:1px solid var(--line);border-radius:11px;padding:10px 12px;margin-top:8px}
       .reqrow .sw{width:46px;height:29px;border-radius:6px;flex:none;background:linear-gradient(135deg,var(--c1),var(--c2))}
+      ${swatchEmblemCss()}
       .reqrow b{font-size:13.5px}
       .reqrow .fmtb{margin-left:auto;font-size:10px;font-weight:700;border:1px solid var(--line);border-radius:6px;padding:2px 8px;color:var(--muted)}
       .who{display:flex;gap:10px;align-items:center;background:#f7f9fc;border:1px solid var(--line);border-radius:11px;padding:10px 12px;margin:14px 0 8px}
@@ -1026,7 +1040,7 @@ export function renderHistory(user, issuances, { page = 1, per = 20 } = {}) {
       ? `<span class="rvreason" title="失効理由">${esc(e.revocation?.reason || '—')}</span>`
       : `<button class="revoke on" data-idx="${e.idx}">失効させる</button>`;
     return `<div class="hrow">
-      <span class="sw" style="--c1:${t.c1};--c2:${t.c2};--c3:${t.c3}"></span>
+      <span class="sw" style="--c1:${t.c1};--c2:${t.c2};--c3:${t.c3}">${swatchEmblemHtml(type)}</span>
       <div class="htx"><b>${esc(name)}</b>
         <small>${esc(dt(e.issued_at))} 発行 ・ ${e.revoked ? '—' : esc(dt(e.expires_at)) + ' まで'} ・ ${fmt} ・ idx ${esc(String(e.idx))} ・ 鍵 ${esc(short(e.holder))}</small></div>
       ${state}${revBtn}
@@ -1058,6 +1072,7 @@ export function renderHistory(user, issuances, { page = 1, per = 20 } = {}) {
       .hrow{display:flex;align-items:center;gap:12px;background:#fff;border:1px solid var(--line);border-radius:13px;padding:11px 14px;margin-top:9px}
       .hrow .sw{width:52px;height:33px;border-radius:7px;flex:none;
         background:radial-gradient(120% 90% at 88% -12%,var(--c3) 0%,transparent 55%),linear-gradient(135deg,var(--c1),var(--c2))}
+      ${swatchEmblemCss()}
       .htx{flex:1;min-width:0}
       .htx b{font-size:13.5px;display:block}
       .htx small{font-size:10.5px;color:var(--muted);font-family:"IBM Plex Mono",monospace;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
