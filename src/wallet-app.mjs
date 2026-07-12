@@ -1165,10 +1165,19 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       <div class="wd-sheet"><button type="button" class="wd-back" onclick="closeDetail()">‹ ウォレット</button>
         <div id="wdBody"></div></div>
     </div>
+    <div class="wd-mobile" id="wdMobile" hidden>
+      <div class="wd-mscrim" onclick="closeDetail()"></div>
+      <button type="button" class="wd-mback" onclick="closeDetail()">‹</button>
+      <div class="wd-mstage" id="wdMStage"><div class="wd-mtop" id="wdMTop"></div><div class="wd-mpanel" id="wdMPanel"></div></div>
+      <div class="wd-mfold" id="wdMFold"></div>
+    </div>
     <style>
       /* 同ページ内カード詳細オーバーレイ（PC=2カラム / モバイル=1カラム） */
       .wd-overlay{position:fixed;inset:0;z-index:120}
       .wd-overlay[hidden]{display:none}
+      /* 展開制御: 既定（PC オーバーレイ）は全部表示・「さらに表示」は隠す */
+      .wd-more{display:none}
+      .wd-rest,.wd-extra{display:block}
       .wd-scrim{position:absolute;inset:0;background:rgba(14,26,43,.36);opacity:0;transition:opacity .3s}
       .wd-overlay.show .wd-scrim{opacity:1}
       .wd-sheet{position:absolute;inset:0;overflow:auto;background:#F1F4F8;padding:16px 18px calc(28px + env(safe-area-inset-bottom));
@@ -1210,6 +1219,33 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       .cbor-note{font-size:11.5px;color:var(--muted);margin-bottom:6px}
       .wd-del{width:100%;border:1px solid #E7C9C4;background:#fff;color:#C0392B;border-radius:12px;padding:11px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
       body.wd-active{overflow:hidden}
+
+      /* ── モバイル専用: 選択カードが持ち上がり、他カードが下部に折り重なる詳細 ── */
+      .wd-mobile{position:fixed;inset:0;z-index:121}
+      .wd-mobile[hidden]{display:none}
+      .wd-mscrim{position:absolute;inset:0;background:#F1F4F8;opacity:0;transition:opacity .3s}
+      .wd-mobile.show .wd-mscrim{opacity:1}
+      .wd-mback{position:absolute;left:16px;top:14px;z-index:6;border:0;background:rgba(255,255,255,.92);border-radius:999px;width:36px;height:36px;font-size:18px;color:#2E7D6B;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.15);opacity:0;transition:opacity .3s}
+      .wd-mobile.show .wd-mback{opacity:1}
+      .wd-mstage{position:absolute;inset:0;overflow-y:auto;padding:56px 16px 92px;
+        opacity:0;transform:translateY(10px);transition:opacity .34s,transform .42s cubic-bezier(.22,.8,.16,1)}
+      .wd-mobile.show .wd-mstage{opacity:1;transform:none}
+      .wd-mobile.expanded .wd-mstage{padding-bottom:40px}
+      .wd-mtop .vcard{max-width:none}
+      .wd-mpanel{margin-top:14px}
+      .wd-mpanel .wd-wrap{display:block;max-width:none}      /* モバイルは常に1カラム */
+      .wd-mpanel .wd-cardface{display:none}                  /* 券面は持ち上げた実カードが担う */
+      .wd-mpanel .wd-attr{grid-column:auto;grid-row:auto}
+      .wd-mpanel .wd-wrap>*{margin-bottom:14px}
+      .wd-mpanel .wd-more{display:block;width:100%;border:1px solid var(--line);background:#fff;border-radius:12px;padding:11px;font:inherit;font-size:12.5px;font-weight:700;color:#1C3F94;cursor:pointer}
+      .wd-mpanel .wd-rest,.wd-mpanel .wd-extra{display:none}
+      .wd-mobile.expanded .wd-mpanel .wd-rest,.wd-mobile.expanded .wd-mpanel .wd-extra{display:block}
+      .wd-mobile.expanded .wd-mpanel .wd-more{display:none}
+      /* 下部の折り重ね（判読不可のスリーバ・最大4）。展開でフェードアウトして場所を空ける */
+      .wd-mfold{position:absolute;left:16px;right:16px;bottom:0;height:54px;overflow:hidden;z-index:4;pointer-events:none;
+        transition:opacity .3s,transform .38s cubic-bezier(.22,.8,.16,1)}
+      .wd-mobile.expanded .wd-mfold{opacity:0;transform:translateY(60px)}
+      .wd-mfold .vcard{position:absolute;left:0;right:0;max-width:none;box-shadow:0 -6px 16px rgba(14,26,43,.14)}
     </style>
     ${WSTYLE}
     <script>
@@ -1219,26 +1255,50 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       (function(){
         var ov=document.getElementById('wdOverlay'),body=document.getElementById('wdBody');
         if(!ov)return;
-        var openId=null;
-        window.openDetail=function(id,push){
-          fetch('/cred/'+encodeURIComponent(id)+'?embed=1',{headers:{'x-requested-with':'fetch'}})
-            .then(function(r){return r.ok?r.text():Promise.reject();})
-            .then(function(html){
-              body.innerHTML=html; ov.hidden=false; document.body.classList.add('wd-active');
-              requestAnimationFrame(function(){ov.classList.add('show');});
-              ov.querySelector('.wd-sheet').scrollTop=0;
-              openId=id;
-              if(push!==false && location.hash!=='#'+id) history.pushState({wd:id},'','#'+id);
-            }).catch(function(){ location.href='/cred/'+encodeURIComponent(id); });
-        };
+        var mob=document.getElementById('wdMobile'),mTop=document.getElementById('wdMTop'),mPanel=document.getElementById('wdMPanel'),mFold=document.getElementById('wdMFold');
+        var openId=null,mode=null; // mode: 'ov' | 'mob'
+        function isMobile(){ return window.matchMedia('(max-width:899px)').matches; }
+        function pushId(id,push){ openId=id; if(push!==false && location.hash!=='#'+id) history.pushState({wd:id},'','#'+id); }
+        function cloneCard(a){ var d=document.createElement('div'); d.className='vcard'; d.setAttribute('style',a.getAttribute('style')||''); d.innerHTML=a.innerHTML; return d; }
+        function fetchFrag(id){ return fetch('/cred/'+encodeURIComponent(id)+'?embed=1',{headers:{'x-requested-with':'fetch'}}).then(function(r){return r.ok?r.text():Promise.reject();}); }
+        // PC/広幅: オーバーレイ2カラム
+        function openOverlay(id,push){
+          fetchFrag(id).then(function(html){
+            body.innerHTML=html; ov.hidden=false; document.body.classList.add('wd-active');
+            requestAnimationFrame(function(){ov.classList.add('show');});
+            ov.querySelector('.wd-sheet').scrollTop=0; mode='ov'; pushId(id,push);
+          }).catch(function(){ location.href='/cred/'+encodeURIComponent(id); });
+        }
+        // モバイル: 選択カードが持ち上がり、他カードは下部にスリーバで折り重なる。展開で折り重ねをフェード
+        function openMobileDetail(id,push){
+          var stackEl=document.getElementById('wstack');
+          var cards=stackEl?[].slice.call(stackEl.querySelectorAll('a.vcard')):[];
+          var idx=-1; cards.forEach(function(c,i){var m=(c.getAttribute('href')||'').match(/\\/cred\\/([^/?#]+)/); if(m&&m[1]===id)idx=i;});
+          if(idx<0){ return openOverlay(id,push); }
+          mTop.innerHTML=''; mFold.innerHTML=''; mPanel.innerHTML='';
+          mTop.appendChild(cloneCard(cards[idx]));
+          var others=cards.filter(function(_,i){return i!==idx;}).slice(0,4);
+          others.forEach(function(c,k){ var cl=cloneCard(c); cl.style.top=(k*13)+'px'; cl.style.transform='scale(.955)'; cl.style.zIndex=String(k); mFold.appendChild(cl); });
+          mob.hidden=false; mob.classList.remove('expanded'); document.body.classList.add('wd-active');
+          requestAnimationFrame(function(){mob.classList.add('show');});
+          document.getElementById('wdMStage').scrollTop=0; mode='mob'; pushId(id,push);
+          fetchFrag(id).then(function(html){ mPanel.innerHTML=html; }).catch(function(){});
+        }
+        window.openDetail=function(id,push){ (isMobile()?openMobileDetail:openOverlay)(id,push); };
         window.closeDetail=function(fromPop){
           if(!openId)return;
-          ov.classList.remove('show');
-          document.body.classList.remove('wd-active');
-          setTimeout(function(){ if(!openId){ov.hidden=true;body.innerHTML='';} },340);
-          var wasId=openId; openId=null;
+          if(mode==='mob'){
+            mob.classList.remove('show'); document.body.classList.remove('wd-active');
+            setTimeout(function(){ if(!openId){mob.hidden=true;mob.classList.remove('expanded');mTop.innerHTML='';mFold.innerHTML='';mPanel.innerHTML='';} },360);
+          } else {
+            ov.classList.remove('show'); document.body.classList.remove('wd-active');
+            setTimeout(function(){ if(!openId){ov.hidden=true;body.innerHTML='';} },340);
+          }
+          var wasId=openId; openId=null; mode=null;
           if(!fromPop && location.hash==='#'+wasId) history.pushState({},'',location.pathname+location.search);
         };
+        // 「さらに表示」= 折り重ねをフェードしてスペースを空け、残り属性・履歴・開発者・削除を出す
+        mPanel.addEventListener('click',function(e){ if(e.target.closest('[data-wd-more]')) mob.classList.add('expanded'); });
         // カード/一覧行のクリックを横取り（ドラッグ中/抑止中は既存ハンドラが preventDefault 済み）
         var whome=document.getElementById('whome');
         if(whome) whome.addEventListener('click',function(e){
@@ -1597,27 +1657,34 @@ function credFragment(cr, raw, st, acts = []) {
     ? acts.map((a) => `<div class="wd-act"><span>${esc(new Date(a.at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', hour12: false }))}</span><b>${esc(a.rp)}</b><small>${esc((a.claims || []).join(', '))}</small></div>`).join('')
     : '<div class="wd-act"><small>このカードの提示履歴はまだありません（値は保存されません — 日時・提示先・項目名のみ）</small></div>';
   const rawJson = raw ? esc(JSON.stringify(raw.json ?? {}, null, 2)) : '（生データを取得できませんでした）';
-  // フラットなブロック列（モバイルは DOM 順: 券面→注記→バンド→属性→履歴→開発者→削除）。
-  // PC は grid で「属性(.wd-attr)＝右カラム / それ以外＝左カラム」に振り分ける（属性は項目数が多い）。
+  const headN = 4, head = entries.slice(0, headN), rest = entries.slice(headN);
+  // 券面＋バンド＋属性(先頭)は常時。残り属性・履歴・開発者・削除は .wd-extra（PC=常時表示 /
+  // モバイル同ページ内=「さらに表示」で展開＝折り重ねをフェードしてスペースを空ける）。
+  // PC は grid で属性(.wd-attr)を右カラムへ。モバイル in-page は券面(.wd-cardface)を隠す
+  // （持ち上げた実カードが券面の役割）。
   return `<div class="wd-wrap">
     <div class="wd-cardface">${vcardHtml(type, { title: typeName(type), sub: cr.configId, fmt: cr.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT', status: st?.checked ? (st.revoked ? '失効' : '有効') : '未確認', revoked: !!st?.revoked, unknown: !st?.checked })}</div>
     ${typeNote(type) ? `<div class="wd-note">${esc(typeNote(type))}</div>` : ''}
     ${mustBand}
-    <div class="wd-panel wd-attr"><div class="wd-ph">属性データ · ${entries.length} 項目</div>${entries.map(row).join('')}</div>
-    <div class="wd-panel">
-      <div class="wd-ph">アクティビティ（提示履歴）· ${acts.length} 件</div>${actList}
-      <div class="wd-prow">失効状態 ${stChip}
-        <form method="POST" action="/cred/${esc(cr.id)}/recheck" style="margin-left:auto"><button type="submit" class="mini2">再確認</button></form></div>
-    </div>
-    <details class="wd-dev"><summary>開発者向け（生データ / バインディング鍵）</summary>
-      <div class="wd-panel" style="margin-top:8px">
-        ${raw?.note ? `<div class="cbor-note">ⓘ ${esc(raw.note)}</div>` : ''}
-        <pre class="wd-json">${rawJson}</pre>
-        <a href="/dev/holder-key" style="font-size:12px;font-weight:700;color:var(--muted)">🔑 バインディング鍵を表示 →</a>
+    <div class="wd-panel wd-attr"><div class="wd-ph">属性データ · ${entries.length} 項目</div>${head.map(row).join('')}
+      ${rest.length ? `<div class="wd-rest">${rest.map(row).join('')}</div>` : ''}</div>
+    <button type="button" class="wd-more" data-wd-more>さらに表示（アクティビティ・開発者データ・削除）　▾</button>
+    <div class="wd-extra">
+      <div class="wd-panel">
+        <div class="wd-ph">アクティビティ（提示履歴）· ${acts.length} 件</div>${actList}
+        <div class="wd-prow">失効状態 ${stChip}
+          <form method="POST" action="/cred/${esc(cr.id)}/recheck" style="margin-left:auto"><button type="submit" class="mini2">再確認</button></form></div>
       </div>
-    </details>
-    <form method="POST" action="/cred/${esc(cr.id)}/delete" onsubmit="return confirm('${esc(typeName(type))} をウォレットから削除します。取り消せません。よろしいですか？')">
-      <button type="submit" class="wd-del">このクレデンシャルを削除</button></form>
+      <details class="wd-dev"><summary>開発者向け（生データ / バインディング鍵）</summary>
+        <div class="wd-panel" style="margin-top:8px">
+          ${raw?.note ? `<div class="cbor-note">ⓘ ${esc(raw.note)}</div>` : ''}
+          <pre class="wd-json">${rawJson}</pre>
+          <a href="/dev/holder-key" style="font-size:12px;font-weight:700;color:var(--muted)">🔑 バインディング鍵を表示 →</a>
+        </div>
+      </details>
+      <form method="POST" action="/cred/${esc(cr.id)}/delete" onsubmit="return confirm('${esc(typeName(type))} をウォレットから削除します。取り消せません。よろしいですか？')">
+        <button type="submit" class="wd-del">このクレデンシャルを削除</button></form>
+    </div>
   </div>`;
 }
 
