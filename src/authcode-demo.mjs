@@ -161,7 +161,7 @@ export const CARD_SIL = {
 // swatch と券面エンボスの両方に効かせ、全面で同じ位置・比率に見せる。
 //   dx/dy=平行移動, s=中心(cx,cy)まわりの拡大。single は指輪が細身で小さく見えるため拡大。
 const CARD_SIL_ADJ = {
-  single: { s: 1.22, cx: 12, cy: 11, dy: 0.6 },
+  single: { s: 1.22, cx: 12, cy: 11, dy: 2 },
   koseki: { dx: 0.8 },
 };
 function embInner(type) {
