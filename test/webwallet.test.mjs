@@ -777,7 +777,7 @@ test('web wallet present: selective-disclosure UX (提示先 label, per-claim ch
     assert.match(html, /name="disclose:[^"]+" value="family_name"/); // per-claim checkbox
     assert.match(html, /name="disclose:[^"]+" value="given_name"/);
     assert.match(html, /送信内容のプレビュー（開発者向け）/);              // debug preview present
-    assert.match(html, /<svg class="vcicon"/);                     // issuer-matched icon
+    assert.match(html, /class="cic"[^>]*><svg class="swemb"/);     // 資格証タイプのエンボス和色スウォッチ
 
     // required vs optional: family_name required (locked on), age_over_18 optional (opt-in)
     const build2 = await (await fetch(`${VERIF}/vp/build`, {
