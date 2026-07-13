@@ -623,7 +623,12 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
       const plan = resolvePresentation(request, s.creds);
       const have = plan.length > 0 && plan.every((q) => q.matches.length > 0);
       const held = s.creds.map((cr) => ({ configId: cr.configId, fmt: cr.configId.endsWith('_mdoc') ? 'mdoc' : 'SD-JWT' }));
-      return c.html(presentConsent({ request, plan, have, held }));
+      // 候補ごとの失効状態を取得し、同意画面（候補ラジオ＋peek）に実状態を出す。
+      // 以前は peek が status 未指定で常に「有効（緑）」固定＝失効VCでも緑に見えるバグだった。
+      const statusIds = [...new Set(plan.flatMap((q) => q.matches.map((m) => m.id)))];
+      const statusMap = {};
+      await Promise.all(statusIds.map(async (id) => { statusMap[id] = await credStatus(s, id); }));
+      return c.html(presentConsent({ request, plan, have, held, statusMap }));
     } catch (e) {
       return c.html(shell('ウォレット', `<div class="card"><h1>提示要求の取得に失敗</h1><div class="hint" style="color:#9E3A3A">${esc(e.message)}</div></div>`, WALLET));
     }
@@ -699,7 +704,12 @@ display:grid;place-items:center;height:100vh;margin:0}.c{text-align:center}</sty
 <script>location.replace(${JSON.stringify(to)});</script></body></html>`;
 }
 
-function presentConsent({ request, plan, have, held = [] }) {
+// 提示同意画面の状態チップ（候補ラジオ／peek 共通）。st = credStatus() の戻り。
+const presentStatChip = (st) => !st?.checked
+  ? '<span class="sc na">● 未確認</span>'
+  : st.revoked ? '<span class="sc bad">● 失効</span>' : '<span class="sc ok">● 有効</span>';
+
+function presentConsent({ request, plan, have, held = [], statusMap = {} }) {
   const v = verifierLabel(request);
   const rpHost = (() => { try { return new URL(request.response_uri).host; } catch { return ''; } })();
   // ---- requested-but-not-held: explain the format/type mismatch
@@ -742,21 +752,25 @@ function presentConsent({ request, plan, have, held = [] }) {
   const credBlock = (q, cred, active) => `<div class="cblock" data-q="${esc(q.dcqlId)}" data-cred="${esc(cred.id)}" ${active ? '' : 'hidden'}>
       ${q.reqClaims.map((cl) => claimRow(q, cred, cl, active)).join('')}
     </div>`;
-  const qCard = (q) => {
+  // 状態チップの生データ（ラジオ切替時に peek へ反映するため data 属性に持たせる）
+  const stData = (st) => `data-state="${!st?.checked ? 'na' : st.revoked ? 'revoked' : 'ok'}"`;
+  const qCard = (q, qi) => {
     const first = q.matches[0];
-    const icon = typeIcon(credType(first.configId));
+    const type = credType(first.configId);
+    const th = WALLET_CARD_THEME[type] || WALLET_CARD_THEME.pid;
+    const embIcon = `<span class="cic" style="--c1:${th.c1};--c2:${th.c2};--c3:${th.c3}">${swatchEmblemHtml(type)}</span>`;
     const multi = q.matches.length > 1;
     const picker = multi ? `<div class="picker">
       <div class="pk-h">一致する候補が${q.matches.length}件。提示するクレデンシャルを選択：</div>
-      ${q.matches.map((m, i) => `<label class="prow">
-        <input type="radio" name="cred:${esc(q.dcqlId)}" value="${esc(m.id)}" data-q="${esc(q.dcqlId)}" ${i === 0 ? 'checked' : ''}>
-        <span class="rdo"></span><span>${esc(typeName(credType(m.configId)))} <span class="mono" style="color:var(--muted);font-size:11px">${esc(m.id.slice(0, 8))}</span></span>
-      </label>`).join('')}
-    </div>` : `<input type="hidden" name="cred:${esc(q.dcqlId)}" value="${esc(first.id)}">`;
+      ${q.matches.map((m, i) => { const st = statusMap[m.id]; return `<label class="prow${st?.revoked ? ' is-bad' : ''}">
+        <input type="radio" name="cred:${esc(q.dcqlId)}" value="${esc(m.id)}" data-q="${esc(q.dcqlId)}" data-qi="${qi}" ${stData(st)} ${i === 0 ? 'checked' : ''}>
+        <span class="rdo"></span><span class="pr-tx">${esc(typeName(type))} <span class="mono">${esc(m.id.slice(0, 8))}</span></span>${presentStatChip(st)}
+      </label>`; }).join('')}
+    </div>` : `<input type="hidden" name="cred:${esc(q.dcqlId)}" value="${esc(first.id)}" data-qi="${qi}" ${stData(statusMap[first.id])}>`;
     return `<div class="card qcard" data-q="${esc(q.dcqlId)}">
-      <div class="qhead">${icon}<div>
-        <div class="qname">${esc(typeName(credType(first.configId)))}</div>
-        <div class="qmeta">${esc(q.want || '')} ・ <span class="fmt">${q.isMdoc ? 'mdoc' : 'SD-JWT'}</span></div>
+      <div class="qhead">${embIcon}<div>
+        <div class="qname">${esc(typeName(type))}</div>
+        <div class="qmeta">${esc(q.want || '')} ・ <span class="fmt">${q.isMdoc ? 'mdoc' : 'SD-JWT'}</span>${multi ? '' : ' ・ ' + presentStatChip(statusMap[first.id])}</div>
       </div></div>
       ${picker}
       <div class="claims">${q.matches.map((m, i) => credBlock(q, m, i === 0)).join('')}</div>
@@ -765,7 +779,7 @@ function presentConsent({ request, plan, have, held = [] }) {
 
   const body = have
     ? `<form method="POST" action="/present/confirm" id="pf">
-        ${plan.map(qCard).join('')}
+        ${plan.map((q, qi) => qCard(q, qi)).join('')}
         <details class="prevfold"><summary>送信内容のプレビュー（開発者向け）— vp_token に入る claims</summary>
           <div class="card" id="prevCard" style="margin-top:8px">
             <pre id="preview" class="prev"></pre>
@@ -786,8 +800,11 @@ function presentConsent({ request, plan, have, held = [] }) {
   // ARF order: WHO is asking (+verification state) and WHY come FIRST; the card
   // peek (ID-1 ratio, bottom fading into the sheet) follows, then the claim rows.
   const peekType = have && plan[0]?.matches[0] ? credType(plan[0].matches[0].configId) : null;
+  const peekSt = peekType ? statusMap[plan[0].matches[0].id] : null;
+  const peekStatus = !peekSt?.checked ? '未確認' : peekSt.revoked ? '失効' : '有効';
   const peek = peekType
-    ? `<div class="vpeek">${vcardHtml(peekType, { title: typeName(peekType), fmt: plan[0].isMdoc ? 'mdoc' : 'SD-JWT' })}</div>`
+    ? `<div class="vpeek" id="vpeek">${vcardHtml(peekType, { title: typeName(peekType), fmt: plan[0].isMdoc ? 'mdoc' : 'SD-JWT', status: peekStatus, revoked: !!peekSt?.revoked, unknown: !peekSt?.checked })}
+        <div class="peek-warn" id="peekWarn" ${peekSt?.revoked ? '' : 'hidden'}>⚠ このクレデンシャルは<b>失効</b>しています。提示先で検証に失敗する可能性があります。</div></div>`
     : '';
   const verified = v.src !== 'client_metadata.client_name';
   return shell('提示の確認', `
@@ -842,9 +859,21 @@ const PRESENT_STYLE = `<style>
   .qcard{margin-top:12px;padding:16px}
   .qhead{display:flex;gap:12px;align-items:center}
   .qhead .vcicon{width:48px;height:auto;flex:none}
+  /* 提示する資格証をエンボス和色スウォッチで示す（券面/カタログと同じ絵柄＝何を提示するか一目で） */
+  .qhead .cic{width:48px;height:48px;flex:none;border-radius:12px;display:grid;place-items:center;overflow:hidden;
+    background:radial-gradient(120% 90% at 85% -12%,var(--c3) 0%,transparent 55%),linear-gradient(135deg,var(--c1),var(--c2));
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 1px 2px rgba(0,0,0,.18)}
+  .qhead .cic .swemb{display:block;width:72%;height:72%;color:rgba(255,255,255,.95);filter:drop-shadow(0 1px 0 rgba(0,0,0,.4))}
   .qname{font-weight:700;font-size:15px}
-  .qmeta{font-size:11px;color:var(--muted);margin-top:2px}
+  .qmeta{font-size:11px;color:var(--muted);margin-top:2px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
   .qmeta .fmt{color:#2E7D6B;font-weight:700}
+  /* 候補ラジオの状態チップ・失効行・peek 警告 */
+  .pr-tx{flex:1;min-width:0}
+  .prow .sc,.qmeta .sc{font-size:11px;font-weight:700;border-radius:999px;padding:2px 9px;white-space:nowrap;flex:none}
+  .sc.ok{color:#0E8A6B;background:#E7F3EE}.sc.bad{color:#C0392B;background:#FBEAE8}.sc.na{color:var(--muted);background:#EEF1F5}
+  .prow.is-bad .pr-tx{color:#C0392B}
+  .peek-warn{margin-top:8px;font-size:12px;font-weight:700;color:#C0392B;background:#FBEAE8;border:1px solid #F0C7C1;border-radius:9px;padding:8px 11px;line-height:1.6}
+  .peek-warn b{font-weight:800}
   .picker{margin-top:12px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#fbfdfc}
   .pk-h{font-size:12px;color:var(--muted);margin-bottom:6px}
   .prow{display:flex;align-items:center;gap:9px;padding:5px 0;font-size:13.5px;cursor:pointer}
@@ -890,6 +919,15 @@ const PRESENT_JS = `<script>
     document.getElementById('preview').textContent=JSON.stringify(groups,null,2);
     document.getElementById('count').innerHTML='開示する項目: <b>'+n+'</b> / '+total;
   }
+  // 先頭要求の候補ラジオに連動して上部 peek カードの状態（有効/失効/未確認）を切替。
+  // 以前は peek が常に「有効（緑）」固定で、失効VCを選んでも気づけなかった。
+  function syncPeek(radio){
+    var pk=document.getElementById('vpeek'); if(!pk||radio.dataset.qi!=='0')return;
+    var vst=pk.querySelector('.vst'), warn=document.getElementById('peekWarn'), state=radio.dataset.state;
+    if(vst){ vst.className='vst'+(state==='revoked'?' revoked':state==='na'?' na':'');
+      vst.textContent=(state==='revoked'?'失効':state==='na'?'未確認':'有効'); }
+    if(warn) warn.hidden=(state!=='revoked');
+  }
   // credential radios: show the chosen cred's claim block, toggle input.disabled
   f.addEventListener('change',function(e){
     if(e.target.name && e.target.name.indexOf('cred:')===0){
@@ -901,6 +939,7 @@ const PRESENT_JS = `<script>
           i.disabled = !on || i.dataset.val==='（保有なし）';
         });
       });
+      syncPeek(e.target);
     }
     refresh();
   });
