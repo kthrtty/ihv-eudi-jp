@@ -1,7 +1,7 @@
 // Lay-audience scenario demo pages for the Verifier — STEP-BY-STEP flows:
 // scenario picker → step 1 (PID / identity proofing) → step 2 (EAA, session-linked)
 // → acceptance (「申請を受理しました」). The expert builder lives at /verifier/builder.
-import { shell } from './authcode-demo.mjs';
+import { shell, swatchEmblemHtml, WALLET_CARD_THEME } from './authcode-demo.mjs';
 import { configInfo } from './issuer.mjs';
 import { claimVal } from './scenarios.mjs';
 
@@ -12,6 +12,14 @@ const label = (configId, key) => configInfo(configId).claimLabels?.[key] || key;
 // correctly whichever format the holder actually presented.
 const firstCfg = (sp) => sp.configIds?.[0] ?? sp.configId;
 const credName = (configId) => configInfo(configId).name.replace(/ \(.+\)$/, '');
+// 各ステップが「何の資格証を要求するか」を券面和色エンボスで示す（提案A・2026-07-13）。
+// wallet 券面/issuer カタログと同じ絵柄＝デモ全体で「資格証=この絵柄」の一貫性を持たせる。
+const specType = (sp) => String(firstCfg(sp)).replace(/_(mdoc|sdjwt)$/, '');
+const specEmblem = (sp) => {
+  const t = specType(sp);
+  const th = WALLET_CARD_THEME[t] || WALLET_CARD_THEME.pid;
+  return `<span class="temb" style="--c1:${th.c1};--c2:${th.c2};--c3:${th.c3}">${swatchEmblemHtml(t)}</span>`;
+};
 
 const SHELL_OPTS = { brand: 'クレデンシャル検証ポータル', sub: 'VERIFIER', role: 'verifier', width: 'mid', dev: true };
 
@@ -177,23 +185,23 @@ function claimPills(sp) {
   const opt = (sp.optional || []).map((k) => `<span class="cpill opt">${esc(label(firstCfg(sp), k))}（任意）</span>`).join('');
   return `<div class="cpills">${req}${opt}</div>`;
 }
-/** One timeline node. state: 'done' | 'cur' | 'todo' */
-function tStep({ num, state, title, body = '' }) {
+/** One timeline node. state: 'done' | 'cur' | 'todo'. emb: 券面エンボス（提案A・タイトル行の左） */
+function tStep({ num, state, title, body = '', emb = '' }) {
   return `<div class="tstep ${state}">
     <div class="tnum">${state === 'done' ? '✓' : esc(String(num))}</div>
-    <div class="tbody"><div class="tttl">${title}</div>${body}</div>
+    <div class="tbody">${emb ? `<div class="thead">${emb}<div class="tttl">${title}</div></div>` : `<div class="tttl">${title}</div>`}${body}</div>
   </div>`;
 }
 export function renderScenarioRun(s) {
   const one = s.steps.length === 1;
   const nodes = [
     tStep({
-      num: 1, state: 'cur',
+      num: 1, state: 'cur', emb: specEmblem(s.steps[0].specs[0]),
       title: `ステップ1: ${esc(s.steps[0].name)} — ${esc(credName(firstCfg(s.steps[0].specs[0])))}`,
       body: claimPills(s.steps[0].specs[0]) + stepActions(s, 1),
     }),
     ...(one ? [] : [tStep({
-      num: 2, state: 'todo',
+      num: 2, state: 'todo', emb: specEmblem(s.steps[1].specs[0]),
       title: `ステップ2: ${esc(s.steps[1].name)} — ${esc(credName(firstCfg(s.steps[1].specs[0])))}`,
       body: claimPills(s.steps[1].specs[0]) + `<div class="tlock">ステップ1の完了後に提示できます</div>`,
     })]),
@@ -232,12 +240,12 @@ export function renderScenarioStep1Done(s, txn1, result1, { selftest = false } =
     : `<div class="tng">✗ 本人確認ができませんでした</div><div class="hint" style="color:#9E3A3A">${esc((result1?.errors || []).join('; '))}</div>`;
   const nodes = [
     tStep({
-      num: 1, state: okPid ? 'done' : 'cur',
+      num: 1, state: okPid ? 'done' : 'cur', emb: specEmblem(pidSpec),
       title: `ステップ1: ${esc(s.steps[0].name)} — ${esc(credName(firstCfg(pidSpec)))}`,
       body: doneBody,
     }),
     tStep({
-      num: 2, state: okPid ? 'cur' : 'todo',
+      num: 2, state: okPid ? 'cur' : 'todo', emb: specEmblem(s.steps[1].specs[0]),
       title: `ステップ2: ${esc(s.steps[1].name)} — ${esc(credName(firstCfg(s.steps[1].specs[0])))}`,
       body: okPid
         ? claimPills(s.steps[1].specs[0]) + stepActions(s, 2, { txn1, selftest })
@@ -270,6 +278,14 @@ const TL_CSS = `
   .tstep.done .tnum{background:#0E8A6B}
   .tttl{font-size:13.5px;font-weight:700;line-height:1.5}
   .tstep.todo .tttl{color:var(--muted)}
+  /* 提案A: ステップタイトル左の券面和色エンボス（何の資格証を要求するステップか一目で） */
+  .thead{display:flex;align-items:center;gap:11px}
+  .thead .tttl{flex:1;min-width:0}
+  .temb{flex:none;width:38px;height:38px;border-radius:10px;display:grid;place-items:center;overflow:hidden;
+    background:radial-gradient(120% 90% at 85% -12%,var(--c3) 0%,transparent 55%),linear-gradient(135deg,var(--c1),var(--c2));
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 1px 2px rgba(0,0,0,.18)}
+  .temb .swemb{display:block;width:70%;height:70%;color:rgba(255,255,255,.96);filter:drop-shadow(0 1px 0 rgba(0,0,0,.4))}
+  .tstep.todo .temb{filter:grayscale(.35);opacity:.75}
   .tstep .tbody{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:#fff}
   .tstep.cur .tbody{border-color:#E7D6D6;box-shadow:0 4px 14px rgba(158,58,58,.08)}
   .tstep.todo .tbody{background:#FAFBFD}
