@@ -276,7 +276,7 @@ export function renderCallback({ code, state }) {
           const d = await r.json();
           if (d.error) throw new Error(d.error);
           const esc = (s) => String(s).replace(/[&<>"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-          const IMG_RE = /^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=]+$/;
+          const IMG_RE = /^data:image\\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=]+$/;
           const rows = Object.entries(d.claims).map(([k,v]) =>
             '<tr><td>'+esc(k)+'</td><td>'+(IMG_RE.test(String(v)) ? '<img class="pimg" src="'+esc(v)+'" alt="顔写真">' : esc(String(v)))+'</td></tr>').join('');
           document.getElementById('result').innerHTML =

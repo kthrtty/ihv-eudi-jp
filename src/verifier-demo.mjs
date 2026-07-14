@@ -2,7 +2,7 @@
 // can present, the format (mdoc / SD-JWT via the configId variant), the protocol
 // (Annex D OID4VP/JWE or Annex C org-iso-mdoc/HPKE), and which claims to request
 // (selective disclosure). Shows the actual request JSON, then the verified result.
-import { shell, typeIcon, typeNote, renderClaimsModal, paginate, pagerHtml } from './authcode-demo.mjs';
+import { shell, typeIcon, typeNote, renderClaimsModal, paginate, pagerHtml, WALLET_CARD_THEME, swatchEmblemHtml } from './authcode-demo.mjs';
 import { allConfigIds, configInfo } from './issuer.mjs';
 
 // union ja-label map across every config (family_name -> 姓 …). Keys that repeat
@@ -81,16 +81,23 @@ const VP_SEG_CSS = `
   .rawc .djson{max-height:220px;white-space:pre-wrap;word-break:break-all}`;
 
 export function renderVerifyConsole(groups = []) {
+  // issuer 発行カタログと同意匠（.crow 行=券面和色スウォッチ+白エンボス／2段行／形式チップ・
+  // PC 2列格子）。ビルダーは単一選択なのでチップクリック=その configId を選択。
   const cfgCards = groups.map((g) => {
+    const th = WALLET_CARD_THEME[g.type] || WALLET_CARD_THEME.pid;
     const chips = g.formats.map((f) =>
       `<button type="button" class="vcs-chip" data-cfg="${f.configId}">${f.label}</button>`).join('');
     const note = typeNote(g.type);
-    return `<div class="vcs-card">
-      <button type="button" class="vcinfo" title="含まれる項目を見る" onclick="event.stopPropagation();openClaims('${g.type}')">i</button>
-      <div class="vcs-art">${typeIcon(g.type)}</div>
-      <div class="vcs-name">${g.name}</div>
-      ${note ? `<div class="vcs-note">${escj(note)}</div>` : ''}
-      <div class="vcs-chips">${chips}</div>
+    return `<div class="vcs-card" style="--c1:${th.c1};--c2:${th.c2};--c3:${th.c3}">
+      <span class="vcs-emb">${swatchEmblemHtml(g.type)}</span>
+      <div class="vcs-body">
+        <div class="vcs-name">${g.name}</div>
+        <div class="vcs-l2">
+          <span class="vcs-chips">${chips}</span>
+          <button type="button" class="vcinfo" title="含まれる項目を見る" onclick="event.stopPropagation();openClaims('${g.type}')">i</button>
+        </div>
+        ${note ? `<div class="vcs-note">${escj(note)}</div>` : ''}
+      </div>
     </div>`;
   }).join('');
   return shell('検証者コンソール', `
@@ -285,7 +292,7 @@ export function renderVerifyConsole(groups = []) {
         const fmt = (v) => (v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v));
         // portrait はサーバ側で data URI に正規化済み → サムネイル描画。
         // 値は外部ウォレット由来（DC API）で untrusted のため data-URI を厳格判定し src も esc。
-        const IMG_RE = /^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=]+$/;
+        const IMG_RE = /^data:image\\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=]+$/;
         const cell = (v) => (typeof v === 'string' && IMG_RE.test(v) ? '<img class="pimg" src="'+esc(v)+'" alt="顔写真">' : esc(fmt(v)));
         const rows = Object.entries(claims).map(([k, v]) => '<tr><td>'+esc(k)+'</td><td>'+cell(v)+'</td></tr>').join('');
         const checks = CHECKS.map((l) => '<div class="ck2"><span class="'+(d.valid?'cok':'cng')+'">'+(d.valid?'✓':'—')+'</span> '+l+'</div>').join('');
@@ -310,15 +317,22 @@ export function renderVerifyConsole(groups = []) {
     <style>
       .lbl{display:block;font-size:12px;color:var(--muted);font-weight:700;margin:16px 0 6px;letter-spacing:.02em}
       .sel{width:100%;font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff}
-      /* credential selector cards (single-select; ::after ring = no layout shift) */
-      .vcsel{display:grid;grid-template-columns:repeat(auto-fill,minmax(186px,1fr));gap:10px}
-      .vcs-card{position:relative;box-sizing:border-box;width:100%;min-width:0;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;transition:background .12s}
+      /* credential selector rows — issuer 発行カタログと同意匠（和色スウォッチ+2段行・
+         narrow=1列 → 760px〜=2列格子。単一選択の ::after リング=レイアウト非破壊） */
+      .vcsel{display:flex;flex-direction:column;gap:8px}
+      @media(min-width:760px){.vcsel{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}}
+      .vcs-card{position:relative;box-sizing:border-box;min-width:0;background:#fff;border:1px solid var(--line);border-radius:12px;padding:11px 14px;display:grid;grid-template-columns:56px 1fr;column-gap:12px;align-items:center;transition:background .12s}
       .vcs-card.sel{background:#f4f7fd}
       .vcs-card.sel::after{content:"";position:absolute;inset:0;border-radius:12px;box-shadow:0 0 0 2px var(--civic) inset;pointer-events:none}
-      .vcs-art .vcicon{height:62px;width:auto;display:block;filter:drop-shadow(0 4px 10px rgba(14,26,43,.16))}
-      .vcs-name{font-size:12.5px;font-weight:700;line-height:1.3}
-      .vcs-note{font-size:10px;color:#8A6D1F;line-height:1.45;margin-top:3px}
-      .vcs-chips{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
+      .vcs-emb{width:46px;height:46px;justify-self:center;border-radius:12px;display:grid;place-items:center;overflow:hidden;
+        background:radial-gradient(120% 90% at 85% -12%,var(--c3) 0%,transparent 55%),linear-gradient(135deg,var(--c1) 0%,var(--c2) 100%);
+        box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 1px 2px rgba(0,0,0,.18)}
+      .vcs-emb .swemb{display:block;width:72%;height:72%;color:rgba(255,255,255,.95);filter:drop-shadow(0 1px 0 rgba(0,0,0,.4)) drop-shadow(0 -.6px .4px rgba(255,255,255,.35))}
+      .vcs-body{min-width:0}
+      .vcs-name{font-size:14px;font-weight:700;line-height:1.35}
+      .vcs-l2{display:flex;align-items:center;gap:8px;margin-top:4px}
+      .vcs-note{font-size:10px;color:#8A6D1F;line-height:1.45;margin-top:4px}
+      .vcs-chips{display:flex;gap:6px;flex-wrap:wrap}
       .vcs-chip{font:inherit;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--muted);cursor:pointer;transition:all .12s}
       .vcs-chip:hover{border-color:#aebbd3}
       .vcs-chip.on{background:var(--civic);color:#fff;border-color:var(--civic)}
