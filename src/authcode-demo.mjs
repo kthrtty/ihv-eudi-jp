@@ -506,7 +506,7 @@ export function renderConsentScreen(q, user, infos = []) {
 const TYPE_META = {
   pid:           { name: '写真付き身分証（PID）',     desc: '基本四情報＋顔写真',    note: '※MNCの場合はカード代替電磁的記録を利用', c1: '#3949AB', c2: '#283593', glyph: '🪪', shape: 'card' },
   qualification: { name: '国家資格（EAA）',           desc: '医師・行政書士 等',     c1: '#8E24AA', c2: '#6A1B9A', glyph: '🎓', shape: 'card' },
-  juminhyo:      { name: '住民票の写し（EAA）',        desc: '住所・世帯情報',        note: '※主たる用途は家族の情報確認（本人はMNCに寄せる）', c1: '#00897B', c2: '#00695C', glyph: '🏠', shape: 'paper' },
+  juminhyo:      { name: '住民票の写し（EAA）',        desc: '住所・世帯情報',        note: '※主たる用途は世帯の情報確認（本人情報はMNC利活用メイン）', c1: '#00897B', c2: '#00695C', glyph: '🏠', shape: 'paper' },
   koseki:        { name: '戸籍謄本（EAA）',           desc: '本籍・続柄・親子関係',  c1: '#6D4C41', c2: '#4E342E', glyph: '📜', shape: 'paper' },
   tax:           { name: '課税証明書（EAA）',         desc: '所得・課税額',          c1: '#2E7D32', c2: '#1B5E20', glyph: '🧾', shape: 'paper' },
   single:        { name: '独身証明書（EAA）',         desc: '婚姻状況の証明',        c1: '#D81B60', c2: '#AD1457', glyph: '💍', shape: 'paper' },
