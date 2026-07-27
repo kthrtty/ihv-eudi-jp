@@ -245,6 +245,7 @@ export function personaClaims(configId, persona) {
  * issuer-assigned / sample-fixed (not user-changeable). Mirrors mint() exactly. */
 export function accountCatalog(persona) {
   const DRV = new Set(['head_of_household_name', 'relationship_to_head', 'household_members', 'head_of_family']);
+  const ISLAND_DRV = new Set(['resident_category', 'quasi_reason', 'card_number', 'expiry_date']);
   return Object.entries(schemas).map(([credId, schema]) => {
     const overrides = persona ? personaOverrides(persona, schema.claims.map((c) => c.key)) : {};
     const data = { ...SAMPLE[credId], ...overrides };
@@ -256,7 +257,11 @@ export function accountCatalog(persona) {
     }
     const claims = schema.claims.map((c) => ({
       key: c.key, label: c.display?.ja || c.key, value: data[c.key],
-      src: /^age_over_\d+$/.test(c.key) || DRV.has(c.key) ? 'drv' : c.key in overrides ? 'edit' : 'fix',
+      // 離島割引の区分まわりは persona.island 由来（/account に編集欄が無い）ので
+      // 'edit' と表示すると「ここで直せる」と誤解させる。'drv'（発行時に決まる）扱い。
+      src: /^age_over_\d+$/.test(c.key) || DRV.has(c.key) ? 'drv'
+        : credId === 'island' && ISLAND_DRV.has(c.key) && c.key in overrides ? 'drv'
+        : c.key in overrides ? 'edit' : 'fix',
     }));
     return { type: credId, claims };
   });
