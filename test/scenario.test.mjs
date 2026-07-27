@@ -457,3 +457,28 @@ test('offer claims override: subject data in the offer rides pre-auth issuance i
   assert.equal(r.claims.relationship_to_head, '子');
   assert.equal(r.claims.head_of_household_name, '山田 太郎');
 });
+
+// 離島割引は自治体が審査して台帳に載せる制度なので、「対象外」の人には交付されない。
+// /account の区分（users.island.category）が発行の可否そのものを決めるところを pin する。
+test('scenarios: 離島割引資格証は「対象外」の persona には交付されない（島民なら通る）', async () => {
+  const req = (p, i) => fetch(ISSUER + p, i);
+  const login = async (user_id) => (await (await fetch(`${ISSUER}/login`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id }),
+  })).json()).session_id;
+
+  // 佐藤花子（u_002）= 対象外
+  const offSession = await login('u_002');
+  await assert.rejects(
+    () => createWallet().authorizeAndReceive({
+      request: req, configId: 'island_mdoc', sessionId: offSession, credentialIssuer: ISSUER,
+    }),
+    (e) => /対象|invalid_credential_request/.test(String(e?.message ?? e)),
+    '対象外の persona への離島割引資格証の発行は拒否される');
+
+  // 山田太郎（u_001）= 島民 → 発行できる
+  const onSession = await login('u_001');
+  const ok = await createWallet().authorizeAndReceive({
+    request: req, configId: 'island_mdoc', sessionId: onSession, credentialIssuer: ISSUER,
+  });
+  assert.ok(ok, '島民の persona には交付される');
+});

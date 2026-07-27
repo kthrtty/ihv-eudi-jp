@@ -5,7 +5,7 @@ import { randomBytes, randomInt } from 'node:crypto';
 import { jwtVerify, importJWK, decodeProtectedHeader } from 'jose';
 import { mint, verify as verifyCredential, catalog, personaClaims } from './issuer.mjs';
 import { StatusListService } from './status.mjs';
-import { createUserStore } from './users.mjs';
+import { createUserStore, islandEligible } from './users.mjs';
 import { sha256, b64url } from './cbor.mjs';
 
 const PRE_AUTH_GRANT = 'urn:ietf:params:oauth:grant-type:pre-authorized_code';
@@ -362,6 +362,11 @@ export class IssuerService {
     const status = this.statusList.allocate();
     if (at.userId) await this._loadUsers(); // persona edits must survive isolate switches
     const persona = at.userId ? this.users.get(at.userId) : null; // session-bound data switch
+    // 離島割引資格証は対象者にしか交付されない（自治体が審査して台帳に載せる制度）。
+    // /account で「対象外」にした persona へ発行要求が来たら、ここで断る。
+    if (persona && configId.startsWith('island_') && !islandEligible(persona)) {
+      throw httpErr(400, 'invalid_credential_request', 'この利用者は離島割引の交付対象ではありません');
+    }
     // subject data precedence: offer-supplied override > persona > SAMPLE (in mint)
     const claims = at.claims?.[configId] ?? personaClaims(configId, persona);
     const minted = await mint(configId, { holderJwk, status, claims });

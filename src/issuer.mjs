@@ -245,7 +245,9 @@ export function personaClaims(configId, persona) {
  * issuer-assigned / sample-fixed (not user-changeable). Mirrors mint() exactly. */
 export function accountCatalog(persona) {
   const DRV = new Set(['head_of_household_name', 'relationship_to_head', 'household_members', 'head_of_family']);
-  const ISLAND_DRV = new Set(['resident_category', 'quasi_reason', 'card_number', 'expiry_date']);
+  // 区分・事由・有効期限・島名・自治体は /account の離島割引セクションで編集できる（=edit）。
+  // 資格証番号だけは自治体が採番するもので編集欄が無いため drv 扱いにする。
+  const ISLAND_DRV = new Set(['card_number']);
   return Object.entries(schemas).map(([credId, schema]) => {
     const overrides = persona ? personaOverrides(persona, schema.claims.map((c) => c.key)) : {};
     const data = { ...SAMPLE[credId], ...overrides };
