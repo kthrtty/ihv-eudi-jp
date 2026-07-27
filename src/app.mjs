@@ -130,6 +130,12 @@ export function createApp(opts = {}) {
       family: f.family, given: f.given, family_kana: f.family_kana, given_kana: f.given_kana,
       desc: f.desc, birth: f.birth, sex: Number(f.sex), address: f.address, honseki: f.honseki,
       household,
+      // 離島割引の対象区分（自治体の審査結果）。cleanIsland が値域を検証し、
+      // 区分が準島民以外なら事由を落とす。資格証番号は編集させない
+      island: {
+        category: f.isl_category, reason: f.isl_reason,
+        island_name: f.isl_island_name, municipality: f.isl_municipality, expiry: f.isl_expiry,
+      },
     };
     // 顔写真: reset ボタン=既定イラストへ / portrait_b64=クライアント縮小済み JPEG。
     // サーバ側でも JPEG マジックバイトと上限（256KB decoded）を検証してから保存する

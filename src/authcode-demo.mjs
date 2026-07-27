@@ -7,6 +7,7 @@ import { generateKeyPairSync, randomBytes, createHash } from 'node:crypto';
 import { SignJWT, importPKCS8 } from 'jose';
 import { catalog } from './issuer.mjs';
 import { devToggleHtml, devWidgetHtml } from './devlog.mjs';
+import { ISLAND_CATEGORIES, islandEligible } from './users.mjs';
 import { verify as verifyCredential } from './issuer.mjs';
 import { offerQrSvg } from './offer.mjs';
 
@@ -646,11 +647,17 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
   // ウォレット券面と色が一致し「この券のカード」と一目でわかる（装飾は最小限、アクセントバーは不採用）。
   // 2段組（名前は全幅・省略なし／説明+形式チップ）。PC=タイル格子／モバイル=1列の両方に反映。
   // 発行済みの「実体」＝ウォレットのカードは、下部シートのプレビュー（walletCardCss）で見せる。
+  // 離島割引資格証は対象者にしか交付されない。/account で「対象外」にした人には
+  // 形式チップを出さず、行ごと非活性にする（発行を試みても credential EP が断る）。
+  const ineligible = (type) => type === 'island' && !islandEligible(user);
   const rows = groups.map((g) => {
     const th = WALLET_CARD_THEME[g.type] || WALLET_CARD_THEME.pid;
-    const chips = g.formats.map((f) =>
-      `<button type="button" class="fmtchip" data-cfg="${esc(f.configId)}" data-type="${esc(g.type)}" data-fmt="${esc(f.label)}">${esc(f.label)}</button>`).join('');
-    return `<div class="crow" data-type="${esc(g.type)}" style="--c1:${th.c1};--c2:${th.c2};--c3:${th.c3}">
+    const off = ineligible(g.type);
+    const chips = off
+      ? '<span class="coff">交付対象外</span>'
+      : g.formats.map((f) =>
+        `<button type="button" class="fmtchip" data-cfg="${esc(f.configId)}" data-type="${esc(g.type)}" data-fmt="${esc(f.label)}">${esc(f.label)}</button>`).join('');
+    return `<div class="crow${off ? ' is-off' : ''}" data-type="${esc(g.type)}" style="--c1:${th.c1};--c2:${th.c2};--c3:${th.c3}">
       <span class="cic">${swatchEmblemHtml(g.type)}</span>
       <div class="cbody">
         <div class="cn">${esc(g.name)}</div>
@@ -659,7 +666,8 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
           <span class="cchips">${chips}</span>
           <button type="button" class="cinfo" title="含まれる項目を見る" onclick="openClaims('${esc(g.type)}')">ⓘ</button>
         </div>
-        ${g.note ? `<div class="cnote">${esc(g.note)}</div>` : ''}
+        ${off ? '<div class="cnote">アカウント設定の「離島割引の対象区分」が<b>対象外</b>です。島民／準島民にすると交付できます。</div>'
+              : g.note ? `<div class="cnote">${esc(g.note)}</div>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -886,6 +894,10 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       /* 書類カタログ（2段行・名前は全幅で省略なし）＋固定アクションバー＋ボトムシート */
       .catwrap{margin-top:24px}
       .catlist{display:flex;flex-direction:column;gap:8px}
+      /* 交付対象外の行: 券面色を落として選べないことを示す（ⓘ は残す=中身は見せる） */
+      .crow.is-off{opacity:.62}
+      .crow.is-off .cic{filter:grayscale(.85)}
+      .coff{font-size:11.5px;font-weight:700;color:#8A6D1F;background:#FBF3DC;border-radius:999px;padding:4px 11px}
       .crow{display:grid;grid-template-columns:56px 1fr;column-gap:12px;align-items:center;
         background:#fff;border:1px solid var(--line);border-radius:12px;padding:11px 14px;transition:border-color .15s,box-shadow .15s}
       .crow.on{border-color:var(--civic);box-shadow:0 0 0 1.5px var(--civic)}
@@ -1180,6 +1192,7 @@ export function renderAccount(user, docs = []) {
       <button type="button" class="hh-del" title="この世帯員を削除">✕</button>
     </div>`;
   const members = user.household || [];
+  const island = user.island || { category: '対象外' };
   return appShell('アカウント設定', `
     <div style="margin-top:24px">
       <div style="display:flex;align-items:center;justify-content:space-between">
@@ -1231,6 +1244,24 @@ export function renderAccount(user, docs = []) {
           <div id="hh-rows">${members.map((m, i) => memberRow(m, i)).join('')}</div>
           <button type="button" class="btn ghost2" id="hh-add" style="margin:4px 0 14px">＋ 世帯員を追加</button>
 
+          <div style="border-top:1px solid var(--line);margin:18px 0 14px"></div>
+          <div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:4px">離島割引の対象区分（離島割引資格証）</div>
+          <div class="hint" style="margin:0 0 10px">自治体が審査して台帳に載せる区分です。<b>住民票やPIDからは導けません</b>（準島民は島外在住のため住所では判定できない）。<b>対象外</b>にすると、この人には離島割引資格証が交付されません。</div>
+          <div class="isl-cats">
+            ${ISLAND_CATEGORIES.map((cat) => `
+              <label class="isl-cat${island.category === cat ? ' on' : ''}">
+                <input type="radio" name="isl_category" value="${esc(cat)}"${island.category === cat ? ' checked' : ''}>
+                <span>${esc(cat)}</span>
+              </label>`).join('')}
+          </div>
+          <div class="hint" style="margin:8px 0 10px">島民＝島に住民登録がある人／準島民＝島外に住むが介護・就学などで往来する人（壱岐市・八丈町・五島市に実在の区分）。</div>
+          ${f('準島民の事由（準島民のときだけ資格証に載ります）', 'isl_reason', island.reason)}
+          <div class="isl-2">
+            ${f('対象離島', 'isl_island_name', island.island_name)}
+            ${f('交付自治体', 'isl_municipality', island.municipality)}
+          </div>
+          ${f('有効期限（実制度: 島民＝交付から3年 / 準島民＝1年・就学は卒業月末）', 'isl_expiry', island.expiry)}
+
           <button type="submit" class="btn" style="margin-top:6px;display:block">保存する</button>
         </form>
       </div>
@@ -1250,6 +1281,13 @@ export function renderAccount(user, docs = []) {
       .hh-del{font:inherit;border:1px solid var(--line);background:#fff;color:var(--muted);border-radius:8px;padding:0 10px;cursor:pointer}
       .hh-del:hover{color:#9E3A3A;border-color:#E7D6D6}
       .btn.ghost2{background:#fff;color:var(--civic);border:1px solid var(--line)}
+      /* 離島割引の区分: ラジオをチップ化（JS 無しでも :checked で見た目が変わる） */
+      .isl-cats{display:flex;gap:8px;flex-wrap:wrap}
+      .isl-cat{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;
+        padding:8px 14px;font-size:13px;cursor:pointer;background:#fff}
+      .isl-cat:has(input:checked){border-color:var(--civic);background:#EAF0FA;color:var(--civic);font-weight:700}
+      .isl-2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+      @media(max-width:560px){.isl-2{grid-template-columns:1fr}}
       @media(max-width:560px){.hh-row{grid-template-columns:1fr 1fr;grid-auto-rows:auto}}
       /* 2-col account layout: edit form left, read-only provenance right (sticky).
          Collapses to a single column on narrow screens. */

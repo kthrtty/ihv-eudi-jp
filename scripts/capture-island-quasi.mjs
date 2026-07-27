@@ -38,10 +38,27 @@ for (const c of cards) {
 await page.waitForURL((u) => new URL(u).pathname === '/', { timeout: 8000 });
 await settle(page);
 
-// /account: この人が受け取る離島割引資格証の中身（準島民・就学）
+// /account: 離島割引の対象区分セクション（区分・事由・島名・自治体・有効期限を編集）
 await page.goto(`${ISSUER}/account`);
 await settle(page);
 await page.screenshot({ path: out + 'iq-01-issuer-account.png', fullPage: true });
+// 対象外の persona（佐藤花子）ではカタログの離島割引資格証が「交付対象外」になる
+await page.goto(`${ISSUER}/login?next=/`);
+await page.waitForSelector('.login-card', { timeout: 8000 });
+for (const c of await page.$$('.login-card')) {
+  if ((await c.textContent()).includes('佐藤')) { await c.click(); break; }
+}
+await page.waitForURL((u) => new URL(u).pathname === '/', { timeout: 8000 });
+await settle(page);
+await page.screenshot({ path: out + 'iq-00-issuer-catalog-ineligible.png', fullPage: true });
+// 田中美咲に戻す
+await page.goto(`${ISSUER}/login?next=/`);
+await page.waitForSelector('.login-card', { timeout: 8000 });
+for (const c of await page.$$('.login-card')) {
+  if ((await c.textContent()).includes('田中')) { await c.click(); break; }
+}
+await page.waitForURL((u) => new URL(u).pathname === '/', { timeout: 8000 });
+await settle(page);
 
 // ---- 2) 本人セッションのまま offer を作り、Web ウォレットへ発行 ----
 // （pre-auth offer はログイン中の persona を運ぶので 準島民 で mint される）

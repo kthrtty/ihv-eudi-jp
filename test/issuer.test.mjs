@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
 import { mint, verify, allConfigIds, personaClaims } from '../src/issuer.mjs';
-import { createUserStore } from '../src/users.mjs';
+import { createUserStore, islandEligible } from '../src/users.mjs';
 
 const holderJwk = () => generateKeyPairSync('ec', { namedCurve: 'P-256' }).publicKey.export({ format: 'jwk' });
 
@@ -56,22 +56,46 @@ test('issuer: custom claim override works', async () => {
 
 // 離島割引の対象区分は persona 由来。準島民は島外在住＝住所で判定できない層なので、
 // 「住民票/PID から導けない属性を自治体が判定して載せる」という制度の形をここで pin する。
-test('issuer: 離島割引資格証の区分は persona で決まる（u_004=準島民/就学・既定=SAMPLE の島民）', () => {
+// 区分は /account の離島割引セクションで編集でき、対象外＝交付されない。
+test('issuer: 離島割引資格証の区分は persona で決まる（島民 / 準島民 / 対象外）', () => {
   const store = createUserStore();
-  // 島民ペルソナは離島固有クレームを上書きしない → mint 時に SAMPLE（島民）が載る
   const shimin = personaClaims('island_mdoc', store.get('u_001'));
-  assert.equal(shimin.resident_category, undefined);
-  assert.equal(shimin.quasi_reason, undefined);
-  // 準島民ペルソナは区分・事由・証番号・有効期限（学生は卒業月末）を差し替える
+  assert.equal(shimin.resident_category, '島民');
+  assert.equal(shimin.quasi_reason, undefined, '島民に準島民事由は載せない');
+  assert.equal(shimin.island_name, '種子島');
+
   const junto = personaClaims('island_mdoc', store.get('u_004'));
   assert.equal(junto.resident_category, '準島民');
   assert.match(junto.quasi_reason, /就学/);
   assert.equal(junto.card_number, 'KG-2026-000488');
-  assert.equal(junto.expiry_date, '2027-03-31');
+  assert.equal(junto.expiry_date, '2027-03-31', '学生区分は卒業月末（島民の3年とは異なる）');
+
+  assert.equal(islandEligible(store.get('u_001')), true);
+  assert.equal(islandEligible(store.get('u_002')), false, '対象外の persona には交付しない');
+
   // 回帰: expiry_date/card_number は他の証明書にもあるので、離島以外へ漏らさないこと
   for (const cfg of ['juminhyo_mdoc', 'single_sdjwt', 'vaccine_mdoc']) {
     const other = personaClaims(cfg, store.get('u_004'));
     assert.equal(other.expiry_date, undefined, `${cfg} に離島の有効期限が漏れている`);
     assert.equal(other.card_number, undefined, `${cfg} に離島の資格証番号が漏れている`);
   }
+});
+
+// /account からの編集（区分の切り替え）。cleanIsland の値域検証と、準島民以外に
+// 変えたら事由を落とすところまで。資格証番号は自治体採番なので編集で消えない。
+test('issuer: 離島割引の区分は /account の編集で切り替わる（事由は準島民のときだけ残る）', () => {
+  const store = createUserStore();
+  store.update('u_004', { island: { category: '島民', reason: '就学', island_name: '種子島', municipality: '鹿児島県西之表市', expiry: '2029-03-31' } });
+  const now = personaClaims('island_mdoc', store.get('u_004'));
+  assert.equal(now.resident_category, '島民');
+  assert.equal(now.quasi_reason, undefined, '島民に切り替えたら準島民事由は落ちる');
+  assert.equal(now.card_number, 'KG-2026-000488', '資格証番号は自治体採番なので編集では消えない');
+
+  store.update('u_004', { island: { category: 'でたらめ' } });
+  assert.equal(islandEligible(store.get('u_004')), false, '値域外の区分は対象外に丸める');
+
+  store.update('u_002', { island: { category: '準島民', reason: '介護（要介護の親族の介護で年6回以上来島）' } });
+  const q = personaClaims('island_mdoc', store.get('u_002'));
+  assert.equal(q.resident_category, '準島民');
+  assert.match(q.quasi_reason, /介護/);
 });
