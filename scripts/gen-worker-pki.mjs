@@ -13,7 +13,13 @@ const root = (rel) => fileURLToPath(new URL('../' + rel, import.meta.url));
 const pem = (rel) => readFileSync(root(rel)).toString('utf8');
 const derB64 = (rel) => new X509Certificate(readFileSync(root(rel))).raw.toString('base64');
 
-const REFS = ['pid', 'juminhyo', 'qualification', 'koseki', 'tax', 'single', 'disaster', 'vaccine'];
+// 書類種別を足したときに更新し忘れると本番の発行が落ちるので、スキーマから引く
+// （2026-07-27: island を足したのにここが8種のままで本番の離島割引発行が失敗した）。
+const { readdirSync } = await import('node:fs');
+const REFS = [...new Set(readdirSync(root('schemas'))
+  .filter((f) => f.endsWith('.json') && f !== 'credential-catalog.json')
+  .map((f) => JSON.parse(readFileSync(root(`schemas/${f}`)).toString('utf8')).issuer_ref)
+  .filter(Boolean))];
 
 const mdocDsc = {};
 for (const ref of REFS) {

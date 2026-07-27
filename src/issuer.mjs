@@ -39,6 +39,14 @@ async function diskDer(rel) {
 }
 
 export { catalog };
+
+// 注入済み PKI から ref の署名材料を引く。**ref が無ければ pid にフォールバックする**。
+// Workers には pki/ が無く、fallback しないと diskPem() が走って
+// 「Invalid URL string」で発行が丸ごと落ちる（2026-07-27 本番障害: 書類種別を
+// 増やしたのに KV の _pki:config が古い8種のままだった）。DSC は IACA 配下の
+// 文書署名者で、mdoc の検証は IACA までの経路と docType しか見ない。SD-JWT も
+// x5c を CA まで辿るだけで iss と証明書は突き合わせないため、代替 DSC で検証は通る。
+const pkiRef = (kind, ref) => _pki?.[kind]?.[ref] ?? _pki?.[kind]?.pid ?? null;
 const schemas = { pid, juminhyo, qualification, koseki, tax, single, disaster, vaccine, island };
 
 // realistic sample data keyed by the schema canonical claim key
@@ -162,8 +170,9 @@ export async function mint(configId, { holderJwk, claims, status } = {}) {
       const val = mdocValue(c.type, data[c.key]);
       if (val !== undefined) arr.push({ id: c.mdoc.element, value: val });
     }
-    const dscKeyPem = _pki?.mdoc?.[ref]?.key ?? await diskPem(`pki/mdoc/dsc/${ref}.key`);
-    const dscCertDer = _pki?.mdoc?.[ref]?.cert ?? await diskDer(`pki/mdoc/dsc/${ref}.crt`);
+    const dsc = pkiRef('mdoc', ref);
+    const dscKeyPem = dsc?.key ?? await diskPem(`pki/mdoc/dsc/${ref}.key`);
+    const dscCertDer = dsc?.cert ?? await diskDer(`pki/mdoc/dsc/${ref}.crt`);
     const iacaCertDer = _pki?.mdoc?.iaca ?? await diskDer('pki/mdoc/iaca/iaca.crt');
     const credential = issueMdoc({
       docType: cfg.doctype, namespace: ns, claims: arr, holderJwk, status,
@@ -181,8 +190,9 @@ export async function mint(configId, { holderJwk, claims, status } = {}) {
     claimsObj[c.key] = val;
     if (c.selective_disclosure) sdKeys.push(c.key);
   }
-  const issuerKeyPem = _pki?.sdjwt?.[ref]?.key ?? await diskPem(`pki/sdjwt/${ref}.key`);
-  const issuerCertDer = _pki?.sdjwt?.[ref]?.cert ?? await diskDer(`pki/sdjwt/${ref}.crt`);
+  const sdIssuer = pkiRef('sdjwt', ref);
+  const issuerKeyPem = sdIssuer?.key ?? await diskPem(`pki/sdjwt/${ref}.key`);
+  const issuerCertDer = sdIssuer?.cert ?? await diskDer(`pki/sdjwt/${ref}.crt`);
   const issuerCaDer = _pki?.sdjwt?.caCert ?? await diskDer('pki/sdjwt/issuer-ca.crt');
   const credential = await issueSdJwtVc({
     vct: cfg.vct, iss: `https://issuer-${ref}.ihv.example`, claims: claimsObj, sdKeys, holderJwk, status,
