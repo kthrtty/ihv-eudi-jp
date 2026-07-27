@@ -25,6 +25,12 @@ OID4VCI 1.0 で発行し、OID4VP 1.0 + HAIP で提示する EUDI/ARF 流クレ�
 - **schemas/*.json は必ず `scripts/gen-schemas.mjs` 経由で変更**（手編集禁止）: 過去に `household_members`/`age_over_20` が
   JSON 直編集で入り生成器が陳腐化→再生成で消えテスト13件落ち＋カタログ（クレーム広告）だけ欠落が残る実害（2026-07-10 還元済・
   現在は byte 一致）。直編集すると次の再生成が黙って巻き戻す
+- **書類種別を足したら Workers の PKI バンドル（KV `_pki:config`）も更新する**（2026-07-27 本番障害）:
+  `scripts/gen-worker-pki.mjs` の ref 一覧が古いと mint が `_pki` に無い ref を引き、Workers に pki/ が無いため
+  `diskPem()` が **「Invalid URL string」** で落ちて発行が丸ごと失敗する。対策は2つとも入っている——
+  ref 一覧は **schemas/*.json の issuer_ref から生成**／`pkiRef()` が **未知の ref を pid の署名材料へフォールバック**
+  （DSC は IACA 配下の文書署名者で、mdoc 検証は IACA 経路と docType しか見ない。SD-JWT も x5c を CA まで辿るだけで
+  iss と証明書を突き合わせないため代替 DSC で検証は通る）。回帰=test/pki-fallback.test.mjs
 - **IssuerService の永続状態（statusBits/発行台帳）は毎アクセス KV 再読込**（`_loadState` を once ガードにすると
   isolate A の失効が isolate B の配る Status List に永遠に反映されない=本番実害）。`statusListToken()` も配布前に読む
 - **`.vcard` は `isolation:isolate` 必須**: 子チップが `z-index:1` のため、無いとホームのスタック（負マージン重なり）で
@@ -45,7 +51,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   **教訓: 適合を名乗る面は自己ループでなく仕様構造の golden/外部実装との適合テストで pin。簡略化は名乗りに明示。**
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（286, node:test）／
+`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（287, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
