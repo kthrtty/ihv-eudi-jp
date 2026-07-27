@@ -54,7 +54,7 @@ mkca pki/mdoc/iaca/iaca.key pki/mdoc/iaca/iaca.crt \
 # ISO 18013-5 mDL Document Signer EKU = 1.0.18013.5.1.2 (dev placeholder; each
 # ecosystem/doctype defines its own DS EKU in production).
 echo "==> mdoc: Document Signer Certs (PID / Juminhyo / Qualification)"
-for who in pid juminhyo qualification koseki tax single disaster vaccine; do
+for who in pid juminhyo qualification koseki tax single disaster vaccine island; do
   mkleaf pki/mdoc/dsc/${who}.key pki/mdoc/dsc/${who}.crt \
     "/C=JP/O=IHV Demo Issuing Authority/CN=IVH-Demo DSC ${who}" \
     pki/mdoc/iaca/iaca.key pki/mdoc/iaca/iaca.crt \
@@ -75,7 +75,7 @@ mkleaf pki/reader/reader.key pki/reader/reader.crt \
 echo "==> sd-jwt: issuer CA + leaf issuer certs (x5c)"
 mkca pki/sdjwt/issuer-ca.key pki/sdjwt/issuer-ca.crt \
   "/C=JP/O=IHV Demo SD-JWT Issuer CA/CN=IVH-Demo SD-JWT Issuer CA"
-for who in pid juminhyo qualification koseki tax single disaster vaccine; do
+for who in pid juminhyo qualification koseki tax single disaster vaccine island; do
   mkleaf pki/sdjwt/${who}.key pki/sdjwt/${who}.crt \
     "/C=JP/O=IHV Demo Issuer/CN=issuer-${who}.ihv.example" \
     pki/sdjwt/issuer-ca.key pki/sdjwt/issuer-ca.crt \

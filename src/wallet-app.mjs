@@ -1129,7 +1129,8 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       <span class="wli-grip" title="ドラッグで並び替え" aria-label="ドラッグで並び替え">${GRIP_SVG}</span>
       <span class="wli-thumb"><span class="wli-scaler">${face}</span></span>
       <span class="wli-tx"><b>${esc(typeName(type))}</b><small>${esc(cr.configId)}</small>
-        <span class="wli-chips"><span class="wli-fmt">${fmt}</span><span class="wli-st ${st?.checked && !st.revoked ? 'ok' : cls}">● ${label}</span></span></span>
+        <span class="wli-chips"><span class="wli-fmt">${fmt}</span><span class="wli-st ${st?.checked && !st.revoked ? 'ok' : cls}">● ${label}</span></span>
+        ${typeNote(type) ? `<span class="wli-note">${esc(typeNote(type))}</span>` : ''}</span>
       <span class="wli-chev">詳細 ›</span></a>`;
   };
   const stackBody = n
@@ -1847,6 +1848,8 @@ const WSTYLE = `<style>
   .wli-scaler .vcard{max-width:none;width:420px;margin:0}
   .wli-tx{min-width:0;display:flex;flex-direction:column;gap:5px}.wli-tx b{font-size:16px;line-height:1.3}.wli-tx small{font-size:12px;color:var(--muted)}
   .wli-chips{display:flex;gap:8px;align-items:center;margin-top:2px}
+  /* 券面注記（typeNote）: issuer カタログ／詳細と同じ注意書きを一覧行にも出す */
+  .wli-note{display:block;font-size:10.5px;color:#8A6D1F;line-height:1.45;margin-top:5px}
   .wli-fmt{font-size:11px;font-weight:700;border:1px solid var(--line);border-radius:7px;padding:3px 9px;color:#334;background:#F7F9FB}
   .wli-st{font-size:12.5px;font-weight:700;white-space:nowrap}.wli-st.ok{color:#0E8A6B}.wli-st.bad{color:#C0392B}.wli-st.na{color:var(--muted)}
   .wli-chev{font-size:13px;font-weight:700;color:#2E7D6B;white-space:nowrap}

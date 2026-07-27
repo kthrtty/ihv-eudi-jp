@@ -41,7 +41,7 @@ test('OID4VCI: issuer metadata advertises endpoints + 6 configs', async () => {
   assert.equal(md.credential_issuer, ISSUER);
   assert.match(md.credential_endpoint, /\/credential$/);
   assert.match(md.nonce_endpoint, /\/nonce$/);
-  assert.equal(Object.keys(md.credential_configurations_supported).length, 16);
+  assert.equal(Object.keys(md.credential_configurations_supported).length, 18);
 });
 
 test('OID4VCI: metadata URLs derive from the configured base — authorization_servers too (not the static placeholder)', async () => {

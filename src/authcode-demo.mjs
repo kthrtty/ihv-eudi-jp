@@ -110,6 +110,9 @@ export const WALLET_CARD_THEME = {
   single: { c1: '#AD1457', c2: '#7B0F3E', c3: '#F48FB1' },       // 茜+撫子
   disaster: { c1: '#D84315', c2: '#93290A', c3: '#FFB74D' },     // 柿
   vaccine: { c1: '#0277BD', c2: '#014377', c3: '#4FC3F7' },      // 空
+  // 山吹（金茶）— 現行8色に黄系が無く、住民票の深緑・課税の緑・罹災の柿のいずれとも
+  // スウォッチ列で判別できる。錆浅葱は住民票と同系に見えたため 2026-07-27 に差し替え
+  island: { c1: '#C97A00', c2: '#7A4200', c3: '#FFD54F' },        // 山吹
 };
 // Material 3 face (2026-07-07 協議で選定): 和色グラデは維持しつつ青海波を廃し、
 // ::after=ホログラム虹彩（IDカードのセキュリティホログラム風の極薄conic）+
@@ -155,6 +158,8 @@ export const CARD_SIL = {
   tax: `<path d="M6 2l1.5 1.2L9 2l1.5 1.2L12 2l1.5 1.2L15 2l1.5 1.2L18 2v18l-1.5-1.2L15 20l-1.5 1.2L12 20l-1.5-1.2L9 20l-1.5 1.2L6 22zm2.5 5h7v1.6h-7zm0 3.2h7v1.6h-7zm0 3.2h4.5v1.6H8.5z"/>`,
   single: `<path d="M12 8.2a4.4 4.4 0 100 8.8 4.4 4.4 0 000-8.8zm0 1.8a2.6 2.6 0 110 5.2 2.6 2.6 0 010-5.2zM9.6 2h4.8l1.3 3.1-3.7 2.3L8.3 5.1z"/>`,
   disaster: `<path d="M12 3 2 11h3v9h6.2l-1.3-3 2.6-2-2-2.4 2.5-1.8V20h6v-9h3z"/>`,
+  // 離島割引資格証: 島影（大小の丘）＋波。飛行機にすると「搭乗券」に見えてしまうので島にした
+  island: `<path d="M12 4.2c-4.9 0-8.9 3.9-9.9 9h19.8c-1-5.1-5-9-9.9-9z"/><path d="M2 16.3c1.67 0 1.67 1.3 3.33 1.3S7 16.3 8.67 16.3s1.66 1.3 3.33 1.3 1.67-1.3 3.33-1.3 1.67 1.3 3.34 1.3S20.33 16.3 22 16.3v2.1c-1.67 0-1.67 1.3-3.33 1.3s-1.67-1.3-3.34-1.3-1.66 1.3-3.33 1.3-1.67-1.3-3.33-1.3S7 19.7 5.33 19.7 3.67 18.4 2 18.4z"/>`,
   vaccine: `<g transform="rotate(-40 12 12)"><rect x="1.6" y="11.25" width="6" height="1.5" rx=".2"/><rect x="7.4" y="7.8" width="1.7" height="8.4" rx=".4"/><rect x="9" y="9" width="7.6" height="6" rx=".7"/><rect x="11" y="9.3" width="1" height="1.6"/><rect x="12.8" y="9.3" width="1" height="1.6"/><rect x="14.6" y="9.3" width="1" height="1.6"/><rect x="16.4" y="6.6" width="1.9" height="10.8" rx=".4"/><rect x="18.3" y="10.8" width="2.2" height="2.4"/><rect x="20.2" y="8.6" width="1.8" height="6.8" rx=".4"/></g>`,
 };
 // シルエットの視覚中心・大きさを 24×24 枠に合わせる微調整（bbox のズレ/小ささ補正）。
@@ -500,12 +505,13 @@ export function renderConsentScreen(q, user, infos = []) {
 const TYPE_META = {
   pid:           { name: '写真付き身分証（PID）',     desc: '基本四情報＋顔写真',    note: '※MNCの場合はカード代替電磁的記録を利用', c1: '#3949AB', c2: '#283593', glyph: '🪪', shape: 'card' },
   qualification: { name: '国家資格（EAA）',           desc: '医師・行政書士 等',     c1: '#8E24AA', c2: '#6A1B9A', glyph: '🎓', shape: 'card' },
-  juminhyo:      { name: '住民票の写し（EAA）',        desc: '住所・世帯情報',        c1: '#00897B', c2: '#00695C', glyph: '🏠', shape: 'paper' },
+  juminhyo:      { name: '住民票の写し（EAA）',        desc: '住所・世帯情報',        note: '※主たる用途は家族の情報確認（本人はMNCに寄せる）', c1: '#00897B', c2: '#00695C', glyph: '🏠', shape: 'paper' },
   koseki:        { name: '戸籍謄本（EAA）',           desc: '本籍・続柄・親子関係',  c1: '#6D4C41', c2: '#4E342E', glyph: '📜', shape: 'paper' },
   tax:           { name: '課税証明書（EAA）',         desc: '所得・課税額',          c1: '#2E7D32', c2: '#1B5E20', glyph: '🧾', shape: 'paper' },
   single:        { name: '独身証明書（EAA）',         desc: '婚姻状況の証明',        c1: '#D81B60', c2: '#AD1457', glyph: '💍', shape: 'paper' },
   disaster:      { name: '罹災証明書（EAA）',         desc: '被害程度の証明',        c1: '#F4511E', c2: '#D84315', glyph: '🏚️', shape: 'paper' },
   vaccine:       { name: 'ワクチン接種証明書（EAA）', desc: '接種記録',              c1: '#039BE5', c2: '#0277BD', glyph: '💉', shape: 'paper' },
+  island:        { name: '離島割引資格証（EAA）',     desc: '対象区分・対象路線',    note: '※自治体が審査し発行、航空会社が検証', c1: '#C97A00', c2: '#7A4200', glyph: '🏝️', shape: 'card' },
 };
 const fmtLabel = (format) => (format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT');
 

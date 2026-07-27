@@ -10,11 +10,11 @@ const pid = load('schemas/pid.json');
 const juminhyo = load('schemas/juminhyo.json');
 const qualification = load('schemas/qualification.json');
 
-test('catalog: 16 selectable configs (8 credentials x 2 formats)', () => {
+test('catalog: 18 selectable configs (9 credentials x 2 formats)', () => {
   const cfg = catalog.credential_configurations_supported;
   const ids = Object.keys(cfg);
-  assert.equal(ids.length, 16);
-  for (const cred of ['pid', 'juminhyo', 'qualification', 'koseki', 'tax', 'single', 'disaster', 'vaccine']) {
+  assert.equal(ids.length, 18);
+  for (const cred of ['pid', 'juminhyo', 'qualification', 'koseki', 'tax', 'single', 'disaster', 'vaccine', 'island']) {
     assert.ok(ids.includes(`${cred}_mdoc`) && ids.includes(`${cred}_sdjwt`), `${cred} configs`);
   }
 });

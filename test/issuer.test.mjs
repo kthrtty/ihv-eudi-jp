@@ -5,10 +5,10 @@ import { mint, verify, allConfigIds } from '../src/issuer.mjs';
 
 const holderJwk = () => generateKeyPairSync('ec', { namedCurve: 'P-256' }).publicKey.export({ format: 'jwk' });
 
-test('issuer: all 16 selectable configs exist (8 credentials x 2 formats)', () => {
+test('issuer: all 18 selectable configs exist (9 credentials x 2 formats)', () => {
   const ids = allConfigIds();
-  assert.equal(ids.length, 16);
-  for (const cred of ['pid', 'juminhyo', 'qualification', 'koseki', 'tax', 'single', 'disaster', 'vaccine']) {
+  assert.equal(ids.length, 18);
+  for (const cred of ['pid', 'juminhyo', 'qualification', 'koseki', 'tax', 'single', 'disaster', 'vaccine', 'island']) {
     assert.ok(ids.includes(`${cred}_mdoc`), `${cred}_mdoc missing`);
     assert.ok(ids.includes(`${cred}_sdjwt`), `${cred}_sdjwt missing`);
   }
