@@ -317,6 +317,55 @@ SCENARIOS.inheritance = {
   },
 };
 
+SCENARIOS.island = {
+  id: 'island',
+  icon: '🏝️',
+    title: '離島割引運賃での航空券予約',
+    rp: 'さつま空輸',
+    rpKind: '国内線オンライン予約（離島割引運賃）',
+    tagline: '本人確認のうえ、離島割引資格証を提示して割引運賃を予約',
+    // 実制度: 自治体が交付する「鹿児島離島航空割引カード」等を航空会社に提示する。
+    // 航空会社は自ら資格審査せず券面（氏名・有効期限・対象路線）を確認するだけで、
+    // 事前登録すれば搭乗時の確認も不要になる＝「一度の提示で以後は不要」の実務。
+    // 種子島は有人国境離島法の特定有人国境離島地域で、運賃低廉化の対象。
+    story: '離島に住む人が本土との間を行き来する運賃は、国と自治体の補助で低く抑えられています。資格の判定と証明は自治体が行い、航空会社は交付された資格証を確認するだけです。ここでは本人確認ののち、離島割引資格証を提示して鹿児島=種子島便を割引運賃で予約します。',
+    purpose: '離島割引運賃の適用可否の確認（本人確認および対象区分・対象路線の確認）',
+    steps: [
+      // 住所を要求しない本人確認。住所の提示が要る場面は PID（MNC のカード代替
+      // 電磁的記録）が担うが、航空会社に対しては対象路線を資格証が示すため
+      // そもそも住所を知らせる必要がない —— それがこのシナリオの主眼。
+      { name: '本人確認（デジタル身分証の提示）', shortName: '本人確認',
+        specs: [{ id: 'pid', configIds: ['pid_mdoc', 'pid_sdjwt'],
+          claims: ['family_name', 'given_name', 'birth_date'] }] },
+      { name: '離島割引資格証の提示', shortName: '離島割引資格証',
+        specs: [{ id: 'eaa', configIds: ['island_mdoc', 'island_sdjwt'],
+          claims: ['family_name', 'given_name', 'birth_date', 'resident_category', 'eligible_routes', 'fare_scheme', 'card_number', 'expiry_date'] }] },
+    ],
+    notDisclosed: '住所は提示しません（対象路線は資格証が示すため、航空会社が住所を知る必要はありません）。交付自治体・対象離島・準島民の事由（介護／就学など）も要求されず、開示もされません。',
+    discloseNote: '現行の物理カードは券面に交付自治体や顔写真が印字され、窓口で係員の目に触れます。デジタル化すると、割引の判定に要る項目だけを渡せます。',
+    checks(pid, eaa, r2) {
+      const routes = String(cl(eaa, 'eligible_routes') ?? '');
+      const cat = String(cl(eaa, 'resident_category') ?? '');
+      const exp = String(cl(eaa, 'expiry_date') ?? '');
+      return [
+        { ok: sameName(pid, eaa) && String(cl(pid, 'birth_date')) === String(cl(eaa, 'birth_date')),
+          label: '身分証と離島割引資格証の氏名・生年月日が一致' },
+        { ok: /島民/.test(cat), label: `割引の対象区分を確認（提示値: ${cat || '—'}）` },
+        { ok: routes.includes(BOOKED_ROUTE),
+          label: `予約便 ${BOOKED_ROUTE} が対象路線に含まれることを確認（提示値: ${routes || '—'}）` },
+        { ok: !!exp && exp >= TODAY(), label: `資格証が有効期限内（${exp || '—'}）` },
+        { ok: r2?.linkedSameHolder === true, label: '同一の保有者鍵で署名を確認（別人のウォレットの混用を防止）' },
+      ];
+    },
+    acceptText(pid, eaa) {
+      return `${this.rp}は、${name(pid)}様の本人確認と、自治体発行の離島割引資格証による対象区分（${cl(eaa, 'resident_category') ?? '—'}）および対象路線の確認を完了し、${BOOKED_ROUTE}便の離島割引運賃での予約を受理しました。住所の提示は受けていません。`;
+    },
+};
+
+// 予約便（デモ固定）。実カードの券面「対象路線」と突き合わせる対象。
+const BOOKED_ROUTE = '鹿児島=種子島';
+const TODAY = () => new Date().toISOString().slice(0, 10);
+
 export const scenarioList = () => Object.values(SCENARIOS).map(({ id, icon, title, rp, rpKind, tagline, story, purpose, steps, notDisclosed, discloseNote, acceptLabel, stepbarAccept }) =>
   ({ id, icon, title, rp, rpKind, tagline, story, purpose, steps, notDisclosed, discloseNote, acceptLabel, stepbarAccept }));
 

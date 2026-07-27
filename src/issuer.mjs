@@ -19,6 +19,7 @@ import tax from '../schemas/tax.json' with { type: 'json' };
 import single from '../schemas/single.json' with { type: 'json' };
 import disaster from '../schemas/disaster.json' with { type: 'json' };
 import vaccine from '../schemas/vaccine.json' with { type: 'json' };
+import island from '../schemas/island.json' with { type: 'json' };
 
 // Module-level PKI bundle — set by worker.mjs from env secrets for Workers deploy.
 // null = fall back to lazy disk reads (Node.js / local dev only).
@@ -38,7 +39,7 @@ async function diskDer(rel) {
 }
 
 export { catalog };
-const schemas = { pid, juminhyo, qualification, koseki, tax, single, disaster, vaccine };
+const schemas = { pid, juminhyo, qualification, koseki, tax, single, disaster, vaccine, island };
 
 // realistic sample data keyed by the schema canonical claim key
 const SAMPLE = {
@@ -97,6 +98,16 @@ const SAMPLE = {
     vaccine_type: 'コミナティ筋注', dose_number: 3, vaccination_date: '2025-11-20', lot_number: 'FF1234',
     vaccination_site: '千代田区集団接種会場', certificate_number: 'VC-0001', issuing_authority: '千代田区長',
     issuance_date: '2026-06-01', expiry_date: '2027-06-01',
+  },
+  // 離島割引資格証: 種子島（特定有人国境離島地域）の島民を既定にした。実カード
+  // （鹿児島離島航空割引カード）の有効期間は「交付から3年 or 転出のいずれか早い日」。
+  // quasi_reason は島民なので無し（準島民のときだけ 介護/就学/短期滞在 が入る）。
+  island: {
+    family_name: '山田', given_name: '太郎', birth_date: '1990-01-15',
+    resident_category: '島民', eligible_routes: '鹿児島=種子島',
+    fare_scheme: '有人国境離島(特定有人国境離島地域)', card_number: 'KG-2026-000123',
+    island_name: '種子島', issuing_municipality: '鹿児島県西之表市', quasi_reason: null,
+    issuing_authority: '西之表市長', issuance_date: '2026-03-15', expiry_date: '2029-03-14',
   },
 };
 

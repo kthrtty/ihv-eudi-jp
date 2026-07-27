@@ -41,7 +41,7 @@ test('scenarios: GET /vp/scenarios serves the presets — every issuable EAA doc
   const v = vapp();
   const list = await (await v.request('/vp/scenarios')).json();
   assert.deepEqual(list.map((s) => s.id).sort(),
-    ['age-check', 'disaster-aid', 'entry', 'hiring', 'inheritance', 'kidbank', 'marriage', 'minor-mobile', 'mortgage']);
+    ['age-check', 'disaster-aid', 'entry', 'hiring', 'inheritance', 'island', 'kidbank', 'marriage', 'minor-mobile', 'mortgage']);
   const cfgs = (sp) => sp.configIds ?? [sp.configId];
   for (const s of list) {
     assert.ok(s.title && s.rp && s.purpose && s.story, `${s.id} carries display strings`);
@@ -58,7 +58,7 @@ test('scenarios: GET /vp/scenarios serves the presets — every issuable EAA doc
   }
   // full coverage: all 8 issuable documents appear across the scenario set
   const used = new Set(list.flatMap((s) => s.steps.flatMap((st) => st.specs.flatMap((sp) => cfgs(sp).map((c) => c.replace(/_(mdoc|sdjwt)$/, ''))))));
-  for (const doc of ['pid', 'juminhyo', 'qualification', 'koseki', 'tax', 'single', 'disaster', 'vaccine']) {
+  for (const doc of ['pid', 'juminhyo', 'qualification', 'koseki', 'tax', 'single', 'disaster', 'vaccine', 'island']) {
     assert.ok(used.has(doc), `document ${doc} is exercised by some scenario`);
   }
   // recipients are PRIVATE-sector RPs: government-destined submissions are covered

@@ -5,7 +5,7 @@
 ## 何を作っているか
 OID4VCI 1.0 で発行し、OID4VP 1.0 + HAIP で提示する EUDI/ARF 流クレデンシャル基盤。
 形式は **mso_mdoc**(ISO 18013-5) と **dc+sd-jwt**(SD-JWT VC)。選択的開示・DC API（ISO 18013-7 Annex C/D）・
-失効（Token Status List）まで。**8種 × {mdoc, SD-JWT} = 16 構成**（PID/住民票/国家資格/戸籍謄本/課税/独身/罹災/ワクチン）。
+失効（Token Status List）まで。**9種 × {mdoc, SD-JWT} = 18 構成**（PID/住民票/国家資格/戸籍謄本/課税/独身/罹災/ワクチン/離島割引資格証）。
 
 ## 確定仕様（変える時は要相談）
 - 暗号は全面 **ES256 / P-256**。鍵は模擬TEE（ソフト鍵）、PKI は dev 自己署名 + `trust/`（LOTL モック）
@@ -45,7 +45,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   **教訓: 適合を名乗る面は自己ループでなく仕様構造の golden/外部実装との適合テストで pin。簡略化は名乗りに明示。**
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（248, node:test）／
+`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（283, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
@@ -66,13 +66,13 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
 `/verifier`=シナリオ選択（一般向け）／`/verifier/builder`=玄人ビルダー（プロトコル/tri-state/DCQL）。
 **全シナリオ2ステップ**: Step1=PID提示（本人確認。**「マイナ認証」呼称は不可**=デジタル庁のJPKIログイン公式愛称）→
 Step2=EAA提示（`linkTo`連鎖→`linkedSameHolder`で同一ウォレット検証）→「申請を受理」。
-`src/scenarios.mjs` **9プリセット=8文書を完全カバー・受理者は全て民間**（行政宛はマイナ連携/JPKIで代替されるため、
+`src/scenarios.mjs` **10プリセット=9文書を完全カバー・受理者は全て民間**（行政宛はマイナ連携/JPKIで代替されるため、
 2026-07-04 に行政宛シナリオを民間提出型へ差し替え。テストで RP 民間性を pin）: marriage（独身証明→結婚相談所）／
 hiring（国家資格→採用）／disaster-aid（罹災証明→**地震保険の保険金請求**・損保。PID住所と罹災住家の突合）／
 entry（ワクチン→**航空会社の国際線チェックイン**=COVID期の民間実務）／kidbank（住民票→子ども口座）／
 minor-mobile（住民票→未成年契約の親権者同意）／age-check（**1ステップ**・**`age_over_20`のみ開示**=酒類は20歳基準。
 age_over_NN は birth_date から**発行時に動的導出**・18/20併存=実mDL同様）／mortgage（課税証明→**住宅ローン仮審査**の
-所得確認=民間与信）／inheritance（戸籍謄本→**銀行の預金相続**。father_name で被相続人との親子関係）。
+所得確認=民間与信）／inheritance（戸籍謄本→**銀行の預金相続**。father_name で被相続人との親子関係）／island（離島割引資格証→**航空会社の離島割引運賃予約**「さつま空輸」・鹿児島＝種子島。**Step1 の PID は住所を要求しない**＝対象路線は資格証が示すので航空会社に住所は不要、が主眼。実制度=自治体が交付する鹿児島離島航空割引カード等を航空会社が確認するだけ・種子島は有人国境離島法の特定有人国境離島地域。交付自治体/対象離島/`quasi_reason`（準島民の事由=介護・就学）は**非開示側**）。
 **3専門家レビュー反映**（2026-07-03）: linkedSameHolder は本デモの単一鍵ウォレット固有（ARF準拠は鍵分離→proof of association が本筋・
 受理ページdetailsに明記）。ラベルは「同一の保有者鍵で署名を確認」（効果の主張をやめ事実のみ）。クロスシナリオ連鎖は
 /vp/build で遮断（linkTxn の vpscn.id/step 突合）・result ルートも scn.id 突合。step1 の複数消費はデモ許容として pin。
@@ -89,8 +89,8 @@ verifier は `missingPresentations`（set-aware）で判定。builder/Annex C �
 （以前は SAMPLE の「山田 太郎」が他 persona に漏れていた）。編集UI=issuer `/account` の世帯員行（`hh_<i>_<field>` 形式で POST、
 名前空欄行は drop=JS無し削除）。
 **発行ポータルUI（2026-07-11 刷新）**: `renderVcSelect` は**書類カタログ型**（旧 `typeIcon` の白タイル・2段行=名前は全幅で省略禁止／説明+形式チップ mdoc/SD-JWT）。カタログは narrow=1列／**760px〜=タイル格子**（`repeat(auto-fill,minmax(360px,1fr))`・PC は2〜3列）。プレビュー機構は **PC/SP 共通**（サイドレール案は撤回）: **固定アクションバー**（`.actbar`・中身は `.ab-in` に「選択数＋プレビュー＋発行＋⚙」を中央グループ配置＝間延び防止・サムネイル無し）**＋ボトムシート**（`.psheet`・`walletCardCss` のカードを選択数ぶん **-46px で重ねるスタック**＝count↔重なり連動・下から出て画面遷移なし）。**受け渡し（オファリング）も `#out` を `.psheet` ベースのボトムシート化**（`openOut/closeOut`・`#outScrim`・発行押下で下から上がる。旧 revealOut スクロールは廃止）。発行は `#issue`/`#issueSheet` の2経路とも `doIssue()`。⚙は `#optbtn`→`#optpanel`。旧 `.vccard`/`.vcgrid`/`.ibar` は廃止。回帰 pin: `select.sel{width:280px}`。
-**PID 注記（2026-07-11）**: `typeNote(type)` を authcode-demo からエクスポートし、PID の `※MNCの場合はカード代替電磁的記録を利用` を **issuer カタログ行(`.cnote`)／wallet カード詳細(`credDetail`)／verifier ビルダーの選択カード(`.vcs-note`)** の3面に表示。
-**カード面エンブレム（2026-07-11・案E1 浮き彫り）**: `vcardHtml` の行頭に資格証の単色シルエット（`CARD_SIL` 8種・`cardEmblemHtml`）を白浮き彫り（drop-shadow ベベル）で表示。スタックの可視帯（上部）に載るので **-96px 重なりでも全カードで見える**。タイトル/サブは `padding-left:36px`。issuer 発行プレビューの client miniCard にも `SIL` を埋めて同じエンブレムを描画。wallet home/詳細/受領票・issuer 同意 peek・verifier peek すべて `vcardHtml` 経由で反映。
+**券面注記 `typeNote(type)`（2026-07-11 導入・07-27 拡張）**: TYPE_META の `note` を **issuer カタログ行(`.cnote`)／wallet カード詳細(`credDetail`/`.wd-note`)／wallet ホーム一覧の行(`.wli-note`・PC)／verifier ビルダーの選択カード(`.vcs-note`)** に表示。現在の注記は PID=`※MNCの場合はカード代替電磁的記録を利用`／住民票=`※主たる用途は家族の情報確認（本人はMNCに寄せる）`／離島割引資格証=`※自治体が審査し発行、航空会社が検証`。**モバイルのホームはスタック（-96px 重なり）なので行注記は載せない**（詳細で表示）。
+**カード面エンブレム（2026-07-11・案E1 浮き彫り）**: `vcardHtml` の行頭に資格証の単色シルエット（`CARD_SIL` 9種・`cardEmblemHtml`）を白浮き彫り（drop-shadow ベベル）で表示。スタックの可視帯（上部）に載るので **-96px 重なりでも全カードで見える**。タイトル/サブは `padding-left:36px`。issuer 発行プレビューの client miniCard にも `SIL` を埋めて同じエンブレムを描画。wallet home/詳細/受領票・issuer 同意 peek・verifier peek すべて `vcardHtml` 経由で反映。
 **オファー受け渡し**: issuer QRカードに 📱カスタムスキーマ deep link（`openid-credential-offer://`、Multipaz が OS 登録済み・
 Pixel 実機で resolver 確認済）／🌐 Web ウォレット `/add?credential_offer_uri=` 直リンク／📋 コピー。`createApp({walletOrigin})`。
 支える機構: `/vp/build` の `scenario`+`step`+`linkTxn`・specs[]、`vpscn:` レコード（step/txn1/selftest用walletスナップショット）、

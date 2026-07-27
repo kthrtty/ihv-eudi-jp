@@ -1,0 +1,302 @@
+{
+  "id": "island",
+  "category": "EAA",
+  "display": {
+    "ja": "離島割引資格証",
+    "en": "Remote Island Fare Discount Card"
+  },
+  "issuer_ref": "island",
+  "authority": {
+    "ja": "デモ市区町村",
+    "en": "Demo Municipality"
+  },
+  "formats": {
+    "mso_mdoc": {
+      "doctype": "jp.go.island.1",
+      "namespace": "jp.go.island.1"
+    },
+    "dc+sd-jwt": {
+      "vct": "urn:jp:island:1"
+    }
+  },
+  "basic_four": [],
+  "claims": [
+    {
+      "key": "family_name",
+      "type": "string",
+      "display": {
+        "ja": "姓",
+        "en": "Family name"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.island.1",
+        "element": "family_name"
+      },
+      "sdjwt": {
+        "path": [
+          "family_name"
+        ]
+      }
+    },
+    {
+      "key": "given_name",
+      "type": "string",
+      "display": {
+        "ja": "名",
+        "en": "Given name"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.island.1",
+        "element": "given_name"
+      },
+      "sdjwt": {
+        "path": [
+          "given_name"
+        ]
+      }
+    },
+    {
+      "key": "birth_date",
+      "type": "full-date",
+      "display": {
+        "ja": "生年月日",
+        "en": "Date of birth"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.island.1",
+        "element": "birth_date"
+      },
+      "sdjwt": {
+        "path": [
+          "birthdate"
+        ]
+      }
+    },
+    {
+      "key": "resident_category",
+      "type": "string",
+      "display": {
+        "ja": "対象区分",
+        "en": "Resident category"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.island.1",
+        "element": "resident_category"
+      },
+      "sdjwt": {
+        "path": [
+          "resident_category"
+        ]
+      },
+      "note": "島民 / 準島民"
+    },
+    {
+      "key": "eligible_routes",
+      "type": "string",
+      "display": {
+        "ja": "対象路線",
+        "en": "Eligible routes"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.island.1",
+        "element": "eligible_routes"
+      },
+      "sdjwt": {
+        "path": [
+          "eligible_routes"
+        ]
+      },
+      "note": "複数路線は読点区切り。実カードの券面記載事項"
+    },
+    {
+      "key": "fare_scheme",
+      "type": "string",
+      "display": {
+        "ja": "適用制度",
+        "en": "Fare scheme"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.island.1",
+        "element": "fare_scheme"
+      },
+      "sdjwt": {
+        "path": [
+          "fare_scheme"
+        ]
+      },
+      "note": "e.g. 有人国境離島(特定有人国境離島地域)"
+    },
+    {
+      "key": "card_number",
+      "type": "string",
+      "display": {
+        "ja": "資格証番号",
+        "en": "Card number"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.island.1",
+        "element": "card_number"
+      },
+      "sdjwt": {
+        "path": [
+          "card_number"
+        ]
+      }
+    },
+    {
+      "key": "island_name",
+      "type": "string",
+      "display": {
+        "ja": "対象離島",
+        "en": "Island"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.island.1",
+        "element": "island_name"
+      },
+      "sdjwt": {
+        "path": [
+          "island_name"
+        ]
+      }
+    },
+    {
+      "key": "issuing_municipality",
+      "type": "string",
+      "display": {
+        "ja": "交付自治体",
+        "en": "Issuing municipality"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": true,
+      "mdoc": {
+        "namespace": "jp.go.island.1",
+        "element": "issuing_municipality"
+      },
+      "sdjwt": {
+        "path": [
+          "issuing_municipality"
+        ]
+      }
+    },
+    {
+      "key": "quasi_reason",
+      "type": "string",
+      "display": {
+        "ja": "準島民事由",
+        "en": "Quasi-resident ground"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": true,
+      "sensitive": true,
+      "mdoc": {
+        "namespace": "jp.go.island.1",
+        "element": "quasi_reason"
+      },
+      "sdjwt": {
+        "path": [
+          "quasi_reason"
+        ]
+      },
+      "note": "e.g. 介護/就学/短期滞在。島民の場合は無し"
+    },
+    {
+      "key": "issuing_authority",
+      "type": "string",
+      "display": {
+        "ja": "発行者",
+        "en": "Issuing authority"
+      },
+      "basic_four": false,
+      "selective_disclosure": false,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.island.1",
+        "element": "issuing_authority"
+      },
+      "sdjwt": {
+        "path": [
+          "issuing_authority"
+        ]
+      }
+    },
+    {
+      "key": "issuance_date",
+      "type": "full-date",
+      "display": {
+        "ja": "発行日",
+        "en": "Issuance date"
+      },
+      "basic_four": false,
+      "selective_disclosure": false,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.island.1",
+        "element": "issuance_date"
+      },
+      "sdjwt": {
+        "path": [
+          "issuance_date"
+        ]
+      }
+    },
+    {
+      "key": "expiry_date",
+      "type": "full-date",
+      "display": {
+        "ja": "有効期限",
+        "en": "Expiry date"
+      },
+      "basic_four": false,
+      "selective_disclosure": false,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.island.1",
+        "element": "expiry_date"
+      },
+      "sdjwt": {
+        "path": [
+          "expiry_date"
+        ]
+      }
+    }
+  ]
+}

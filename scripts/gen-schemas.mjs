@@ -232,7 +232,45 @@ const vaccine = {
   ],
 };
 
-const creds = { pid, juminhyo, qualification, koseki, tax, single, disaster, vaccine };
+// ---- 離島割引資格証 EAA ----------------------------------------------------
+// 実制度: 自治体が交付する「鹿児島離島航空割引カード」等（東京都/沖縄県/国境離島にも同種の
+// カードがある）。航空会社は自ら資格審査せず、券面（氏名・有効期限・対象路線）を確認するだけで、
+// 事前登録すれば搭乗時の確認すら不要になる。種子島は有人国境離島法の特定有人国境離島地域。
+//
+// なぜ PID(住所) で代替しないのか — 制度側の理由が4つある:
+//   1) 住所→対象路線の写像は自治体の知識。航空会社に持たせると制度改定のたび全社改修
+//   2) 準島民は島外在住なので住所では判定できない（島民/準島民を1つの器で扱う必要）
+//   3) 失効の粒度を自治体が握る（実カードも「転出した日」で失効する規定）
+//   4) 補助金の精算主体が自治体・国＝対象者台帳は自治体が持つ
+// したがって航空会社に渡すのは区分・対象路線・有効期限・氏名だけでよく、交付自治体・
+// 対象離島・準島民の事由（介護/就学など）は開示不要 —— ここが選択的開示の主眼。
+const IS_NS = 'jp.go.island.1';
+const island = {
+  id: 'island', category: 'EAA',
+  display: { ja: '離島割引資格証', en: 'Remote Island Fare Discount Card' },
+  issuer_ref: 'island', authority: { ja: 'デモ市区町村', en: 'Demo Municipality' },
+  formats: { mso_mdoc: { doctype: IS_NS, namespace: IS_NS }, 'dc+sd-jwt': { vct: 'urn:jp:island:1' } },
+  basic_four: [],
+  claims: [
+    c('family_name', 'string', { ja: '姓', en: 'Family name' }, { ns: IS_NS }),
+    c('given_name', 'string', { ja: '名', en: 'Given name' }, { ns: IS_NS }),
+    c('birth_date', 'full-date', { ja: '生年月日', en: 'Date of birth' }, { ns: IS_NS, sd_key: 'birthdate', path: ['birthdate'] }),
+    c('resident_category', 'string', { ja: '対象区分', en: 'Resident category' }, { ns: IS_NS, note: '島民 / 準島民' }),
+    c('eligible_routes', 'string', { ja: '対象路線', en: 'Eligible routes' }, { ns: IS_NS, note: '複数路線は読点区切り。実カードの券面記載事項' }),
+    c('fare_scheme', 'string', { ja: '適用制度', en: 'Fare scheme' }, { ns: IS_NS, note: 'e.g. 有人国境離島(特定有人国境離島地域)' }),
+    c('card_number', 'string', { ja: '資格証番号', en: 'Card number' }, { ns: IS_NS }),
+    // 以下は航空会社には出さない側。島名+交付自治体は住所を絞り込めてしまい、
+    // 準島民事由（介護/就学）は最も機微。現行の物理カードは券面や窓口で職員に見えている
+    c('island_name', 'string', { ja: '対象離島', en: 'Island' }, { ns: IS_NS }),
+    c('issuing_municipality', 'string', { ja: '交付自治体', en: 'Issuing municipality' }, { ns: IS_NS, sensitive: true }),
+    c('quasi_reason', 'string', { ja: '準島民事由', en: 'Quasi-resident ground' }, { ns: IS_NS, optional: true, sensitive: true, note: 'e.g. 介護/就学/短期滞在。島民の場合は無し' }),
+    c('issuing_authority', 'string', { ja: '発行者', en: 'Issuing authority' }, { ns: IS_NS, sd: false }),
+    c('issuance_date', 'full-date', { ja: '発行日', en: 'Issuance date' }, { ns: IS_NS, sd: false }),
+    c('expiry_date', 'full-date', { ja: '有効期限', en: 'Expiry date' }, { ns: IS_NS, sd: false }),
+  ],
+};
+
+const creds = { pid, juminhyo, qualification, koseki, tax, single, disaster, vaccine, island };
 for (const [id, schema] of Object.entries(creds)) out(`schemas/${id}.json`, schema);
 
 // ---- OID4VCI catalog: selectable credential x format -----------------------
