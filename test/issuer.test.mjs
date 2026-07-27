@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
-import { mint, verify, allConfigIds } from '../src/issuer.mjs';
+import { mint, verify, allConfigIds, personaClaims } from '../src/issuer.mjs';
+import { createUserStore } from '../src/users.mjs';
 
 const holderJwk = () => generateKeyPairSync('ec', { namedCurve: 'P-256' }).publicKey.export({ format: 'jwk' });
 
@@ -51,4 +52,26 @@ test('issuer: custom claim override works', async () => {
   const { credential } = await mint('pid_sdjwt', { holderJwk: holderJwk(), claims: { family_name: '佐藤' } });
   const r = await verify('pid_sdjwt', credential);
   assert.equal(r.claims.family_name, '佐藤');
+});
+
+// 離島割引の対象区分は persona 由来。準島民は島外在住＝住所で判定できない層なので、
+// 「住民票/PID から導けない属性を自治体が判定して載せる」という制度の形をここで pin する。
+test('issuer: 離島割引資格証の区分は persona で決まる（u_004=準島民/就学・既定=SAMPLE の島民）', () => {
+  const store = createUserStore();
+  // 島民ペルソナは離島固有クレームを上書きしない → mint 時に SAMPLE（島民）が載る
+  const shimin = personaClaims('island_mdoc', store.get('u_001'));
+  assert.equal(shimin.resident_category, undefined);
+  assert.equal(shimin.quasi_reason, undefined);
+  // 準島民ペルソナは区分・事由・証番号・有効期限（学生は卒業月末）を差し替える
+  const junto = personaClaims('island_mdoc', store.get('u_004'));
+  assert.equal(junto.resident_category, '準島民');
+  assert.match(junto.quasi_reason, /就学/);
+  assert.equal(junto.card_number, 'KG-2026-000488');
+  assert.equal(junto.expiry_date, '2027-03-31');
+  // 回帰: expiry_date/card_number は他の証明書にもあるので、離島以外へ漏らさないこと
+  for (const cfg of ['juminhyo_mdoc', 'single_sdjwt', 'vaccine_mdoc']) {
+    const other = personaClaims(cfg, store.get('u_004'));
+    assert.equal(other.expiry_date, undefined, `${cfg} に離島の有効期限が漏れている`);
+    assert.equal(other.card_number, undefined, `${cfg} に離島の資格証番号が漏れている`);
+  }
 });

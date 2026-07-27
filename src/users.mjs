@@ -31,8 +31,13 @@ const SEED = [
       { family: '鈴木', given: '桃子', birth: '2010-03-05', rel: '子' },
     ] },
   { id: 'u_004', family: '田中', given: '美咲', family_kana: 'タナカ', given_kana: 'ミサキ',
-    birth: '2002-04-10', sex: 2, address: '大阪府大阪市北区梅田1-1', honseki: '大阪府大阪市北区梅田1番', desc: '学生',
-    household: [] },
+    birth: '2002-04-10', sex: 2, address: '大阪府大阪市北区梅田1-1', honseki: '大阪府大阪市北区梅田1番', desc: '学生（離島出身・準島民）',
+    household: [],
+    // 離島割引の準島民: 島外在住なので住所では判定できない層。実制度でも「市民が扶養する
+    // 市外在住の学生」「離島出身で島外の学校に通う学生」が区分として存在する（壱岐市・八丈町）。
+    // 学生区分の有効期限は卒業月末（島民の3年とは異なる）。
+    island: { category: '準島民', reason: '就学（離島出身・島外の学校に在学）',
+      card_number: 'KG-2026-000488', expiry: '2027-03-31' } },
 ];
 
 // persona attribute -> the credential claim keys it should fill
@@ -71,6 +76,16 @@ export function personaOverrides(persona, claimKeys) {
   // and household_members = 本人（世帯主）+ 登録済み世帯員（続柄付き）
   if (keys.has('head_of_household_name')) out.head_of_household_name = selfName;
   if (keys.has('relationship_to_head')) out.relationship_to_head = '世帯主';
+  // 離島割引資格証: persona.island を持つ人だけ区分を差し替える（無ければ SAMPLE=島民）。
+  // resident_category はこの資格証にしか無いので、それをこのブロック全体のゲートにする
+  // （expiry_date/card_number は他の証明書にもあるため、素の keys.has では効かせられない）。
+  if (keys.has('resident_category') && persona.island) {
+    const is = persona.island;
+    if (is.category) out.resident_category = is.category;
+    if (keys.has('quasi_reason') && is.reason) out.quasi_reason = is.reason;
+    if (keys.has('card_number') && is.card_number) out.card_number = is.card_number;
+    if (keys.has('expiry_date') && is.expiry) out.expiry_date = is.expiry;
+  }
   if (keys.has('household_members')) {
     out.household_members = [
       { family_name: persona.family, given_name: persona.given, birth_date: persona.birth, relationship_to_head: '世帯主' },

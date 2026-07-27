@@ -45,7 +45,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   **教訓: 適合を名乗る面は自己ループでなく仕様構造の golden/外部実装との適合テストで pin。簡略化は名乗りに明示。**
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（283, node:test）／
+`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（284, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
@@ -72,7 +72,7 @@ hiring（国家資格→採用）／disaster-aid（罹災証明→**地震保険
 entry（ワクチン→**航空会社の国際線チェックイン**=COVID期の民間実務）／kidbank（住民票→子ども口座）／
 minor-mobile（住民票→未成年契約の親権者同意）／age-check（**1ステップ**・**`age_over_20`のみ開示**=酒類は20歳基準。
 age_over_NN は birth_date から**発行時に動的導出**・18/20併存=実mDL同様）／mortgage（課税証明→**住宅ローン仮審査**の
-所得確認=民間与信）／inheritance（戸籍謄本→**銀行の預金相続**。father_name で被相続人との親子関係）／island（離島割引資格証→**航空会社の離島割引運賃予約**「さつま空輸」・鹿児島＝種子島。**Step1 の PID は住所を要求しない**＝対象路線は資格証が示すので航空会社に住所は不要、が主眼。実制度=自治体が交付する鹿児島離島航空割引カード等を航空会社が確認するだけ・種子島は有人国境離島法の特定有人国境離島地域。交付自治体/対象離島/`quasi_reason`（準島民の事由=介護・就学）は**非開示側**）。
+所得確認=民間与信）／inheritance（戸籍謄本→**銀行の預金相続**。father_name で被相続人との親子関係）／island（離島割引資格証→**航空会社の離島割引運賃予約**「さつま空輸」・鹿児島＝種子島。**Step1 の PID は住所を要求しない**＝対象路線は資格証が示すので航空会社に住所は不要、が主眼。実制度=自治体が交付する鹿児島離島航空割引カード等を航空会社が確認するだけ・種子島は有人国境離島法の特定有人国境離島地域。交付自治体/対象離島/`quasi_reason`（準島民の事由=介護・就学）は**非開示側**）。**準島民は persona 由来**: `users.mjs` の persona に `island{category,reason,card_number,expiry}` を持たせ、`personaOverrides` が `resident_category` を持つ資格証のときだけ上書きする（`expiry_date`/`card_number` は他証明書にもあるので**`resident_category` の有無をゲートにする**—素の keys.has だと住民票等へ漏れる。回帰=test/issuer.test.mjs）。u_004 田中美咲=準島民（就学・有効期限は卒業月末の 2027-03-31）／他は SAMPLE の島民。`accountCatalog` では島の区分を `drv` 表示（/account に編集欄が無いため `edit` は誤解を招く）。
 **3専門家レビュー反映**（2026-07-03）: linkedSameHolder は本デモの単一鍵ウォレット固有（ARF準拠は鍵分離→proof of association が本筋・
 受理ページdetailsに明記）。ラベルは「同一の保有者鍵で署名を確認」（効果の主張をやめ事実のみ）。クロスシナリオ連鎖は
 /vp/build で遮断（linkTxn の vpscn.id/step 突合）・result ルートも scn.id 突合。step1 の複数消費はデモ許容として pin。
