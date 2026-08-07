@@ -12,6 +12,18 @@ OID4VCI 1.0 で発行し、OID4VP 1.0 + HAIP で提示する EUDI/ARF 流クレ�
 - **JWE は応答暗号化のみ**（ECDH-ES + A128GCM）。Annex C は **HPKE**(DHKEM-P256/HKDF-SHA256/AES-128-GCM)
 - mdoc DC API: **Annex C**=`org-iso-mdoc`(HPKE, `["dcapi",hash]`, wire は `{deviceRequest, encryptionInfo}` の2メンバーのみ・
   **readerAuth=COSE_Sign1(x5chain=pki/reader)** で要求と origin/暗号鍵を束縛)／**Annex D**=OID4VP over DC API(JWE, `OpenID4VPDCAPIHandover`)
+- **DC API（Annex D / OID4VP 1.0）の2点は仕様原文を引くこと**（2026-08-07 実機で連続被弾）:
+  (1) **audience は `origin:<origin>`**。「The audience for the response (for example, the `aud` value in a
+  Key Binding JWT) MUST be the Origin, prefixed with `origin:` … This is the case even for signed requests.」
+  ＝ signed でも client_id は audience にしない。`dcApiAud()`（handover.mjs）に集約。
+  (2) **unsigned 要求では `client_id` を省略必須**。「The `client_id` parameter MUST be omitted in unsigned
+  requests. The Wallet MUST ignore any `client_id` parameter that is present.」＝送る側は省略必須／受け側は
+  無視必須の両建て。だから非準拠でも Multipaz は動いていた（寛容ではなく規定どおり無視していた）。
+  RP 認証が要るなら signed request(JAR) にするのが筋で client_id を足すことではない。予約 prefix の
+  `origin:` を代わりに入れるのも不可（Wallet は受理してはならない）
+- **mdoc と SD-JWT で露見条件が違う**: mdoc の deviceAuth は SessionTranscript(origin/nonce/鍵拇印)で束ねるので
+  `aud` を使わない。よって aud の取り違えは **SD-JWT だけで発現**し「同じ実機・同じ DC API なのに mdoc は通る」
+  という切り分けにくい形で出る。**プロトコル×形式の総当たりで面を張る**（test/dcapi-matrix.test.mjs）
 - 失効 = **Token Status List**（形式横断）。Verifier はリスト全体取得で局所判定＝issuer–verifier unlinkability
 - Issuer は**提示を追跡しない**（`/issuances` は発行台帳のみ）
 
@@ -59,7 +71,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   **教訓: 適合を名乗る面は自己ループでなく仕様構造の golden/外部実装との適合テストで pin。簡略化は名乗りに明示。**
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（290, node:test）／
+`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（298, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
