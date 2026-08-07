@@ -7,7 +7,7 @@ import { generateKeyPairSync, randomBytes, createHash } from 'node:crypto';
 import { buildDeviceResponse } from './mdoc.mjs';
 import { presentSdJwt } from './sdjwt.mjs';
 import { encryptResponse, calculateJwkThumbprint } from './jwe.mjs';
-import { annexDSessionTranscript, annexCSessionTranscript, oid4vpRedirectSessionTranscript, hpkeSuite, annexCSeal, encodeAnnexCResponse } from './handover.mjs';
+import { annexDSessionTranscript, annexCSessionTranscript, oid4vpRedirectSessionTranscript, hpkeSuite, annexCSeal, encodeAnnexCResponse, dcApiAud } from './handover.mjs';
 import { cborDecodeMap, coseKeyToJwk, fromB64url, b64url as toB64url } from './cbor.mjs';
 import { resolveForWallet } from './dcql.mjs';
 import { parseDeviceRequest, verifyReaderAuth, loadTrustedReaderCAs } from './device-request.mjs';
@@ -211,12 +211,15 @@ export function createWallet(snapshot = null) {
       }
 
       const encJwk = request.client_metadata.jwks.keys[0];
-      const aud = request.client_id;
       const thumbprint = await calculateJwkThumbprint({ kty: encJwk.kty, crv: encJwk.crv, x: encJwk.x, y: encJwk.y });
       // redirect transport (OID4VP over HTTPS, direct_post.jwt) vs DC API (annex-d)
-      const transcript = (request.response_mode === 'direct_post.jwt' && request.response_uri)
+      const isRedirect = request.response_mode === 'direct_post.jwt' && !!request.response_uri;
+      const transcript = isRedirect
         ? annexDRedirectTranscript(request)
         : annexDSessionTranscript({ origin: request.origin, nonce: request.nonce, jwkThumbprint: thumbprint });
+      // KB-JWT の audience: DC API は OID4VP 1.0 に従い origin:<origin>（実機 Multipaz と同じ）。
+      // HTTPS リダイレクト経路は従来どおり client_id。
+      const aud = isRedirect ? request.client_id : dcApiAud(request.origin);
       const resolved = resolveForWallet(request.dcql_query, this).map(pick);
 
       const vp_token = {};
