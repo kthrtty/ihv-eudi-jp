@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { randomBytes, X509Certificate, createPrivateKey, createPublicKey } from 'node:crypto';
 import { verifyDeviceResponse } from './mdoc.mjs';
 import { verifySdJwtPresentation } from './sdjwt.mjs';
-import { annexDSessionTranscript, annexCSessionTranscript, oid4vpRedirectSessionTranscript, buildEncryptionInfo, hpkeSuite, annexCOpen, cborEncode, b64url, coseKeyFromJwk } from './handover.mjs';
+import { annexDSessionTranscript, annexCSessionTranscript, oid4vpRedirectSessionTranscript, buildEncryptionInfo, hpkeSuite, annexCOpen, decodeAnnexCResponse, cborEncode, b64url, coseKeyFromJwk } from './handover.mjs';
 import { fromB64url } from './cbor.mjs';
 import { decryptResponse, calculateJwkThumbprint } from './jwe.mjs';
 import { buildDcql, satisfies, missingPresentations } from './dcql.mjs';
@@ -181,16 +181,22 @@ export class VerifierService {
 
     // ---- Annex C : HPKE-open the org-iso-mdoc DeviceResponse ----
     if (session.protocol === 'annex-c') {
+      // 実機ウォレットは base64url(CBOR(["dcapi",{enc,cipherText}])) を返す（仕様形）。
+      // 自前 wallet の旧オブジェクト形も decodeAnnexCResponse が受理する。
+      // 「形式が読めない」と「復号できない」は原因が全く違うので段階を分けて報告する
+      // （実機デバッグで一度に切り分かるように）。
+      let parsed;
+      try { parsed = decodeAnnexCResponse(encryptedResponse); }
+      catch (e) { return { valid: false, errors: ['Annex C 応答の形式が不正: ' + e.message] }; }
       let deviceResponse;
       try {
         const suite = hpkeSuite();
         const recipientKey = await suite.kem.importKey('jwk', { ...this.encPrivJwk, key_ops: ['deriveBits'] }, false);
-        deviceResponse = await annexCOpen({
-          suite, recipientKey,
-          enc: fromB64url(encryptedResponse.enc), cipherText: fromB64url(encryptedResponse.cipherText),
-          info: session.transcript,
-        });
-      } catch (e) { return { valid: false, errors: ['HPKE open failed: ' + e.message] }; }
+        deviceResponse = await annexCOpen({ suite, recipientKey, enc: parsed.enc, cipherText: parsed.cipherText, info: session.transcript });
+      } catch (e) {
+        // 構造は仕様どおり＝残る原因は受信鍵の不一致か SessionTranscript の不一致
+        return { valid: false, errors: [`HPKE 復号に失敗（応答の構造は正常・受信鍵か SessionTranscript の不一致）: ${e.message}`] };
+      }
       const q = session.dcql.credentials[0];
       const r = verifyDeviceResponse(deviceResponse,
         { trustedIacaDer: this.trustedIacaDer, sessionTranscript: session.transcript, expectedDocType: q.meta.doctype_value });

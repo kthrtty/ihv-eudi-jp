@@ -7,6 +7,7 @@ import { createWallet } from '../src/wallet.mjs';
 import { VerifierService } from '../src/verifier.mjs';
 import { kvStore } from '../src/oid4vci.mjs';
 import { decryptResponse } from '../src/jwe.mjs';
+import { cborDecode, fromB64url } from '../src/cbor.mjs';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -451,12 +452,15 @@ test('Annex C/D dispatch: same mdoc verifies over both org-iso-mdoc (HPKE) and O
   assert.ok(dOut.valid, dOut.errors?.join());
   assert.equal(dOut.results[0].claims.family_name, '山田');
 
-  // Annex C: org-iso-mdoc, HPKE-sealed DeviceResponse (object {enc, cipherText})
+  // Annex C: org-iso-mdoc, HPKE-sealed DeviceResponse
   const c = await v.createRequest({ specs, protocol: 'annex-c' });
   // 仕様準拠 wire（issue #13）: data は {deviceRequest, encryptionInfo} の2メンバーのみ
   assert.deepEqual(Object.keys(c.request).sort(), ['deviceRequest', 'encryptionInfo']);
   const cResp = await wallet.respond(c.request, null, { origin: c.origin });
-  assert.ok(cResp.enc && cResp.cipherText);
+  // 応答も仕様形 base64url(CBOR(["dcapi",{enc,cipherText}]))＝実機 Multipaz と同じ。
+  // 以前は JS オブジェクトを直に渡す自己ループで、実機だけ落ちていた（2026-08-07）
+  assert.equal(typeof cResp, 'string');
+  assert.equal(cborDecode(fromB64url(cResp))[0], 'dcapi');
   const cOut = await v.verifyResponse({ transactionId: c.transactionId, encryptedResponse: cResp });
   assert.ok(cOut.valid, cOut.errors?.join());
   assert.equal(cOut.results[0].claims.family_name, '山田');
