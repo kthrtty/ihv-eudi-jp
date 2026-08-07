@@ -10,7 +10,7 @@
 import { CipherSuite, KemId, KdfId, AeadId } from 'hpke-js';
 import { webcrypto as wc } from 'node:crypto';
 // shared CBOR codec (single source of truth, ISO-correct settings)
-import { cborEncode, cborDecode, sha256, b64url, hex, coseKeyFromJwk } from './cbor.mjs';
+import { cborEncode, cborDecode, cborDecodeMap, fromB64url, sha256, b64url, hex, coseKeyFromJwk } from './cbor.mjs';
 export { cborEncode, cborDecode, sha256, b64url, hex, coseKeyFromJwk };
 
 // ---- Annex C : org-iso-mdoc -----------------------------------------------
@@ -24,6 +24,36 @@ export function annexCSessionTranscript({ base64EncryptionInfo, serializedOrigin
   if (!serializedOrigin) throw new Error('Annex C: origin is required (abort per C.5)');
   const dcapiInfoHash = sha256(cborEncode([base64EncryptionInfo, serializedOrigin]));
   return cborEncode([null, null, ['dcapi', dcapiInfoHash]]);
+}
+
+// Annex C の**応答**も要求側 EncryptionInfo と同じく CBOR ワイヤ形式:
+//   base64url( CBOR( ["dcapi", { "enc": bstr, "cipherText": bstr }] ) )
+// 以前は JS オブジェクト {enc:b64url, cipherText:b64url} を素で渡していたため、
+// 我々の wallet↔verifier だけが噛み合う自己ループになっていた（実機 Multipaz は
+// 仕様どおり CBOR を返し、verifier が `.enc` を undefined として落ちた。2026-08-07）。
+export function encodeAnnexCResponse({ enc, cipherText }) {
+  return b64url(cborEncode(['dcapi', new Map([['enc', enc], ['cipherText', cipherText]])]));
+}
+
+/** 外部ウォレット由来の untrusted 入力を厳格に検証して {enc, cipherText} を返す。
+ *  仕様形（base64url CBOR 文字列）が本線。旧オブジェクト形も受理する（デモ互換）。 */
+export function decodeAnnexCResponse(input) {
+  if (input && typeof input === 'object' && !ArrayBuffer.isView(input)) {
+    const { enc, cipherText } = input;
+    if (typeof enc !== 'string' || typeof cipherText !== 'string') throw new Error('Annex C response: enc/cipherText missing');
+    return { enc: fromB64url(enc), cipherText: fromB64url(cipherText) };
+  }
+  if (typeof input !== 'string' && !ArrayBuffer.isView(input)) throw new Error('Annex C response: expected base64url CBOR string');
+  let d;
+  try { d = cborDecodeMap(typeof input === 'string' ? fromB64url(input) : input); }
+  catch (e) { throw new Error('Annex C response: CBOR decode failed: ' + e.message); }
+  if (!Array.isArray(d) || d.length !== 2) throw new Error('Annex C response: expected 2-element array');
+  if (d[0] !== 'dcapi') throw new Error(`Annex C response: expected "dcapi", got ${JSON.stringify(d[0])}`);
+  const m = d[1];
+  const get = (k) => (m instanceof Map ? m.get(k) : m?.[k]);
+  const enc = get('enc'); const cipherText = get('cipherText');
+  if (!ArrayBuffer.isView(enc) || !ArrayBuffer.isView(cipherText)) throw new Error('Annex C response: enc/cipherText must be byte strings');
+  return { enc: new Uint8Array(enc), cipherText: new Uint8Array(cipherText) };
 }
 
 export const hpkeSuite = () => new CipherSuite({

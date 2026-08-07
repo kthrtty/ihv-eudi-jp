@@ -7,7 +7,7 @@ import { generateKeyPairSync, randomBytes, createHash } from 'node:crypto';
 import { buildDeviceResponse } from './mdoc.mjs';
 import { presentSdJwt } from './sdjwt.mjs';
 import { encryptResponse, calculateJwkThumbprint } from './jwe.mjs';
-import { annexDSessionTranscript, annexCSessionTranscript, oid4vpRedirectSessionTranscript, hpkeSuite, annexCSeal } from './handover.mjs';
+import { annexDSessionTranscript, annexCSessionTranscript, oid4vpRedirectSessionTranscript, hpkeSuite, annexCSeal, encodeAnnexCResponse } from './handover.mjs';
 import { cborDecodeMap, coseKeyToJwk, fromB64url, b64url as toB64url } from './cbor.mjs';
 import { resolveForWallet } from './dcql.mjs';
 import { parseDeviceRequest, verifyReaderAuth, loadTrustedReaderCAs } from './device-request.mjs';
@@ -204,8 +204,10 @@ export function createWallet(snapshot = null) {
         });
         const suite = hpkeSuite();
         const recipientPublicKey = await suite.kem.importKey('jwk', { ...recipientJwk, key_ops: [] }, true);
-        const { enc, cipherText } = await annexCSeal({ suite, recipientPublicKey, info: transcript, plaintext: deviceResponse });
-        return { enc: toB64url(enc), cipherText: toB64url(cipherText) };
+        const sealed = await annexCSeal({ suite, recipientPublicKey, info: transcript, plaintext: deviceResponse });
+        // 仕様形のワイヤで返す（実機 Multipaz と同じ）。以前は JS オブジェクトを直に
+        // 返しており、自前 verifier としか噛み合わなかった
+        return encodeAnnexCResponse(sealed);
       }
 
       const encJwk = request.client_metadata.jwks.keys[0];
