@@ -71,6 +71,11 @@ export async function annexCOpen({ suite, recipientKey, enc, info, cipherText, a
   return new Uint8Array(await recipient.open(cipherText, aad));
 }
 
+// OID4VP 1.0 / DC API: 提示の audience は必ず origin を `origin:` で前置した値。
+// unsigned 要求では client_id を送らず、ウォレットが platform 主張の origin から
+// web-origin スキームで導出する。wallet と verifier が同じ規則を使うよう1か所に置く。
+export const dcApiAud = (origin) => `origin:${origin}`;
+
 // ---- Annex D : OpenID4VPDCAPIHandover -------------------------------------
 export function annexDSessionTranscript({ origin, nonce, jwkThumbprint }) {
   // SessionTranscript = [null, null, ["OpenID4VPDCAPIHandover", SHA256(CBOR(OpenID4VPDCAPIHandoverInfo))]]

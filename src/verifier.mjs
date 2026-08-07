@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { randomBytes, X509Certificate, createPrivateKey, createPublicKey } from 'node:crypto';
 import { verifyDeviceResponse } from './mdoc.mjs';
 import { verifySdJwtPresentation } from './sdjwt.mjs';
-import { annexDSessionTranscript, annexCSessionTranscript, oid4vpRedirectSessionTranscript, buildEncryptionInfo, hpkeSuite, annexCOpen, decodeAnnexCResponse, cborEncode, b64url, coseKeyFromJwk } from './handover.mjs';
+import { annexDSessionTranscript, annexCSessionTranscript, oid4vpRedirectSessionTranscript, buildEncryptionInfo, hpkeSuite, annexCOpen, decodeAnnexCResponse, dcApiAud, cborEncode, b64url, coseKeyFromJwk } from './handover.mjs';
 import { fromB64url } from './cbor.mjs';
 import { decryptResponse, calculateJwkThumbprint } from './jwe.mjs';
 import { buildDcql, satisfies, missingPresentations } from './dcql.mjs';
@@ -151,7 +151,14 @@ export class VerifierService {
     }
 
     const transcript = annexDSessionTranscript({ origin: this.origin, nonce, jwkThumbprint: thumbprint });
-    await this.store.set(`vp:${transactionId}`, { protocol: 'annex-d', nonce, dcql: dcql_query, transcript, sessionId: sessionId ?? transactionId, linkTo });
+    // OID4VP 1.0 / DC API: 提示の audience は **必ず `origin:` を前置したオリジン**
+    // （unsigned 要求では client_id は送らず、ウォレットがプラットフォーム主張の origin から
+    // web-origin スキームで導出する）。SD-JWT の KB-JWT `aud` はこの値になる。
+    // client_id（x509_san_dns:…）を期待すると実機で必ず aud mismatch になる（2026-08-07）。
+    // mdoc は SessionTranscript が origin/nonce/鍵拇印を束ねるため影響を受けない＝
+    // mdoc だけ通って SD-JWT だけ落ちる、という切り分けにくい形で出た。
+    const expectedAud = dcApiAud(this.origin);
+    await this.store.set(`vp:${transactionId}`, { protocol: 'annex-d', nonce, dcql: dcql_query, transcript, expectedAud, sessionId: sessionId ?? transactionId, linkTo });
 
     const request = {
       protocol: 'openid4vp',
@@ -231,7 +238,9 @@ export class VerifierService {
           { trustedIacaDer: this.trustedIacaDer, sessionTranscript: session.transcript, expectedDocType: q.meta.doctype_value });
       } else {
         r = await verifySdJwtPresentation(presented,
-          { trustedIssuerCaDer: this.trustedIssuerCaDer, nonce: session.nonce, aud: session.clientId || this.clientId });
+          { trustedIssuerCaDer: this.trustedIssuerCaDer, nonce: session.nonce,
+            // DC API は origin:<origin>（保存済み）／HTTPS リダイレクトは client_id
+            aud: session.expectedAud || session.clientId || this.clientId });
         r.holder = r.cnf?.jwk;
       }
       if (!r.valid) errors.push(`${q.id}: ${r.errors.join(';')}`);
