@@ -110,7 +110,9 @@ test('Verifier scenario A: PID single (mdoc) over DCQL + JWE', async () => {
   });
   // request is HAIP-shaped
   assert.equal(request.response_type, 'vp_token');
-  assert.match(request.client_id, /^x509_san_dns:/);
+  // OID4VP 1.0: unsigned な DC API 要求では client_id は省略必須（Wallet は無視必須）。
+  // RP の呼称は client_metadata.client_name で伝える
+  assert.equal(request.client_id, undefined, 'unsigned DC API 要求に client_id を載せない');
   assert.equal(request.client_metadata.jwks.keys[0].use, 'enc');
 
   const encryptedResponse = await wallet.respond(request);

@@ -162,7 +162,13 @@ export class VerifierService {
 
     const request = {
       protocol: 'openid4vp',
-      client_id: this.clientId,
+      // OID4VP 1.0 (DC API): 「The `client_id` parameter MUST be omitted in unsigned
+      // requests. The Wallet MUST ignore any `client_id` parameter that is present in
+      // an unsigned request.」= 送る側は省略必須／受け側は無視必須。我々は
+      // x509_san_dns:… を送っており非準拠だった（Multipaz は規定どおり無視していたので
+      // 動いてはいた。2026-08-07 修正）。RP 認証が要るなら unsigned をやめて
+      // signed request (JAR) にするのが筋で、client_id を足すことではない。
+      // 予約 prefix の `origin:` を代わりに入れるのも不可（Wallet は受理してはならない）。
       response_type: 'vp_token',
       response_mode: 'dc_api.jwt',           // encrypted response over DC API
       nonce,
