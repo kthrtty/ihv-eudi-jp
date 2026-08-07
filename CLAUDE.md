@@ -38,7 +38,15 @@ OID4VCI 1.0 で発行し、OID4VP 1.0 + HAIP で提示する EUDI/ARF 流クレ�
 - **「Annex C 対応」は誇大だった（2026-07-09 判明→同日修正）**: `org-iso-mdoc` の data に本来の
   `{deviceRequest, encryptionInfo}` でなく DCQL を運ぶ独自簡略形＝実機非互換だった（issue #13）。
   現在は仕様準拠: DeviceRequest(CBOR)+readerAuth 実装・**wire 純度（2メンバーのみ）と ReaderAuthenticationBytes の
-  golden を test/device-request.test.mjs で pin**・wallet は readerAuth 不正なら応答拒否。実機 E2E は #13 の残。
+  golden を test/device-request.test.mjs で pin**・wallet は readerAuth 不正なら応答拒否。
+  **同じ罠が「応答」側にも残っていた（2026-08-07 に実機で発覚→修正）**: Annex C の応答も
+  **`base64url(CBOR(["dcapi",{enc:bstr,cipherText:bstr}]))`** が正。JS オブジェクト `{enc,cipherText}` を素で
+  受け渡していたため自前 wallet↔verifier だけが噛み合い、実機は `.enc` が undefined で
+  「HPKE open failed … Received undefined」＝提示が全滅していた。`encodeAnnexCResponse`/`decodeAnnexCResponse`
+  （handover.mjs）に集約し、**fixture は実機 Multipaz が実際に返したバイト列**で pin（test/annex-c-response.test.mjs）。
+  verifier のエラーは「形式が読めない」と「復号できない（鍵/SessionTranscript 不一致）」を段階分けする。
+  **実機 E2E 完了（2026-08-07・Pixel 10 + Multipaz）**: org-iso-mdoc の提示が `valid:true`＝ワイヤ／HPKE 復号／
+  SessionTranscript 一致／issuerAuth／deviceAuth／DCQL／失効まで全て通過。発行(M6)に続き提示も一周した。
   **外部適合（2026-07-09・段階A）**: Multipaz 本家 `multipaz-jvm` の DeviceRequestParser で我々の DeviceRequest を
 クロス検証（`interop/multipaz-jvm/`・`npm run interop:multipaz`・エミュ不要）。正例=readerAuthenticated=true・
 負例=改竄で false。**自己ループ脱却の実装**。要 JDK17+/Gradle。残: 実機/エミュE2E（段階B・issue #13）。
@@ -51,7 +59,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   **教訓: 適合を名乗る面は自己ループでなく仕様構造の golden/外部実装との適合テストで pin。簡略化は名乗りに明示。**
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（287, node:test）／
+`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（290, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
@@ -208,7 +216,7 @@ devlog は `portrait|portrait_b64` をマスク。テスト `test/portrait.test.
 （JSON 値渡し—credential_offer 等—は deep-mask で入れ子の pre-authorized_code も平文が出ない）。
 ボディの生バイト数（マスク前 UTF-8）を `reqBytes/resBytes` で記録し、行=レスポンスサイズ・詳細=↑/↓チップ表示。
 折りたたみ行/ミニバーはオリジン省略（`shortEp`）・展開後のリクエスト節とコピーはフル URL（2026-07-11）
-- [~] M6 Android(Multipaz) 実機: **発行 done**（Pixel 10 + Multipaz で pre-auth mdoc 発行 E2E 成功）。残: DC API 提示（unsigned client_id→origin 適合含む）。
+- [x] M6 Android(Multipaz) 実機: **発行 done**（Pixel 10・pre-auth mdoc）＋**提示 done**（2026-08-07・DC API org-iso-mdoc/Annex C で `valid:true`）。
   Multipaz 固有要求2つ＝(1) AS metadata に `pushed_authorization_request_endpoint`(PAR/RFC 9126) が**文字列必須**（`asMetadata`+`POST /par`）、
   (2) Credential EP はトークンを **`DPoP` スキーム**で提示（`Bearer` 固定だと 401。両受理に修正、DPoP鍵バインド検証は未実装＝issue #4）
 - [x] M7 Workers本番化（3 Workers 稼働中。本番ドメインは `.deploy.env`→`npm run deploy` 注入・リポジトリはプレースホルダのみ。詳細 `docs/deploy.md`）
