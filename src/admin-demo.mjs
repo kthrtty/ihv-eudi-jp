@@ -1,7 +1,7 @@
 // 自治体窓口（職員向け）の画面。発行ポータルとは別オリジンで動く。
 // 意匠と部品は住民向け（apply-demo.mjs）と共有し、シェルと色だけ差し替える。
 import { adminShell } from './authcode-demo.mjs';
-import { CSS, sw, chip, field } from './apply-demo.mjs';
+import { CSS, sw, chip, field, attachmentsHtml } from './apply-demo.mjs';
 import { STATUS, statusView, labelOf, subOf, getApplicationType, targetName, targetAuthority } from './applications.mjs';
 import { outOfJurisdiction } from './staff.mjs';
 
@@ -76,11 +76,8 @@ export function renderAdminReview(staff, a, applicant, { issued = [], existing =
           ${kv('申請者', `${applicant?.family ?? ''} ${applicant?.given ?? ''}`)}
           ${kv(a.kind === 'disaster' ? '世帯主住所' : '住所', applicant?.address)}
           ${t.form.map((x) => kv(x.label, a.form?.[x.key])).join('')}
-          ${a.attachments?.length ? `<div class="sec">添付（${a.attachments.length}件）</div><div class="uplist">
-            ${a.attachments.map((f) => `<div class="upi">
-              <span class="th${f.kind === 'pdf' ? ' pdf' : ''}">${f.kind === 'pdf' ? 'PDF' : '🖼️'}</span>
-              <div><b>${esc(f.name)}</b><small>${esc(f.kind.toUpperCase())} ／ ${Math.ceil(f.size / 1024)} KB${f.kind === 'pdf' ? ' ／ インライン表示せずダウンロードして確認' : ''}</small></div>
-            </div>`).join('')}</div>` : ''}
+          ${a.attachments?.length ? `<div class="sec">添付（${a.attachments.length}件）</div>${attachmentsHtml(a.attachments)}
+            ${a.attachments.some((f) => f.kind === 'pdf') ? '<span class="fhint">PDF はインライン描画しません（PDF は JavaScript を持てる）。原本はダウンロードして確認してください。</span>' : ''}` : ''}
           ${applicant?.household?.length ? `<div class="sec">世帯構成員<span class="tagro">住民基本台帳から連携（参考）</span></div>
             <table class="tb3"><tr><th>氏名</th><th>続柄</th><th>生年月日</th></tr>
               <tr><td>${esc(applicant.family)} ${esc(applicant.given)}</td><td>世帯主</td><td>${esc(applicant.birth)}</td></tr>
