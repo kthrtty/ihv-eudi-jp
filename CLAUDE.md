@@ -71,7 +71,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   **教訓: 適合を名乗る面は自己ループでなく仕様構造の golden/外部実装との適合テストで pin。簡略化は名乗りに明示。**
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（316, node:test）／
+`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（320, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
@@ -93,7 +93,12 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
 （`APPLICATION_TYPES` に form/attachments/decision/toClaims を書けば新しい書類を足せる。画面・状態遷移・
 失効の仕組みには手を入れない）。**申請1件＝交付されるVC1枚（形式ごと）**なので、同じ人が「東京で被災」
 「熊本で被災」や「鹿児島と沖縄の離島割引」を同時に持てる。
-- 状態: 受付 → 調査中 → 認定 / 却下・取下げ。`approved` かつ種別条件（離島の「対象外」は交付しない）で交付可能
+- 状態: 受付 / 審査中 / 認定 / 却下 / 取下げ / 更新により無効（superseded）。`approved` かつ種別条件
+  （離島の「対象外」は交付しない）で交付可能。**「認定」でも交付されない場合がある**ので画面は
+  `statusView()` を使う（対象外を状態として見せる）。交付済みは状態と別軸のチップ
+- **同じ人・同じ対象の認定は常に1件**: 新しい認定が出ると古いほうを `superseded` に落とし、そのVCを失効
+  （＝上書き）。対象キーは `targetKey()`＝罹災は災害名＋被災住家 / 離島は交付自治体＋対象離島。
+  別の島・別の災害・別人は上書きしない
 - **審査で決まる項目は申請者に書かせない**（被害の程度・対象区分）。実制度どおり
 - **失効は内容差分ベース**: 交付時に `claimsFingerprint`（発行日を除く実質クレームのハッシュ）を申請へ刻み、
   再判定で差分が出たときだけ当該申請のVCを失効（半壊→全壊=失効／全壊→全壊=失効しない）。却下・取下げは無条件。

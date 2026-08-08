@@ -227,3 +227,63 @@ test('applications: スキーマ変更前に発行済みの罹災証明が検証
   assert.equal(satisfies(q, { ...oldClaims, resident_address: oldClaims.address }), true,
     '旧VCでも DCQL を充足する（要求項目を増やしていない）');
 });
+
+// 同じ人・同じ対象（同じ島／同じ災害の同じ住家）で認定が2つ有効になるのは制度的におかしい。
+// 新しい認定が出たら古いほうを「更新により無効」に落とし、そのVCも失効させる＝上書き。
+test('applications: 同じ対象の新しい認定が古い認定を上書きする（旧VCは失効）', async () => {
+  const svc = new IssuerService();
+  const ISLAND = { applied_category: '準島民', reason: '就学（離島出身・島外の学校に在学）',
+    island_name: '種子島', municipality: '鹿児島県西之表市' };
+
+  // u_002 が種子島の資格証を認定される
+  const a = await svc.submitApplication({ userId: 'u_002', kind: 'island', form: ISLAND });
+  await svc.decideApplication(a.id, { status: 'approved', decision: { resident_category: '準島民', expiry_date: '2027-03-31' } });
+  const cur = await svc.getApplication(a.id);
+  cur.issuedFingerprint = 'issued';           // 交付済み相当
+  await svc._saveApps();
+  assert.equal((await svc.issuableApplications('u_002', 'island')).length, 1);
+
+  // 同じ島でもう一度申請して認定（区分が島民に変わった＝更新）
+  const b = await svc.submitApplication({ userId: 'u_002', kind: 'island', form: { ...ISLAND, applied_category: '島民' } });
+  const out = await svc.decideApplication(b.id, {
+    status: 'approved', decision: { resident_category: '島民', expiry_date: '2029-03-31' } });
+
+  assert.equal(out.superseded.length, 1, '古い認定が1件置き換わる');
+  assert.equal(out.superseded[0].id, a.id);
+  assert.equal((await svc.getApplication(a.id)).status, 'superseded');
+  assert.equal((await svc.getApplication(a.id)).issuedFingerprint, null, '交付済みの印を落とす');
+  const usable = await svc.issuableApplications('u_002', 'island');
+  assert.equal(usable.length, 1, '有効な認定は常に1件');
+  assert.equal(usable[0].id, b.id, '新しいほうが残る');
+});
+
+test('applications: 対象が違えば上書きしない（別の島・別の災害は併存する）', async () => {
+  const svc = new IssuerService();
+  const mk = async (form, decision) => {
+    const x = await svc.submitApplication({ userId: 'u_002', kind: 'island', form });
+    await svc.decideApplication(x.id, { status: 'approved', decision });
+    return x.id;
+  };
+  const tane = await mk({ applied_category: '島民', island_name: '種子島', municipality: '鹿児島県西之表市' },
+    { resident_category: '島民', expiry_date: '2029-03-31' });
+  const ishi = await mk({ applied_category: '準島民', island_name: '石垣島', municipality: '沖縄県石垣市' },
+    { resident_category: '準島民', expiry_date: '2027-03-31' });
+  const usable = await svc.issuableApplications('u_002', 'island');
+  assert.equal(usable.length, 2, '別の島は同時に持てる');
+  assert.deepEqual(usable.map((x) => x.id).sort(), [tane, ishi].sort());
+  assert.equal((await svc.getApplication(tane)).status, 'approved', '種子島は無効化されない');
+});
+
+test('applications: 他人の同じ対象は上書きしない（申請者が違えば別物）', async () => {
+  const svc = new IssuerService();
+  // u_001 は種子島の島民として認定済み（seed A-0001）
+  const before = await svc.issuableApplications('u_001', 'island');
+  assert.equal(before.length, 1);
+  // u_002 が同じ島を申請して認定されても、u_001 の認定は無傷
+  const x = await svc.submitApplication({ userId: 'u_002', kind: 'island',
+    form: { applied_category: '島民', island_name: '種子島', municipality: '鹿児島県西之表市' } });
+  const out = await svc.decideApplication(x.id, {
+    status: 'approved', decision: { resident_category: '島民', expiry_date: '2029-03-31' } });
+  assert.equal(out.superseded.length, 0);
+  assert.equal((await svc.issuableApplications('u_001', 'island')).length, 1, '別人の認定は残る');
+});

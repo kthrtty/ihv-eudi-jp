@@ -16,7 +16,7 @@ import { captureInbound, getLog, pushLog, buildEntry, createLogRing } from './de
 import { securityHeaders, csrfGuard } from './security.mjs';
 import { createWallet } from './wallet.mjs';
 import { allConfigIds, configInfo, jwks as issuerJwks, accountCatalog } from './issuer.mjs';
-import { applicationTypeList, getApplicationType, labelOf, subOf, STATUS } from './applications.mjs';
+import { applicationTypeList, getApplicationType, labelOf, subOf, STATUS, targetKey } from './applications.mjs';
 import { validateAttachment, displayName, safeStoredName, MAX_FILES } from './upload.mjs';
 import { renderApplyForm, renderApplicationList, renderApplicationReview } from './apply-demo.mjs';
 
@@ -147,16 +147,32 @@ export function createApp(opts = {}) {
   app.get('/applications', async (c) => {
     const user = await svc.sessionUser(sid(c));
     if (!user) return c.redirect('/login?next=/applications', 302);
-    return c.html(renderApplicationList(user, await svc.listApplications()));
+    // 管理画面としての一覧なので全員ぶんを出す。誰の申請かが分からないと使えないので
+    // 申請者名を添える（TODO の管理者画面化まではこの形）。
+    const apps = await svc.listApplications();
+    const led = await svc.issuances();
+    const issuedBy = {};
+    for (const e of led) if (e.applicationId && !e.revoked) issuedBy[e.applicationId] = (issuedBy[e.applicationId] || 0) + 1;
+    const applicants = {};
+    for (const id of new Set(apps.map((a) => a.userId))) {
+      const u = await svc.getUser(id);
+      if (u) applicants[id] = `${u.family} ${u.given}`;
+    }
+    return c.html(renderApplicationList(user, apps, { issuedBy, applicants }));
   });
   app.get('/applications/:id', async (c) => {
     const user = await svc.sessionUser(sid(c));
     if (!user) return c.redirect('/login?next=/applications', 302);
     const a = await svc.getApplication(c.req.param('id'));
     if (!a) return c.notFound();
+    // 同じ人・同じ対象の既存の認定＝この申請を認定すると上書きされるもの
+    const all = await svc.listApplications();
+    const supersedes = all.filter((x) => x.id !== a.id && x.userId === a.userId
+      && x.status === 'approved' && targetKey(x) === targetKey(a));
     return c.html(renderApplicationReview(user, a, await svc.getUser(a.userId), {
       justSubmitted: c.req.query('new') === '1',
       issued: (await svc.issuances()).filter((e) => e.applicationId === a.id),
+      supersedes,
     }));
   });
   app.post('/applications/:id/decision', async (c) => {

@@ -7,7 +7,7 @@ import { mint, verify as verifyCredential, catalog, personaClaims } from './issu
 import { StatusListService } from './status.mjs';
 import { createUserStore } from './users.mjs';
 import { APPLICATION_TYPES as APP_TYPES, getApplicationType, canTransition, canIssueFrom,
-  claimsFor, claimsFingerprint, requiresApplication, seedApplications } from './applications.mjs';
+  claimsFor, claimsFingerprint, requiresApplication, seedApplications, targetKey } from './applications.mjs';
 import { sha256, b64url } from './cbor.mjs';
 
 const PRE_AUTH_GRANT = 'urn:ietf:params:oauth:grant-type:pre-authorized_code';
@@ -213,8 +213,26 @@ export class IssuerService {
       next.issuedFingerprint = null;   // 失効させたので「交付済み」ではなくなる
     }
     Object.assign(app, next);
+
+    // 上書き: 同じ人・同じ対象の**別の**認定があれば、それを「更新により無効」に落として
+    // その申請から出たVCを失効させる。同じ島の資格証や同じ災害の罹災証明を2件
+    // 有効なまま持たせない（実制度でも更新時に旧カードは返却させる）。
+    const superseded = [];
+    if (status === 'approved') {
+      const key = targetKey(app);
+      for (const other of this.applications) {
+        if (other.id === app.id || other.userId !== app.userId) continue;
+        if (other.status !== 'approved' || targetKey(other) !== key) continue;
+        other.status = 'superseded';
+        other.decided_at = new Date().toISOString();
+        const gone = await this.#revokeForApplication(other.id, `新しい認定（${app.id}）により更新`);
+        other.issuedFingerprint = null;
+        superseded.push({ id: other.id, revoked: gone });
+        revoked = revoked.concat(gone);
+      }
+    }
     await this._saveApps();
-    return { application: app, revoked, contentChanged };
+    return { application: app, revoked, contentChanged, superseded };
   }
 
   /** ある申請から発行された未失効のVCを全て失効させる（形式ごとに複数枚ある）。 */

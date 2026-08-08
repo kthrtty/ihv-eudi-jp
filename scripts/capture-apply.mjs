@@ -54,6 +54,14 @@ if (approve) {
   await page.screenshot({ path: out + 'ap-04-approved.png', fullPage: true });
 }
 
+// 交付を受けて「交付済」表示を出す
+const off = await page.evaluate(async () => {
+  const r = await fetch('/offer', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ credential_configuration_ids: ['island_mdoc'] }) });
+  return (await r.json()).offer_id;
+});
+if (off) { /* オファーは作るだけ（受領は別スクリプトで確認済み） */ }
+
 // 申請一覧
 await page.goto(`${ISSUER}/applications`);
 await settle(page);

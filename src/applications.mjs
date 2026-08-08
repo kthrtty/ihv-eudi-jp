@@ -12,23 +12,40 @@
 //  - 交付内容は toClaims(app, persona) が組み立てる。再判定時はこの結果のハッシュを
 //    比べ、差分があるときだけ既発行を失効させる（src/oid4vci.mjs の revokeForApplication）。
 
-/** 申請の状態。approved だけが「交付できる」。 */
+/** 申請の状態。approved だけが「交付できる」。
+ *  `by` = その状態にした主体（却下＝自治体／取下げ＝申請者。色を分ける根拠）。
+ *  ラベルに補足を混ぜない（「受付（調査待ち）」のような複合語にしない）——
+ *  次に何が起きるかは種別ごとに違うので、状態名ではなく説明側で出す。 */
 export const STATUS = {
-  submitted: { label: '受付（調査待ち）', chip: 'wait', issuable: false },
-  surveying: { label: '調査中', chip: 'doing', issuable: false },
-  approved: { label: '認定', chip: 'ok', issuable: true },
-  rejected: { label: '却下', chip: 'ng', issuable: false },
-  withdrawn: { label: '取下げ', chip: 'ng', issuable: false },
+  submitted: { label: '受付', chip: 'wait', issuable: false, by: '自治体', next: '審査を待っています' },
+  surveying: { label: '審査中', chip: 'doing', issuable: false, by: '自治体', next: '審査が行われています' },
+  approved: { label: '認定', chip: 'ok', issuable: true, by: '自治体', next: '交付できます' },
+  rejected: { label: '却下', chip: 'ng', issuable: false, by: '自治体', next: '交付されません' },
+  withdrawn: { label: '取下げ', chip: 'na', issuable: false, by: '申請者', next: '申請者が取り下げました' },
+  // 同じ対象で新しい認定が出たときに、古い認定をこの状態へ落とす（＝上書き）。
+  // 実制度でも資格証は更新時に旧カードを返却させ、罹災証明は再調査の結果で置き換わる。
+  superseded: { label: '更新により無効', chip: 'na', issuable: false, by: '自治体', next: '新しい認定に置き換わりました' },
 };
 export const isIssuable = (app) => !!app && STATUS[app.status]?.issuable === true;
+
+/** 画面に出す状態。**「認定」でも交付されない場合がある**（離島の「対象外」認定）ので、
+ *  そこを状態として見せる。交付済みかどうかは別軸なので issued 側で受け取る。 */
+export function statusView(app, { issued = 0 } = {}) {
+  const st = STATUS[app?.status] || { label: app?.status ?? '—', chip: 'na', next: '' };
+  if (app?.status === 'approved' && !canIssueFrom(app)) {
+    return { label: '認定（対象外）', chip: 'na', note: '審査は完了しましたが交付の対象になりません', issued: 0 };
+  }
+  return { label: st.label, chip: st.chip, note: st.next, issued };
+}
 
 /** 状態遷移の許可表。ここに無い遷移は拒否する（画面の押し間違いを実装で止める）。 */
 const TRANSITIONS = {
   submitted: ['surveying', 'approved', 'rejected', 'withdrawn'],
   surveying: ['approved', 'rejected', 'withdrawn'],
-  approved: ['approved', 'rejected', 'withdrawn'],   // approved→approved = 再判定
+  approved: ['approved', 'rejected', 'withdrawn', 'superseded'], // approved→approved = 再判定
   rejected: ['surveying', 'approved'],               // 再調査で覆ることがある
   withdrawn: [],
+  superseded: [],                                    // 置き換わった申請は復活させない
 };
 export const canTransition = (from, to) => (TRANSITIONS[from] || []).includes(to);
 
@@ -56,6 +73,7 @@ const disaster = {
   lead: '被災した住家の被害程度について、市区町村の被害認定調査を受けます',
   basis: '災害対策基本法 第90条の2 ／ 手数料 無料 ／ 標準処理期間 約1週間',
   reviewTitle: '被害認定調査・判定',
+  surveyingLabel: '現地調査中',
   reviewLead: '現地調査および写真に基づき、内閣府「災害の被害認定基準」により住家の被害の程度を判定します。',
   attachmentLabel: '被害状況の写真・書類',
   attachmentRequired: true,
@@ -120,6 +138,7 @@ const island = {
   lead: '島民・準島民の区分について、交付自治体の審査を受けます',
   basis: '有人国境離島法 ほか ／ 手数料 無料 ／ 標準処理期間 約2週間',
   reviewTitle: '対象区分の審査',
+  surveyingLabel: '書類審査中',
   reviewLead: '住民登録および提出書類に基づき、島民・準島民の区分を認定します。',
   attachmentLabel: '添付書類',
   attachmentRequired: false,
@@ -176,6 +195,11 @@ export function canIssueFrom(app) {
 }
 
 export const labelOf = (app) => getApplicationType(app?.kind)?.label(app) ?? '';
+
+/** 「同じ対象」の判定キー。罹災＝災害名＋被災住家 / 離島＝交付自治体＋対象離島。
+ *  ここが一致する認定を同じ人が2つ持つのは制度的におかしいので、新しい認定で
+ *  古いほうを置き換える（上書き）。見出しと同じ材料なので labelOf を使う。 */
+export const targetKey = (app) => `${app?.kind}\u0000${labelOf(app)}`;
 export const subOf = (app) => getApplicationType(app?.kind)?.sub(app) ?? '';
 
 /** 認定内容から VC クレームを組む（種別ごとの toClaims へ委譲）。 */
