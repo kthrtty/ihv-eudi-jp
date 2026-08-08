@@ -1,0 +1,115 @@
+// 添付ファイルの受け入れ判定（申請フォームの写真・書類アップロード）。
+//
+// 方針:
+//  - **拡張子や Content-Type を信用しない**。呼び出し側が渡すのは常にバイト列で、
+//    種別はここでマジックバイトから判定する（クライアントは詐称できる）。
+//  - **許可リスト方式**。知らない形式は落とす（拒否リストは必ず漏れる）。
+//  - SVG は画像に見えて XML＝スクリプトを持てるので**受け入れない**。
+//  - `ftyp` は MP4/QuickTime とも共通なので、**ブランドの許可リスト**まで見る。
+//    これが無いと動画やその他 ISO-BMFF を「HEIC です」と言って通せてしまう。
+//  - PDF は受け取るが**インライン描画しない**（PDF は JS を持てる）。表示は
+//    ファイル名チップに留め、返す場合も Content-Disposition: attachment を付ける。
+//    → renderPolicy() が 'chip' を返す種別は <img>/<iframe> に載せてはならない。
+
+/** 受け入れる種別。mime は「我々が決めた値」で、アップロード側の申告ではない。 */
+export const ACCEPTED = {
+  jpeg: { mime: 'image/jpeg', ext: 'jpg', label: 'JPEG 画像', inline: true },
+  png: { mime: 'image/png', ext: 'png', label: 'PNG 画像', inline: true },
+  // PDF は JS を持てるのでインライン描画しない（inline:false）。
+  pdf: { mime: 'application/pdf', ext: 'pdf', label: 'PDF 書類', inline: false },
+};
+
+// **検出はするが受け入れない**種別。汎用の「対応していない形式です」ではなく
+// 「HEIC は未対応、JPEG で保存し直して」と返せるようにするための区別。
+// TODO: WebP / HEIC の受け入れ（HEIC は Safari 以外が表示できないため
+//       チップ表示＋原本ダウンロードの導線が要る）。AVIF は当面対象外。
+export const DETECTED_UNSUPPORTED = {
+  heic: 'HEIC/HEIF 形式は現在ご利用いただけません。JPEG で保存し直すか、撮影時のフォーマットを「互換性優先」にしてください',
+  webp: 'WebP 形式は現在ご利用いただけません。JPEG または PNG に変換してください',
+};
+
+// ISO-BMFF (`....ftyp<brand>`) のうち HEIF と判定するブランド。
+// isom/mp41/mp42/qt/M4V などの動画ブランドは意図的に**含めない**
+// （ここが緩いと動画を「画像です」と言って通せてしまう）。
+const HEIF_BRANDS = new Set(['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'hevm', 'hevs', 'mif1', 'msf1']);
+
+const at = (b, i, ...sig) => sig.every((v, k) => b[i + k] === v);
+const ascii = (b, i, n) => String.fromCharCode(...b.slice(i, i + n));
+
+/** バイト列から種別を判定する。判定できなければ null。 */
+export function sniffFileType(bytes) {
+  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+  if (b.length < 12) return null;                                   // 12B 未満は判定材料が無い
+  if (at(b, 0, 0xff, 0xd8, 0xff)) return 'jpeg';                    // JPEG SOI + marker
+  if (at(b, 0, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return 'png';
+  if (at(b, 0, 0x25, 0x50, 0x44, 0x46, 0x2d)) return 'pdf';         // "%PDF-"
+  if (ascii(b, 0, 4) === 'RIFF' && ascii(b, 8, 4) === 'WEBP') return 'webp';   // 検出のみ（TODO: 受け入れ）
+  // ISO-BMFF: [4B box size]["ftyp"][4B major brand]
+  if (ascii(b, 4, 4) === 'ftyp') {
+    // HEIF と判定はするが ACCEPTED には無いので validateAttachment が落とす
+    if (HEIF_BRANDS.has(ascii(b, 8, 4))) return 'heic';
+    return null;                                                    // mp4/qt/avif などは拒否
+  }
+  return null;
+}
+
+/** 上限。デモなので控えめに。総量は申請1件あたり。 */
+export const MAX_FILE_BYTES = 8 * 1024 * 1024;    // 1ファイル 8MB
+export const MAX_TOTAL_BYTES = 24 * 1024 * 1024;  // 申請あたり合計 24MB
+export const MAX_FILES = 6;
+
+/**
+ * 添付1件を検証する。
+ *   -> { ok:true, kind, mime, label, inline, bytes }
+ *   -> { ok:false, error }（理由は利用者に見せてよい粒度に留める）
+ */
+export function validateAttachment(bytes, { maxBytes = MAX_FILE_BYTES } = {}) {
+  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+  if (b.length === 0) return { ok: false, error: 'ファイルが空です' };
+  if (b.length > maxBytes) {
+    return { ok: false, error: `ファイルが大きすぎます（上限 ${Math.floor(maxBytes / 1024 / 1024)}MB）` };
+  }
+  const kind = sniffFileType(b);
+  // 検出できた未対応形式は、何をすればよいか分かる文言で返す
+  if (kind && DETECTED_UNSUPPORTED[kind]) return { ok: false, error: DETECTED_UNSUPPORTED[kind] };
+  if (!kind || !ACCEPTED[kind]) {
+    return { ok: false, error: '対応していない形式です（JPEG / PNG / PDF）' };
+  }
+  const meta = ACCEPTED[kind];
+  return { ok: true, kind, mime: meta.mime, label: meta.label, inline: meta.inline, bytes: b };
+}
+
+/**
+ * 表示方法。'inline' = <img src="data:..."> に載せてよい。
+ * 'chip' = ファイル名チップのみ（PDF/HEIC）。**PDF を iframe/embed に載せないこと**。
+ */
+export const renderPolicy = (kind) => (ACCEPTED[kind]?.inline ? 'inline' : 'chip');
+
+/** 保存名。利用者が付けた名前は保持せず、こちらで決めた安全な名前にする
+ *  （パス区切り・制御文字・二重拡張子・長大名の混入経路を断つ）。 */
+export const safeStoredName = (kind, idx) => `att-${String(idx).padStart(2, '0')}.${ACCEPTED[kind]?.ext ?? 'bin'}`;
+
+/** <input type="file"> の accept 属性。**HEIC を意図的に列挙しない**ことで、
+ *  iOS Safari が写真ピッカーで HEIC → JPEG に自動変換する挙動に乗る
+ *  （iOS 17+ は利用者がフォーマット「現在の形式」を選べるので、それでも
+ *   HEIC が来ることがある。その場合は上の DETECTED_UNSUPPORTED で弾く）。 */
+export const ACCEPT_ATTR = 'image/jpeg,image/png,application/pdf';
+
+/** 表示用のファイル名。利用者由来なので、そのまま出さず記号を落として長さも切る。
+ *  HTML へ出す際は呼び出し側で必ずエスケープすること（ここでは行わない）。 */
+export function displayName(raw, kind, idx) {
+  // 制御文字（改行・NUL・タブ等）とパス区切りだけを落とす。空白は名前として正当なので残す。
+  const s = String(raw ?? '')
+    .replace(/[\u0000-\u001F\u007F]/g, '')
+    .replace(/[\\/]/g, '')
+    .trim();
+  if (!s) return safeStoredName(kind, idx);
+  return s.length > 60 ? `${s.slice(0, 57)}…` : s;
+}
+
+/** data: URI を組む。inline でない種別は null を返す（呼び出し側で誤用できない）。 */
+export function inlineDataUri(kind, bytes) {
+  if (renderPolicy(kind) !== 'inline') return null;
+  const b64 = Buffer.from(bytes).toString('base64');
+  return `data:${ACCEPTED[kind].mime};base64,${b64}`;
+}

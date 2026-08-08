@@ -1,0 +1,229 @@
+// 交付申請ベースの発行（罹災・離島）。状態遷移・交付ゲート・再判定時の失効を pin する。
+// 失効の規則がこの機能の肝: 「証明書に載る内容が変わったときだけ失効」。
+// 全壊→全壊のような実質変化なしで失効させると、利用者は無意味に再交付を強いられる。
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { serve } from '@hono/node-server';
+import { createApp } from '../src/app.mjs';
+import { createWallet } from '../src/wallet.mjs';
+import { IssuerService } from '../src/oid4vci.mjs';
+import { canTransition, claimsFingerprint, claimsFor } from '../src/applications.mjs';
+
+const IPORT = 8981;
+const ISSUER = `http://127.0.0.1:${IPORT}`;
+let server;
+test.before(() => { server = serve({ fetch: createApp({ credentialIssuer: ISSUER }).fetch, port: IPORT }); });
+test.after(() => new Promise((r) => server.close(r)));
+
+const req = (p, i) => fetch(ISSUER + p, i);
+const login = async (user_id) => (await (await fetch(`${ISSUER}/login`, {
+  method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id }),
+})).json()).session_id;
+
+const DISASTER_FORM = {
+  damaged_address: '熊本県熊本市中央区大江3-1-5', disaster_name: '令和8年 熊本地震',
+  disaster_date: '2026-07-28', building_type: '木造2階建', statement: '1階の柱が傾き居住できません',
+};
+
+test('applications: 申請→調査中→認定 で交付できるようになる', async () => {
+  const svc = new IssuerService();
+  const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', form: DISASTER_FORM });
+  assert.match(app.id, /^A-\d{4}$/, '受付番号が採番される');
+  assert.equal(app.status, 'submitted');
+  assert.equal((await svc.issuableApplications('u_002', 'disaster')).length, 0, '受付だけでは交付できない');
+
+  await svc.decideApplication(app.id, { status: 'surveying' });
+  assert.equal((await svc.issuableApplications('u_002', 'disaster')).length, 0, '調査中も交付できない');
+
+  const { application } = await svc.decideApplication(app.id, {
+    status: 'approved', decision: { damage_level: '全壊' }, authority: '熊本市長' });
+  assert.equal(application.status, 'approved');
+  assert.ok(application.certificateNumber, '整理番号は認定時に採番される');
+  assert.equal((await svc.issuableApplications('u_002', 'disaster')).length, 1);
+});
+
+test('applications: 必須項目が無い申請・審査は断る', async () => {
+  const svc = new IssuerService();
+  await assert.rejects(() => svc.submitApplication({ userId: 'u_002', kind: 'disaster', form: {} }),
+    /未入力の必須項目/);
+  const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', form: DISASTER_FORM });
+  await assert.rejects(() => svc.decideApplication(app.id, { status: 'approved', decision: {} }),
+    /審査で決める項目が未入力/, '被害の程度を選ばずに認定はできない');
+});
+
+test('applications: 許可されていない状態遷移は拒否する', async () => {
+  assert.equal(canTransition('submitted', 'approved'), true);
+  assert.equal(canTransition('approved', 'approved'), true, '再判定');
+  assert.equal(canTransition('withdrawn', 'approved'), false);
+  const svc = new IssuerService();
+  const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', form: DISASTER_FORM });
+  await svc.decideApplication(app.id, { status: 'withdrawn' });
+  await assert.rejects(() => svc.decideApplication(app.id, { status: 'approved', decision: { damage_level: '全壊' } }),
+    /状態を withdrawn から approved へは変更できません/);
+});
+
+test('applications: 再判定で内容が変わると既発行VCを失効させる（半壊→全壊）', async () => {
+  const sid = await login('u_001');
+  const app = createApp({ credentialIssuer: ISSUER });
+  const svc = app.svc;
+  // u_001 は令和7年台風第10号（半壊）で認定済み。mdoc と SD-JWT の2枚を交付する。
+  const [before] = await svc.issuableApplications('u_001', 'disaster');
+  const wallet = createWallet();
+  for (const cfg of ['disaster_mdoc', 'disaster_sdjwt']) {
+    await wallet.authorizeAndReceive({ request: req, configId: cfg, sessionId: sid, credentialIssuer: ISSUER });
+  }
+  const svcLive = new IssuerService();     // 同じ KV(memory) ではないので発行台帳はサーバ側で確認する
+  assert.ok(before);
+
+  // サーバ側のサービスで再判定する
+  const server = await (await fetch(`${ISSUER}/issuances`)).json();
+  const mine = server.issuances.filter((e) => e.applicationId === before.id);
+  assert.equal(mine.length, 2, '2形式ぶんが同じ申請に紐づく');
+  assert.ok(mine.every((e) => !e.revoked), '交付直後は失効していない');
+  assert.ok(svcLive);
+
+  const r = await fetch(`${ISSUER}/applications/${before.id}/decision`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ status: 'approved', decision: { damage_level: '全壊', include_household: true } }),
+  });
+  assert.equal(r.status, 200);
+  const body = await r.json();
+  assert.equal(body.contentChanged, true);
+  assert.equal(body.revoked.length, 2, '当該申請から出た2枚だけを失効させる');
+
+  const after = await (await fetch(`${ISSUER}/issuances`)).json();
+  for (const e of after.issuances.filter((x) => x.applicationId === before.id)) {
+    assert.equal(e.revoked, true, '再判定で内容が変わったので失効');
+  }
+  // 他の申請から出たVCは巻き添えにしない
+  for (const e of after.issuances.filter((x) => x.applicationId && x.applicationId !== before.id)) {
+    assert.equal(e.revoked, false, '別の申請のVCは失効させない');
+  }
+});
+
+test('applications: 判定が変わらなければ失効させない（全壊→全壊）', async () => {
+  const svc = new IssuerService();
+  const store = { get: () => null };
+  assert.ok(store);
+  const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', form: DISASTER_FORM });
+  await svc.decideApplication(app.id, { status: 'approved', decision: { damage_level: '全壊' }, authority: '熊本市長' });
+  // 交付済み相当にする（発行 EP を通さず fingerprint だけ立てる）
+  const persona = { id: 'u_002', family: '佐藤', given: '花子', birth: '1988-07-03', address: '東京都新宿区西新宿2-8-1', household: [] };
+  const cur = await svc.getApplication(app.id);
+  cur.issuedFingerprint = claimsFingerprint(claimsFor(cur, persona));
+  await svc._saveApps();
+
+  const same = await svc.decideApplication(app.id, {
+    status: 'approved', decision: { damage_level: '全壊' }, authority: '熊本市長' });
+  assert.equal(same.contentChanged, false, '実質的な内容が同じなら失効させない');
+  assert.equal(same.revoked.length, 0);
+  assert.ok(same.application.issuedFingerprint, '交付済みの印は残る（再交付は不要）');
+});
+
+test('applications: 却下・取下げは内容に関わらず失効させる', async () => {
+  const svc = new IssuerService();
+  const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', form: DISASTER_FORM });
+  await svc.decideApplication(app.id, { status: 'approved', decision: { damage_level: '全壊' } });
+  const cur = await svc.getApplication(app.id);
+  cur.issuedFingerprint = 'dummy';
+  await svc._saveApps();
+  const out = await svc.decideApplication(app.id, { status: 'rejected' });
+  assert.equal(out.contentChanged, true, '交付根拠が消えるので無条件で失効対象');
+  assert.equal(out.application.issuedFingerprint, null, '交付済みの印を落とす');
+});
+
+test('applications: 同じ人が複数件を同時に持てる（別の災害・別の島）', async () => {
+  const svc = new IssuerService();
+  const a = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', form: DISASTER_FORM });
+  const b = await svc.submitApplication({ userId: 'u_002', kind: 'disaster',
+    form: { ...DISASTER_FORM, disaster_name: '令和8年 豪雨', damaged_address: '福岡県久留米市1-1' } });
+  await svc.decideApplication(a.id, { status: 'approved', decision: { damage_level: '全壊' } });
+  await svc.decideApplication(b.id, { status: 'approved', decision: { damage_level: '半壊' } });
+  const usable = await svc.issuableApplications('u_002', 'disaster');
+  assert.equal(usable.length, 2, '2件の罹災証明を同時に交付できる');
+  assert.notEqual(usable[0].certificateNumber, usable[1].certificateNumber, '整理番号は別');
+});
+
+test('applications: 申請→認定→交付→再判定→失効 を発行 EP まで通しで確認', async () => {
+  const wallet = createWallet();
+  const sid = await login('u_002');   // 佐藤花子は申請ゼロから始める
+
+  // 1) 認定前は交付されない
+  await assert.rejects(
+    () => wallet.authorizeAndReceive({ request: req, configId: 'disaster_mdoc', sessionId: sid, credentialIssuer: ISSUER }),
+    /交付申請の認定が必要|invalid_credential_request/);
+
+  // 2) 申請 → 認定（HTTP 経由＝画面と同じ経路）
+  const submit = await fetch(`${ISSUER}/apply/disaster`, {
+    method: 'POST', redirect: 'manual',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: `sid=${sid}` },
+    body: new URLSearchParams(DISASTER_FORM).toString(),
+  });
+  assert.equal(submit.status, 303);
+  const appId = submit.headers.get('location').split('/')[2].split('?')[0];
+  assert.match(appId, /^A-\d{4}$/);
+
+  const decide = await fetch(`${ISSUER}/applications/${appId}/decision`, {
+    method: 'POST', headers: { 'content-type': 'application/json', cookie: `sid=${sid}` },
+    body: JSON.stringify({ status: 'approved', decision: { damage_level: '半壊' }, authority: '熊本市長' }),
+  });
+  assert.equal(decide.status, 200);
+
+  // 3) 交付できる。認定した内容がそのまま VC のクレームになる
+  const got = await wallet.authorizeAndReceive({
+    request: req, configId: 'disaster_mdoc', sessionId: sid, credentialIssuer: ISSUER });
+  assert.ok(got);
+  const led = (await (await fetch(`${ISSUER}/issuances`)).json()).issuances.filter((e) => e.applicationId === appId);
+  assert.equal(led.length, 1, '発行台帳が申請に紐づく');
+  assert.equal(led[0].revoked, false);
+
+  // 4) 再判定（半壊→全壊）で内容が変わるので失効する
+  const re = await (await fetch(`${ISSUER}/applications/${appId}/decision`, {
+    method: 'POST', headers: { 'content-type': 'application/json', cookie: `sid=${sid}` },
+    body: JSON.stringify({ status: 'approved', decision: { damage_level: '全壊' }, authority: '熊本市長' }),
+  })).json();
+  assert.equal(re.contentChanged, true);
+  assert.equal(re.revoked.length, 1);
+  const after = (await (await fetch(`${ISSUER}/issuances`)).json()).issuances.find((e) => e.applicationId === appId);
+  assert.equal(after.revoked, true, '再判定で交付済みが失効する');
+
+  // 5) 新しい判定で再交付できる
+  const again = await createWallet().authorizeAndReceive({
+    request: req, configId: 'disaster_mdoc', sessionId: sid, credentialIssuer: ISSUER });
+  assert.ok(again, '失効後は新しい内容で再交付できる');
+});
+
+// スキーマ変更（世帯主住所・世帯構成員の追加）の後方互換。
+// **すでにウォレットに入っているVCは作り直せない**ので、旧形式のまま検証も提示も
+// 通り続けなければならない。検証はスキーマではなく docType/vct と PKI しか見ず、
+// DCQL も新クレームを要求していないので通る。これを崩す変更を入れないよう pin する。
+test('applications: スキーマ変更前に発行済みの罹災証明が検証・提示できる（後方互換）', async () => {
+  const { mint, verify } = await import('../src/issuer.mjs');
+  const { generateKeyPairSync } = await import('node:crypto');
+  const { getScenario } = await import('../src/scenarios.mjs');
+  const { satisfies, buildDcql } = await import('../src/dcql.mjs');
+  const holderJwk = () => generateKeyPairSync('ec', { namedCurve: 'P-256' }).publicKey.export({ format: 'jwk' });
+
+  // 変更前の中身（新クレームを持たない）を忠実に再現する
+  const OLD = {
+    family_name: '山田', given_name: '太郎', address: '東京都千代田区1-1-1',
+    head_of_household_address: undefined, household_members: undefined,
+    disaster_name: '令和7年台風第10号', disaster_date: '2025-09-12', damage_level: '半壊',
+    building_type: '木造2階建', certificate_number: 'DS-0001',
+    issuing_authority: '千代田区長', issuance_date: '2026-06-01', expiry_date: '2027-06-01',
+  };
+  for (const cfg of ['disaster_mdoc', 'disaster_sdjwt']) {
+    const m = await mint(cfg, { holderJwk: holderJwk(), claims: OLD });
+    const r = await verify(cfg, m.credential);
+    assert.equal(r.valid, true, `${cfg} が検証できる`);
+    const keys = Object.keys(r.claims || {});
+    assert.ok(!keys.includes('head_of_household_address'), '旧VCに新クレームは無い');
+    assert.ok(!keys.includes('household_members'));
+  }
+  // disaster-aid シナリオが要求する項目は旧VCにも全て揃っている＝提示も通る
+  const spec = getScenario('disaster-aid').steps[1].specs[0];
+  const q = buildDcql([{ ...spec, configId: spec.configIds[0] }]).credentials[0];
+  const oldClaims = Object.fromEntries(Object.entries(OLD).filter(([, v]) => v !== undefined));
+  assert.equal(satisfies(q, { ...oldClaims, resident_address: oldClaims.address }), true,
+    '旧VCでも DCQL を充足する（要求項目を増やしていない）');
+});

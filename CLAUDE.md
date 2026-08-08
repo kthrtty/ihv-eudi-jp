@@ -5,7 +5,7 @@
 ## 何を作っているか
 OID4VCI 1.0 で発行し、OID4VP 1.0 + HAIP で提示する EUDI/ARF 流クレデンシャル基盤。
 形式は **mso_mdoc**(ISO 18013-5) と **dc+sd-jwt**(SD-JWT VC)。選択的開示・DC API（ISO 18013-7 Annex C/D）・
-失効（Token Status List）まで。**9種 × {mdoc, SD-JWT} = 18 構成**（PID/住民票/国家資格/戸籍謄本/課税/独身/罹災/ワクチン/離島割引資格証）。
+失効（Token Status List）まで。**9種 × {mdoc, SD-JWT} = 18 構成**（うち罹災/離島は交付申請の認定が要る）（PID/住民票/国家資格/戸籍謄本/課税/独身/罹災/ワクチン/離島割引資格証）。
 
 ## 確定仕様（変える時は要相談）
 - 暗号は全面 **ES256 / P-256**。鍵は模擬TEE（ソフト鍵）、PKI は dev 自己署名 + `trust/`（LOTL モック）
@@ -71,7 +71,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   **教訓: 適合を名乗る面は自己ループでなく仕様構造の golden/外部実装との適合テストで pin。簡略化は名乗りに明示。**
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（298, node:test）／
+`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（316, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
@@ -87,6 +87,29 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
 - `wallet-app.mjs` **Web ウォレット（別オリジン Hono app）**: `/add`(offer受領→OID4VCI)・`/oidc/cb`(code交換)・`/`（保管一覧）。HTTPSリダイレクトのみ（DC API不使用）
 - `authcode-demo.mjs` 共有 `shell(role: issuer|verifier|wallet)` + auth-code/offer/callback/consent描画 + pkce
 - `verifier-demo.mjs` 検証者コンソール `renderVerifyConsole`／`worker.mjs`+`wrangler.toml` Workers入口
+
+## 申請ベース発行（2026-08-08 導入）
+罹災証明書・離島割引資格証は**自治体の審査を経ないと交付されない**。器は `src/applications.mjs` に集約
+（`APPLICATION_TYPES` に form/attachments/decision/toClaims を書けば新しい書類を足せる。画面・状態遷移・
+失効の仕組みには手を入れない）。**申請1件＝交付されるVC1枚（形式ごと）**なので、同じ人が「東京で被災」
+「熊本で被災」や「鹿児島と沖縄の離島割引」を同時に持てる。
+- 状態: 受付 → 調査中 → 認定 / 却下・取下げ。`approved` かつ種別条件（離島の「対象外」は交付しない）で交付可能
+- **審査で決まる項目は申請者に書かせない**（被害の程度・対象区分）。実制度どおり
+- **失効は内容差分ベース**: 交付時に `claimsFingerprint`（発行日を除く実質クレームのハッシュ）を申請へ刻み、
+  再判定で差分が出たときだけ当該申請のVCを失効（半壊→全壊=失効／全壊→全壊=失効しない）。却下・取下げは無条件。
+  **`issuanceLog.applicationId` が要**——これが無いと同じ人の別の申請から出たVCまで巻き添えで失効する
+- 発行ゲートは `oid4vci.credential()`。persona 無し（SAMPLE・シナリオ selftest）は従来どおり通す
+- 画面は案D（3セクション: いつでも発行 / 認定済み（申請ごとに1行）/ 申請できる手続き）。一覧は
+  **PC=表組み・SP=3列グリッド**を1マークアップで両立。`src/apply-demo.mjs`
+- **離島の対象区分は申請へ一本化**（旧 `persona.island` と /account の編集欄は廃止。SEED は `seedApplications()` へ移行）
+- **罹災は内閣府統一様式（府政防第737号）に準拠**: 必須記載事項は 整理番号/世帯主住所/世帯主氏名/罹災原因/
+  被災住家の所在地/住家の被害の程度。**世帯主住所と被災住家の所在地は別項目**。世帯構成員は追加記載事項欄①
+  （MUST ではないが内閣府の記載例に載る）。判定は6区分（中規模半壊は令和2年12月の支援法改正で新設）
+- **添付は `src/upload.mjs` で一元判定**: 拡張子/Content-Type を信用せず**マジックバイト**で許可リスト判定
+  （JPEG/PNG/PDF。HEIC・WebP は検出して個別文言で拒否＝TODO、AVIF は対象外）。`ftyp` はブランドまで見ないと
+  mp4/qt を通してしまう。SVG は XML＝スクリプトを持てるので不可。**PDF はインライン描画しない**
+  （`inlineDataUri()` が null を返す）。accept 属性に HEIC を列挙しない＝iOS Safari の自動 JPEG 変換に乗る
+- ※審査画面は本来自治体職員向け。現状は暫定で申請者本人が審査できる（**管理者画面化は TODO**）
 
 ## シナリオデモ（一般向け/玄人向け分離・ステップ型）
 `/verifier`=シナリオ選択（一般向け）／`/verifier/builder`=玄人ビルダー（プロトコル/tri-state/DCQL）。

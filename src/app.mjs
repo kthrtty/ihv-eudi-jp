@@ -16,6 +16,9 @@ import { captureInbound, getLog, pushLog, buildEntry, createLogRing } from './de
 import { securityHeaders, csrfGuard } from './security.mjs';
 import { createWallet } from './wallet.mjs';
 import { allConfigIds, configInfo, jwks as issuerJwks, accountCatalog } from './issuer.mjs';
+import { applicationTypeList, getApplicationType, labelOf, subOf, STATUS } from './applications.mjs';
+import { validateAttachment, displayName, safeStoredName, MAX_FILES } from './upload.mjs';
+import { renderApplyForm, renderApplicationList, renderApplicationReview } from './apply-demo.mjs';
 
 // Lazy HTML loader for Node.js — not called in Workers (html string passed explicitly).
 async function loadHtml(rel) {
@@ -68,6 +71,7 @@ export function createApp(opts = {}) {
   });
 
   const fail = (c, e) => c.json({ error: e.oauthError || 'server_error', error_description: e.description || e.message }, e.status || 500);
+  const httpFail = (status, description) => Object.assign(new Error(description), { status, description, oauthError: 'invalid_request' });
 
   app.get('/.well-known/openid-credential-issuer', (c) => c.json(svc.metadata(issuerBase(c))));
   // OAuth AS metadata (RFC 8414) — OID4VCI's normative AS discovery document.
@@ -90,7 +94,88 @@ export function createApp(opts = {}) {
   app.get('/', async (c) => {
     const user = await svc.sessionUser(sid(c));
     if (!user) return c.redirect('/login?next=/', 302);
-    return c.html(renderVcSelect(user, groupCatalog(allConfigIds().map(configInfo)), { walletOrigin: issuerWalletOrigin }));
+    // 案D: いつでも発行 / 認定済み（申請ごと）/ 申請できる手続き の3セクション。
+    // 認定が無い書類は非活性にして申請導線を出す（発行を試みても credential EP が断る）。
+    const apps = await svc.issuableApplications(user.id);
+    // 画面が要るのは「どの券種の、どの認定か」だけ。申請レコードそのものは渡さない
+    const approved = apps.map((a) => ({
+      id: a.id, credType: getApplicationType(a.kind)?.credType, label: labelOf(a), sub: subOf(a),
+    }));
+    return c.html(renderVcSelect(user, groupCatalog(allConfigIds().map(configInfo)),
+      { walletOrigin: issuerWalletOrigin, approved }));
+  });
+
+  // ---- 交付申請（罹災証明書・離島割引資格証） --------------------------------
+  // 制度の形: 申請 → 自治体の審査 → 認定 → 交付可能。認定で決まる項目
+  // （被害の程度・対象区分）は申請者に書かせない。
+  // TODO: 審査（/applications 以下）は本来この発行ポータルではなく自治体職員向けの
+  //       管理画面に置くもの。現状は暫定で、申請した本人が同じ画面から審査できる。
+  app.get('/apply/:kind', async (c) => {
+    const user = await svc.sessionUser(sid(c));
+    if (!user) return c.redirect(`/login?next=/apply/${c.req.param('kind')}`, 302);
+    const t = getApplicationType(c.req.param('kind'));
+    if (!t) return c.notFound();
+    return c.html(renderApplyForm(user, t, { error: c.req.query('e') || '' }));
+  });
+  app.post('/apply/:kind', async (c) => {
+    const user = await svc.sessionUser(sid(c));
+    if (!user) return c.redirect('/login?next=/', 302);
+    const kind = c.req.param('kind');
+    const t = getApplicationType(kind);
+    if (!t) return c.notFound();
+    try {
+      const f = await c.req.parseBody({ all: true });
+      const form = Object.fromEntries(t.form.map((x) => [x.key, String(f[x.key] ?? '').trim()]));
+      // 添付は multipart で来る。種別は**中身のバイト列**から判定する（申告は信用しない）。
+      // 未選択でもブラウザは空の File を送ってくるので、中身のあるものだけを添付とみなす
+      const files = [].concat(f.attachments ?? [])
+        .filter((x) => x && typeof x === 'object' && x.arrayBuffer && x.size > 0 && x.name);
+      const attachments = [];
+      for (const [i, file] of files.slice(0, MAX_FILES).entries()) {
+        const v = validateAttachment(new Uint8Array(await file.arrayBuffer()));
+        if (!v.ok) throw httpFail(400, v.error);
+        attachments.push({ name: displayName(file.name, v.kind, i), kind: v.kind, size: v.bytes.length,
+          stored: safeStoredName(v.kind, i) });
+      }
+      const app2 = await svc.submitApplication({ userId: user.id, kind, form, attachments });
+      return c.redirect(`/applications/${app2.id}?new=1`, 303);
+    } catch (e) {
+      return c.redirect(`/apply/${kind}?e=${encodeURIComponent(e.description || e.message)}`, 303);
+    }
+  });
+
+  app.get('/applications', async (c) => {
+    const user = await svc.sessionUser(sid(c));
+    if (!user) return c.redirect('/login?next=/applications', 302);
+    return c.html(renderApplicationList(user, await svc.listApplications()));
+  });
+  app.get('/applications/:id', async (c) => {
+    const user = await svc.sessionUser(sid(c));
+    if (!user) return c.redirect('/login?next=/applications', 302);
+    const a = await svc.getApplication(c.req.param('id'));
+    if (!a) return c.notFound();
+    return c.html(renderApplicationReview(user, a, await svc.getUser(a.userId), {
+      justSubmitted: c.req.query('new') === '1',
+      issued: (await svc.issuances()).filter((e) => e.applicationId === a.id),
+    }));
+  });
+  app.post('/applications/:id/decision', async (c) => {
+    const user = await svc.sessionUser(sid(c));
+    const wantsJson = (c.req.header('content-type') || '').includes('application/json');
+    if (!user && !wantsJson) return c.redirect('/login?next=/applications', 302);
+    try {
+      const t0 = await svc.getApplication(c.req.param('id'));
+      if (!t0) return c.notFound();
+      const t = getApplicationType(t0.kind);
+      const raw = wantsJson ? await c.req.json() : await c.req.parseBody();
+      const decision = Object.fromEntries(t.decision.map((x) => [x.key,
+        x.type === 'check' ? raw.decision?.[x.key] ?? raw[x.key] === 'on' : String(raw.decision?.[x.key] ?? raw[x.key] ?? '').trim()]));
+      const out = await svc.decideApplication(c.req.param('id'), {
+        status: raw.status || 'approved', decision, authority: raw.authority || null,
+      });
+      if (wantsJson) return c.json({ ok: true, contentChanged: out.contentChanged, revoked: out.revoked, application: out.application });
+      return c.redirect(`/applications/${out.application.id}?done=1`, 303);
+    } catch (e) { return fail(c, e); }
   });
 
   // Static issuer demo page (legacy / direct URL fallback)
@@ -130,12 +215,6 @@ export function createApp(opts = {}) {
       family: f.family, given: f.given, family_kana: f.family_kana, given_kana: f.given_kana,
       desc: f.desc, birth: f.birth, sex: Number(f.sex), address: f.address, honseki: f.honseki,
       household,
-      // 離島割引の対象区分（自治体の審査結果）。cleanIsland が値域を検証し、
-      // 区分が準島民以外なら事由を落とす。資格証番号は編集させない
-      island: {
-        category: f.isl_category, reason: f.isl_reason,
-        island_name: f.isl_island_name, municipality: f.isl_municipality, expiry: f.isl_expiry,
-      },
     };
     // 顔写真: reset ボタン=既定イラストへ / portrait_b64=クライアント縮小済み JPEG。
     // サーバ側でも JPEG マジックバイトと上限（256KB decoded）を検証してから保存する
@@ -153,12 +232,12 @@ export function createApp(opts = {}) {
   // demo helper to mint an offer (issuer-initiated), with all delivery forms
   app.post('/offer', async (c) => {
     try {
-      const { credential_configuration_ids, tx_code, qr, grant, claims } = await c.req.json();
+      const { credential_configuration_ids, tx_code, qr, grant, claims, applications } = await c.req.json();
       // pre-auth offers carry the logged-in issuer user so the credential endpoint
       // mints the CURRENT persona (post-edit names) instead of the static SAMPLE
       const user = await svc.sessionUser(sid(c));
       const { credential_offer, preAuthorizedCode, issuerState, offerId, offerUri, txCode } =
-        await svc.createOffer(credential_configuration_ids, { txCode: tx_code, grant, claims, userId: user?.id ?? null });
+        await svc.createOffer(credential_configuration_ids, { txCode: tx_code, grant, claims, applications, userId: user?.id ?? null });
       const delivery = await buildDelivery({ offer: credential_offer, offerUri, withQr: qr === true });
       return c.json({ credential_offer, pre_authorized_code: preAuthorizedCode, issuer_state: issuerState, offer_id: offerId, delivery, tx_code: txCode });
     } catch (e) { return fail(c, e); }

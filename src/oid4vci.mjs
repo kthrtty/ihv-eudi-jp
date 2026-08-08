@@ -5,7 +5,9 @@ import { randomBytes, randomInt } from 'node:crypto';
 import { jwtVerify, importJWK, decodeProtectedHeader } from 'jose';
 import { mint, verify as verifyCredential, catalog, personaClaims } from './issuer.mjs';
 import { StatusListService } from './status.mjs';
-import { createUserStore, islandEligible } from './users.mjs';
+import { createUserStore } from './users.mjs';
+import { APPLICATION_TYPES as APP_TYPES, getApplicationType, canTransition, canIssueFrom,
+  claimsFor, claimsFingerprint, requiresApplication, seedApplications } from './applications.mjs';
 import { sha256, b64url } from './cbor.mjs';
 
 const PRE_AUTH_GRANT = 'urn:ietf:params:oauth:grant-type:pre-authorized_code';
@@ -117,6 +119,111 @@ export class IssuerService {
     });
     this.issuanceLog = []; // issuer's own ledger (NOT presentation tracking)
     this.users = userStore;
+    // 交付申請（罹災・離島）。申請1件 = 交付されるVC 1枚（形式ごと）。
+    // 初期データは認定済みの申請（旧 persona.island の移行先）。KV に保存済みが
+    // あれば _loadApps がそれで置き換える。
+    this.applications = seedApplications();
+    this.applicationSeq = this.applications.length;
+  }
+
+  // ---- 交付申請 -------------------------------------------------------------
+  // 申請は persona 編集と同じく **毎アクセス KV から読み直す**。once ガードにすると
+  // isolate A の認定が isolate B の発行判定に反映されない（離島/罹災が交付できない）。
+  async _loadApps() {
+    const saved = await this.store.get('_persist:apps');
+    if (saved) { this.applications = saved.list || []; this.applicationSeq = saved.seq || 0; }
+  }
+  async _saveApps() {
+    await this.store.set('_persist:apps', { list: this.applications, seq: this.applicationSeq }, 86400 * 30);
+  }
+
+  /** 申請を受け付ける。受付番号を採番し、状態は submitted（調査待ち）。 */
+  async submitApplication({ userId, kind, form = {}, attachments = [] }) {
+    const t = getApplicationType(kind);
+    if (!t) throw httpErr(400, 'invalid_request', `unknown application kind ${kind}`);
+    if (!userId) throw httpErr(401, 'login_required', 'sign in first');
+    await this._loadApps();
+    const missing = t.form.filter((x) => x.required && !String(form[x.key] ?? '').trim()).map((x) => x.label);
+    if (missing.length) throw httpErr(400, 'invalid_request', `未入力の必須項目: ${missing.join('・')}`);
+    this.applicationSeq += 1;
+    const app = {
+      id: `A-${String(this.applicationSeq).padStart(4, '0')}`,
+      userId, kind, status: 'submitted',
+      form, attachments,
+      decision: null, authority: null, certificateNumber: null,
+      submitted_at: new Date().toISOString(), decided_at: null,
+      // 交付済みVCとの突き合わせ用（再判定で内容が変わったかを見る）
+      issuedFingerprint: null,
+    };
+    this.applications.push(app);
+    await this._saveApps();
+    return app;
+  }
+
+  async listApplications({ userId = null } = {}) {
+    await this._loadApps();
+    return this.applications
+      .filter((a) => (userId ? a.userId === userId : true))
+      .slice().sort((a, b) => (a.submitted_at < b.submitted_at ? 1 : -1));
+  }
+  async getApplication(id) {
+    await this._loadApps();
+    return this.applications.find((a) => a.id === id) || null;
+  }
+
+  /** その利用者がいま交付を受けられる申請（案D の「認定済み」セクションの中身）。 */
+  async issuableApplications(userId, credType = null) {
+    await this._loadApps();
+    return this.applications.filter((a) => a.userId === userId && canIssueFrom(a)
+      && (credType ? getApplicationType(a.kind)?.credType === credType : true));
+  }
+
+  /**
+   * 審査（認定・却下・再判定）。認定時は交付内容を組み立て、**すでに交付済みで
+   * 内容が変わる場合だけ**その申請から出たVCを失効させる（全壊→全壊のような
+   * 実質変化なしでは失効させない）。戻り値の revoked に失効した台帳項目が入る。
+   */
+  async decideApplication(id, { status, decision = {}, authority = null } = {}) {
+    await this._loadApps();
+    await this._loadUsers();
+    const app = this.applications.find((a) => a.id === id);
+    if (!app) throw httpErr(404, 'not_found', `unknown application ${id}`);
+    const t = getApplicationType(app.kind);
+    if (!canTransition(app.status, status)) {
+      throw httpErr(400, 'invalid_request', `状態を ${app.status} から ${status} へは変更できません`);
+    }
+    if (status === 'approved') {
+      const missing = t.decision.filter((x) => x.required && !String(decision[x.key] ?? '').trim()).map((x) => x.label);
+      if (missing.length) throw httpErr(400, 'invalid_request', `審査で決める項目が未入力: ${missing.join('・')}`);
+    }
+    const next = { ...app, status, decided_at: new Date().toISOString() };
+    if (status === 'approved') {
+      next.decision = decision;
+      next.authority = authority || app.authority || 'デモ市区町村長';
+      // 証明書番号（整理番号）は交付時ではなく認定時に自治体が採番する
+      next.certificateNumber = app.certificateNumber || `${app.kind === 'disaster' ? 'DS' : 'KG'}-${app.id.slice(2)}`;
+    }
+    // 交付済みVCの扱い: 却下・取下げは無条件失効、認定は内容差分があるときだけ失効
+    const persona = this.users.get(app.userId);
+    const nextFp = status === 'approved' ? claimsFingerprint(claimsFor(next, persona)) : null;
+    const contentChanged = status !== 'approved' || (app.issuedFingerprint != null && nextFp !== app.issuedFingerprint);
+    let revoked = [];
+    if (app.issuedFingerprint != null && contentChanged) {
+      revoked = await this.#revokeForApplication(app.id, status === 'approved' ? '再判定により内容が変更' : `申請が${status === 'rejected' ? '却下' : '取下げ'}`);
+      next.issuedFingerprint = null;   // 失効させたので「交付済み」ではなくなる
+    }
+    Object.assign(app, next);
+    await this._saveApps();
+    return { application: app, revoked, contentChanged };
+  }
+
+  /** ある申請から発行された未失効のVCを全て失効させる（形式ごとに複数枚ある）。 */
+  async #revokeForApplication(applicationId, reason) {
+    await this._loadState();
+    const hit = this.issuanceLog.filter((e) => e.applicationId === applicationId && !this.statusList.isRevoked(e.idx));
+    for (const e of hit) this.statusList.revoke(e.idx, reason);
+    if (hit.length) await this._saveState();
+    return hit;
   }
 
   // ---- KV state persistence (issuanceLog + status bits survive isolate restarts) ----
@@ -191,7 +298,9 @@ export class IssuerService {
     const ids = await this.requestedIds({ scope, authorization_details, issuer_state });
     if (!ids.length) throw httpErr(400, 'invalid_scope', 'no credential configuration requested');
     const code = tok();
-    await this.store.set(`code:${code}`, { userId: sess.userId, ids, redirect_uri, code_challenge, used: false }, this.proofMaxAgeSec);
+    const applications = await this.requestedApplications(issuer_state);
+    await this.store.set(`code:${code}`, { userId: sess.userId, ids, redirect_uri, code_challenge, used: false,
+      ...(applications ? { applications } : {}) }, this.proofMaxAgeSec);
     const u = new URL(redirect_uri);
     u.searchParams.set('code', code);
     if (state != null) u.searchParams.set('state', state);
@@ -206,6 +315,13 @@ export class IssuerService {
       if (st) ids = st.ids;
     }
     return ids;
+  }
+
+  /** 発行者起点オファーが指定した「どの認定から交付するか」（configId → applicationId）。 */
+  async requestedApplications(issuer_state) {
+    if (!issuer_state) return null;
+    const st = await this.store.get(`istate:${issuer_state}`);
+    return st?.applications ?? null;
   }
 
   // ---- 12.2 Issuer Metadata (.well-known/openid-credential-issuer) ----
@@ -271,7 +387,7 @@ export class IssuerService {
   // merged over SAMPLE at mint time. This models an issuer-operator preparing an
   // offer for a specific record (e.g. a child's 住民票 for the kid-bank scenario);
   // it rides the pre-authorized_code path only.
-  async createOffer(credentialConfigurationIds, { txCode, grant = 'pre-authorized_code', claims = null, userId = null } = {}) {
+  async createOffer(credentialConfigurationIds, { txCode, grant = 'pre-authorized_code', claims = null, applications = null, userId = null } = {}) {
     const ids = [].concat(credentialConfigurationIds);
     for (const id of ids) if (!catalog.credential_configurations_supported[id]) throw httpErr(400, 'invalid_request', `unknown config ${id}`);
     // tx_code (PIN): `true` => issuer generates a fresh random PIN per offer; an
@@ -282,7 +398,7 @@ export class IssuerService {
     let grants = {}, preAuthorizedCode = null, issuerState = null;
     if (grant === 'authorization_code' || grant === 'both') {
       issuerState = tok();
-      await this.store.set(`istate:${issuerState}`, { ids }, 600);
+      await this.store.set(`istate:${issuerState}`, { ids, ...(applications ? { applications } : {}) }, 600);
       grants.authorization_code = { issuer_state: issuerState };
     }
     if (grant !== 'authorization_code') {
@@ -290,7 +406,7 @@ export class IssuerService {
       // bind the ISSUER-SIDE user (not a claims snapshot): the credential endpoint
       // reads the persona at mint time, so name edits between offer and redemption
       // still land in the VC. Already-redeemed credentials are naturally untouched.
-      await this.store.set(`pac:${preAuthorizedCode}`, { ids, txCode: pin, used: false, ...(claims ? { claims } : {}), ...(userId ? { userId } : {}) });
+      await this.store.set(`pac:${preAuthorizedCode}`, { ids, txCode: pin, used: false, ...(claims ? { claims } : {}), ...(applications ? { applications } : {}), ...(userId ? { userId } : {}) });
       const g = { 'pre-authorized_code': preAuthorizedCode };
       if (pin) g.tx_code = { input_mode: 'numeric', length: pin.length };
       grants[PRE_AUTH_GRANT] = g;
@@ -320,7 +436,8 @@ export class IssuerService {
       if (pac.txCode != null && String(params.tx_code) !== String(pac.txCode)) throw httpErr(400, 'invalid_grant', 'bad tx_code');
       await this.store.set(`pac:${code}`, { ...pac, used: true }); // one-time
       const accessToken = tok();
-      await this.store.set(`at:${accessToken}`, { ids: pac.ids, ...(pac.claims ? { claims: pac.claims } : {}), ...(pac.userId ? { userId: pac.userId } : {}) }, 600);
+      await this.store.set(`at:${accessToken}`, { ids: pac.ids, ...(pac.claims ? { claims: pac.claims } : {}),
+        ...(pac.applications ? { applications: pac.applications } : {}), ...(pac.userId ? { userId: pac.userId } : {}) }, 600);
       return { access_token: accessToken, token_type: 'Bearer', expires_in: 600 };
     }
     if (grant_type === 'authorization_code') {
@@ -332,7 +449,8 @@ export class IssuerService {
       if (!code_verifier || challenge !== rec.code_challenge) throw httpErr(400, 'invalid_grant', 'PKCE verification failed');
       await this.store.set(`code:${code}`, { ...rec, used: true }); // one-time
       const accessToken = tok();
-      await this.store.set(`at:${accessToken}`, { ids: rec.ids, userId: rec.userId }, 600);
+      await this.store.set(`at:${accessToken}`, { ids: rec.ids, userId: rec.userId,
+        ...(rec.applications ? { applications: rec.applications } : {}) }, 600);
       return { access_token: accessToken, token_type: 'Bearer', expires_in: 600 };
     }
     throw httpErr(400, 'unsupported_grant_type', String(grant_type));
@@ -362,23 +480,47 @@ export class IssuerService {
     const status = this.statusList.allocate();
     if (at.userId) await this._loadUsers(); // persona edits must survive isolate switches
     const persona = at.userId ? this.users.get(at.userId) : null; // session-bound data switch
-    // 離島割引資格証は対象者にしか交付されない（自治体が審査して台帳に載せる制度）。
-    // /account で「対象外」にした persona へ発行要求が来たら、ここで断る。
-    if (persona && configId.startsWith('island_') && !islandEligible(persona)) {
-      throw httpErr(400, 'invalid_credential_request', 'この利用者は離島割引の交付対象ではありません');
+
+    // ---- 申請ベース発行のゲート -------------------------------------------
+    // 罹災証明書・離島割引資格証は「自治体が審査して認定した人にだけ交付する」制度。
+    // ログイン中の persona に対しては、認定済み申請が無ければここで断る。
+    // persona 無し（SAMPLE 発行・シナリオ selftest）は従来どおり通す。
+    const credType = configId.replace(/_(mdoc|sdjwt)$/, '');
+    let application = null;
+    if (persona && requiresApplication(credType)) {
+      const usable = await this.issuableApplications(persona.id, credType);
+      if (usable.length === 0) {
+        const t = Object.values(await Promise.resolve(APP_TYPES)).find((x) => x.credType === credType);
+        throw httpErr(400, 'invalid_credential_request',
+          `${t?.short ?? credType}は交付申請の認定が必要です（認定済みの申請がありません）`);
+      }
+      // どの認定から交付するかはオファー/認可が運ぶ。指定が無ければ最新の認定。
+      const wanted = at.applications?.[configId] ?? at.applications?.[credType] ?? null;
+      application = (wanted && usable.find((a) => a.id === wanted)) || usable[usable.length - 1];
     }
-    // subject data precedence: offer-supplied override > persona > SAMPLE (in mint)
-    const claims = at.claims?.[configId] ?? personaClaims(configId, persona);
+
+    // subject data precedence: offer override > 認定内容 > persona > SAMPLE (in mint)
+    const claims = at.claims?.[configId]
+      ?? (application ? claimsFor(application, persona) : personaClaims(configId, persona));
     const minted = await mint(configId, { holderJwk, status, claims });
     this.issuanceLog.push({
       idx: status.idx, configId, format: minted.format,
       docType: minted.docType, vct: minted.vct,
       user: at.userId || null,
+      // どの申請から出たVCかを残す。これが無いと「熊本の罹災証明だけ失効」が撃てず、
+      // 同じ人の別の申請から出たVCまで巻き添えで失効させてしまう。
+      applicationId: application?.id ?? null,
       holder: `${holderJwk.x}.${holderJwk.y}`,
       issued_at: new Date().toISOString(),
       expires_at: new Date(Date.now() + 365 * 864e5).toISOString(),
     });
     await this._saveState();
+    // 交付済みの内容を申請側にも刻む（再判定で差分が出たかを比べる基準）
+    if (application) {
+      await this._loadApps();
+      const a = this.applications.find((x) => x.id === application.id);
+      if (a) { a.issuedFingerprint = claimsFingerprint(claims); await this._saveApps(); }
+    }
     const wire = minted.format === 'mso_mdoc'
       ? Buffer.from(minted.credential).toString('base64url') // binary -> base64url JSON string
       : minted.credential;                                    // SD-JWT compact string

@@ -193,9 +193,16 @@ const disaster = {
   formats: { mso_mdoc: { doctype: DS_NS, namespace: DS_NS }, 'dc+sd-jwt': { vct: 'urn:jp:disaster:1' } },
   basic_four: [],
   claims: [
-    c('family_name', 'string', { ja: '姓', en: 'Family name' }, { ns: DS_NS }),
-    c('given_name', 'string', { ja: '名', en: 'Given name' }, { ns: DS_NS }),
-    c('address', 'string', { ja: '罹災住所', en: 'Damaged property address' }, { ns: DS_NS }),
+    // 内閣府「罹災証明書の様式の統一化について」（府政防第737号・令和2年3月30日）の
+    // 必須記載事項は 整理番号／世帯主住所／世帯主氏名／罹災原因／被災住家の所在地／
+    // 住家の被害の程度。**世帯主住所と被災住家の所在地は別項目**（別宅の被災がある）。
+    c('family_name', 'string', { ja: '姓', en: 'Family name' }, { ns: DS_NS, note: '世帯主氏名' }),
+    c('given_name', 'string', { ja: '名', en: 'Given name' }, { ns: DS_NS, note: '世帯主氏名' }),
+    c('head_of_household_address', 'string', { ja: '世帯主住所', en: 'Head of household address' }, { ns: DS_NS }),
+    c('address', 'string', { ja: '被災住家の所在地', en: 'Damaged dwelling address' }, { ns: DS_NS }),
+    // 追加記載事項欄①（任意）。内閣府の記載例には氏名・続柄つきで載っている。
+    // 支援施策が世帯単位であり、被災住家に居住実態があれば世帯主以外も申請できるため。
+    c('household_members', 'array', { ja: '世帯構成員（続柄付き）', en: 'Household members' }, { ns: DS_NS, optional: true, sensitive: true }),
     c('disaster_name', 'string', { ja: '災害名', en: 'Disaster name' }, { ns: DS_NS }),
     c('disaster_date', 'full-date', { ja: '罹災日', en: 'Date of disaster' }, { ns: DS_NS }),
     c('damage_level', 'string', { ja: '被害程度', en: 'Damage level' }, { ns: DS_NS, note: 'e.g. 全壊/半壊/一部損壊' }),

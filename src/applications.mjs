@@ -1,0 +1,229 @@
+// 申請ベース発行（交付に自治体の審査が要るクレデンシャル）の定義カタログと状態機械。
+//
+// 罹災証明書・離島割引資格証はどちらも「申請 → 審査 → 認定 → 交付可能」という
+// 同じ骨格で、違うのは (1) 申請者が書く項目 (2) 添付書類 (3) 審査で決まる項目 の3つだけ。
+// そこをデータで持たせて器を共通化する。新しい書類を足すときは APPLICATION_TYPES に
+// 1エントリ書けばよく、画面・状態遷移・失効の仕組みには手を入れない。
+//
+// 重要な性質:
+//  - **申請1件 = 交付されるVC 1枚（形式ごと）**。同じ人が「東京で被災」「熊本で被災」の
+//    罹災証明を同時に持てるし、鹿児島と沖縄の離島割引も同時に持てる。
+//  - **審査で決まる項目は申請者に書かせない**（被害の程度・対象区分）。実制度どおり。
+//  - 交付内容は toClaims(app, persona) が組み立てる。再判定時はこの結果のハッシュを
+//    比べ、差分があるときだけ既発行を失効させる（src/oid4vci.mjs の revokeForApplication）。
+
+/** 申請の状態。approved だけが「交付できる」。 */
+export const STATUS = {
+  submitted: { label: '受付（調査待ち）', chip: 'wait', issuable: false },
+  surveying: { label: '調査中', chip: 'doing', issuable: false },
+  approved: { label: '認定', chip: 'ok', issuable: true },
+  rejected: { label: '却下', chip: 'ng', issuable: false },
+  withdrawn: { label: '取下げ', chip: 'ng', issuable: false },
+};
+export const isIssuable = (app) => !!app && STATUS[app.status]?.issuable === true;
+
+/** 状態遷移の許可表。ここに無い遷移は拒否する（画面の押し間違いを実装で止める）。 */
+const TRANSITIONS = {
+  submitted: ['surveying', 'approved', 'rejected', 'withdrawn'],
+  surveying: ['approved', 'rejected', 'withdrawn'],
+  approved: ['approved', 'rejected', 'withdrawn'],   // approved→approved = 再判定
+  rejected: ['surveying', 'approved'],               // 再調査で覆ることがある
+  withdrawn: [],
+};
+export const canTransition = (from, to) => (TRANSITIONS[from] || []).includes(to);
+
+const f = (key, label, type, o = {}) => ({ key, label, type, required: !!o.required, ...o });
+
+// ---- 罹災証明書 -------------------------------------------------------------
+// 様式は内閣府「罹災証明書の様式の統一化について」（府政防第737号・令和2年3月30日）。
+// 必須記載事項は 整理番号／世帯主住所／世帯主氏名／罹災原因／被災住家の所在地／
+// 住家の被害の程度 の6つ。世帯構成員は「追加記載事項欄①」に入る任意項目だが、
+// 内閣府の記載例そのものに載っているので既定で記載する。
+const DAMAGE_LEVELS = [
+  ['全壊', '損害割合 50%以上'],
+  ['大規模半壊', '40%以上 50%未満'],
+  ['中規模半壊', '30%以上 40%未満'],   // 令和2年12月の被災者生活再建支援法改正で新設
+  ['半壊', '20%以上 30%未満'],
+  ['準半壊', '10%以上 20%未満'],
+  ['準半壊に至らない（一部損壊）', '10%未満'],
+];
+
+const disaster = {
+  id: 'disaster',
+  credType: 'disaster',
+  title: '罹災証明書の交付申請',
+  short: '罹災証明書',
+  lead: '被災した住家の被害程度について、市区町村の被害認定調査を受けます',
+  basis: '災害対策基本法 第90条の2 ／ 手数料 無料 ／ 標準処理期間 約1週間',
+  reviewTitle: '被害認定調査・判定',
+  reviewLead: '現地調査および写真に基づき、内閣府「災害の被害認定基準」により住家の被害の程度を判定します。',
+  attachmentLabel: '被害状況の写真・書類',
+  attachmentRequired: true,
+  attachmentHint: '被害が軽微で「準半壊に至らない（一部損壊）」の判定に同意できる場合は、写真による自己判定方式を選べます',
+  form: [
+    f('damaged_address', '被災住家の所在地', 'text', { required: true,
+      hint: '世帯主住所と異なる場合（別宅・転居前など）はその住所を入力してください' }),
+    f('building_type', '住家の種別', 'select', { options: ['木造2階建', '木造平屋', '非木造（共同住宅）', 'その他'] }),
+    f('disaster_date', '罹災日', 'date', { required: true }),
+    f('disaster_name', '災害名', 'text', { required: true, placeholder: '例: 令和8年 熊本地震' }),
+    f('statement', '被害の状況', 'textarea', { required: true,
+      placeholder: '例: 地震により1階部分の柱が傾き、居住できない状態です' }),
+  ],
+  decision: [
+    f('damage_level', '被害の程度（判定）', 'radio', { required: true, options: DAMAGE_LEVELS }),
+    f('extra_note', '追加記載事項（任意）', 'text', { placeholder: '例: 床上浸水、土地の一部流出 など' }),
+    f('include_household', '世帯構成員を証明書に記載する', 'check', { default: true,
+      hint: '内閣府統一様式の追加記載事項欄①' }),
+  ],
+  // 見出し = 同じ書類の複数件を見分けるもの（災害名 ＋ 被災住家）
+  label: (app) => [app.form?.disaster_name, app.form?.damaged_address].filter(Boolean).join('・') || '罹災証明',
+  sub: (app) => app.decision?.damage_level ?? '',
+  // 認定内容から VC のクレームを組む。persona は住基側の情報（氏名・住所・世帯）。
+  toClaims: (app, persona) => {
+    const d = app.decision || {}; const w = app.form || {};
+    const claims = {
+      family_name: persona?.family, given_name: persona?.given,
+      head_of_household_address: persona?.address,     // 世帯主住所（統一様式の必須）
+      address: w.damaged_address,                      // 被災住家の所在地（統一様式の必須）
+      disaster_name: w.disaster_name, disaster_date: w.disaster_date,
+      damage_level: d.damage_level,
+      building_type: w.building_type || undefined,
+      certificate_number: app.certificateNumber,
+      issuing_authority: app.authority,
+    };
+    if (d.include_household !== false) {
+      claims.household_members = [
+        { family_name: persona?.family, given_name: persona?.given, birth_date: persona?.birth, relationship_to_head: '世帯主' },
+        ...(persona?.household || []).map((m) => ({
+          family_name: m.family, given_name: m.given, birth_date: m.birth, relationship_to_head: m.rel || '同居人',
+        })),
+      ];
+    }
+    return claims;
+  },
+};
+
+// ---- 離島割引資格証 ---------------------------------------------------------
+// 実制度: 自治体が島民/準島民を審査して交付。準島民の区分は自治体ごとに異なり
+// （壱岐市6区分・八丈町3区分・五島市2区分など）、必要書類も事由で変わる。
+const ISLAND_REASONS = [
+  '就学（離島出身・島外の学校に在学）',
+  '介護（要介護の親族の介護で年6回以上来島）',
+  '就業・工事等での反復した来島',
+  '短期滞在型住宅の利用',
+];
+const island = {
+  id: 'island',
+  credType: 'island',
+  title: '離島割引資格証の交付申請',
+  short: '離島割引資格証',
+  lead: '島民・準島民の区分について、交付自治体の審査を受けます',
+  basis: '有人国境離島法 ほか ／ 手数料 無料 ／ 標準処理期間 約2週間',
+  reviewTitle: '対象区分の審査',
+  reviewLead: '住民登録および提出書類に基づき、島民・準島民の区分を認定します。',
+  attachmentLabel: '添付書類',
+  attachmentRequired: false,
+  attachmentHint: '準島民は事由を証明する書類（在学証明書・戸籍・介護保険被保険者証など）が必要です',
+  form: [
+    f('applied_category', '申請する区分', 'radio', { required: true,
+      options: [['島民', '対象離島に住民登録がある'], ['準島民', '島外に住むが、介護・就学などで反復して往来する']] }),
+    f('reason', '準島民の事由', 'select', { options: ISLAND_REASONS,
+      hint: '区分が「準島民」のときのみ資格証に記載されます' }),
+    f('island_name', '対象離島', 'text', { required: true, placeholder: '例: 種子島' }),
+    f('municipality', '交付自治体', 'text', { required: true, placeholder: '例: 鹿児島県西之表市' }),
+  ],
+  decision: [
+    f('resident_category', '対象区分（認定）', 'radio', { required: true,
+      options: [['島民', '住民登録を確認'], ['準島民', '事由と提出書類を確認'], ['対象外', '交付しない']] }),
+    f('expiry_date', '有効期限', 'date', { required: true,
+      hint: '実制度: 島民＝交付から3年 / 準島民＝1年・就学は卒業月末' }),
+  ],
+  label: (app) => [app.form?.municipality, app.form?.island_name].filter(Boolean).join('・') || '離島割引',
+  sub: (app) => app.decision?.resident_category ?? '',
+  toClaims: (app, persona) => {
+    const d = app.decision || {}; const w = app.form || {};
+    const quasi = d.resident_category === '準島民';
+    return {
+      family_name: persona?.family, given_name: persona?.given, birth_date: persona?.birth,
+      resident_category: d.resident_category,
+      // 準島民の事由は最も機微な項目。準島民以外では載せない
+      quasi_reason: quasi ? (w.reason || undefined) : undefined,
+      island_name: w.island_name,
+      issuing_municipality: w.municipality,
+      eligible_routes: app.form?.routes || '鹿児島=種子島',
+      fare_scheme: '有人国境離島(特定有人国境離島地域)',
+      card_number: app.certificateNumber,
+      issuing_authority: app.authority,
+      expiry_date: d.expiry_date,
+    };
+  },
+  // 「対象外」で認定された場合は交付しない（認定＝必ず交付可能、ではない）
+  issuableWhenApproved: (app) => app.decision?.resident_category !== '対象外',
+};
+
+export const APPLICATION_TYPES = { disaster, island };
+export const applicationTypeList = () => Object.values(APPLICATION_TYPES);
+export const getApplicationType = (id) => APPLICATION_TYPES[id] || null;
+/** その資格証は申請が要るか（要らないものは従来どおり誰でも発行できる）。 */
+export const requiresApplication = (credType) =>
+  Object.values(APPLICATION_TYPES).some((t) => t.credType === credType);
+
+/** 交付できる申請か。approved かつ、種別ごとの追加条件（離島の「対象外」）を満たすこと。 */
+export function canIssueFrom(app) {
+  if (!isIssuable(app)) return false;
+  const t = getApplicationType(app.kind);
+  return t?.issuableWhenApproved ? !!t.issuableWhenApproved(app) : true;
+}
+
+export const labelOf = (app) => getApplicationType(app?.kind)?.label(app) ?? '';
+export const subOf = (app) => getApplicationType(app?.kind)?.sub(app) ?? '';
+
+/** 認定内容から VC クレームを組む（種別ごとの toClaims へ委譲）。 */
+export function claimsFor(app, persona) {
+  const t = getApplicationType(app?.kind);
+  if (!t) return {};
+  const c = t.toClaims(app, persona);
+  // undefined は落とす（mint 側で「未指定」と「空文字」を混同させない）
+  return Object.fromEntries(Object.entries(c).filter(([, v]) => v !== undefined && v !== null && v !== ''));
+}
+
+/** 交付内容の同一性を判定するためのハッシュ材料。発行日・有効期限のように
+ *  交付のたびに変わる項目は含めない（含めると常に「差分あり」になる）。 */
+export function claimsFingerprint(claims) {
+  const skip = new Set(['issuance_date']);
+  const stable = Object.keys(claims).filter((k) => !skip.has(k)).sort()
+    .map((k) => [k, claims[k]]);
+  return JSON.stringify(stable);
+}
+
+// ---- 初期データ -------------------------------------------------------------
+// 以前は persona.island（/account の編集欄）が離島の対象区分の正本だったが、
+// 「自治体が審査して台帳に載せる」という制度の形に合わせ、認定済み申請へ一本化した。
+// 対象外の人は単に申請を持たない（＝交付されない）。
+export function seedApplications() {
+  const app = (id, userId, kind, form, decision, authority, cert, at) => ({
+    id, userId, kind, status: 'approved', form, decision,
+    attachments: [], authority, certificateNumber: cert,
+    submitted_at: at, decided_at: at, issuedFingerprint: null,
+  });
+  return [
+    // 山田 太郎: 種子島の島民
+    app('A-0001', 'u_001', 'island',
+      { applied_category: '島民', island_name: '種子島', municipality: '鹿児島県西之表市' },
+      { resident_category: '島民', expiry_date: '2029-03-14' },
+      '西之表市長', 'KG-0001', '2026-03-15T00:00:00.000Z'),
+    // 山田 太郎: 令和7年台風第10号で被災（半壊）
+    app('A-0002', 'u_001', 'disaster',
+      { damaged_address: '東京都千代田区1-1-1', disaster_name: '令和7年台風第10号',
+        disaster_date: '2025-09-12', building_type: '木造2階建',
+        statement: '台風による浸水で1階が使用できない状態です。' },
+      { damage_level: '半壊', include_household: true },
+      '千代田区長', 'DS-0002', '2026-06-01T00:00:00.000Z'),
+    // 田中 美咲: 種子島の準島民（就学）
+    app('A-0003', 'u_004', 'island',
+      { applied_category: '準島民', reason: '就学（離島出身・島外の学校に在学）',
+        island_name: '種子島', municipality: '鹿児島県西之表市' },
+      { resident_category: '準島民', expiry_date: '2027-03-31' },
+      '西之表市長', 'KG-0003', '2026-03-15T00:00:00.000Z'),
+  ];
+}

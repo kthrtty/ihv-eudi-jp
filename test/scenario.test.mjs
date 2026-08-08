@@ -458,27 +458,40 @@ test('offer claims override: subject data in the offer rides pre-auth issuance i
   assert.equal(r.claims.head_of_household_name, '山田 太郎');
 });
 
-// 離島割引は自治体が審査して台帳に載せる制度なので、「対象外」の人には交付されない。
-// /account の区分（users.island.category）が発行の可否そのものを決めるところを pin する。
-test('scenarios: 離島割引資格証は「対象外」の persona には交付されない（島民なら通る）', async () => {
+// 交付申請ベースの発行。「認定済みの申請がある人にだけ交付する」という制度の形を、
+// 発行 EP の実挙動で pin する（画面ではなくプロトコル層で断ること）。
+test('scenarios: 申請の認定が無い persona には交付されない（認定済みなら通る）', async () => {
   const req = (p, i) => fetch(ISSUER + p, i);
   const login = async (user_id) => (await (await fetch(`${ISSUER}/login`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id }),
   })).json()).session_id;
 
-  // 佐藤花子（u_002）= 対象外
+  // 佐藤花子（u_002）= 離島の申請なし
   const offSession = await login('u_002');
   await assert.rejects(
     () => createWallet().authorizeAndReceive({
       request: req, configId: 'island_mdoc', sessionId: offSession, credentialIssuer: ISSUER,
     }),
-    (e) => /対象|invalid_credential_request/.test(String(e?.message ?? e)),
-    '対象外の persona への離島割引資格証の発行は拒否される');
+    (e) => /交付申請の認定が必要|invalid_credential_request/.test(String(e?.message ?? e)),
+    '申請の認定が無い persona への発行は拒否される');
 
-  // 山田太郎（u_001）= 島民 → 発行できる
+  // 山田太郎（u_001）= 島民として認定済み → 発行できる
   const onSession = await login('u_001');
   const ok = await createWallet().authorizeAndReceive({
     request: req, configId: 'island_mdoc', sessionId: onSession, credentialIssuer: ISSUER,
   });
-  assert.ok(ok, '島民の persona には交付される');
+  assert.ok(ok, '認定済みの persona には交付される');
+
+  // 罹災証明書も同じゲートを通る（u_001 は令和7年台風第10号で認定済み）
+  const dSession = await login('u_001');
+  const d = await createWallet().authorizeAndReceive({
+    request: req, configId: 'disaster_mdoc', sessionId: dSession, credentialIssuer: ISSUER,
+  });
+  assert.ok(d, '罹災も認定済みなら交付される');
+  const dOffSession = await login('u_002');
+  await assert.rejects(
+    () => createWallet().authorizeAndReceive({
+      request: req, configId: 'disaster_mdoc', sessionId: dOffSession, credentialIssuer: ISSUER,
+    }),
+    (e) => /交付申請の認定が必要|invalid_credential_request/.test(String(e?.message ?? e)));
 });
