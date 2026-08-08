@@ -15,6 +15,7 @@
 //    推定しない。交付者名も対象自治体名もそこから確定する——審査した職員の所属からは取らない。
 
 import { authorityOf, fullName, getMunicipality } from './municipalities.mjs';
+import { getDisaster } from './disasters.mjs';
 
 /** 申請先自治体（レコード）。旧レコード（target_code 以前）は null。 */
 export const targetOf = (app) => getMunicipality(app?.target_code);
@@ -22,6 +23,10 @@ export const targetOf = (app) => getMunicipality(app?.target_code);
 export const targetName = (app) => fullName(app?.target_code) ?? app?.form?.municipality ?? '';
 /** 証明書に載る交付者名。申請先から確定する（職員の所属からは取らない）。 */
 export const targetAuthority = (app) => authorityOf(app?.target_code);
+/** 罹災の対象災害。旧レコード（自由入力時代）は災害名・罹災日をフォームに持つ。 */
+export const disasterOf = (app) => getDisaster(app?.disaster_id);
+export const disasterName = (app) => disasterOf(app)?.name ?? app?.form?.disaster_name ?? '';
+export const disasterDate = (app) => disasterOf(app)?.occurred ?? app?.form?.disaster_date ?? '';
 
 /** 申請の状態。approved だけが「交付できる」。
  *  `by` = その状態にした主体（却下＝自治体／取下げ＝申請者。色を分ける根拠）。
@@ -80,6 +85,8 @@ const disaster = {
   lead: '被災した住家の被害程度について、市区町村の被害認定調査を受けます',
   basis: '災害対策基本法 第90条の2 ／ 手数料 無料 ／ 標準処理期間 約1週間',
   applyToLead: '罹災証明書は、被災した住家のある市区町村あてに提出します（住民票の自治体とは限りません）。',
+  // 罹災は「災害 → その災害の対象自治体」の順に絞る（自治体の恒常的な能力ではない）
+  byDisaster: true,
   reviewTitle: '被害認定調査・判定',
   surveyingLabel: '現地調査中',
   reviewLead: '現地調査および写真に基づき、内閣府「災害の被害認定基準」により住家の被害の程度を判定します。',
@@ -90,8 +97,9 @@ const disaster = {
     f('damaged_address', '被災住家の所在地', 'text', { required: true,
       hint: '世帯主住所と異なる場合（別宅・転居前など）はその住所を入力してください' }),
     f('building_type', '住家の種別', 'select', { options: ['木造2階建', '木造平屋', '非木造（共同住宅）', 'その他'] }),
-    f('disaster_date', '罹災日', 'date', { required: true }),
-    f('disaster_name', '災害名', 'text', { required: true, placeholder: '例: 令和8年 熊本地震' }),
+    // 災害名・罹災日は**災害マスタ由来**（申請の入口で災害を選ぶ）。自由入力に戻すと
+    // 「令和8年熊本地震・テスト」のような値が台帳に残る
+
     f('statement', '被害の状況', 'textarea', { required: true,
       placeholder: '例: 地震により1階部分の柱が傾き、居住できない状態です' }),
   ],
@@ -102,7 +110,7 @@ const disaster = {
       hint: '内閣府統一様式の追加記載事項欄①' }),
   ],
   // 見出し = 同じ書類の複数件を見分けるもの（災害名 ＋ 被災住家）
-  label: (app) => [app.form?.disaster_name, app.form?.damaged_address].filter(Boolean).join('・') || '罹災証明',
+  label: (app) => [disasterName(app), app.form?.damaged_address].filter(Boolean).join('・') || '罹災証明',
   sub: (app) => app.decision?.damage_level ?? '',
   // 認定内容から VC のクレームを組む。persona は住基側の情報（氏名・住所・世帯）。
   toClaims: (app, persona) => {
@@ -111,7 +119,7 @@ const disaster = {
       family_name: persona?.family, given_name: persona?.given,
       head_of_household_address: persona?.address,     // 世帯主住所（統一様式の必須）
       address: w.damaged_address,                      // 被災住家の所在地（統一様式の必須）
-      disaster_name: w.disaster_name, disaster_date: w.disaster_date,
+      disaster_name: disasterName(app), disaster_date: disasterDate(app),
       damage_level: d.damage_level,
       building_type: w.building_type || undefined,
       certificate_number: app.certificateNumber,
@@ -230,8 +238,8 @@ export function claimsFingerprint(claims) {
 // 「自治体が審査して台帳に載せる」という制度の形に合わせ、認定済み申請へ一本化した。
 // 対象外の人は単に申請を持たない（＝交付されない）。
 export function seedApplications() {
-  const app = (id, userId, kind, targetCode, form, decision, authority, cert, at) => ({
-    id, userId, kind, status: 'approved', target_code: targetCode, form, decision,
+  const app = (id, userId, kind, targetCode, form, decision, authority, cert, at, disasterId = null) => ({
+    id, userId, kind, status: 'approved', target_code: targetCode, disaster_id: disasterId, form, decision,
     attachments: [], authority, certificateNumber: cert, decided_by: null,
     submitted_at: at, decided_at: at, issuedFingerprint: null,
   });
@@ -242,12 +250,12 @@ export function seedApplications() {
       { resident_category: '島民', expiry_date: '2029-03-14' },
       '西之表市長', 'KG-0001', '2026-03-15T00:00:00.000Z'),
     // 山田 太郎: 令和7年台風第10号で被災（半壊）
-    app('A-0002', 'u_001', 'disaster', '13101',
-      { damaged_address: '東京都千代田区1-1-1', disaster_name: '令和7年台風第10号',
-        disaster_date: '2025-09-12', building_type: '木造2階建',
-        statement: '台風による浸水で1階が使用できない状態です。' },
+    // 世帯主住所（千代田区）と被災住家（世田谷区）が別＝統一様式が別項目にしている形
+    app('A-0002', 'u_001', 'disaster', '13112',
+      { damaged_address: '東京都世田谷区玉川3-1-1', building_type: '木造2階建',
+        statement: '多摩川の氾濫による浸水で1階が使用できない状態です。' },
       { damage_level: '半壊', include_household: true },
-      '千代田区長', 'DS-0002', '2026-06-01T00:00:00.000Z'),
+      '世田谷区長', 'DS-0002', '2019-11-01T00:00:00.000Z', 'r1-higashinihon'),
     // 田中 美咲: 種子島の準島民（就学）
     app('A-0003', 'u_004', 'island', '46213',
       { applied_category: '準島民', reason: '就学（離島出身・島外の学校に在学）',

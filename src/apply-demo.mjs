@@ -3,7 +3,8 @@
 // 一覧は **PC=表組み / SP=カード** を1マークアップで両立（列数だけ切り替える）。
 import { appShell } from './authcode-demo.mjs';
 import { WALLET_CARD_THEME, swatchEmblemHtml, swatchEmblemCss } from './authcode-demo.mjs';
-import { STATUS, statusView, labelOf, subOf, getApplicationType, applicationTypeList, targetName } from './applications.mjs';
+import { STATUS, statusView, labelOf, subOf, getApplicationType, applicationTypeList, targetName, disasterName, disasterDate } from './applications.mjs';
+import { listDisasters } from './disasters.mjs';
 import { prefecturesFor, municipalitiesIn } from './municipalities.mjs';
 import { ACCEPT_ATTR, MAX_FILES, MAX_FILE_BYTES, MAX_TOTAL_BYTES, MAX_PICK_BYTES, STORE_EDGE, THUMB_EDGE, thumbDataUri } from './upload.mjs';
 
@@ -191,30 +192,65 @@ export const field = (x, val = '') => {
     <input type="${x.type === 'date' ? 'date' : 'text'}" name="${esc(x.key)}" value="${esc(val)}" placeholder="${esc(x.placeholder || '')}">${hint}</div>`;
 };
 
+/** 対象の災害を選ぶ（罹災のみ・手続き → **災害** → 自治体 → フォーム）。
+ *  罹災証明は自治体の恒常的なサービスではなく、災害というイベントに従属する
+ *  （災害対策基本法 第90条の2「当該市町村の地域に係る災害が発生した場合において」）。 */
+export function renderDisasterPicker(user, t) {
+  const row = (d) => `<a class="dcard" href="/apply/${esc(t.id)}?d=${encodeURIComponent(d.id)}">
+    <b>${esc(d.name)}</b>
+    <small class="dwhen">発生 ${esc(d.occurred)}　／　対象 ${d.codes.length} 市区町村（本デモ収録分）</small>
+    <small class="dnote">${esc(d.note)}</small>
+    <span class="dgo">申請先を選ぶ ›</span></a>`;
+  return appShell(`${t.short} — 災害を選ぶ`, `
+    <div style="margin-top:22px">
+      <div class="crumb"><a href="/" style="color:inherit">発行カタログ</a> › 申請できる手続き › ${esc(t.short)}</div>
+      <h1 style="font-size:20px;margin:0 0 10px">${esc(t.short)} — 対象の災害</h1>
+      <div class="stepbar"><span class="done">① 手続き</span>›<span class="cur">② 災害</span>›<span class="todo">③ 申請先</span>›<span class="todo">④ 申請</span>›<span class="todo">⑤ 審査</span></div>
+      <p class="lead">罹災証明書は<b>災害が発生した市区町村</b>が交付します（災害対策基本法 第90条の2）。
+        まず対象の災害を選んでください。</p>
+      <div class="dlist">${listDisasters().map(row).join('')}</div>
+      <div class="todo">🚧 <b>本デモは災害を固定データで持っています。</b>実運用では自治体の防災システムが災害を登録します。
+        対象自治体は内閣府「災害救助法の適用状況」からの抜粋で、網羅ではありません
+        （災害救助法の適用と罹災証明の交付対象は一致せず、適用されない小規模災害でも罹災証明は出ます）。</div>
+    </div>
+    <style>${CSS}${PICK_CSS}</style>`, user, { width: 'mid' });
+}
+
 /** 申請先の市区町村を選ぶ（手続き → 自治体 → フォーム の2番目）。
  *  **その手続きを扱う自治体だけ**を出す。自治体を先に選ばせると「取扱いなし」という
  *  行き止まりを見せることになるので、絞り込みの向きはこちらが正しい。 */
-export function renderMunicipalityPicker(user, t, { pref = '', suggested = null } = {}) {
-  const prefs = prefecturesFor(t.id);
-  const cur = prefs.includes(pref) ? pref : (suggested && prefs.includes(suggested.pref) ? suggested.pref : prefs[0]);
-  const list = municipalitiesIn(cur, t.id);
-  const card = (x) => `<a class="mcard" href="/apply/${esc(t.id)}/${esc(x.code)}">
+export function renderMunicipalityPicker(user, t, { pref = '', suggested = null, disaster = null } = {}) {
+  // 罹達は災害の対象自治体だけ、離島は取扱いのある自治体だけ
+  const codes = disaster ? disaster.codes : null;
+  const proc = disaster ? null : t.id;
+  const prefs = prefecturesFor(proc, codes);
+  // 既定は、住民票からの提案 → 対象自治体が最も多い県（＝被害の中心）→ 先頭 の順
+  const most = prefs.slice().sort((a, b) => municipalitiesIn(b, proc, codes).length - municipalitiesIn(a, proc, codes).length)[0];
+  const cur = prefs.includes(pref) ? pref : (suggested && prefs.includes(suggested.pref) ? suggested.pref : (most || prefs[0]));
+  const list = municipalitiesIn(cur, proc, codes);
+  const q = disaster ? `?d=${encodeURIComponent(disaster.id)}` : '';
+  const card = (x) => `<a class="mcard" href="/apply/${esc(t.id)}/${esc(x.code)}${q}">
     <b>${esc(x.name)}</b><small>${esc(x.code)}</small>
     ${x.islands.length ? `<span class="isl">対象離島: ${esc(x.islands.join('・'))}</span>` : ''}</a>`;
   return appShell(`${t.short} — 申請先を選ぶ`, `
     <div style="margin-top:22px">
       <div class="crumb"><a href="/" style="color:inherit">発行カタログ</a> › 申請できる手続き › ${esc(t.short)}</div>
       <h1 style="font-size:20px;margin:0 0 10px">${esc(t.short)} — 申請先の市区町村</h1>
-      <div class="stepbar"><span class="done">① 手続き</span>›<span class="cur">② 申請先</span>›<span class="todo">③ 申請</span>›<span class="todo">④ 審査</span>›<span class="todo">⑤ 交付</span></div>
+      <div class="stepbar">${disaster
+        ? `<span class="done">① 手続き</span>›<span class="done">② 災害</span>›<span class="cur">③ 申請先</span>›<span class="todo">④ 申請</span>›<span class="todo">⑤ 審査</span>`
+        : `<span class="done">① 手続き</span>›<span class="cur">② 申請先</span>›<span class="todo">③ 申請</span>›<span class="todo">④ 審査</span>›<span class="todo">⑤ 交付</span>`}</div>
+      ${disaster ? `<div class="pin"><span class="pi">🌊</span>
+        <span>対象の災害　<b>${esc(disaster.name)}</b><span class="sub">発生 ${esc(disaster.occurred)}</span></span>
+        <a class="chg" href="/apply/${esc(t.id)}">災害を変更</a></div>` : ''}
       <p class="lead">${esc(t.applyToLead)}<br>
         <b>この手続きを扱う自治体だけ</b>を出しています。住所からは推定しません——申請先はご自身で選びます。</p>
       ${suggested ? `<div class="recent"><span>住民票の住所から</span>
         <a href="/apply/${esc(t.id)}/${esc(suggested.code)}">${esc(suggested.pref)} ${esc(suggested.name)}</a></div>` : ''}
       <div class="pick">
         <div class="pcol"><b class="h">都道府県${t.id === 'island' ? '（取扱いのある県のみ）' : ''}</b>
-          ${prefs.map((p) => `<a href="/apply/${esc(t.id)}?pref=${encodeURIComponent(p)}" class="${p === cur ? 'on' : ''}">${esc(p)}</a>`).join('')}
+          ${prefs.map((p) => `<a href="/apply/${esc(t.id)}?${disaster ? `d=${encodeURIComponent(disaster.id)}&` : ''}pref=${encodeURIComponent(p)}" class="${p === cur ? 'on' : ''}">${esc(p)}</a>`).join('')}
         </div>
-        <div class="mcol"><b class="h">${esc(cur)} で${esc(t.short)}を交付する市区町村（${list.length}件）</b>
+        <div class="mcol"><b class="h">${esc(cur)} の${disaster ? '対象' : `${esc(t.short)}を交付する`}市区町村（${list.length}件）</b>
           <div class="mgrid">${list.map(card).join('')}</div>
           <p class="fhint" style="margin-top:12px">正本は総務省「全国地方公共団体コード」。名称・団体コード・<b>長の呼称</b>（区長／市長／町長／村長）を持ちます。
             本デモは一部のみ収録しています。</p>
@@ -225,18 +261,22 @@ export function renderMunicipalityPicker(user, t, { pref = '', suggested = null 
 }
 
 /** 申請フォーム。審査で決まる項目（被害の程度・対象区分）はここに出さない。 */
-export function renderApplyForm(user, t, muni, { error = '', prefill = {} } = {}) {
+export function renderApplyForm(user, t, muni, { error = '', prefill = {}, disaster = null } = {}) {
   return appShell(t.title, `
     <div style="margin-top:22px">
       <div class="crumb"><a href="/" style="color:inherit">発行カタログ</a> › <a href="/apply/${esc(t.id)}" style="color:inherit">${esc(t.short)}</a> › ${esc(muni.pref)} ${esc(muni.name)}</div>
       <h1 style="font-size:20px;margin:0 0 12px">${esc(t.title)}</h1>
       ${error ? `<div class="warn err">⚠️ ${esc(error)}</div>` : ''}
+      ${disaster ? `<div class="pin"><span class="pi">🌊</span>
+        <span>対象の災害　<b>${esc(disaster.name)}</b><span class="sub">発生 ${esc(disaster.occurred)}</span></span>
+        <a class="chg" href="/apply/${esc(t.id)}">変更</a></div>` : ''}
       <div class="pin"><span class="pi">🏛</span>
         <span>申請先　<b>${esc(muni.pref)} ${esc(muni.name)}</b>
           <span class="sub">交付者に「${esc(muni.head)}」が記載されます</span></span>
-        <a class="chg" href="/apply/${esc(t.id)}">変更</a></div>
+        <a class="chg" href="/apply/${esc(t.id)}${disaster ? `?d=${encodeURIComponent(disaster.id)}` : ''}">変更</a></div>
       <p class="lead">${esc(t.lead)}<br><span style="font-size:11px">${esc(t.basis)}</span></p>
       <form class="acard" method="POST" action="/apply/${esc(t.id)}/${esc(muni.code)}" enctype="multipart/form-data">
+        ${disaster ? `<input type="hidden" name="disaster_id" value="${esc(disaster.id)}">` : ''}
         <div class="sec">申請者<span class="tagro">住民基本台帳から自動入力</span></div>
         <div class="g2">
           <div class="fld"><label>氏名</label><div class="ro">${esc(user.family)} ${esc(user.given)}</div></div>
@@ -393,7 +433,7 @@ export function renderApplyForm(user, t, muni, { error = '', prefill = {} } = {}
           ${t.id === 'disaster' ? '市区町村の被害認定調査によって判定され、認定後に証明書へ記載されます。' : '交付自治体の審査により認定され、認定後に資格証へ記載されます。'}</div>
 
         <div class="acts"><button class="abtn" type="submit">この内容で申請する</button>
-          <a class="abtn gh" href="/apply/${esc(t.id)}">申請先を選び直す</a></div>
+          <a class="abtn gh" href="/apply/${esc(t.id)}${disaster ? `?d=${encodeURIComponent(disaster.id)}` : ''}">申請先を選び直す</a></div>
       </form>
     </div>
     <style>${CSS}</style>`, user, { width: 'mid' });
@@ -443,6 +483,7 @@ export function renderMyApplication(user, a, { justSubmitted = false, issued = [
       <div class="two">
         <div class="acard">
           <div class="sec">申請内容（申告）<span class="tagro">受付 ${esc(a.id)}</span></div>
+          ${a.kind === 'disaster' ? kv('対象の災害', [disasterName(a), disasterDate(a) && `（発生 ${disasterDate(a)}）`].filter(Boolean).join('')) : ''}
           ${kv('申請先', targetName(a))}
           ${kv('申請者', `${esc(user.family)} ${esc(user.given)}`)}
           ${kv(a.kind === 'disaster' ? '世帯主住所' : '住所', user.address)}
@@ -502,6 +543,15 @@ const PICK_CSS = `
 .pin b{font-size:14px}
 .pin .sub{font-size:11.5px;color:var(--muted);margin-left:8px}
 .pin .chg{margin-left:auto;font-size:12px;font-weight:700;color:var(--civic);text-decoration:none;white-space:nowrap}
+.dlist{display:flex;flex-direction:column;gap:10px;margin-bottom:14px}
+.dcard{display:block;position:relative;background:#fff;border:1px solid var(--line);border-radius:13px;
+  padding:15px 17px;text-decoration:none;color:inherit}
+.dcard:hover{border-color:var(--civic);box-shadow:0 2px 12px rgba(14,26,43,.10)}
+.dcard b{display:block;font-size:15px}
+.dcard .dwhen{display:block;font-size:11.5px;color:var(--civic);font-weight:700;margin-top:3px}
+.dcard .dnote{display:block;font-size:11.5px;color:var(--muted);line-height:1.7;margin-top:5px;padding-right:110px}
+.dcard .dgo{position:absolute;right:17px;bottom:15px;font-size:12.5px;font-weight:700;color:var(--civic);white-space:nowrap}
+@media(max-width:640px){.dcard .dnote{padding-right:0}.dcard .dgo{position:static;display:block;margin-top:8px;text-align:right}}
 @media(max-width:640px){
   .pick{grid-template-columns:1fr}
   .pcol{border-right:0;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:4px;padding:10px 12px}

@@ -38,14 +38,17 @@ const decideAs = (id, body) => fetch(`${ADMIN}/a/${id}/decision`, {
   body: JSON.stringify(body),
 });
 
+// 災害名・罹災日は災害マスタ由来になったのでフォームには無い
 const DISASTER_FORM = {
-  damaged_address: '熊本県熊本市中央区大江3-1-5', disaster_name: '令和8年 熊本地震',
-  disaster_date: '2026-07-28', building_type: '木造2階建', statement: '1階の柱が傾き居住できません',
+  damaged_address: '熊本県熊本市中央区大江3-1-5', building_type: '木造2階建',
+  statement: '1階の柱が傾き居住できません',
 };
+// 平成28年熊本地震（h28-kumamoto）の対象自治体＝熊本市 43100
+const DISASTER = { targetCode: '43100', disasterId: 'h28-kumamoto' };
 
 test('applications: 申請→調査中→認定 で交付できるようになる', async () => {
   const svc = new IssuerService();
-  const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', form: DISASTER_FORM });
+  const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', ...DISASTER, form: DISASTER_FORM });
   assert.match(app.id, /^A-\d{4}$/, '受付番号が採番される');
   assert.equal(app.status, 'submitted');
   assert.equal((await svc.issuableApplications('u_002', 'disaster')).length, 0, '受付だけでは交付できない');
@@ -62,9 +65,9 @@ test('applications: 申請→調査中→認定 で交付できるようにな�
 
 test('applications: 必須項目が無い申請・審査は断る', async () => {
   const svc = new IssuerService();
-  await assert.rejects(() => svc.submitApplication({ userId: 'u_002', kind: 'disaster', form: {} }),
+  await assert.rejects(() => svc.submitApplication({ userId: 'u_002', kind: 'disaster', ...DISASTER, form: {} }),
     /未入力の必須項目/);
-  const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', form: DISASTER_FORM });
+  const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', ...DISASTER, form: DISASTER_FORM });
   await assert.rejects(() => svc.decideApplication(app.id, { status: 'approved', decision: {} }),
     /審査で決める項目が未入力/, '被害の程度を選ばずに認定はできない');
 });
@@ -74,7 +77,7 @@ test('applications: 許可されていない状態遷移は拒否する', async 
   assert.equal(canTransition('approved', 'approved'), true, '再判定');
   assert.equal(canTransition('withdrawn', 'approved'), false);
   const svc = new IssuerService();
-  const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', form: DISASTER_FORM });
+  const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', ...DISASTER, form: DISASTER_FORM });
   await svc.decideApplication(app.id, { status: 'withdrawn' });
   await assert.rejects(() => svc.decideApplication(app.id, { status: 'approved', decision: { damage_level: '全壊' } }),
     /状態を withdrawn から approved へは変更できません/);
@@ -120,7 +123,7 @@ test('applications: 判定が変わらなければ失効させない（全壊→
   const svc = new IssuerService();
   const store = { get: () => null };
   assert.ok(store);
-  const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', form: DISASTER_FORM });
+  const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', ...DISASTER, form: DISASTER_FORM });
   await svc.decideApplication(app.id, { status: 'approved', decision: { damage_level: '全壊' }, authority: '熊本市長' });
   // 交付済み相当にする（発行 EP を通さず fingerprint だけ立てる）
   const persona = { id: 'u_002', family: '佐藤', given: '花子', birth: '1988-07-03', address: '東京都新宿区西新宿2-8-1', household: [] };
@@ -137,7 +140,7 @@ test('applications: 判定が変わらなければ失効させない（全壊→
 
 test('applications: 却下・取下げは内容に関わらず失効させる', async () => {
   const svc = new IssuerService();
-  const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', form: DISASTER_FORM });
+  const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', ...DISASTER, form: DISASTER_FORM });
   await svc.decideApplication(app.id, { status: 'approved', decision: { damage_level: '全壊' } });
   const cur = await svc.getApplication(app.id);
   cur.issuedFingerprint = 'dummy';
@@ -149,9 +152,10 @@ test('applications: 却下・取下げは内容に関わらず失効させる', 
 
 test('applications: 同じ人が複数件を同時に持てる（別の災害・別の島）', async () => {
   const svc = new IssuerService();
-  const a = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', form: DISASTER_FORM });
+  const a = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', ...DISASTER, form: DISASTER_FORM });
   const b = await svc.submitApplication({ userId: 'u_002', kind: 'disaster',
-    form: { ...DISASTER_FORM, disaster_name: '令和8年 豪雨', damaged_address: '福岡県久留米市1-1' } });
+    targetCode: '43443', disasterId: 'h28-kumamoto',
+    form: { ...DISASTER_FORM, damaged_address: '熊本県益城町安永1-1' } });
   await svc.decideApplication(a.id, { status: 'approved', decision: { damage_level: '全壊' } });
   await svc.decideApplication(b.id, { status: 'approved', decision: { damage_level: '半壊' } });
   const usable = await svc.issuableApplications('u_002', 'disaster');
@@ -172,7 +176,7 @@ test('applications: 申請→認定→交付→再判定→失効 を発行 EP �
   const submit = await fetch(`${ISSUER}/apply/disaster/43100`, {
     method: 'POST', redirect: 'manual',
     headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: `sid=${sid}` },
-    body: new URLSearchParams(DISASTER_FORM).toString(),
+    body: new URLSearchParams({ ...DISASTER_FORM, disaster_id: DISASTER.disasterId }).toString(),
   });
   assert.equal(submit.status, 303);
   const appId = submit.headers.get('location').split('/')[2].split('?')[0];
@@ -217,7 +221,7 @@ test('applications: スキーマ変更前に発行済みの罹災証明が検証
   const OLD = {
     family_name: '山田', given_name: '太郎', address: '東京都千代田区1-1-1',
     head_of_household_address: undefined, household_members: undefined,
-    disaster_name: '令和7年台風第10号', disaster_date: '2025-09-12', damage_level: '半壊',
+    disaster_name: '令和元年東日本台風（台風第19号）', disaster_date: '2019-10-12', damage_level: '半壊',
     building_type: '木造2階建', certificate_number: 'DS-0001',
     issuing_authority: '千代田区長', issuance_date: '2026-06-01', expiry_date: '2027-06-01',
   };
@@ -242,15 +246,14 @@ test('applications: スキーマ変更前に発行済みの罹災証明が検証
 // （「大江3丁目1番5号」と「大江3-1-5」は機械では解けず、誤検出は正当な申請を却下させる）。
 test('applications: 同じ利用者・同じ種別の認定を申し送る（自動判定も自動失効もしない）', async () => {
   const svc = new IssuerService();
-  const ISLAND = { applied_category: '準島民', reason: '就学（離島出身・島外の学校に在学）',
-    island_name: '種子島', municipality: '鹿児島県西之表市' };
-  const a = await svc.submitApplication({ userId: 'u_002', kind: 'island', form: ISLAND });
+  const ISLAND = { applied_category: '準島民', reason: '就学（離島出身・島外の学校に在学）', island_name: '種子島' };
+  const a = await svc.submitApplication({ userId: 'u_002', kind: 'island', targetCode: '46213', form: ISLAND });
   await svc.decideApplication(a.id, { status: 'approved', decision: { resident_category: '準島民', expiry_date: '2027-03-31' } });
 
   // 対象が同じでも別でも、同じ種別の認定はすべて申し送る（判断材料として並べる）
-  const same = await svc.submitApplication({ userId: 'u_002', kind: 'island', form: ISLAND });
-  const other = await svc.submitApplication({ userId: 'u_002', kind: 'island',
-    form: { applied_category: '島民', island_name: '石垣島', municipality: '沖縄県石垣市' } });
+  const same = await svc.submitApplication({ userId: 'u_002', kind: 'island', targetCode: '46213', form: ISLAND });
+  const other = await svc.submitApplication({ userId: 'u_002', kind: 'island', targetCode: '47207',
+    form: { applied_category: '島民', island_name: '石垣島' } });
   assert.equal((await svc.existingApprovals(same)).length, 1, '同じ対象');
   assert.equal((await svc.existingApprovals(other)).length, 1, '別の対象でも並べる（判断は人）');
 
@@ -265,11 +268,11 @@ test('applications: 同じ利用者・同じ種別の認定を申し送る（自
 test('applications: 種別と申請者が違えば申し送らない', async () => {
   const svc = new IssuerService();
   // u_001 は seed で島民の認定と罹災の認定を持つ
-  const d = await svc.submitApplication({ userId: 'u_001', kind: 'disaster', form: DISASTER_FORM });
+  const d = await svc.submitApplication({ userId: 'u_001', kind: 'disaster', ...DISASTER, form: DISASTER_FORM });
   const ex = await svc.existingApprovals(d);
   assert.equal(ex.length, 1, '罹災の申請には罹災の認定だけを並べる');
   assert.equal(ex[0].kind, 'disaster', '離島の認定は混ぜない');
   // 別人の認定は無関係
-  const o = await svc.submitApplication({ userId: 'u_003', kind: 'disaster', form: DISASTER_FORM });
+  const o = await svc.submitApplication({ userId: 'u_003', kind: 'disaster', ...DISASTER, form: DISASTER_FORM });
   assert.equal((await svc.existingApprovals(o)).length, 0);
 });

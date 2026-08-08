@@ -9,6 +9,7 @@ import { createUserStore } from './users.mjs';
 import { APPLICATION_TYPES as APP_TYPES, getApplicationType, canTransition, canIssueFrom,
   claimsFor, claimsFingerprint, requiresApplication, seedApplications, targetAuthority } from './applications.mjs';
 import { offersProcedure } from './municipalities.mjs';
+import { coversMunicipality, getDisaster } from './disasters.mjs';
 import { sha256, b64url } from './cbor.mjs';
 
 const PRE_AUTH_GRANT = 'urn:ietf:params:oauth:grant-type:pre-authorized_code';
@@ -179,12 +180,18 @@ export class IssuerService {
   }
 
   /** 申請を受け付ける。受付番号を採番し、状態は submitted（調査待ち）。 */
-  async submitApplication({ userId, kind, targetCode = null, form = {}, attachments = [] }) {
+  async submitApplication({ userId, kind, targetCode = null, disasterId = null, form = {}, attachments = [] }) {
     const t = getApplicationType(kind);
     if (!t) throw httpErr(400, 'invalid_request', `unknown application kind ${kind}`);
     if (!userId) throw httpErr(401, 'login_required', 'sign in first');
-    // 申請先は申請者が選ぶ（住所からは推定しない）。その自治体が扱わない手続きは受けない
-    if (targetCode && !offersProcedure(targetCode, kind)) {
+    // 申請先は申請者が選ぶ（住所からは推定しない）。受け付けてよい組合せかを確かめる。
+    if (t.byDisaster) {
+      // 罹災は「災害が起きた市町村」だけ。自治体の恒常的な属性では判定しない
+      if (!getDisaster(disasterId)) throw httpErr(400, 'invalid_request', '対象の災害を選んでください');
+      if (targetCode && !coversMunicipality(disasterId, targetCode)) {
+        throw httpErr(400, 'invalid_request', 'この自治体はその災害の対象ではありません');
+      }
+    } else if (targetCode && !offersProcedure(targetCode, kind)) {
       throw httpErr(400, 'invalid_request', `この自治体は${t.short}を取り扱っていません`);
     }
     await this._loadApps();
@@ -195,6 +202,7 @@ export class IssuerService {
       id: `A-${String(this.applicationSeq).padStart(4, '0')}`,
       userId, kind, status: 'submitted',
       target_code: targetCode || null,   // 申請先自治体（交付者名と管轄判定の正本）
+      disaster_id: disasterId || null,   // 罹災の対象災害（災害名・罹災日の正本）
       form, attachments,
       decision: null, authority: null, certificateNumber: null,
       submitted_at: new Date().toISOString(), decided_at: null,

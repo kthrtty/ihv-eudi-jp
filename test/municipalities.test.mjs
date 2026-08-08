@@ -9,6 +9,7 @@ import { getMunicipality, authorityOf, fullName, offersProcedure,
   prefecturesFor, municipalitiesIn, suggestFromAddress } from '../src/municipalities.mjs';
 import { IssuerService } from '../src/oid4vci.mjs';
 import { targetAuthority, targetName, claimsFor } from '../src/applications.mjs';
+import { getDisaster, coversMunicipality } from '../src/disasters.mjs';
 import { outOfJurisdiction, getStaff } from '../src/staff.mjs';
 
 test('municipalities: 長の呼称は明示的に持つ（名称＋「長」で作らない）', () => {
@@ -21,17 +22,32 @@ test('municipalities: 長の呼称は明示的に持つ（名称＋「長」で�
   assert.equal(authorityOf('99999'), null, '未知のコードは null（勝手に作らない）');
 });
 
-test('municipalities: 手続きを扱う自治体だけを返す（絞り込みの向きは手続き → 自治体）', () => {
+test('municipalities: 離島は自治体の属性、罹災は災害が母集団（別の軸で絞る）', () => {
   assert.equal(offersProcedure('46213', 'island'), true, '種子島の西之表市は離島割引を交付する');
   assert.equal(offersProcedure('13101', 'island'), false, '千代田区は交付しない');
-  assert.equal(offersProcedure('13101', 'disaster'), true, '罹災証明はどの市区町村も扱う');
-  assert.equal(offersProcedure('99999', 'disaster'), false, '未知のコードは fail-closed');
+  assert.equal(offersProcedure('99999', 'island'), false, '未知のコードは fail-closed');
+  // **罹災は自治体の属性ではない**（全市町村が交付義務を負い、災害の有無で決まる）
+  assert.equal(offersProcedure('13101', 'disaster'), false, 'procedures に disaster は書かない');
 
   const islandPrefs = prefecturesFor('island');
   assert.ok(!islandPrefs.includes('東京都'), '取扱いのない県は都道府県の段階で出さない');
   assert.ok(islandPrefs.includes('鹿児島県'));
-  assert.ok(prefecturesFor('disaster').includes('東京都'));
   assert.deepEqual(municipalitiesIn('鹿児島県', 'island').map((x) => x.code), ['46213']);
+
+  // 罹災の母集団は災害マスタが決める
+  assert.equal(coversMunicipality('r6-noto-jishin', '17204'), true, '輪島市は能登半島地震の対象');
+  assert.equal(coversMunicipality('r6-noto-jishin', '46213'), false, '種子島は対象外＝罹災証明は出ない');
+  assert.equal(coversMunicipality('unknown', '17204'), false, '未知の災害は fail-closed');
+  const notoPrefs = prefecturesFor(null, getDisaster('r6-noto-jishin').codes);
+  assert.deepEqual(notoPrefs, ['新潟県', '富山県', '石川県'], '対象県だけを出す（4県35市11町1村から抜粋）');
+});
+
+// 「離島と罹災は異なる母集団か」への回答: **別の軸で絞られるだけで交わりうる**。
+// 佐渡市は令和6年能登半島地震の対象であり、かつ離島（いまは離島データ未収録なので
+// 実装上は交差しないが、離島を実データへ広げれば両方に入る）。
+test('municipalities: 罹災と離島の母集団は交わりうる（佐渡市）', () => {
+  assert.equal(coversMunicipality('r6-noto-jishin', '15224'), true, '佐渡市は能登半島地震の対象');
+  assert.equal(getMunicipality('15224').name, '佐渡市');
 });
 
 test('municipalities: 住所からの候補は「提案」であって決定ではない', () => {
@@ -55,8 +71,8 @@ test('municipalities: 扱っていない手続きの申請は受け付けない'
 test('municipalities: 交付者名は申請先から確定する（審査した職員の所属は無関係）', async () => {
   const svc = new IssuerService();
   const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', targetCode: '43100',
-    form: { damaged_address: '熊本県熊本市中央区大江3-1-5', disaster_name: '令和8年 熊本地震',
-      disaster_date: '2026-07-28', statement: '倒壊' } });
+    disasterId: 'h28-kumamoto',
+    form: { damaged_address: '熊本県熊本市中央区大江3-1-5', statement: '倒壊' } });
   const chiyoda = getStaff('s_001');           // 千代田区の職員
   assert.equal(outOfJurisdiction(chiyoda, app), true, '管轄外だと分かる（ブロックはしない）');
 
@@ -83,8 +99,8 @@ test('municipalities: 離島の交付自治体クレームは自由文でなく�
 // 本番 KV には申請先を持たない申請が既にある。壊さずに審査できなければならない。
 test('municipalities: 申請先を持たない旧レコードでも審査できる（後方互換）', async () => {
   const svc = new IssuerService();
-  const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster',
-    form: { damaged_address: '東京都千代田区1-1-1', disaster_name: '令和7年台風', disaster_date: '2025-09-12', statement: '浸水' } });
+  const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', disasterId: 'r1-higashinihon',
+    form: { damaged_address: '東京都世田谷区玉川3-1-1', statement: '浸水' } });
   assert.equal(app.target_code, null);
   assert.equal(outOfJurisdiction(getStaff('s_001'), app), false, '判定できないので管轄外とは言わない');
   // ディレクトリから引けないので、審査担当が入力した交付者名がそのまま使われる
