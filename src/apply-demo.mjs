@@ -5,7 +5,7 @@ import { appShell } from './authcode-demo.mjs';
 import { WALLET_CARD_THEME, swatchEmblemHtml, swatchEmblemCss } from './authcode-demo.mjs';
 import { STATUS, statusView, labelOf, subOf, getApplicationType, applicationTypeList, targetName } from './applications.mjs';
 import { prefecturesFor, municipalitiesIn } from './municipalities.mjs';
-import { ACCEPT_ATTR, MAX_FILES, MAX_FILE_BYTES } from './upload.mjs';
+import { ACCEPT_ATTR, MAX_FILES, MAX_FILE_BYTES, THUMB_EDGE, thumbDataUri } from './upload.mjs';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 export const sw = (type) => {
@@ -18,6 +18,24 @@ export const chip = (app, issued = 0) => {
   return `<span class="chip ${v.chip}">${esc(v.label)}</span>`
     + (issued > 0 ? `<span class="chip issued">交付済 ${issued}</span>` : '');
 };
+
+/** 受理済み添付の一覧。**保存したサムネイルを出す**（アイコンで代用しない）。
+ *  PDF はサムネイルを持たない＝インライン描画しない方針（PDF は JS を持てる）。 */
+export function attachmentsHtml(atts = []) {
+  if (!atts.length) return '';
+  const cell = (f) => {
+    const uri = thumbDataUri(f.thumb);
+    const kb = `${Math.ceil((f.size || 0) / 1024)} KB`;
+    if (uri) {
+      return `<div class="upi"><img src="${esc(uri)}" alt="${esc(f.name)}">
+        <span class="sz">${esc(kb)}</span><span class="nm">${esc(f.name)}</span></div>`;
+    }
+    // サムネイル無し = PDF、または JS 無しで送られた画像
+    return `<div class="upi doc"><span class="pt">${f.kind === 'pdf' ? 'PDF' : String(f.kind || '').toUpperCase()}</span>
+      <span class="sz">${esc(kb)}</span><span class="nm">${esc(f.name)}</span></div>`;
+  };
+  return `<div class="uplist">${atts.map(cell).join('')}</div>`;
+}
 
 export const CSS = `
 .crumb{font-size:11.5px;color:var(--muted);margin-bottom:6px}
@@ -58,19 +76,34 @@ ${swatchEmblemCss()}
 .abtn.gh{background:#fff;border:1px solid var(--line);color:var(--civic)}
 .abtn.dn{background:var(--seal)}
 /* 添付 */
-.updrop{display:flex;flex-direction:column;align-items:center;gap:2px;border:1.5px dashed #c3cede;border-radius:10px;
-  padding:14px 12px;background:#FAFBFD;text-align:center;cursor:pointer}
-.updrop input{display:none}
-.updrop .ic{font-size:20px;color:var(--civic)}
-.updrop b{font-size:12.5px;color:var(--civic)}
-.updrop small{font-size:10.5px;color:var(--muted);line-height:1.6}
-.uplist{display:flex;flex-direction:column;gap:7px;margin-bottom:7px}
-.upi{display:flex;align-items:center;gap:11px;border:1px solid var(--line);border-radius:9px;padding:8px 11px}
-.upi .th{width:34px;height:34px;border-radius:7px;background:#E4E9F1;display:grid;place-items:center;font-size:16px;flex:none}
-.upi .th.pdf{background:#FDECEA;color:#b3261e;font-size:10px;font-weight:800}
-.upi b{display:block;font-size:12.5px}
-.upi small{font-size:10.5px;color:var(--muted)}
-.upi>div{flex:1;min-width:0}
+/* 添付は**サムネイルの格子**。＋は写真1枚と同じ寸法のタイルで、末尾に並ぶ
+   （横一列のドロップ帯だと、何を何枚入れたのかが見えない） */
+.upgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:9px;margin-bottom:7px}
+.upcell{position:relative;aspect-ratio:1;border-radius:11px;overflow:hidden;border:1px solid var(--line);background:#F3F5F9}
+.upcell img{width:100%;height:100%;object-fit:cover;display:block}
+.upcell .nm{position:absolute;left:0;right:0;bottom:0;color:#fff;font-size:10px;padding:14px 7px 5px;
+  background:linear-gradient(transparent,rgba(0,0,0,.66));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.upcell .rm{position:absolute;top:5px;right:5px;width:22px;height:22px;border-radius:50%;border:0;padding:0;
+  background:rgba(14,26,43,.66);color:#fff;font-size:11px;line-height:1;cursor:pointer;display:grid;place-items:center}
+.upcell.doc{display:grid;place-items:center;background:#FDECEA}
+.upcell.doc .pt{font-size:13px;font-weight:800;color:#b3261e}
+.uptile{aspect-ratio:1;border:1.5px dashed #c3cede;border-radius:11px;background:#FAFBFD;cursor:pointer;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}
+.uptile input{display:none}
+.uptile .ic{font-size:26px;line-height:1;color:var(--civic)}
+.uptile b{font-size:11.5px;color:var(--civic)}
+/* 受理済みの添付（申請の控え・審査画面）。アイコンではなく保存したサムネイルを出す */
+.uplist{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:9px;margin-bottom:7px}
+.upi{position:relative;aspect-ratio:1;border-radius:11px;overflow:hidden;border:1px solid var(--line);background:#F3F5F9}
+.upi img{width:100%;height:100%;object-fit:cover;display:block}
+.upi .nm{position:absolute;left:0;right:0;bottom:0;color:#fff;font-size:10px;padding:14px 7px 5px;
+  background:linear-gradient(transparent,rgba(0,0,0,.66));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.upi.doc{display:grid;place-items:center;background:#FDECEA}
+.upi.doc .pt{font-size:13px;font-weight:800;color:#b3261e}
+.upi.doc .nm{color:#6b5a1e;background:none;position:static;padding:2px 7px 0;text-align:center}
+.upi .sz{position:absolute;top:5px;left:6px;font-size:9.5px;color:#fff;background:rgba(14,26,43,.55);
+  border-radius:5px;padding:1px 5px}
+.upi.doc .sz{color:#8a2b22;background:#fbdcd8}
 /* 一覧: PC=表組み / SP=カード */
 .alist{display:flex;flex-direction:column}
 .ahead,.arow{display:grid;grid-template-columns:80px 140px minmax(0,1fr) 82px 92px 150px auto;column-gap:12px;align-items:center;padding:11px 16px}
@@ -206,12 +239,94 @@ export function renderApplyForm(user, t, muni, { error = '', prefill = {} } = {}
         ${t.form.map((x) => field(x, prefill[x.key] ?? '')).join('')}
 
         <div class="sec">${esc(t.attachmentLabel)}${t.attachmentRequired ? '<b class="req">必須</b>' : ''}</div>
-        <label class="updrop">
-          <input type="file" name="attachments" multiple accept="${ACCEPT_ATTR}">
-          <span class="ic">＋</span><b>写真・書類を追加</b>
-          <small>カメラで撮影／ファイルから選択　JPEG・PNG・PDF ／ 1ファイル ${Math.floor(MAX_FILE_BYTES / 1024 / 1024)}MB まで（最大${MAX_FILES}件）</small>
-        </label>
+        <div class="upgrid" id="upgrid">
+          <label class="uptile" id="uptile">
+            <input type="file" id="upfile" name="attachments" multiple accept="${ACCEPT_ATTR}">
+            <span class="ic">＋</span><b>追加</b>
+          </label>
+        </div>
+        ${/* 原本は保存しない。ここにはクライアントが縮小した JPEG が並ぶ（サーバ側で
+             マジックバイトと上限を再検証する）。JS 無効なら空のまま＝添付は成立する */''}
+        <input type="hidden" name="thumbs" id="upthumbs" value="">
+        <span class="fhint">カメラで撮影／ファイルから選択。<b>複数選べます</b>（＋を押すたびに追加）。
+          JPEG・PNG・PDF ／ 1ファイル ${Math.floor(MAX_FILE_BYTES / 1024 / 1024)}MB まで・最大 ${MAX_FILES} 件</span>
         ${t.attachmentHint ? `<span class="fhint">${esc(t.attachmentHint)}</span>` : ''}
+        <script>
+        (function () {
+          var inp = document.getElementById('upfile'), grid = document.getElementById('upgrid'),
+              tile = document.getElementById('uptile'), hid = document.getElementById('upthumbs');
+          if (!inp || !grid || !tile || !hid || typeof DataTransfer === 'undefined') return;
+          var files = [], thumbs = [], MAX = ${MAX_FILES}, EDGE = ${THUMB_EDGE};
+          // 選び直しでも積み上がるように、input.files は毎回こちらで組み直す
+          function sync() {
+            var dt = new DataTransfer();
+            for (var i = 0; i < files.length; i++) dt.items.add(files[i]);
+            inp.files = dt.files;
+            hid.value = JSON.stringify(thumbs);
+          }
+          function draw() {
+            var cells = grid.querySelectorAll('.upcell');
+            for (var i = 0; i < cells.length; i++) cells[i].remove();
+            files.forEach(function (f, i) {
+              var d = document.createElement('div');
+              d.className = thumbs[i] ? 'upcell' : 'upcell doc';
+              if (thumbs[i]) {
+                var im = document.createElement('img');
+                im.src = thumbs[i]; im.alt = f.name; d.appendChild(im);
+              } else {
+                var p = document.createElement('span');
+                p.className = 'pt'; p.textContent = /\\.pdf$/i.test(f.name) ? 'PDF' : '…';
+                d.appendChild(p);
+              }
+              var nm = document.createElement('span');
+              nm.className = 'nm'; nm.textContent = f.name; d.appendChild(nm);
+              var rm = document.createElement('button');
+              rm.type = 'button'; rm.className = 'rm'; rm.textContent = '✕';
+              rm.setAttribute('aria-label', '削除');
+              rm.addEventListener('click', function () {
+                files.splice(i, 1); thumbs.splice(i, 1); sync(); draw();
+              });
+              d.appendChild(rm);
+              grid.insertBefore(d, tile);
+            });
+            tile.style.display = files.length >= MAX ? 'none' : '';
+          }
+          // 表示と送信を兼ねるサムネイル。長辺 EDGE px の JPEG に落とす
+          function shrink(file, cb) {
+            if (String(file.type).indexOf('image/') !== 0) { cb(''); return; }
+            var r = new FileReader();
+            r.onload = function () {
+              var img = new Image();
+              img.onload = function () {
+                var s = Math.min(1, EDGE / Math.max(img.width, img.height));
+                var c = document.createElement('canvas');
+                c.width = Math.max(1, Math.round(img.width * s));
+                c.height = Math.max(1, Math.round(img.height * s));
+                c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+                try { cb(c.toDataURL('image/jpeg', 0.7)); } catch (e) { cb(''); }
+              };
+              img.onerror = function () { cb(''); };
+              img.src = r.result;
+            };
+            r.onerror = function () { cb(''); };
+            r.readAsDataURL(file);
+          }
+          inp.addEventListener('change', function () {
+            var picked = Array.prototype.slice.call(inp.files || []);
+            if (!picked.length) { sync(); return; }
+            var room = MAX - files.length;
+            if (room <= 0) { sync(); draw(); return; }
+            picked = picked.slice(0, room);
+            var left = picked.length;
+            picked.forEach(function (f) {
+              var idx = files.length;
+              files.push(f); thumbs[idx] = '';
+              shrink(f, function (u) { thumbs[idx] = u; if (--left === 0) { sync(); draw(); } });
+            });
+          });
+          sync();
+        })();
+        </script>
 
         <div class="warn">⚠️ <b>${t.id === 'disaster' ? '被害の程度（全壊・半壊など）' : '対象区分（島民・準島民）'}は申請者が決める項目ではありません。</b>
           ${t.id === 'disaster' ? '市区町村の被害認定調査によって判定され、認定後に証明書へ記載されます。' : '交付自治体の審査により認定され、認定後に資格証へ記載されます。'}</div>
@@ -271,11 +386,7 @@ export function renderMyApplication(user, a, { justSubmitted = false, issued = [
           ${kv('申請者', `${esc(user.family)} ${esc(user.given)}`)}
           ${kv(a.kind === 'disaster' ? '世帯主住所' : '住所', user.address)}
           ${t.form.map((x) => kv(x.label, a.form?.[x.key])).join('')}
-          ${a.attachments?.length ? `<div class="sec">添付（${a.attachments.length}件）</div><div class="uplist">
-            ${a.attachments.map((f) => `<div class="upi">
-              <span class="th${f.kind === 'pdf' ? ' pdf' : ''}">${f.kind === 'pdf' ? 'PDF' : '🖼️'}</span>
-              <div><b>${esc(f.name)}</b><small>${esc(f.kind.toUpperCase())} ／ ${Math.ceil(f.size / 1024)} KB</small></div>
-            </div>`).join('')}</div>` : ''}
+          ${a.attachments?.length ? `<div class="sec">添付（${a.attachments.length}件）</div>${attachmentsHtml(a.attachments)}` : ''}
         </div>
         <div class="acard">
           <div class="sec">審査の結果</div>

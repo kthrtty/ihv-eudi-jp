@@ -192,6 +192,39 @@ test('admin: 扱っていない自治体あての申請 URL は選択画面へ�
   assert.ok(!pick.includes('/apply/island/13101'), '千代田区へのリンクは出ない');
 });
 
+// 添付の実アップロード経路（multipart）。原本は保存せず、クライアントが縮小した
+// サムネイルだけを載せる設計なので、**申告を信用しない**ことをここで固定する。
+test('admin: 添付はサムネイル付きで受理され、控えと審査画面に画像として出る', async () => {
+  const sid = await login('u_002');
+  const jpeg = new Uint8Array(32); jpeg.set([0xff, 0xd8, 0xff, 0xe0]);
+  const pdf = new Uint8Array(32); pdf.set([...'%PDF-1.7'].map((c) => c.charCodeAt(0)));
+  const thumb = 'data:image/jpeg;base64,' + Buffer.from(jpeg).toString('base64');
+
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(DISASTER_FORM)) fd.set(k, v);
+  fd.append('attachments', new Blob([jpeg], { type: 'image/jpeg' }), 'genkan.jpg');
+  fd.append('attachments', new Blob([pdf], { type: 'application/pdf' }), 'mitsumori.pdf');
+  // 2件目（PDF）にはサムネイルが無い。3件目はでっち上げ＝無視されるべき
+  fd.set('thumbs', JSON.stringify([thumb, '', 'data:image/jpeg;base64,' + Buffer.from(pdf).toString('base64')]));
+  const r = await fetch(`${ISSUER}/apply/disaster/43100`, {
+    method: 'POST', redirect: 'manual', headers: { cookie: `sid=${sid}` }, body: fd });
+  assert.equal(r.status, 303, '複数ファイルを同時に受け付ける');
+  const appId = r.headers.get('location').split('/')[2].split('?')[0];
+
+  const mine = await (await fetch(`${ISSUER}/applications/${appId}`, { headers: { cookie: `sid=${sid}` } })).text();
+  assert.ok(mine.includes('添付（2件）'), '2件とも受理される');
+  assert.ok(mine.includes('<img src="data:image/jpeg;base64,'), 'サムネイルを画像として出す（アイコンで代用しない）');
+  assert.ok(mine.includes('genkan.jpg') && mine.includes('mitsumori.pdf'), 'ファイル名が出る');
+  assert.ok(mine.includes('upi doc'), 'PDF はサムネイル無しのセル');
+
+  const staff = await staffLogin('s_003');
+  const rev = await (await fetch(`${ADMIN}/a/${appId}`, { headers: { 'x-staff-session': staff } })).text();
+  assert.ok(rev.includes('<img src="data:image/jpeg;base64,'), '審査画面でも実サムネイル');
+  assert.ok(rev.includes('PDF はインライン描画しません'), 'PDF の扱いを審査担当に明示する');
+  // PDF のバイト列を JPEG と偽ったサムネイルは落ちている＝data URI は1つだけ
+  assert.equal(rev.split('<img src="data:image/jpeg;base64,').length - 1, 1, '偽サムネイルは保存されない');
+});
+
 test('admin: 職員セッション Cookie への別オリジン POST は CSRF ガードで止まる', async () => {
   const appId = await submit(await login('u_002'));
   const staff = await staffLogin('s_001');

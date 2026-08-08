@@ -71,7 +71,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   **教訓: 適合を名乗る面は自己ループでなく仕様構造の golden/外部実装との適合テストで pin。簡略化は名乗りに明示。**
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（336, node:test）／
+`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（339, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
@@ -127,6 +127,13 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   （JPEG/PNG/PDF。HEIC・WebP は検出して個別文言で拒否＝TODO、AVIF は対象外）。`ftyp` はブランドまで見ないと
   mp4/qt を通してしまう。SVG は XML＝スクリプトを持てるので不可。**PDF はインライン描画しない**
   （`inlineDataUri()` が null を返す）。accept 属性に HEIC を列挙しない＝iOS Safari の自動 JPEG 変換に乗る
+- **添付UIはサムネイルの格子**（2026-08-09）: ＋は写真1枚と同寸のタイルで末尾に並ぶ（横一列のドロップ帯は
+  何を何枚入れたか見えない）。**＋を押すたびに積み上がる**（`DataTransfer` で `input.files` を組み直す）・
+  各セルに✕で個別削除。**原本は保存せず**、クライアントが canvas で長辺 320px の JPEG に縮小したものを
+  hidden `thumbs`（JSON配列）で送り、`validateThumb()` が**マジックバイトと 64KB 上限**で再検証して
+  申請レコードに載せる（/account の顔写真と同じ手口。申請台帳は KV の1オブジェクトで、Workers に
+  画像処理系が無い）。控え・審査画面は `attachmentsHtml()` が**実サムネイルを描く**（アイコンで代用しない）。
+  PDF はサムネイルを持たない＝インライン描画しない方針のまま。JS 無効でも添付自体は成立する（サムネイルが無いだけ）
 
 ## 管理機能の分離＝自治体窓口（2026-08-08・案B / issue #23）
 審査は住民ではなく**自治体職員**の仕事。発行ポータルに同居させていたため

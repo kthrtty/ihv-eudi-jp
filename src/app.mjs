@@ -17,7 +17,7 @@ import { securityHeaders, csrfGuard } from './security.mjs';
 import { createWallet } from './wallet.mjs';
 import { allConfigIds, configInfo, jwks as issuerJwks, accountCatalog } from './issuer.mjs';
 import { getApplicationType, labelOf, subOf } from './applications.mjs';
-import { validateAttachment, displayName, safeStoredName, MAX_FILES } from './upload.mjs';
+import { validateAttachment, displayName, safeStoredName, validateThumb, MAX_FILES } from './upload.mjs';
 import { renderApplyForm, renderMunicipalityPicker, renderMyApplications, renderMyApplication } from './apply-demo.mjs';
 import { getMunicipality, suggestFromAddress } from './municipalities.mjs';
 
@@ -154,12 +154,17 @@ export function createApp(opts = {}) {
       // 未選択でもブラウザは空の File を送ってくるので、中身のあるものだけを添付とみなす
       const files = [].concat(f.attachments ?? [])
         .filter((x) => x && typeof x === 'object' && x.arrayBuffer && x.size > 0 && x.name);
+      // 原本は保存しない。画面のサムネイルはクライアントが縮小した JPEG を使う。
+      // 申告は信用せず、ここでバイト列が JPEG であることと上限を見直す（validateThumb）。
+      // 添付と同じ順で並ぶ前提（送信側が input.files を組み直しているので一致する）。
+      let thumbs = [];
+      try { const t = JSON.parse(String(f.thumbs ?? '[]')); if (Array.isArray(t)) thumbs = t; } catch { /* 無視して添付だけ受ける */ }
       const attachments = [];
       for (const [i, file] of files.slice(0, MAX_FILES).entries()) {
         const v = validateAttachment(new Uint8Array(await file.arrayBuffer()));
         if (!v.ok) throw httpFail(400, v.error);
         attachments.push({ name: displayName(file.name, v.kind, i), kind: v.kind, size: v.bytes.length,
-          stored: safeStoredName(v.kind, i) });
+          stored: safeStoredName(v.kind, i), thumb: validateThumb(thumbs[i]) });
       }
       const app2 = await svc.submitApplication({ userId: user.id, kind, targetCode: code, form, attachments });
       return c.redirect(`/applications/${app2.id}?new=1`, 303);
