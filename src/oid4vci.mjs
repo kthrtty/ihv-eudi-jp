@@ -75,7 +75,8 @@ export function isRedirectAllowed(redirectUri, allowlist) {
 export function memoryStore() {
   const m = new Map();
   return {
-    async set(k, v, ttlSec = 600) { m.set(k, { v, exp: Date.now() + ttlSec * 1000 }); },
+    // ttlSec に null/0 を渡すと**無期限**（期限切れで消えては困る永続データ用）
+    async set(k, v, ttlSec = 600) { m.set(k, { v, exp: ttlSec ? Date.now() + ttlSec * 1000 : Infinity }); },
     async get(k) { const e = m.get(k); if (!e) return null; if (Date.now() > e.exp) { m.delete(k); return null; } return e.v; },
     async del(k) { m.delete(k); },
   };
@@ -96,7 +97,13 @@ export function kvStore(kv) {
   const replacer = (_k, v) => (v instanceof Uint8Array ? { __u8: Buffer.from(v).toString('base64') } : v);
   const reviver = (_k, v) => (v && typeof v === 'object' && typeof v.__u8 === 'string' ? new Uint8Array(Buffer.from(v.__u8, 'base64')) : v);
   return {
-    async set(k, v, ttlSec = 600) { await kv.put(k, JSON.stringify(v, replacer), { expirationTtl: Math.max(60, ttlSec | 0) }); },
+    // **ttlSec が null/0 なら expirationTtl を付けない＝無期限**。永続データに TTL を
+    // 付けると、書き込みが 30 日途切れただけで消える（失効ビットが戻る・persona 編集が
+    // SEED に戻る、という不揃いな壊れ方をする）。
+    async set(k, v, ttlSec = 600) {
+      const body = JSON.stringify(v, replacer);
+      await (ttlSec ? kv.put(k, body, { expirationTtl: Math.max(60, ttlSec | 0) }) : kv.put(k, body));
+    },
     async get(k) { const s = await kv.get(k); return s ? JSON.parse(s, reviver) : null; },
     async del(k) { await kv.delete(k); },
   };
@@ -135,15 +142,30 @@ export class IssuerService {
     if (saved) { this.applications = saved.list || []; this.applicationSeq = saved.seq || 0; }
   }
   async _saveApps() {
-    await this.store.set('_persist:apps', { list: this.applications, seq: this.applicationSeq }, 86400 * 30);
+    await this.store.set('_persist:apps', { list: this.applications, seq: this.applicationSeq }, null);
   }
 
   // 添付の**原本は申請台帳に入れない**（台帳は KV の1オブジェクトなので、8MB の写真を
   // 抱えると容量が破綻する）。1件につき別キーへ置き、台帳には参照だけを残す。
   // 画面のサムネイルは別途クライアントが縮小した JPEG（thumb）を使う。
+  // 原本は**短命**にする（デモに写真を残し続けたくない）。7日 TTL に加え、審査が
+  // 終わった時点でも消す（下の #purgeAttachments）。二重の網にしておくと、どちらか
+  // 片方が効かなくても残らない。台帳のサムネイルは軽いので残し、控えの見た目は保つ。
+  static ATT_TTL_SEC = 86400 * 7;
   static attKey(appId, idx) { return `_att:${appId}:${idx}`; }
   async putAttachment(appId, idx, { kind, bytes }) {
-    await this.store.set(IssuerService.attKey(appId, idx), { kind, bytes }, 86400 * 30);
+    await this.store.set(IssuerService.attKey(appId, idx), { kind, bytes }, IssuerService.ATT_TTL_SEC);
+  }
+  /** 審査が終わった申請の原本を消す。台帳側には purged 印だけ残す。 */
+  async #purgeAttachments(app) {
+    const atts = app?.attachments || [];
+    let changed = false;
+    for (const [i, a] of atts.entries()) {
+      if (a.purged) continue;
+      await this.store.del?.(IssuerService.attKey(app.id, i));
+      a.purged = true; changed = true;
+    }
+    return changed;
   }
   /** 添付の原本。無ければ null（期限切れ・旧レコード）。 */
   async getAttachment(appId, idx) {
@@ -246,6 +268,8 @@ export class IssuerService {
       next.issuedFingerprint = null;   // 失効させたので「交付済み」ではなくなる
     }
     Object.assign(app, next);
+    // 審査が終わったら原本は用済み。認定/却下/取下げのいずれでも消す
+    if (['approved', 'rejected', 'withdrawn'].includes(status)) await this.#purgeAttachments(app);
 
     await this._saveApps();
     return { application: app, revoked, contentChanged };
@@ -291,7 +315,7 @@ export class IssuerService {
     if (saved) this.users.restore(saved);
   }
   async _saveUsers() {
-    await this.store.set('_persist:users', this.users.dump(), 86400 * 30);
+    await this.store.set('_persist:users', this.users.dump(), null);
   }
   async _saveState() {
     await this.store.set('_persist:state', {
@@ -299,7 +323,8 @@ export class IssuerService {
       statusBits: Array.from(this.statusList.bits),
       statusNext: this.statusList.next,
       statusReasons: [...this.statusList.reasons],
-    }, 86400 * 30); // 30-day TTL; use KV without TTL in production for indefinite retention
+    }, null); // **無期限**。TTL を付けると書き込みが途切れた期間で失効ビットが消え、
+              // 失効させたクレデンシャルが有効に戻る
   }
 
   // ---- Passwordless session (user identification) ----

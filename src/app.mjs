@@ -681,7 +681,7 @@ export function createVerifierApp(opts = {}) {
     const f = await c.req.parseBody();
     const min = Number(f.status_ttl_min);
     if (Number.isFinite(min) && min >= 0 && min <= 1440) {
-      await v.store.set('vcfg:status_ttl_sec', Math.round(min * 60), 86400 * 30);
+      await v.store.set('vcfg:status_ttl_sec', Math.round(min * 60), null);   // 設定なので無期限
     }
     return c.redirect('/verifier/settings?saved=1', 302);
   });

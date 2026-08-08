@@ -5,7 +5,7 @@ import { appShell } from './authcode-demo.mjs';
 import { WALLET_CARD_THEME, swatchEmblemHtml, swatchEmblemCss } from './authcode-demo.mjs';
 import { STATUS, statusView, labelOf, subOf, getApplicationType, applicationTypeList, targetName } from './applications.mjs';
 import { prefecturesFor, municipalitiesIn } from './municipalities.mjs';
-import { ACCEPT_ATTR, MAX_FILES, MAX_FILE_BYTES, MAX_TOTAL_BYTES, THUMB_EDGE, thumbDataUri } from './upload.mjs';
+import { ACCEPT_ATTR, MAX_FILES, MAX_FILE_BYTES, MAX_TOTAL_BYTES, MAX_PICK_BYTES, STORE_EDGE, THUMB_EDGE, thumbDataUri } from './upload.mjs';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 export const sw = (type) => {
@@ -25,7 +25,8 @@ export function attachmentsHtml(atts = [], { base = '' } = {}) {
   if (!atts.length) return '';
   const cell = (f, i) => {
     const kb = `${Math.ceil((f.size || 0) / 1024)} KB`;
-    const href = base ? `${base}/${i}` : '';
+    // 審査が終わった申請の原本は削除済み。リンクにせず、消えた理由が分かるようにする
+    const href = base && !f.purged ? `${base}/${i}` : '';
     const open = (inner, cls = '') => (href
       ? `<a class="upi${cls}" href="${esc(href)}" target="_blank" rel="noopener">${inner}</a>`
       : `<div class="upi${cls}">${inner}</div>`);
@@ -33,9 +34,10 @@ export function attachmentsHtml(atts = [], { base = '' } = {}) {
     // 画面に出す絵は、あればクライアント生成のサムネイル（軽い）、無ければ原本そのもの。
     // 実機の大きな写真は canvas 縮小に失敗することがあり、そこで絵が消えていた。
     const src = thumbDataUri(f.thumb) || (href && f.kind !== 'pdf' ? href : '');
-    if (src) return open(`<img src="${esc(src)}" alt="${esc(f.name)}" loading="lazy">${tail}`);
+    const gone = f.purged ? '<span class="gone">審査終了により原本は削除済み</span>' : '';
+    if (src) return open(`<img src="${esc(src)}" alt="${esc(f.name)}" loading="lazy">${gone}${tail}`);
     // PDF はインライン描画しない（PDF は JavaScript を持てる）。原本はダウンロードで開く
-    return open(`<span class="pt">${f.kind === 'pdf' ? 'PDF' : String(f.kind || '').toUpperCase()}</span>${tail}`, ' doc');
+    return open(`<span class="pt">${f.kind === 'pdf' ? 'PDF' : String(f.kind || '').toUpperCase()}</span>${gone}${tail}`, ' doc');
   };
   return `<div class="uplist">${atts.map(cell).join('')}</div>`;
 }
@@ -100,6 +102,8 @@ ${swatchEmblemCss()}
 .upi{position:relative;aspect-ratio:1;border-radius:11px;overflow:hidden;border:1px solid var(--line);
   background:#F3F5F9;display:block;text-decoration:none;color:inherit}
 a.upi:hover{border-color:var(--civic);box-shadow:0 2px 10px rgba(14,26,43,.12)}
+.upi .gone{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:0 8px;
+  background:rgba(255,255,255,.78);color:#6b5a1e;font-size:10px;font-weight:700;line-height:1.5}
 .upi img{width:100%;height:100%;object-fit:cover;display:block}
 .upi .nm{position:absolute;left:0;right:0;bottom:0;color:#fff;font-size:10px;padding:14px 7px 5px;
   background:linear-gradient(transparent,rgba(0,0,0,.66));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -257,16 +261,16 @@ export function renderApplyForm(user, t, muni, { error = '', prefill = {} } = {}
              マジックバイトと上限を再検証する）。JS 無効なら空のまま＝添付は成立する */''}
         <input type="hidden" name="thumbs" id="upthumbs" value="">
         <span class="fhint">カメラで撮影／ファイルから選択。<b>複数選べます</b>（＋を押すたびに追加）。
-          JPEG・PNG・PDF ／ 1ファイル ${Math.floor(MAX_FILE_BYTES / 1024 / 1024)}MB・合計 ${Math.floor(MAX_TOTAL_BYTES / 1024 / 1024)}MB まで・最大 ${MAX_FILES} 件。
-          <b>スマートフォンのカメラ写真は上限を超えることがあります</b>（その場合は書き出しサイズを小さくしてください）</span>
+          JPEG・PNG・PDF ／ 写真は ${Math.floor(MAX_PICK_BYTES / 1024 / 1024)}MB まで選べます・PDF は ${Math.floor(MAX_FILE_BYTES / 1024 / 1024)}MB まで・最大 ${MAX_FILES} 件。
+          <b>写真は送信前に長辺 ${STORE_EDGE}px へ縮小して保存します</b>（保存量を抑えるため。原寸のままでは保管しません）</span>
         ${t.attachmentHint ? `<span class="fhint">${esc(t.attachmentHint)}</span>` : ''}
         <script>
         (function () {
           var inp = document.getElementById('upfile'), grid = document.getElementById('upgrid'),
               tile = document.getElementById('uptile'), hid = document.getElementById('upthumbs');
           if (!inp || !grid || !tile || !hid || typeof DataTransfer === 'undefined') return;
-          var files = [], thumbs = [], MAX = ${MAX_FILES}, EDGE = ${THUMB_EDGE},
-              MAXB = ${MAX_FILE_BYTES}, MAXT = ${MAX_TOTAL_BYTES},
+          var files = [], thumbs = [], MAX = ${MAX_FILES}, EDGE = ${THUMB_EDGE}, SEDGE = ${STORE_EDGE},
+              MAXB = ${MAX_FILE_BYTES}, MAXT = ${MAX_TOTAL_BYTES}, MAXPICK = ${MAX_PICK_BYTES},
               err = document.getElementById('uperr');
           function fail(msgs) {
             if (!err) return;
@@ -310,24 +314,41 @@ export function renderApplyForm(user, t, muni, { error = '', prefill = {} } = {}
             });
             tile.style.display = files.length >= MAX ? 'none' : '';
           }
-          // 表示と送信を兼ねるサムネイル。長辺 EDGE px の JPEG に落とす
-          function shrink(file, cb) {
-            if (String(file.type).indexOf('image/') !== 0) { cb(''); return; }
+          // 1回のデコードから2つ作る: 一覧用サムネイル(EDGE) と 保存する本体(SEDGE)。
+          // **原寸は送らない**——スマホの写真は 4〜6MB あり、そのまま保存すると KV が
+          // すぐ膨らむ。縮小できなかったときだけ原本にフォールバックする。
+          function scaleTo(img, edge, q) {
+            var s = Math.min(1, edge / Math.max(img.width, img.height));
+            var c = document.createElement('canvas');
+            c.width = Math.max(1, Math.round(img.width * s));
+            c.height = Math.max(1, Math.round(img.height * s));
+            c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+            return c.toDataURL('image/jpeg', q);
+          }
+          function dataUrlToFile(u, name) {
+            var b = atob(u.slice(u.indexOf(',') + 1)), a = new Uint8Array(b.length);
+            for (var i = 0; i < b.length; i++) a[i] = b.charCodeAt(i);
+            return new File([a], name, { type: 'image/jpeg' });
+          }
+          function prepare(file, cb) {
+            if (/\.pdf$/i.test(file.name) || file.type === 'application/pdf') { cb(file, ''); return; }
             var r = new FileReader();
             r.onload = function () {
               var img = new Image();
               img.onload = function () {
-                var s = Math.min(1, EDGE / Math.max(img.width, img.height));
-                var c = document.createElement('canvas');
-                c.width = Math.max(1, Math.round(img.width * s));
-                c.height = Math.max(1, Math.round(img.height * s));
-                c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-                try { cb(c.toDataURL('image/jpeg', 0.7)); } catch (e) { cb(''); }
+                var thumb = '', body = file;
+                try { thumb = scaleTo(img, EDGE, 0.7); } catch (e) { thumb = ''; }
+                try {
+                  var big = scaleTo(img, SEDGE, 0.82);
+                  // 縮小したのに大きくなる（元が小さい）ときは原本のまま
+                  if (big.length * 0.75 < file.size) body = dataUrlToFile(big, file.name);
+                } catch (e) { /* 原本のまま送る */ }
+                cb(body, thumb);
               };
-              img.onerror = function () { cb(''); };
+              img.onerror = function () { cb(file, ''); };
               img.src = r.result;
             };
-            r.onerror = function () { cb(''); };
+            r.onerror = function () { cb(file, ''); };
             r.readAsDataURL(file);
           }
           inp.addEventListener('change', function () {
@@ -338,14 +359,18 @@ export function renderApplyForm(user, t, muni, { error = '', prefill = {} } = {}
             var msgs = [], keep = [], sum = total();
             picked.forEach(function (f) {
               if (files.length + keep.length >= MAX) { msgs.push('添付は最大 ' + MAX + ' 件までです'); return; }
-              if (f.size > MAXB) {
+              // 写真は送信前に縮小するので「選べる上限」で見る。PDF は縮小できない
+              var isPdf = /\.pdf$/i.test(f.name) || f.type === 'application/pdf';
+              var cap = isPdf ? MAXB : MAXPICK;
+              if (f.size > cap) {
                 // 四捨五入だと「2MB は上限 2MB を超えています」と読めてしまうので切り上げる
-                msgs.push(f.name + '（' + (Math.ceil(f.size / 104857.6) / 10) + 'MB）は上限 ' + MB(MAXB)
-                  + 'MB を超えています。写真アプリで小さいサイズに書き出してください');
+                msgs.push(f.name + '（' + (Math.ceil(f.size / 104857.6) / 10) + 'MB）は上限 ' + MB(cap)
+                  + 'MB を超えています' + (isPdf ? '' : '。写真アプリで小さいサイズに書き出してください'));
                 return;
               }
-              if (sum + f.size > MAXT) { msgs.push('添付の合計が上限 ' + MB(MAXT) + 'MB を超えます'); return; }
-              sum += f.size; keep.push(f);
+              if (isPdf && sum + f.size > MAXT) { msgs.push('添付の合計が上限 ' + MB(MAXT) + 'MB を超えます'); return; }
+              if (isPdf) sum += f.size;
+              keep.push(f);
             });
             fail(msgs);
             picked = keep;
@@ -354,7 +379,10 @@ export function renderApplyForm(user, t, muni, { error = '', prefill = {} } = {}
             picked.forEach(function (f) {
               var idx = files.length;
               files.push(f); thumbs[idx] = '';
-              shrink(f, function (u) { thumbs[idx] = u; if (--left === 0) { sync(); draw(); } });
+              prepare(f, function (body, thumb) {
+                files[idx] = body; thumbs[idx] = thumb;
+                if (--left === 0) { sync(); draw(); }
+              });
             });
           });
           sync();

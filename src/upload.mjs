@@ -56,9 +56,16 @@ export function sniffFileType(bytes) {
 /** 上限。デモなので控えめに。総量は申請1件あたり。
  *  注意: **スマートフォンのカメラ写真は 2MB を超えることが多い**（12MP で 4〜6MB）。
  *  この上限だと実機のカメラロールからはほぼ弾かれるので、画面側で事前に理由を出す。 */
-export const MAX_FILE_BYTES = 2 * 1024 * 1024;   // 1ファイル 2MB
+export const MAX_FILE_BYTES = 2 * 1024 * 1024;   // **保存する**1ファイル 2MB
 export const MAX_TOTAL_BYTES = 8 * 1024 * 1024;  // 申請あたり合計 8MB
 export const MAX_FILES = 6;
+/** 画面で**選べる**原本の上限。写真は送信前にクライアントで縮小するので、
+ *  スマホのカメラ写真（12MP で 4〜6MB）をそのまま選べる。縮小できない PDF は
+ *  MAX_FILE_BYTES が上限のまま。 */
+export const MAX_PICK_BYTES = 8 * 1024 * 1024;
+/** 送信前に縮小する長辺。1600px あれば被害状況の確認には足り、5MB の写真が
+ *  300〜500KB に収まる（KV の保存量が約1/10）。 */
+export const STORE_EDGE = 1600;
 
 /**
  * 添付1件を検証する。

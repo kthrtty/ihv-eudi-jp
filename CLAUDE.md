@@ -43,6 +43,12 @@ OID4VCI 1.0 で発行し、OID4VP 1.0 + HAIP で提示する EUDI/ARF 流クレ�
   ref 一覧は **schemas/*.json の issuer_ref から生成**／`pkiRef()` が **未知の ref を pid の署名材料へフォールバック**
   （DSC は IACA 配下の文書署名者で、mdoc 検証は IACA 経路と docType しか見ない。SD-JWT も x5c を CA まで辿るだけで
   iss と証明書を突き合わせないため代替 DSC で検証は通る）。回帰=test/pki-fallback.test.mjs
+- **永続データに TTL を付けない**（2026-08-09 実測で発覚）: `_persist:apps`/`_persist:state`/`_persist:users`/`vcfg:*` は
+  `store.set(k, v, null)` で**無期限**。TTL は書き込みのたびに延びるので動かしている間は消えないが、
+  **デモが30日空くと消える**——しかも書き込み頻度が低いキーから順に消えるので不揃いに壊れる
+  （失効ビットが消えて**失効させたVCが有効に戻る**／persona 編集が SEED に戻る／申請台帳ごと消える）。
+  `kvStore.set` は ttlSec が null/0 なら `expirationTtl` を付けない。`_pki:config` は元から TTL なし（正しい）。
+  逆に**添付原本・セッション・キャッシュ・履歴は TTL が正解**
 - **IssuerService の永続状態（statusBits/発行台帳）は毎アクセス KV 再読込**（`_loadState` を once ガードにすると
   isolate A の失効が isolate B の配る Status List に永遠に反映されない=本番実害）。`statusListToken()` も配布前に読む
 - **`.vcard` は `isolation:isolate` 必須**: 子チップが `z-index:1` のため、無いとホームのスタック（負マージン重なり）で
@@ -71,7 +77,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   **教訓: 適合を名乗る面は自己ループでなく仕様構造の golden/外部実装との適合テストで pin。簡略化は名乗りに明示。**
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（344, node:test）／
+`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（345, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
@@ -124,8 +130,14 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   被災住家の所在地/住家の被害の程度。**世帯主住所と被災住家の所在地は別項目**。世帯構成員は追加記載事項欄①
   （MUST ではないが内閣府の記載例に載る）。判定は6区分（中規模半壊は令和2年12月の支援法改正で新設）
 - **添付は `src/upload.mjs` で一元判定**: 拡張子/Content-Type を信用せず**マジックバイト**で許可リスト判定
-  （JPEG/PNG/PDF。HEIC・WebP は検出して個別文言で拒否＝TODO、AVIF は対象外）。**上限は1ファイル2MB/合計8MB/6件**——
-  スマホのカメラ写真（12MPで4〜6MB）は超えるので、**クライアント側でも事前に弾いて理由を出す**（往復してから断ると理由が伝わらない）。`ftyp` はブランドまで見ないと
+  （JPEG/PNG/PDF。HEIC・WebP は検出して個別文言で拒否＝TODO、AVIF は対象外）
+- **写真は送信前にクライアントで長辺1600pxへ縮小して送る**（2026-08-09）。スマホのカメラ写真は 12MP で 4〜6MB あり、
+  原寸を保存すると KV が膨らむ。縮小すると 300〜500KB＝**保存量が約1/10**。選べる上限は**写真8MB / PDF2MB**
+  （PDF は縮小できない）、**保存側の上限は2MB**。縮小できなかったときは原本にフォールバックし上限で判定。
+  上限超過は**クライアントで先に弾いて理由を出す**（往復してから断ると理由が伝わらない）。1回のデコードから
+  一覧用サムネイル(320px)と保存用(1600px)の両方を作る
+- **添付の原本は短命**: `_att:` は **7日 TTL** ＋ **審査が終わった時点（認定/却下/取下げ）で削除**（`#purgeAttachments`）。
+  二重の網。台帳のサムネイルは残すので控えの見た目は保たれ、セルは「審査終了により原本は削除済み」を出してリンクを外す。`ftyp` はブランドまで見ないと
   mp4/qt を通してしまう。SVG は XML＝スクリプトを持てるので不可。**PDF はインライン描画しない**
   （`inlineDataUri()` が null を返す）。accept 属性に HEIC を列挙しない＝iOS Safari の自動 JPEG 変換に乗る
 - **添付は必須にしない**（デモ都合。実制度では必要なのでラベルに「本デモでは任意」＋注記を出す。`attachmentRequired` は制度上の事実として残す）
