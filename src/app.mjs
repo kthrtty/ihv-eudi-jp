@@ -16,7 +16,7 @@ import { captureInbound, getLog, pushLog, buildEntry, createLogRing } from './de
 import { securityHeaders, csrfGuard } from './security.mjs';
 import { createWallet } from './wallet.mjs';
 import { allConfigIds, configInfo, jwks as issuerJwks, accountCatalog } from './issuer.mjs';
-import { applicationTypeList, getApplicationType, labelOf, subOf, STATUS, targetKey } from './applications.mjs';
+import { applicationTypeList, getApplicationType, labelOf, subOf, STATUS } from './applications.mjs';
 import { validateAttachment, displayName, safeStoredName, MAX_FILES } from './upload.mjs';
 import { renderApplyForm, renderApplicationList, renderApplicationReview } from './apply-demo.mjs';
 
@@ -165,14 +165,11 @@ export function createApp(opts = {}) {
     if (!user) return c.redirect('/login?next=/applications', 302);
     const a = await svc.getApplication(c.req.param('id'));
     if (!a) return c.notFound();
-    // 同じ人・同じ対象の既存の認定＝この申請を認定すると上書きされるもの
-    const all = await svc.listApplications();
-    const supersedes = all.filter((x) => x.id !== a.id && x.userId === a.userId
-      && x.status === 'approved' && targetKey(x) === targetKey(a));
+    // 同じ人・同じ対象で認定済みの申請＝重複の可能性。却下するかは自治体の判断
     return c.html(renderApplicationReview(user, a, await svc.getUser(a.userId), {
       justSubmitted: c.req.query('new') === '1',
       issued: (await svc.issuances()).filter((e) => e.applicationId === a.id),
-      supersedes,
+      duplicates: await svc.duplicateApprovals(a),
     }));
   });
   app.post('/applications/:id/decision', async (c) => {

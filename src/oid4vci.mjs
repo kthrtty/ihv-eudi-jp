@@ -214,25 +214,18 @@ export class IssuerService {
     }
     Object.assign(app, next);
 
-    // 上書き: 同じ人・同じ対象の**別の**認定があれば、それを「更新により無効」に落として
-    // その申請から出たVCを失効させる。同じ島の資格証や同じ災害の罹災証明を2件
-    // 有効なまま持たせない（実制度でも更新時に旧カードは返却させる）。
-    const superseded = [];
-    if (status === 'approved') {
-      const key = targetKey(app);
-      for (const other of this.applications) {
-        if (other.id === app.id || other.userId !== app.userId) continue;
-        if (other.status !== 'approved' || targetKey(other) !== key) continue;
-        other.status = 'superseded';
-        other.decided_at = new Date().toISOString();
-        const gone = await this.#revokeForApplication(other.id, `新しい認定（${app.id}）により更新`);
-        other.issuedFingerprint = null;
-        superseded.push({ id: other.id, revoked: gone });
-        revoked = revoked.concat(gone);
-      }
-    }
     await this._saveApps();
-    return { application: app, revoked, contentChanged, superseded };
+    return { application: app, revoked, contentChanged };
+  }
+
+  /** 同じ人・同じ対象で、すでに認定済みの**別の**申請。重複申請の検出用。
+   *  自動では何もしない——重複を却下するかどうかは自治体の判断（実運用に合わせる）。 */
+  async duplicateApprovals(app) {
+    if (!app) return [];
+    await this._loadApps();
+    const key = targetKey(app);
+    return this.applications.filter((x) => x.id !== app.id && x.userId === app.userId
+      && x.status === 'approved' && targetKey(x) === key);
   }
 
   /** ある申請から発行された未失効のVCを全て失効させる（形式ごとに複数枚ある）。 */
