@@ -190,9 +190,10 @@ test('admin: 扱っていない自治体あての申請 URL は選択画面へ�
   assert.equal(g.status, 302);
   assert.equal(g.headers.get('location'), '/apply/island');
   // 選択画面には取扱いのある自治体しか出ない
-  const pick = await (await fetch(`${ISSUER}/apply/island`, { headers: { cookie: `sid=${sid}` } })).text();
-  assert.ok(pick.includes('西之表市'), '種子島の自治体は出る');
+  const pick = await (await fetch(`${ISSUER}/apply/island?pref=${encodeURIComponent('鹿児島県')}`, { headers: { cookie: `sid=${sid}` } })).text();
+  assert.ok(pick.includes('西之表市') && pick.includes('屋久島町'), '種子島・屋久島の自治体は出る');
   assert.ok(!pick.includes('/apply/island/13101'), '千代田区へのリンクは出ない');
+  assert.ok(!pick.includes('/apply/island/47207'), '沖縄は根拠法が違うので出ない');
 
   // 罹災は「災害が起きた自治体」だけ。種子島に罹災証明は出せない（災害が無いので）
   const dpick = await (await fetch(`${ISSUER}/apply/disaster`, { headers: { cookie: `sid=${sid}` } })).text();
