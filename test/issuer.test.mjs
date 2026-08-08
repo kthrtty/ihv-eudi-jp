@@ -96,11 +96,15 @@ test('applications: 罹災の認定内容が統一様式どおりのクレーム
   const store = createUserStore();
   const [d] = await svc.issuableApplications('u_001', 'disaster');
   const c = claimsFor(d, store.get('u_001'));
-  // 内閣府統一様式の必須記載事項: 世帯主住所と被災住家の所在地は別項目
-  assert.equal(c.head_of_household_address, '東京都千代田区1-1-1');
-  assert.equal(c.address, '東京都千代田区1-1-1');
+  // 内閣府統一様式の必須記載事項: **世帯主住所と被災住家の所在地は別項目**
+  // （SEED の A-0002 は住民票=千代田区／被災住家=世田谷区 でその差を持たせてある）
+  assert.equal(c.head_of_household_address, '東京都千代田区1-1-1', '世帯主住所は住民票から');
+  assert.equal(c.address, '東京都世田谷区玉川3-1-1', '被災住家は申請の申告から');
+  assert.notEqual(c.address, c.head_of_household_address, '2つは別項目');
   assert.equal(c.damage_level, '半壊');
-  assert.equal(c.disaster_name, '令和7年台風第10号');
+  // 災害名・罹災日は**災害マスタ由来**（自由入力ではない）
+  assert.equal(c.disaster_name, '令和元年東日本台風（台風第19号）');
+  assert.equal(c.disaster_date, '2019-10-12');
   // 追加記載事項欄①（世帯構成員）— 本人＋世帯員
   assert.equal(c.household_members[0].relationship_to_head, '世帯主');
   assert.ok(c.household_members.some((m) => m.given_name === '莉子'));

@@ -18,8 +18,9 @@ import { createWallet } from './wallet.mjs';
 import { allConfigIds, configInfo, jwks as issuerJwks, accountCatalog } from './issuer.mjs';
 import { getApplicationType, labelOf, subOf } from './applications.mjs';
 import { validateAttachment, displayName, safeStoredName, validateThumb, ATT_MIME, MAX_FILES, MAX_TOTAL_BYTES } from './upload.mjs';
-import { renderApplyForm, renderMunicipalityPicker, renderMyApplications, renderMyApplication } from './apply-demo.mjs';
+import { renderApplyForm, renderMunicipalityPicker, renderDisasterPicker, renderMyApplications, renderMyApplication } from './apply-demo.mjs';
 import { getMunicipality, suggestFromAddress } from './municipalities.mjs';
+import { getDisaster, coversMunicipality } from './disasters.mjs';
 
 // Lazy HTML loader for Node.js — not called in Workers (html string passed explicitly).
 async function loadHtml(rel) {
@@ -119,9 +120,13 @@ export function createApp(opts = {}) {
     if (!user) return c.redirect(`/login?next=/apply/${c.req.param('kind')}`, 302);
     const t = getApplicationType(c.req.param('kind'));
     if (!t) return c.notFound();
+    // 罹災は「災害 → 対象自治体」。災害未選択ならまず災害を選ばせる
+    const disaster = t.byDisaster ? getDisaster(c.req.query('d')) : null;
+    if (t.byDisaster && !disaster) return c.html(renderDisasterPicker(user, t));
     return c.html(renderMunicipalityPicker(user, t, {
       pref: c.req.query('pref') || '',
-      suggested: suggestFromAddress(user.address, t.id),
+      suggested: suggestFromAddress(user.address, disaster ? null : t.id, disaster?.codes ?? null),
+      disaster,
     }));
   });
   // ③ 申請フォーム（申請先が確定している）
@@ -132,10 +137,15 @@ export function createApp(opts = {}) {
     const t = getApplicationType(kind);
     const muni = getMunicipality(c.req.param('code'));
     if (!t || !muni) return c.notFound();
-    // 扱っていない手続きの URL を直接叩かれたら選択画面へ戻す
-    if (!muni.procedures.includes(t.id)) return c.redirect(`/apply/${kind}`, 302);
+    const disaster = t.byDisaster ? getDisaster(c.req.query('d')) : null;
+    // 受け付けられない組合せの URL を直接叩かれたら選択画面へ戻す
+    if (t.byDisaster && (!disaster || !coversMunicipality(disaster.id, muni.code))) {
+      return c.redirect(`/apply/${kind}${disaster ? `?d=${encodeURIComponent(disaster.id)}` : ''}`, 302);
+    }
+    if (!t.byDisaster && !muni.procedures.includes(t.id)) return c.redirect(`/apply/${kind}`, 302);
     return c.html(renderApplyForm(user, t, muni, {
       error: c.req.query('e') || '',
+      disaster,
       // 対象離島は申請先から決まるので埋めておく（複数島の自治体もあるので入力は残す）
       prefill: muni.islands.length === 1 ? { island_name: muni.islands[0] } : {},
     }));
@@ -147,8 +157,11 @@ export function createApp(opts = {}) {
     const code = c.req.param('code');
     const t = getApplicationType(kind);
     if (!t || !getMunicipality(code)) return c.notFound();
+    // 対象の災害は catch 側（エラーで選択画面へ戻すとき）でも要るので try の外で持つ
+    let disasterId = null;
     try {
       const f = await c.req.parseBody({ all: true });
+      disasterId = String(f.disaster_id ?? '') || null;
       const form = Object.fromEntries(t.form.map((x) => [x.key, String(f[x.key] ?? '').trim()]));
       // 添付は multipart で来る。種別は**中身のバイト列**から判定する（申告は信用しない）。
       // 未選択でもブラウザは空の File を送ってくるので、中身のあるものだけを添付とみなす
@@ -171,10 +184,12 @@ export function createApp(opts = {}) {
         attachments.push({ name: displayName(file.name, v.kind, i), kind: v.kind, size: v.bytes.length,
           stored: safeStoredName(v.kind, i), thumb: validateThumb(thumbs[i]), bytes: v.bytes });
       }
-      const app2 = await svc.submitApplication({ userId: user.id, kind, targetCode: code, form, attachments });
+      const app2 = await svc.submitApplication({ userId: user.id, kind, targetCode: code,
+        disasterId, form, attachments });
       return c.redirect(`/applications/${app2.id}?new=1`, 303);
     } catch (e) {
-      return c.redirect(`/apply/${kind}/${code}?e=${encodeURIComponent(e.description || e.message)}`, 303);
+      const q = disasterId ? `d=${encodeURIComponent(disasterId)}&` : '';
+      return c.redirect(`/apply/${kind}/${code}?${q}e=${encodeURIComponent(e.description || e.message)}`, 303);
     }
   });
 

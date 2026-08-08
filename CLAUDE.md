@@ -77,7 +77,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   **教訓: 適合を名乗る面は自己ループでなく仕様構造の golden/外部実装との適合テストで pin。簡略化は名乗りに明示。**
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（345, node:test）／
+`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（346, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
@@ -87,7 +87,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
 - `issuer.mjs` カタログ駆動 mint/verify + SAMPLE。`personaClaims/configInfo/allConfigIds`。schemas は **JSON バンドル import（import時fsゼロ）**、PKIは mint/verify 内で遅延読込
 - `oid4vci.mjs` IssuerService（offer/token/nonce/credential, proof検証, login/authorize, **memoryStore + kvStore**, httpErr）
 - `verifier.mjs` VerifierService（`createRequest({protocol})`・`verifyResponse`・statusResolver・linkedSameHolder）
-- `users.mjs` 人物4名+persona写像+CRUD／`municipalities.mjs` **自治体ディレクトリ**（交付者名と管轄の正本）／`offer.mjs` Credential Offer配送／`canonical.mjs` 決定性監査
+- `users.mjs` 人物4名+persona写像+CRUD／`municipalities.mjs` **自治体ディレクトリ**（交付者名と管轄の正本）／`disasters.mjs` **災害マスタ**（罹災の対象自治体の正本）／`offer.mjs` Credential Offer配送／`canonical.mjs` 決定性監査
 - `app.mjs` Hono（Issuer app + `createVerifierApp`）。`app.request()` でサーバ無しテスト
 - `admin-app.mjs` **自治体窓口（別オリジン）** `createAdminApp`＋`admin-demo.mjs` 画面＋`staff.mjs` 職員名簿
 - `wallet.mjs` wallet-core: `receive`(pre-auth)/`authorizeAndReceive`/`exchangeAndReceive`/`respond`（DCQL解決→JWE/HPKE）
@@ -107,8 +107,19 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   「同じ利用者・同じ種別の認定済み申請」を並べて審査画面に申し送るだけで、**住所や災害名の
   文字列突合はしない**（「大江3丁目1番5号」と「大江3-1-5」は機械では解けず、誤検出は正当な
   申請を却下させる）。重複なら審査担当が却下する。自動失効もしない
+- **罹災は「災害」が母集団を決める**（2026-08-09・`src/disasters.mjs`）。災害対策基本法 第90条の2 は
+  「**当該市町村の地域に係る災害が発生した場合において**…交付しなければならない」＝交付義務は全市町村が
+  負うが**災害というイベントに従属する**。自治体の恒常的な属性として持つと「災害が起きていない種子島でも
+  罹災証明が出せる」ように見える。よって `procedures` に disaster は書かず、災害マスタが対象自治体を持つ。
+  **罹災と離島は「異なる母集団」ではなく別の軸で絞られるだけで交わりうる**（佐渡市は能登半島地震の対象かつ離島）
+- **災害はオープンデータで自動同期できない**: 内閣府「災害救助法の適用状況」は PDF のみで API が無く、さらに
+  **災害救助法の適用と罹災証明の交付対象は一致しない**（適用されない小規模災害でも罹災証明は出る）＝適用一覧は
+  部分集合にすぎない。デモは固定4件（能登半島地震／奥能登豪雨／熊本地震／東日本台風）を持ち、画面にその旨を明記
+- **団体コードは総務省の公式ファイルと突合してから書く**。記憶で書くと落ちる（西原村を 43442、南阿蘇村を 43468 と
+  誤記しかけた。正は 43432/43433）。`https://www.soumu.go.jp/denshijiti/code.html` の xlsx を zip 展開して照合
 - **申請先の自治体は申請者が選ぶ**（2026-08-08・`src/municipalities.mjs`）。動線は
-  **カタログ → 手続き → 申請先 → フォーム**（`/apply/:kind` = 自治体選択・`/apply/:kind/:code` = フォーム）。
+  **カタログ → 手続き →（罹災は災害 →）申請先 → フォーム**（`/apply/:kind` = 選択・`?d=<災害>` で対象自治体・
+  `/apply/:kind/:code` = フォーム）。
   マイナポータルぴったりサービスは自治体が先だが、あれは手続きを探す総合窓口。こちらは書類を決めて来るので
   逆順にし、**その手続きを扱う自治体だけ**に絞る（自治体を先に選ばせると「取扱いなし」の行き止まりを見せる）。
   - **住所からは推定しない**。罹災の申請先は被災住家の自治体、離島は島の自治体で、どちらも住民票とは限らない

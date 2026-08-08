@@ -35,9 +35,11 @@ const login = async (user_id) => (await (await fetch(`${ISSUER}/login`, {
 const staffLogin = async (staff_id) => (await (await fetch(`${ADMIN}/login`, {
   method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ staff_id }),
 })).json()).session_id;
+// 災害名・罹災日は災害マスタ由来（平成28年熊本地震＝熊本市 43100 が対象）
+const DISASTER_ID = 'h28-kumamoto';
 const DISASTER_FORM = {
-  damaged_address: '熊本県熊本市中央区大江3-1-5', disaster_name: '令和8年 熊本地震',
-  disaster_date: '2026-07-28', building_type: '木造2階建', statement: '1階の柱が傾き居住できません',
+  damaged_address: '熊本県熊本市中央区大江3-1-5', building_type: '木造2階建',
+  statement: '1階の柱が傾き居住できません', disaster_id: DISASTER_ID,
 };
 /** 住民として申請を出し、受付番号を返す（画面と同じ HTTP 経路）。
  *  申請先の団体コードが URL に載る＝住所からは推定しない。 */
@@ -96,7 +98,7 @@ test('admin: 職員は住民の名簿に載らない（persona ではない）',
 test('admin: 発行ポータルの申請状況は自分のぶんだけ', async () => {
   const mine = await login('u_002');
   const myId = await submit(mine);
-  const otherId = await submit(await login('u_003'), 'disaster', '14100');
+  const otherId = await submit(await login('u_003'), 'disaster', '43443');
 
   const list = await (await fetch(`${ISSUER}/applications`, { headers: { cookie: `sid=${mine}` } })).text();
   assert.ok(list.includes(myId), '自分の申請は出る');
@@ -191,6 +193,18 @@ test('admin: 扱っていない自治体あての申請 URL は選択画面へ�
   const pick = await (await fetch(`${ISSUER}/apply/island`, { headers: { cookie: `sid=${sid}` } })).text();
   assert.ok(pick.includes('西之表市'), '種子島の自治体は出る');
   assert.ok(!pick.includes('/apply/island/13101'), '千代田区へのリンクは出ない');
+
+  // 罹災は「災害が起きた自治体」だけ。種子島に罹災証明は出せない（災害が無いので）
+  const dpick = await (await fetch(`${ISSUER}/apply/disaster`, { headers: { cookie: `sid=${sid}` } })).text();
+  assert.ok(dpick.includes('令和6年能登半島地震'), 'まず災害を選ばせる');
+  assert.ok(!dpick.includes('西之表市'), '災害を選ぶ前に自治体は出さない');
+  const noto = await (await fetch(`${ISSUER}/apply/disaster?d=r6-noto-jishin`, { headers: { cookie: `sid=${sid}` } })).text();
+  assert.ok(noto.includes('石川県'), '対象自治体が最も多い県が既定で開く');
+  assert.ok(noto.includes('輪島市'), '能登半島地震の対象自治体は出る');
+  assert.ok(!noto.includes('/apply/disaster/46213'), '対象外の西之表市は出ない');
+  const bad = await fetch(`${ISSUER}/apply/disaster/46213?d=r6-noto-jishin`, {
+    headers: { cookie: `sid=${sid}` }, redirect: 'manual' });
+  assert.equal(bad.status, 302, '対象外の組合せは選択画面へ戻す');
 });
 
 // 添付の実アップロード経路（multipart）。原本は保存せず、クライアントが縮小した
@@ -254,7 +268,7 @@ test('admin: 添付は原本つきで受理され、控えと審査画面から�
 // デモ用途のため添付は必須にしない。ただし**実制度では必要**なので、その旨を画面に残す。
 test('apply: 添付は必須にせず、デモ都合であることを画面に書く', async () => {
   const sid = await login('u_002');
-  const form = await (await fetch(`${ISSUER}/apply/disaster/43100`, { headers: { cookie: `sid=${sid}` } })).text();
+  const form = await (await fetch(`${ISSUER}/apply/disaster/43100?d=${DISASTER_ID}`, { headers: { cookie: `sid=${sid}` } })).text();
   assert.ok(!form.includes('被害状況の写真・書類<b class="req">必須</b>'), '必須バッジを出さない');
   assert.ok(form.includes('本デモでは任意'), '任意であることをラベルに出す');
   assert.ok(form.includes('本デモでは添付なしでも申請できます'), 'デモ都合であることを明記する');
