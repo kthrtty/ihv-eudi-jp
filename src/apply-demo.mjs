@@ -204,7 +204,7 @@ export function renderApplicationList(user, apps, { issuedBy = {}, applicants = 
 }
 
 /** 審査（認定・却下・再判定）。左=申告内容、右=判定入力。 */
-export function renderApplicationReview(user, a, applicant, { justSubmitted = false, issued = [], supersedes = [] } = {}) {
+export function renderApplicationReview(user, a, applicant, { justSubmitted = false, issued = [], duplicates = [] } = {}) {
   const t = getApplicationType(a.kind);
   const live = issued.filter((e) => !e.revoked);
   const decided = a.decision || {};
@@ -239,9 +239,9 @@ export function renderApplicationReview(user, a, applicant, { justSubmitted = fa
         <form class="acard" method="POST" action="/applications/${esc(a.id)}/decision">
           <div class="sec">${already ? '再判定' : '審査・判定'}</div>
           <p class="lead" style="margin-bottom:10px">${esc(t.reviewLead)}</p>
-          ${supersedes.length ? `<div class="warn">🔁 <b>同じ対象の認定がすでにあります</b>（${supersedes.map((x) => esc(x.id)).join('・')}）。
-            この申請を認定すると、そちらは<b>「更新により無効」</b>になり、交付済みのクレデンシャルは失効します。
-            有効な認定は常に1件に保たれます。</div>` : ''}
+          ${duplicates.length ? `<div class="warn">🔁 <b>同じ対象で認定済みの申請があります</b>（${duplicates.map((x) => `${esc(x.id)}：${esc(labelOf(x))}`).join('／')}）。
+            重複申請であればこの申請を<b>却下</b>してください。認定すると同じ対象の資格証が2件有効になります
+            （表記の揺れは吸収していますが、「3丁目1番5号」と「3-1-5」のような差は検出できません。目視で確認してください）。</div>` : ''}
           ${already && live.length ? `<div class="warn err">⚠️ <b>交付済みのクレデンシャルがあります。</b>
             判定を変えて証明書に載る内容が変わる場合、この申請から発行された ${live.length} 件を失効させ、新しい内容で再交付できるようにします。
             内容が変わらない場合（例: 全壊 → 全壊）は失効させません。</div>` : ''}

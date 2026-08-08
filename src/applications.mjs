@@ -22,9 +22,6 @@ export const STATUS = {
   approved: { label: '認定', chip: 'ok', issuable: true, by: '自治体', next: '交付できます' },
   rejected: { label: '却下', chip: 'ng', issuable: false, by: '自治体', next: '交付されません' },
   withdrawn: { label: '取下げ', chip: 'na', issuable: false, by: '申請者', next: '申請者が取り下げました' },
-  // 同じ対象で新しい認定が出たときに、古い認定をこの状態へ落とす（＝上書き）。
-  // 実制度でも資格証は更新時に旧カードを返却させ、罹災証明は再調査の結果で置き換わる。
-  superseded: { label: '更新により無効', chip: 'na', issuable: false, by: '自治体', next: '新しい認定に置き換わりました' },
 };
 export const isIssuable = (app) => !!app && STATUS[app.status]?.issuable === true;
 
@@ -42,10 +39,9 @@ export function statusView(app, { issued = 0 } = {}) {
 const TRANSITIONS = {
   submitted: ['surveying', 'approved', 'rejected', 'withdrawn'],
   surveying: ['approved', 'rejected', 'withdrawn'],
-  approved: ['approved', 'rejected', 'withdrawn', 'superseded'], // approved→approved = 再判定
+  approved: ['approved', 'rejected', 'withdrawn'],   // approved→approved = 再判定
   rejected: ['surveying', 'approved'],               // 再調査で覆ることがある
   withdrawn: [],
-  superseded: [],                                    // 置き換わった申請は復活させない
 };
 export const canTransition = (from, to) => (TRANSITIONS[from] || []).includes(to);
 
@@ -197,11 +193,10 @@ export function canIssueFrom(app) {
 export const labelOf = (app) => getApplicationType(app?.kind)?.label(app) ?? '';
 
 /** 対象キーの正規化。住所や災害名は手入力なので表記が揺れる（全角数字・全角ハイフン・
- *  空白の混入など）。**保守的にしか正規化しない**——過剰に丸めて別の対象どうしが一致すると、
- *  有効な認定を誤って失効させてしまう。上書きの空振り（重複が残る）は警告で気付けて
- *  復旧もできるが、誤った失効は利用者の資格を奪うので、危険の非対称を優先する。
- *  「3丁目1番5号」と「3-1-5」のような表記差は文字列では解けないので、
- *  更新は**同じ申請の再判定**で行うのが本筋（新規申請を立てない）。 */
+ *  空白の混入など）。これを吸収しないと**重複申請の検出が空振りする**。
+ *  ただし丸めすぎない: 別の対象を同一と誤検出すると、審査担当に誤った警告を出して
+ *  正当な申請を却下させかねない。「3丁目1番5号」と「3-1-5」のような表記差は
+ *  文字列では解けないので、そこは人が見て判断する前提。 */
 const HYPHENS = /[\u2010-\u2015\u2212\uFF0D]/g;   // ‐‑‒–—― − －（カタカナ長音 ー は含めない）
 export function normalizeTargetPart(v) {
   return String(v ?? '')
@@ -212,8 +207,8 @@ export function normalizeTargetPart(v) {
 }
 
 /** 「同じ対象」の判定キー。罹災＝災害名＋被災住家 / 離島＝交付自治体＋対象離島。
- *  ここが一致する認定を同じ人が2つ持つのは制度的におかしいので、新しい認定で
- *  古いほうを置き換える（上書き）。見出しと同じ材料なので labelOf を使う。 */
+ *  同じ人が同じ対象の認定を2つ持つのは制度的におかしいので、審査画面で**重複として
+ *  警告する**（自動では何もしない。重複申請の却下は自治体の判断＝実運用に合わせる）。 */
 export const targetKey = (app) => `${app?.kind}\u0000${normalizeTargetPart(labelOf(app))}`;
 export const subOf = (app) => getApplicationType(app?.kind)?.sub(app) ?? '';
 
