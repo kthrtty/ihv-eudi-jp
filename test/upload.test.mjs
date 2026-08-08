@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   sniffFileType, validateAttachment, renderPolicy, inlineDataUri,
-  displayName, safeStoredName, MAX_FILE_BYTES, ACCEPTED, ACCEPT_ATTR,
+  displayName, safeStoredName, MAX_FILE_BYTES, MAX_TOTAL_BYTES, ACCEPTED, ACCEPT_ATTR,
   validateThumb, thumbDataUri, MAX_THUMB_BYTES,
 } from '../src/upload.mjs';
 
@@ -133,4 +133,14 @@ test('upload: サムネイルは JPEG のバイト列だけを受け入れる', 
 test('upload: サムネイルの data URI は image/jpeg 固定', () => {
   assert.equal(thumbDataUri(null), null);
   assert.match(thumbDataUri('AAAA'), /^data:image\/jpeg;base64,AAAA$/);
+});
+
+
+// 上限はデモ用に絞ってある。**緩める方向の変更は無自覚に入れない**ための pin。
+test('upload: 添付の上限は 1ファイル 2MB / 合計 8MB / 6件', () => {
+  assert.equal(MAX_FILE_BYTES, 2 * 1024 * 1024);
+  assert.equal(MAX_TOTAL_BYTES, 8 * 1024 * 1024);
+  const over = validateAttachment(pad(buf([0xff, 0xd8, 0xff, 0xe0]), MAX_FILE_BYTES + 1));
+  assert.equal(over.ok, false);
+  assert.match(over.error, /上限 2MB/, 'いくつを超えたのか文言に出す');
 });

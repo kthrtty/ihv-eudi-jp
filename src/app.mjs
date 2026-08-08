@@ -17,7 +17,7 @@ import { securityHeaders, csrfGuard } from './security.mjs';
 import { createWallet } from './wallet.mjs';
 import { allConfigIds, configInfo, jwks as issuerJwks, accountCatalog } from './issuer.mjs';
 import { getApplicationType, labelOf, subOf } from './applications.mjs';
-import { validateAttachment, displayName, safeStoredName, validateThumb, ATT_MIME, MAX_FILES } from './upload.mjs';
+import { validateAttachment, displayName, safeStoredName, validateThumb, ATT_MIME, MAX_FILES, MAX_TOTAL_BYTES } from './upload.mjs';
 import { renderApplyForm, renderMunicipalityPicker, renderMyApplications, renderMyApplication } from './apply-demo.mjs';
 import { getMunicipality, suggestFromAddress } from './municipalities.mjs';
 
@@ -160,9 +160,14 @@ export function createApp(opts = {}) {
       let thumbs = [];
       try { const t = JSON.parse(String(f.thumbs ?? '[]')); if (Array.isArray(t)) thumbs = t; } catch { /* 無視して添付だけ受ける */ }
       const attachments = [];
+      let total = 0;
       for (const [i, file] of files.slice(0, MAX_FILES).entries()) {
         const v = validateAttachment(new Uint8Array(await file.arrayBuffer()));
         if (!v.ok) throw httpFail(400, v.error);
+        total += v.bytes.length;
+        if (total > MAX_TOTAL_BYTES) {
+          throw httpFail(400, `添付の合計が大きすぎます（上限 ${Math.floor(MAX_TOTAL_BYTES / 1024 / 1024)}MB）`);
+        }
         attachments.push({ name: displayName(file.name, v.kind, i), kind: v.kind, size: v.bytes.length,
           stored: safeStoredName(v.kind, i), thumb: validateThumb(thumbs[i]), bytes: v.bytes });
       }

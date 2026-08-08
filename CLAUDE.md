@@ -71,7 +71,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   **教訓: 適合を名乗る面は自己ループでなく仕様構造の golden/外部実装との適合テストで pin。簡略化は名乗りに明示。**
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（341, node:test）／
+`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（344, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
@@ -124,9 +124,11 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   被災住家の所在地/住家の被害の程度。**世帯主住所と被災住家の所在地は別項目**。世帯構成員は追加記載事項欄①
   （MUST ではないが内閣府の記載例に載る）。判定は6区分（中規模半壊は令和2年12月の支援法改正で新設）
 - **添付は `src/upload.mjs` で一元判定**: 拡張子/Content-Type を信用せず**マジックバイト**で許可リスト判定
-  （JPEG/PNG/PDF。HEIC・WebP は検出して個別文言で拒否＝TODO、AVIF は対象外）。`ftyp` はブランドまで見ないと
+  （JPEG/PNG/PDF。HEIC・WebP は検出して個別文言で拒否＝TODO、AVIF は対象外）。**上限は1ファイル2MB/合計8MB/6件**——
+  スマホのカメラ写真（12MPで4〜6MB）は超えるので、**クライアント側でも事前に弾いて理由を出す**（往復してから断ると理由が伝わらない）。`ftyp` はブランドまで見ないと
   mp4/qt を通してしまう。SVG は XML＝スクリプトを持てるので不可。**PDF はインライン描画しない**
   （`inlineDataUri()` が null を返す）。accept 属性に HEIC を列挙しない＝iOS Safari の自動 JPEG 変換に乗る
+- **添付は必須にしない**（デモ都合。実制度では必要なのでラベルに「本デモでは任意」＋注記を出す。`attachmentRequired` は制度上の事実として残す）
 - **添付UIはサムネイルの格子**（2026-08-09）: ＋は写真1枚と同寸のタイルで末尾に並ぶ（横一列のドロップ帯は
   何を何枚入れたか見えない）。**＋を押すたびに積み上がる**（`DataTransfer` で `input.files` を組み直す）・
   各セルに✕で個別削除。**原本は保存せず**、クライアントが canvas で長辺 320px の JPEG に縮小したものを

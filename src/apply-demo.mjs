@@ -5,7 +5,7 @@ import { appShell } from './authcode-demo.mjs';
 import { WALLET_CARD_THEME, swatchEmblemHtml, swatchEmblemCss } from './authcode-demo.mjs';
 import { STATUS, statusView, labelOf, subOf, getApplicationType, applicationTypeList, targetName } from './applications.mjs';
 import { prefecturesFor, municipalitiesIn } from './municipalities.mjs';
-import { ACCEPT_ATTR, MAX_FILES, MAX_FILE_BYTES, THUMB_EDGE, thumbDataUri } from './upload.mjs';
+import { ACCEPT_ATTR, MAX_FILES, MAX_FILE_BYTES, MAX_TOTAL_BYTES, THUMB_EDGE, thumbDataUri } from './upload.mjs';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 export const sw = (type) => {
@@ -243,7 +243,10 @@ export function renderApplyForm(user, t, muni, { error = '', prefill = {} } = {}
         <div class="sec">申請内容</div>
         ${t.form.map((x) => field(x, prefill[x.key] ?? '')).join('')}
 
-        <div class="sec">${esc(t.attachmentLabel)}${t.attachmentRequired ? '<b class="req">必須</b>' : ''}</div>
+        <div class="sec">${esc(t.attachmentLabel)}${t.attachmentRequired ? '<span class="tagro">本デモでは任意</span>' : ''}</div>
+        ${t.attachmentRequired ? `<span class="fhint">実際の手続きでは${esc(t.attachmentLabel)}の提出が必要ですが、
+          <b>本デモでは添付なしでも申請できます</b>（動作を試しやすくするため）。</span>` : ''}
+        <div class="warn err" id="uperr" style="display:none"></div>
         <div class="upgrid" id="upgrid">
           <label class="uptile" id="uptile">
             <input type="file" id="upfile" name="attachments" multiple accept="${ACCEPT_ATTR}">
@@ -254,14 +257,25 @@ export function renderApplyForm(user, t, muni, { error = '', prefill = {} } = {}
              マジックバイトと上限を再検証する）。JS 無効なら空のまま＝添付は成立する */''}
         <input type="hidden" name="thumbs" id="upthumbs" value="">
         <span class="fhint">カメラで撮影／ファイルから選択。<b>複数選べます</b>（＋を押すたびに追加）。
-          JPEG・PNG・PDF ／ 1ファイル ${Math.floor(MAX_FILE_BYTES / 1024 / 1024)}MB まで・最大 ${MAX_FILES} 件</span>
+          JPEG・PNG・PDF ／ 1ファイル ${Math.floor(MAX_FILE_BYTES / 1024 / 1024)}MB・合計 ${Math.floor(MAX_TOTAL_BYTES / 1024 / 1024)}MB まで・最大 ${MAX_FILES} 件。
+          <b>スマートフォンのカメラ写真は上限を超えることがあります</b>（その場合は書き出しサイズを小さくしてください）</span>
         ${t.attachmentHint ? `<span class="fhint">${esc(t.attachmentHint)}</span>` : ''}
         <script>
         (function () {
           var inp = document.getElementById('upfile'), grid = document.getElementById('upgrid'),
               tile = document.getElementById('uptile'), hid = document.getElementById('upthumbs');
           if (!inp || !grid || !tile || !hid || typeof DataTransfer === 'undefined') return;
-          var files = [], thumbs = [], MAX = ${MAX_FILES}, EDGE = ${THUMB_EDGE};
+          var files = [], thumbs = [], MAX = ${MAX_FILES}, EDGE = ${THUMB_EDGE},
+              MAXB = ${MAX_FILE_BYTES}, MAXT = ${MAX_TOTAL_BYTES},
+              err = document.getElementById('uperr');
+          function fail(msgs) {
+            if (!err) return;
+            err.innerHTML = '';
+            msgs.forEach(function (m) { var d = document.createElement('div'); d.textContent = '⚠️ ' + m; err.appendChild(d); });
+            err.style.display = msgs.length ? '' : 'none';
+          }
+          var MB = function (n) { return Math.floor(n / 1024 / 1024); };
+          function total() { return files.reduce(function (a, f) { return a + f.size; }, 0); }
           // 選び直しでも積み上がるように、input.files は毎回こちらで組み直す
           function sync() {
             var dt = new DataTransfer();
@@ -319,9 +333,23 @@ export function renderApplyForm(user, t, muni, { error = '', prefill = {} } = {}
           inp.addEventListener('change', function () {
             var picked = Array.prototype.slice.call(inp.files || []);
             if (!picked.length) { sync(); return; }
-            var room = MAX - files.length;
-            if (room <= 0) { sync(); draw(); return; }
-            picked = picked.slice(0, room);
+            // 上限はサーバでも見るが、往復してから断られると理由が分かりにくい。
+            // スマホのカメラ写真は 2MB を超えることが多いので、ここで先に伝える。
+            var msgs = [], keep = [], sum = total();
+            picked.forEach(function (f) {
+              if (files.length + keep.length >= MAX) { msgs.push('添付は最大 ' + MAX + ' 件までです'); return; }
+              if (f.size > MAXB) {
+                // 四捨五入だと「2MB は上限 2MB を超えています」と読めてしまうので切り上げる
+                msgs.push(f.name + '（' + (Math.ceil(f.size / 104857.6) / 10) + 'MB）は上限 ' + MB(MAXB)
+                  + 'MB を超えています。写真アプリで小さいサイズに書き出してください');
+                return;
+              }
+              if (sum + f.size > MAXT) { msgs.push('添付の合計が上限 ' + MB(MAXT) + 'MB を超えます'); return; }
+              sum += f.size; keep.push(f);
+            });
+            fail(msgs);
+            picked = keep;
+            if (!picked.length) { inp.value = ''; sync(); draw(); return; }
             var left = picked.length;
             picked.forEach(function (f) {
               var idx = files.length;
