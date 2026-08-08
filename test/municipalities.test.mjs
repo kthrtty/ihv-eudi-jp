@@ -9,7 +9,7 @@ import { getMunicipality, authorityOf, fullName, offersProcedure,
   prefecturesFor, municipalitiesIn, suggestFromAddress } from '../src/municipalities.mjs';
 import { IssuerService } from '../src/oid4vci.mjs';
 import { targetAuthority, targetName, claimsFor } from '../src/applications.mjs';
-import { getDisaster, coversMunicipality } from '../src/disasters.mjs';
+import { getDisaster, coversMunicipality, listDisasters } from '../src/disasters.mjs';
 import { outOfJurisdiction, getStaff } from '../src/staff.mjs';
 
 test('municipalities: 長の呼称は明示的に持つ（名称＋「長」で作らない）', () => {
@@ -122,4 +122,30 @@ test('municipalities: 旧レコード（自由文の交付自治体）の離島�
   const legacy = { kind: 'island', target_code: null, form: { municipality: '鹿児島県西之表市', island_name: '種子島' } };
   assert.equal(targetName(legacy), '鹿児島県西之表市', '申請時の自由文へフォールバックする');
   assert.equal(fullName('46213'), '鹿児島県 西之表市');
+});
+
+
+// カタログは発生日の降順。実在の災害と架空のデモ用災害を並べて出すので、
+// **どれが架空かを混ぜたまま見せない**（実災害には出典を示している以上、区別は必須）。
+// カタログは発生日の降順。**出典によって「対象自治体」の意味が違う**ので、
+// 何の一覧かをデータで持ち、画面にも出す（この一覧＝罹災証明が出る自治体のすべて、ではない）。
+test('disasters: 発生日の降順で並び、対象一覧の出典を持つ', () => {
+  const ds = listDisasters();
+  const dates = ds.map((d) => d.occurred);
+  assert.deepEqual(dates, dates.slice().sort().reverse(), '発生日の降順');
+  assert.equal(ds[0].id, 'r8-kumamoto', '直近の災害が先頭');
+  assert.equal(ds[0].occurred, '2026-07-28');
+  assert.equal(ds[0].scope, 'digital-online', 'デジタル庁の「オンライン申請ができる自治体」');
+  assert.equal(ds[0].codes.length, 19);
+  for (const d of ds) assert.ok(['digital-online', 'kyujoho'].includes(d.scope), `${d.id} に出典がある`);
+});
+
+// 令和8年熊本地震と平成28年熊本地震で対象が違う（実データなので当然ずれる）。
+// 同じ人が同じ自治体あてに2枚の罹災証明を持てる形の実例になる。
+test('disasters: 同じ熊本でも災害ごとに対象自治体が違う', () => {
+  const r8 = getDisaster('r8-kumamoto').codes, h28 = getDisaster('h28-kumamoto').codes;
+  assert.ok(r8.includes('43100') && h28.includes('43100'), '熊本市は両方の対象');
+  assert.ok(r8.includes('43468') && !h28.includes('43468'), '氷川町は令和8年だけ（最大震度7）');
+  assert.ok(h28.includes('43432') && !r8.includes('43432'), '西原村は平成28年だけ');
+  assert.ok(h28.includes('44213') && !r8.includes('44213'), '大分県由布市は平成28年だけ');
 });
