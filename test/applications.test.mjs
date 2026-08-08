@@ -287,3 +287,25 @@ test('applications: 他人の同じ対象は上書きしない（申請者が違
   assert.equal(out.superseded.length, 0);
   assert.equal((await svc.issuableApplications('u_001', 'island')).length, 1, '別人の認定は残る');
 });
+
+// 対象キーは手入力の住所・災害名から作るので表記が揺れる。**保守的にしか正規化しない**——
+// 過剰に丸めて別の対象が一致すると有効な認定を誤って失効させる。危険の非対称
+// （空振り=重複が残る・気付ける／誤一致=資格を奪う）を踏まえた線引きを pin する。
+test('applications: 対象キーは表記揺れを吸収するが、丸めすぎない', async () => {
+  const { targetKey, normalizeTargetPart } = await import('../src/applications.mjs');
+  const mk = (addr) => ({ kind: 'disaster', form: { disaster_name: '令和8年 熊本地震', damaged_address: addr } });
+  const base = targetKey(mk('熊本県熊本市中央区大江3-1-5'));
+  // 吸収する: 全角英数・ハイフン様記号・空白（全角含む）・大小文字
+  for (const v of ['熊本県熊本市中央区大江３-１-５', '熊本県熊本市中央区大江3－1－5',
+    '熊本県熊本市中央区大江3−1−5', '熊本県熊本市中央区 大江3-1-5', '熊本県熊本市中央区大江3‐1‐5']) {
+    assert.equal(targetKey(mk(v)), base, `表記揺れを吸収: ${v}`);
+  }
+  // 吸収しない: 別の住所、そして「丁目/番/号」表記（文字列では解けない＝別物として扱う）
+  assert.notEqual(targetKey(mk('熊本県熊本市中央区大江3-1-6')), base, '別の住所は別の対象');
+  assert.notEqual(targetKey(mk('熊本県熊本市中央区大江3丁目1番5号')), base,
+    '丁目表記は同一と断定しない（誤って失効させるより重複を残す）');
+  // カタカナ長音はハイフンに寄せない（別語が同一になる事故を避ける）
+  assert.notEqual(normalizeTargetPart('データ'), normalizeTargetPart('データ'.replace('ー', '-')));
+  // 災害名が違えば別の対象（同じ住家でも別の災害で罹災しうる）
+  assert.notEqual(targetKey({ kind: 'disaster', form: { disaster_name: '令和8年 豪雨', damaged_address: '熊本県熊本市中央区大江3-1-5' } }), base);
+});

@@ -196,10 +196,25 @@ export function canIssueFrom(app) {
 
 export const labelOf = (app) => getApplicationType(app?.kind)?.label(app) ?? '';
 
+/** 対象キーの正規化。住所や災害名は手入力なので表記が揺れる（全角数字・全角ハイフン・
+ *  空白の混入など）。**保守的にしか正規化しない**——過剰に丸めて別の対象どうしが一致すると、
+ *  有効な認定を誤って失効させてしまう。上書きの空振り（重複が残る）は警告で気付けて
+ *  復旧もできるが、誤った失効は利用者の資格を奪うので、危険の非対称を優先する。
+ *  「3丁目1番5号」と「3-1-5」のような表記差は文字列では解けないので、
+ *  更新は**同じ申請の再判定**で行うのが本筋（新規申請を立てない）。 */
+const HYPHENS = /[\u2010-\u2015\u2212\uFF0D]/g;   // ‐‑‒–—― − －（カタカナ長音 ー は含めない）
+export function normalizeTargetPart(v) {
+  return String(v ?? '')
+    .normalize('NFKC')                 // 全角英数 → 半角
+    .replace(HYPHENS, '-')             // ハイフン様の記号を統一
+    .replace(/[\s\u3000]+/g, '')       // 空白（全角含む）を除去
+    .toLowerCase();
+}
+
 /** 「同じ対象」の判定キー。罹災＝災害名＋被災住家 / 離島＝交付自治体＋対象離島。
  *  ここが一致する認定を同じ人が2つ持つのは制度的におかしいので、新しい認定で
  *  古いほうを置き換える（上書き）。見出しと同じ材料なので labelOf を使う。 */
-export const targetKey = (app) => `${app?.kind}\u0000${labelOf(app)}`;
+export const targetKey = (app) => `${app?.kind}\u0000${normalizeTargetPart(labelOf(app))}`;
 export const subOf = (app) => getApplicationType(app?.kind)?.sub(app) ?? '';
 
 /** 認定内容から VC クレームを組む（種別ごとの toClaims へ委譲）。 */
