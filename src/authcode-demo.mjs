@@ -30,6 +30,10 @@ const CSS = `
   body.role-issuer{--role-soft:#EAF0FA;--role-line:#D4DEF5}
   body.role-verifier{--role-soft:#F8EEEE;--role-line:#E7D6D6;--civic:#9E3A3A;--civic-press:#7E2D2D}
   body.role-wallet{--role-soft:#EAF4F1;--role-line:#D2E5DF;--civic:#2E7D6B;--civic-press:#246154}
+  /* admin = 自治体の内部業務システム（住民向けではない）。**江戸紫**——Issuer 青(220°)/
+     Verifier 煉瓦(0°)/Wallet ティール(165°) のどれとも色相が被らない唯一の空き域。
+     ヘッダー・ログイン画面はここのCSS変数だけを見る（着せ替えは1か所） */
+  body.role-admin{--role-soft:#F0EBF6;--role-line:#DFD5EA;--civic:#745399;--civic-press:#5B417A}
   *{box-sizing:border-box}
   body{margin:0;font-family:"Zen Kaku Gothic New",system-ui,sans-serif;background:var(--paper);color:var(--ink);line-height:1.6}
   .mono{font-family:"IBM Plex Mono",monospace}
@@ -219,6 +223,7 @@ const ROLE_META = {
   issuer: { prefix: '発行者', color: '#1C3F94', ch: '発' },
   verifier: { prefix: '検証者', color: '#9E3A3A', ch: '検' },
   wallet: { prefix: 'ウォレット', color: '#2E7D6B', ch: 'W' },
+  admin: { prefix: '自治体窓口', color: '#745399', ch: '庁' },   // 江戸紫（body.role-admin と揃える）
 };
 export const roleHead = (role, title) => {
   const m = ROLE_META[role] || ROLE_META.issuer;
@@ -429,7 +434,7 @@ function appHeaderHtml(user, dev = false) {
               <div><div style="font-size:15px;font-weight:700">${name}</div>${desc}<div style="font-family:monospace;font-size:12px;color:#5B6B82">${esc(user.id)}</div></div>
             </div>
             <div style="height:1px;background:#EEF1F6;margin:2px 0 6px"></div>
-            <a href="/applications" style="${mItem}"><span>📋</span> 申請一覧</a>
+            <a href="/applications" style="${mItem}"><span>📋</span> 申請状況</a>
             <a href="/history" style="${mItem}"><span>📈</span> 発行履歴</a>
             <a href="/account" style="${mItem}"><span>⚙️</span> アカウント設定</a>
             <form method="POST" action="/logout" style="margin:0">
@@ -450,6 +455,85 @@ export function appShell(title, body, user = null, { width = 'narrow', dev = tru
   </head><body class="role-issuer" style="background:var(--paper);min-height:100vh">
     ${SENTINEL}<div class="topwrap">${appHeaderHtml(user, dev)}${DEMO_BAND}</div><div class="${cls}">${body}</div>${dev ? devWidgetHtml('', { endpoints: true }) : ''}${STICKY_JS}
   </body></html>`;
+}
+
+// ---- 自治体窓口（admin）--------------------------------------------------------
+// 発行ポータルとは別オリジンで動く自治体職員向けの内部システム。意匠は共有しつつ
+// 色（墨紺）とヘッダーで「住民向けの画面ではない」ことを明示する。
+function adminHeaderHtml(staff) {
+  const brand = `<div class="ah-brand"><div class="ah-title" style="font-size:16px;font-weight:700;color:#0E1A2B;line-height:1.2">交付申請 審査システム</div>
+    <div class="ah-sub" style="font-size:10px;letter-spacing:.14em;color:#5B6B82">MUNICIPAL BACK OFFICE</div></div>`;
+  const bar = 'background:var(--role-soft);border-bottom:1px solid var(--role-line);padding:0 24px;display:flex;align-items:center;gap:12px';
+  const rule = '<span style="width:4px;height:28px;border-radius:2px;background:var(--civic);flex-shrink:0;display:block"></span>';
+  if (!staff) return `<header class="ahdr" style="${bar}">${rule}${brand}</header>`;
+  const mItem = 'display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 14px;border:none;background:none;font:inherit;font-size:14px;cursor:pointer;border-radius:6px;text-decoration:none;color:#0E1A2B;box-sizing:border-box';
+  return `
+    <header class="ahdr" style="${bar}">${rule}${brand}
+      <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
+        <details style="position:relative">
+          <summary class="ah-pill" style="list-style:none;cursor:pointer;display:flex;align-items:center;gap:7px;padding:3px 10px 3px 4px;border:1px solid var(--role-line);border-radius:999px;background:#fff">
+            <span style="width:28px;height:28px;border-radius:7px;background:var(--civic);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0">庁</span>
+            ${/* 所属は常時見せる。どの自治体の立場で審査しているかは、管轄外の警告が
+                 出ていないときにも分かっていないといけない情報 */''}
+            <span class="ah-name" style="display:flex;flex-direction:column;line-height:1.25;text-align:left">
+              <b style="font-size:13px;font-weight:600">${esc(staff.name)}</b>
+              <small style="font-size:10px;color:#5B6B82">${esc(staff.municipality)}</small></span>
+            <span class="ah-name" style="font-size:10px;color:#5B6B82">▾</span>
+          </summary>
+          <div style="position:absolute;right:0;top:calc(100% + 6px);background:#fff;border:1px solid var(--role-line);border-radius:12px;min-width:250px;box-shadow:0 6px 24px rgba(14,26,43,.12);z-index:10;padding:6px">
+            <div style="padding:12px 14px 14px">
+              <div style="font-size:15px;font-weight:700">${esc(staff.name)}<span style="font-size:12px;font-weight:500;color:#5B6B82">　${esc(staff.title)}</span></div>
+              <div style="font-size:12px;color:#5B6B82">${esc(staff.office)}</div>
+              <div style="font-family:monospace;font-size:12px;color:#5B6B82">${esc(staff.id)}</div>
+            </div>
+            <div style="height:1px;background:#EEF1F6;margin:2px 0 6px"></div>
+            <a href="/" style="${mItem}"><span>📋</span> 申請一覧</a>
+            <form method="POST" action="/logout" style="margin:0">
+              <button type="submit" style="${mItem};color:#C8453C"><span>⤴</span> サインアウト</button>
+            </form>
+          </div>
+        </details>
+      </div>
+    </header>`;
+}
+
+/** Page shell for the municipal back office. `staff` may be null (login page). */
+export function adminShell(title, body, staff = null, { width = 'wide' } = {}) {
+  const cls = width === 'wide' ? 'wrap wide' : width === 'mid' ? 'wrap mid' : 'wrap';
+  return `<!doctype html><html lang="ja"><head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    ${roleHead('admin', `${title} — 交付申請 審査システム`)}${FONTS}<style>${CSS}</style>
+  </head><body class="role-admin" style="background:var(--paper);min-height:100vh">
+    ${SENTINEL}<div class="topwrap">${adminHeaderHtml(staff)}${DEMO_BAND}</div><div class="${cls}">${body}</div>${STICKY_JS}
+  </body></html>`;
+}
+
+/** Staff picker (passwordless, demo). 住民のログイン画面とは別の名簿・別の見た目。 */
+export function renderStaffLogin(staff, { next = '/' } = {}) {
+  const card = (s) => `<form method="POST" action="/login" style="margin:0">
+    <input type="hidden" name="staff_id" value="${esc(s.id)}">
+    <input type="hidden" name="next" value="${esc(next)}">
+    <button type="submit" style="width:230px;text-align:left;cursor:pointer;background:#fff;border:1px solid var(--role-line);border-radius:14px;padding:16px 18px;font:inherit;display:flex;gap:12px;align-items:center">
+      <span style="width:40px;height:40px;border-radius:10px;background:var(--civic);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0">庁</span>
+      <span style="min-width:0">
+        <b style="display:block;font-size:14.5px">${esc(s.name)}</b>
+        <small style="display:block;font-size:11px;color:#5B6B82">${esc(s.title)}　${esc(s.municipality)}</small>
+      </span>
+    </button></form>`;
+  return adminShell('サインイン', `
+    <div style="max-width:820px;margin:56px auto;text-align:center">
+      <p style="font-size:12px;letter-spacing:.18em;color:var(--civic);font-weight:700;margin:0 0 12px">自治体 交付申請 審査システム</p>
+      <h1 style="font-size:24px;font-weight:700;margin:0 0 8px">職員アカウントでサインイン</h1>
+      <p style="font-size:13.5px;color:#5B6B82;margin:0 0 6px">この画面は<b>自治体職員向け</b>です。住民の発行ポータルとは別のオリジン・別の名簿で動いています。</p>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:28px">${staff.map(card).join('')}</div>
+      <div style="margin-top:30px;text-align:left;background:#fff;border:1px solid var(--role-line);border-radius:12px;padding:16px 18px;font-size:12.5px;color:#3d4d63;line-height:1.9">
+        <b style="display:block;color:var(--civic);font-size:12px;letter-spacing:.04em;margin-bottom:4px">デモの制約</b>
+        ・<b>自治体ごとのアカウント管理はしていません。</b>どの職員アカウントでも、<b>すべての自治体あての申請を承認できます</b>
+        （千代田区の職員が鹿児島県西之表市あての離島割引資格証を認定できます）。<br>
+        ・実環境では所属自治体の管轄内に権限を限り、職員 IC カード等で当人認証します。
+        パスワード不要のサインインもデモ用です。
+      </div>
+    </div>`, null, { width: 'mid' });
 }
 
 /** Consent screen shown at GET /authorize when a session already exists. */

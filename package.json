@@ -25,6 +25,7 @@
     "dev:issuer": "wrangler dev",
     "dev:verifier": "wrangler dev --config wrangler.verifier.toml",
     "dev:wallet": "wrangler dev --config wrangler.wallet.toml",
+    "dev:admin": "wrangler dev --config wrangler.admin.toml",
     "deploy": "node scripts/deploy.mjs",
     "gen-pki-json": "node scripts/gen-worker-pki.mjs",
     "gen-pki-json:wallet": "node scripts/gen-worker-pki.mjs --wallet",

@@ -1,0 +1,14 @@
+name = "admin"
+main = "src/worker-admin.mjs"
+compatibility_date = "2025-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ADMIN_ORIGIN = "https://admin.example.test"
+ISSUER_URL   = "https://issuer.example.test"
+
+# 発行ポータルと **同じ KV namespace**。申請台帳（_persist:apps）と失効ビット
+# （_persist:state）の正本は KV 側にあり、両 Worker が毎アクセス読み直す。
+[[kv_namespaces]]
+binding = "IHV_KV"
+id      = "84ba206f1832417ea3dcfc0db2960d6d"

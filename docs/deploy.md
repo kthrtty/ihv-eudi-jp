@@ -1,6 +1,6 @@
 # Cloudflare Workers デプロイ手順
 
-3 Workers 構成。`node:crypto` は `nodejs_compat` でそのまま動く（WebCrypto 移植不要）。
+4 Workers 構成。`node:crypto` は `nodejs_compat` でそのまま動く（WebCrypto 移植不要）。
 
 ## アーキテクチャ
 
@@ -9,6 +9,7 @@
 | `issuer` | `https://issuer.<subdomain>.workers.dev` | `src/worker-issuer.mjs` | OID4VCI 発行 + デモ検証コンソール |
 | `verifier` | `https://verifier.<subdomain>.workers.dev` | `src/worker-verifier.mjs` | OID4VP + DC API ページ |
 | `web-wallet` | `https://web-wallet.<subdomain>.workers.dev` | `src/worker-wallet.mjs` | ブラウザウォレット |
+| `admin` | `https://admin.<subdomain>.workers.dev` | `src/worker-admin.mjs` | 自治体窓口（交付申請の審査）※職員向け |
 
 ## 実オリジンの注入（リポジトリにはテスト値のみ）
 
@@ -24,7 +25,7 @@ npm run deploy   # .deploy.env が無い場合は拒否（プレースホルダ�
 ```
 
 カスタムドメインを使う場合は `.deploy.env` で `ISSUER_URL` / `VERIFIER_ORIGIN` /
-`WALLET_ORIGIN` を個別指定（`WORKERS_SUBDOMAIN` より優先）。
+`WALLET_ORIGIN` / `ADMIN_ORIGIN` を個別指定（`WORKERS_SUBDOMAIN` より優先）。
 
 > 注: 過去の git 履歴には旧ドメインが残る。完全に消すには履歴書き換え
 > （`git filter-repo` + force push）が必要。
@@ -87,6 +88,7 @@ npm run deploy:wallet
 npm run dev:issuer    # wrangler dev (port 8787)
 npm run dev:verifier  # wrangler dev --config wrangler.verifier.toml
 npm run dev:wallet    # wrangler dev --config wrangler.wallet.toml
+npm run dev:admin     # wrangler dev --config wrangler.admin.toml
 ```
 
 ## ISSUER_PKI_JSON 構造

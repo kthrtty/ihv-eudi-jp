@@ -26,6 +26,8 @@ const vars = {
   ISSUER_URL:      env.ISSUER_URL      || (sub && `https://issuer.${sub}.workers.dev`),
   VERIFIER_ORIGIN: env.VERIFIER_ORIGIN || (sub && `https://verifier.${sub}.workers.dev`),
   WALLET_ORIGIN:   env.WALLET_ORIGIN   || (sub && `https://web-wallet.${sub}.workers.dev`),
+  // 自治体窓口（交付申請の審査）— 職員向けの別オリジン。住民には配らない
+  ADMIN_ORIGIN:    env.ADMIN_ORIGIN    || (sub && `https://admin.${sub}.workers.dev`),
 };
 for (const [k, v] of Object.entries(vars)) {
   if (!v) { console.error(`✗ ${k} が解決できません（WORKERS_SUBDOMAIN か ${k} を .deploy.env に設定）`); process.exit(1); }
@@ -42,11 +44,11 @@ vars.SSRF_ALLOWED_ORIGINS = env.SSRF_ALLOWED_ORIGINS
   || `${vars.ISSUER_URL} ${vars.VERIFIER_ORIGIN} ${vars.WALLET_ORIGIN}`;
 
 const varArgs = Object.entries(vars).flatMap(([k, v]) => ['--var', `${k}:${v}`]);
-const configs = [null, 'wrangler.verifier.toml', 'wrangler.wallet.toml'];
+const configs = [null, 'wrangler.verifier.toml', 'wrangler.wallet.toml', 'wrangler.admin.toml'];
 for (const cfg of configs) {
   const args = ['wrangler', 'deploy', ...(cfg ? ['--config', cfg] : []), ...varArgs];
   console.log(`\n▶ ${args.join(' ')}`);
   const r = spawnSync('npx', args, { stdio: 'inherit' });
   if (r.status !== 0) process.exit(r.status ?? 1);
 }
-console.log('\n✓ 3 Workers deployed with real origins (from .deploy.env)');
+console.log('\n✓ 4 Workers deployed with real origins (from .deploy.env)');

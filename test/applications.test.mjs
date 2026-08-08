@@ -5,20 +5,38 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { serve } from '@hono/node-server';
 import { createApp } from '../src/app.mjs';
+import { createAdminApp } from '../src/admin-app.mjs';
 import { createWallet } from '../src/wallet.mjs';
-import { IssuerService } from '../src/oid4vci.mjs';
+import { IssuerService, memoryStore } from '../src/oid4vci.mjs';
 import { canTransition, claimsFingerprint, claimsFor } from '../src/applications.mjs';
 
-const IPORT = 8981;
+const IPORT = 8981, APORT = 8982;
 const ISSUER = `http://127.0.0.1:${IPORT}`;
-let server;
-test.before(() => { server = serve({ fetch: createApp({ credentialIssuer: ISSUER }).fetch, port: IPORT }); });
-test.after(() => new Promise((r) => server.close(r)));
+const ADMIN = `http://127.0.0.1:${APORT}`;
+let server, adminServer, staffSid;
+test.before(async () => {
+  // 審査は別オリジンの自治体窓口にある。両者は **同じ KV（memoryStore）を共有** し、
+  // IssuerService が毎アクセス読み直すことで整合する（本番も同じ形）。
+  const store = memoryStore();
+  server = serve({ fetch: createApp({ credentialIssuer: ISSUER, store }).fetch, port: IPORT });
+  adminServer = serve({ fetch: createAdminApp({ credentialIssuer: ISSUER, store }).fetch, port: APORT });
+  staffSid = (await (await fetch(`${ADMIN}/login`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ staff_id: 's_003' }),
+  })).json()).session_id;
+});
+test.after(() => Promise.all([
+  new Promise((r) => server.close(r)), new Promise((r) => adminServer.close(r)),
+]));
 
 const req = (p, i) => fetch(ISSUER + p, i);
 const login = async (user_id) => (await (await fetch(`${ISSUER}/login`, {
   method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id }),
 })).json()).session_id;
+/** 職員として審査する（自治体窓口オリジンの JSON API）。 */
+const decideAs = (id, body) => fetch(`${ADMIN}/a/${id}/decision`, {
+  method: 'POST', headers: { 'content-type': 'application/json', 'x-staff-session': staffSid },
+  body: JSON.stringify(body),
+});
 
 const DISASTER_FORM = {
   damaged_address: '熊本県熊本市中央区大江3-1-5', disaster_name: '令和8年 熊本地震',
@@ -82,10 +100,7 @@ test('applications: 再判定で内容が変わると既発行VCを失効させ�
   assert.ok(mine.every((e) => !e.revoked), '交付直後は失効していない');
   assert.ok(svcLive);
 
-  const r = await fetch(`${ISSUER}/applications/${before.id}/decision`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ status: 'approved', decision: { damage_level: '全壊', include_household: true } }),
-  });
+  const r = await decideAs(before.id, { status: 'approved', decision: { damage_level: '全壊', include_household: true } });
   assert.equal(r.status, 200);
   const body = await r.json();
   assert.equal(body.contentChanged, true);
@@ -154,7 +169,7 @@ test('applications: 申請→認定→交付→再判定→失効 を発行 EP �
     /交付申請の認定が必要|invalid_credential_request/);
 
   // 2) 申請 → 認定（HTTP 経由＝画面と同じ経路）
-  const submit = await fetch(`${ISSUER}/apply/disaster`, {
+  const submit = await fetch(`${ISSUER}/apply/disaster/43100`, {
     method: 'POST', redirect: 'manual',
     headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: `sid=${sid}` },
     body: new URLSearchParams(DISASTER_FORM).toString(),
@@ -163,10 +178,7 @@ test('applications: 申請→認定→交付→再判定→失効 を発行 EP �
   const appId = submit.headers.get('location').split('/')[2].split('?')[0];
   assert.match(appId, /^A-\d{4}$/);
 
-  const decide = await fetch(`${ISSUER}/applications/${appId}/decision`, {
-    method: 'POST', headers: { 'content-type': 'application/json', cookie: `sid=${sid}` },
-    body: JSON.stringify({ status: 'approved', decision: { damage_level: '半壊' }, authority: '熊本市長' }),
-  });
+  const decide = await decideAs(appId, { status: 'approved', decision: { damage_level: '半壊' }, authority: '熊本市長' });
   assert.equal(decide.status, 200);
 
   // 3) 交付できる。認定した内容がそのまま VC のクレームになる
@@ -178,10 +190,7 @@ test('applications: 申請→認定→交付→再判定→失効 を発行 EP �
   assert.equal(led[0].revoked, false);
 
   // 4) 再判定（半壊→全壊）で内容が変わるので失効する
-  const re = await (await fetch(`${ISSUER}/applications/${appId}/decision`, {
-    method: 'POST', headers: { 'content-type': 'application/json', cookie: `sid=${sid}` },
-    body: JSON.stringify({ status: 'approved', decision: { damage_level: '全壊' }, authority: '熊本市長' }),
-  })).json();
+  const re = await (await decideAs(appId, { status: 'approved', decision: { damage_level: '全壊' }, authority: '熊本市長' })).json();
   assert.equal(re.contentChanged, true);
   assert.equal(re.revoked.length, 1);
   const after = (await (await fetch(`${ISSUER}/issuances`)).json()).issuances.find((e) => e.applicationId === appId);
