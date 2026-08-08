@@ -11,6 +11,17 @@
 //  - **審査で決まる項目は申請者に書かせない**（被害の程度・対象区分）。実制度どおり。
 //  - 交付内容は toClaims(app, persona) が組み立てる。再判定時はこの結果のハッシュを
 //    比べ、差分があるときだけ既発行を失効させる（src/oid4vci.mjs の revokeForApplication）。
+//  - **申請先の自治体（target_code）は申請者が選ぶ**（src/municipalities.mjs）。住所からは
+//    推定しない。交付者名も対象自治体名もそこから確定する——審査した職員の所属からは取らない。
+
+import { authorityOf, fullName, getMunicipality } from './municipalities.mjs';
+
+/** 申請先自治体（レコード）。旧レコード（target_code 以前）は null。 */
+export const targetOf = (app) => getMunicipality(app?.target_code);
+/** 申請先の正式名称。旧レコードは離島の自由文（form.municipality）へフォールバック。 */
+export const targetName = (app) => fullName(app?.target_code) ?? app?.form?.municipality ?? '';
+/** 証明書に載る交付者名。申請先から確定する（職員の所属からは取らない）。 */
+export const targetAuthority = (app) => authorityOf(app?.target_code);
 
 /** 申請の状態。approved だけが「交付できる」。
  *  `by` = その状態にした主体（却下＝自治体／取下げ＝申請者。色を分ける根拠）。
@@ -68,6 +79,7 @@ const disaster = {
   short: '罹災証明書',
   lead: '被災した住家の被害程度について、市区町村の被害認定調査を受けます',
   basis: '災害対策基本法 第90条の2 ／ 手数料 無料 ／ 標準処理期間 約1週間',
+  applyToLead: '罹災証明書は、被災した住家のある市区町村あてに提出します（住民票の自治体とは限りません）。',
   reviewTitle: '被害認定調査・判定',
   surveyingLabel: '現地調査中',
   reviewLead: '現地調査および写真に基づき、内閣府「災害の被害認定基準」により住家の被害の程度を判定します。',
@@ -133,6 +145,7 @@ const island = {
   short: '離島割引資格証',
   lead: '島民・準島民の区分について、交付自治体の審査を受けます',
   basis: '有人国境離島法 ほか ／ 手数料 無料 ／ 標準処理期間 約2週間',
+  applyToLead: '離島割引資格証は、対象離島のある市区町村が交付します。島外にお住まいの準島民も島の自治体あてに申請します。',
   reviewTitle: '対象区分の審査',
   surveyingLabel: '書類審査中',
   reviewLead: '住民登録および提出書類に基づき、島民・準島民の区分を認定します。',
@@ -144,8 +157,8 @@ const island = {
       options: [['島民', '対象離島に住民登録がある'], ['準島民', '島外に住むが、介護・就学などで反復して往来する']] }),
     f('reason', '準島民の事由', 'select', { options: ISLAND_REASONS,
       hint: '区分が「準島民」のときのみ資格証に記載されます' }),
+    // 交付自治体は**申請先（target_code）で決まる**のでここでは聞かない
     f('island_name', '対象離島', 'text', { required: true, placeholder: '例: 種子島' }),
-    f('municipality', '交付自治体', 'text', { required: true, placeholder: '例: 鹿児島県西之表市' }),
   ],
   decision: [
     f('resident_category', '対象区分（認定）', 'radio', { required: true,
@@ -153,7 +166,7 @@ const island = {
     f('expiry_date', '有効期限', 'date', { required: true,
       hint: '実制度: 島民＝交付から3年 / 準島民＝1年・就学は卒業月末' }),
   ],
-  label: (app) => [app.form?.municipality, app.form?.island_name].filter(Boolean).join('・') || '離島割引',
+  label: (app) => [targetName(app), app.form?.island_name].filter(Boolean).join('・') || '離島割引',
   sub: (app) => app.decision?.resident_category ?? '',
   toClaims: (app, persona) => {
     const d = app.decision || {}; const w = app.form || {};
@@ -164,7 +177,7 @@ const island = {
       // 準島民の事由は最も機微な項目。準島民以外では載せない
       quasi_reason: quasi ? (w.reason || undefined) : undefined,
       island_name: w.island_name,
-      issuing_municipality: w.municipality,
+      issuing_municipality: targetName(app),   // 正式名称（旧レコードは申請時の自由文）
       eligible_routes: app.form?.routes || '鹿児島=種子島',
       fare_scheme: '有人国境離島(特定有人国境離島地域)',
       card_number: app.certificateNumber,
@@ -217,28 +230,28 @@ export function claimsFingerprint(claims) {
 // 「自治体が審査して台帳に載せる」という制度の形に合わせ、認定済み申請へ一本化した。
 // 対象外の人は単に申請を持たない（＝交付されない）。
 export function seedApplications() {
-  const app = (id, userId, kind, form, decision, authority, cert, at) => ({
-    id, userId, kind, status: 'approved', form, decision,
-    attachments: [], authority, certificateNumber: cert,
+  const app = (id, userId, kind, targetCode, form, decision, authority, cert, at) => ({
+    id, userId, kind, status: 'approved', target_code: targetCode, form, decision,
+    attachments: [], authority, certificateNumber: cert, decided_by: null,
     submitted_at: at, decided_at: at, issuedFingerprint: null,
   });
   return [
     // 山田 太郎: 種子島の島民
-    app('A-0001', 'u_001', 'island',
-      { applied_category: '島民', island_name: '種子島', municipality: '鹿児島県西之表市' },
+    app('A-0001', 'u_001', 'island', '46213',
+      { applied_category: '島民', island_name: '種子島' },
       { resident_category: '島民', expiry_date: '2029-03-14' },
       '西之表市長', 'KG-0001', '2026-03-15T00:00:00.000Z'),
     // 山田 太郎: 令和7年台風第10号で被災（半壊）
-    app('A-0002', 'u_001', 'disaster',
+    app('A-0002', 'u_001', 'disaster', '13101',
       { damaged_address: '東京都千代田区1-1-1', disaster_name: '令和7年台風第10号',
         disaster_date: '2025-09-12', building_type: '木造2階建',
         statement: '台風による浸水で1階が使用できない状態です。' },
       { damage_level: '半壊', include_household: true },
       '千代田区長', 'DS-0002', '2026-06-01T00:00:00.000Z'),
     // 田中 美咲: 種子島の準島民（就学）
-    app('A-0003', 'u_004', 'island',
+    app('A-0003', 'u_004', 'island', '46213',
       { applied_category: '準島民', reason: '就学（離島出身・島外の学校に在学）',
-        island_name: '種子島', municipality: '鹿児島県西之表市' },
+        island_name: '種子島' },
       { resident_category: '準島民', expiry_date: '2027-03-31' },
       '西之表市長', 'KG-0003', '2026-03-15T00:00:00.000Z'),
   ];

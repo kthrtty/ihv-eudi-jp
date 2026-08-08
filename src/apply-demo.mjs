@@ -1,23 +1,25 @@
-// 交付申請の画面（申請フォーム／申請一覧／審査）。発行ポータルの意匠を共有する。
+// 交付申請の**住民向け**画面（申請フォーム／自分の申請状況）。発行ポータルの意匠を共有する。
+// 審査（職員向け）は別オリジンの自治体窓口＝src/admin-demo.mjs にある。
 // 一覧は **PC=表組み / SP=カード** を1マークアップで両立（列数だけ切り替える）。
 import { appShell } from './authcode-demo.mjs';
 import { WALLET_CARD_THEME, swatchEmblemHtml, swatchEmblemCss } from './authcode-demo.mjs';
-import { STATUS, statusView, labelOf, subOf, getApplicationType, applicationTypeList } from './applications.mjs';
+import { STATUS, statusView, labelOf, subOf, getApplicationType, applicationTypeList, targetName } from './applications.mjs';
+import { prefecturesFor, municipalitiesIn } from './municipalities.mjs';
 import { ACCEPT_ATTR, MAX_FILES, MAX_FILE_BYTES } from './upload.mjs';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const sw = (type) => {
+export const sw = (type) => {
   const t = WALLET_CARD_THEME[type] || WALLET_CARD_THEME.pid;
   return `<span class="cic" style="--c1:${t.c1};--c2:${t.c2};--c3:${t.c3}">${swatchEmblemHtml(type)}</span>`;
 };
-const chip = (app, issued = 0) => {
+export const chip = (app, issued = 0) => {
   const v = statusView(app, { issued });
   // 交付済みは状態と別軸（認定＝交付できる／実際に受け取ったか、は別）
   return `<span class="chip ${v.chip}">${esc(v.label)}</span>`
     + (issued > 0 ? `<span class="chip issued">交付済 ${issued}</span>` : '');
 };
 
-const CSS = `
+export const CSS = `
 .crumb{font-size:11.5px;color:var(--muted);margin-bottom:6px}
 .lead{font-size:12.5px;color:var(--muted);line-height:1.8;margin:0 0 14px}
 .acard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin-bottom:12px}
@@ -35,10 +37,15 @@ ${swatchEmblemCss()}
 .fld{margin-bottom:13px}
 .fld label{display:block;font-size:11.5px;font-weight:700;color:#3d4d63;margin-bottom:5px}
 .req{color:#fff;background:var(--seal);border-radius:4px;font-size:9.5px;padding:1px 5px;margin-left:5px;vertical-align:1px}
-.fld input,.fld select,.fld textarea{width:100%;font:inherit;font-size:13px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:#fff;box-sizing:border-box}
+/* ラジオ/チェックは除く——width:100% を当てるとつまみが行いっぱいに広がって中央に
+   浮き、ラベルが次行へ落ちる（ラジオ群と「記載する」が崩れていた） */
+.fld input:not([type=radio]):not([type=checkbox]),.fld select,.fld textarea{width:100%;font:inherit;font-size:13px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:#fff;box-sizing:border-box}
 .ro{background:#F3F5F9;border-radius:8px;padding:9px 11px;font-size:13px}
 .fhint{display:block;font-size:10.5px;color:#8A97AB;margin-top:4px;line-height:1.6}
-.rg{display:flex;flex-direction:column;gap:7px}
+/* 選択肢は幅を使い切らない——1行1個だと右側が大きく空いて間延びする。
+   広い面では2列、狭い面（SP）では1列に落とす */
+.rg{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:stretch}
+@media(max-width:520px){.rg{grid-template-columns:1fr}}
 .rg label{display:block;border:1px solid var(--line);border-radius:9px;padding:9px 12px;font-size:13px;background:#fff;cursor:pointer}
 .rg label:has(input:checked){border-color:var(--civic);background:#F4F7FD;box-shadow:0 0 0 1px var(--civic) inset}
 .rg label b{font-size:13px}
@@ -116,7 +123,7 @@ ${swatchEmblemCss()}
   .a-act{grid-column:1/-1;grid-row:4;text-align:right;margin-top:9px;padding-top:9px;border-top:1px solid #eef1f6}
 }`;
 
-const field = (x, val = '') => {
+export const field = (x, val = '') => {
   const req = x.required ? '<b class="req">必須</b>' : '';
   const hint = x.hint ? `<span class="fhint">${esc(x.hint)}</span>` : '';
   if (x.type === 'radio') {
@@ -142,15 +149,52 @@ const field = (x, val = '') => {
     <input type="${x.type === 'date' ? 'date' : 'text'}" name="${esc(x.key)}" value="${esc(val)}" placeholder="${esc(x.placeholder || '')}">${hint}</div>`;
 };
 
+/** 申請先の市区町村を選ぶ（手続き → 自治体 → フォーム の2番目）。
+ *  **その手続きを扱う自治体だけ**を出す。自治体を先に選ばせると「取扱いなし」という
+ *  行き止まりを見せることになるので、絞り込みの向きはこちらが正しい。 */
+export function renderMunicipalityPicker(user, t, { pref = '', suggested = null } = {}) {
+  const prefs = prefecturesFor(t.id);
+  const cur = prefs.includes(pref) ? pref : (suggested && prefs.includes(suggested.pref) ? suggested.pref : prefs[0]);
+  const list = municipalitiesIn(cur, t.id);
+  const card = (x) => `<a class="mcard" href="/apply/${esc(t.id)}/${esc(x.code)}">
+    <b>${esc(x.name)}</b><small>${esc(x.code)}</small>
+    ${x.islands.length ? `<span class="isl">対象離島: ${esc(x.islands.join('・'))}</span>` : ''}</a>`;
+  return appShell(`${t.short} — 申請先を選ぶ`, `
+    <div style="margin-top:22px">
+      <div class="crumb"><a href="/" style="color:inherit">発行カタログ</a> › 申請できる手続き › ${esc(t.short)}</div>
+      <h1 style="font-size:20px;margin:0 0 10px">${esc(t.short)} — 申請先の市区町村</h1>
+      <div class="stepbar"><span class="done">① 手続き</span>›<span class="cur">② 申請先</span>›<span class="todo">③ 申請</span>›<span class="todo">④ 審査</span>›<span class="todo">⑤ 交付</span></div>
+      <p class="lead">${esc(t.applyToLead)}<br>
+        <b>この手続きを扱う自治体だけ</b>を出しています。住所からは推定しません——申請先はご自身で選びます。</p>
+      ${suggested ? `<div class="recent"><span>住民票の住所から</span>
+        <a href="/apply/${esc(t.id)}/${esc(suggested.code)}">${esc(suggested.pref)} ${esc(suggested.name)}</a></div>` : ''}
+      <div class="pick">
+        <div class="pcol"><b class="h">都道府県${t.id === 'island' ? '（取扱いのある県のみ）' : ''}</b>
+          ${prefs.map((p) => `<a href="/apply/${esc(t.id)}?pref=${encodeURIComponent(p)}" class="${p === cur ? 'on' : ''}">${esc(p)}</a>`).join('')}
+        </div>
+        <div class="mcol"><b class="h">${esc(cur)} で${esc(t.short)}を交付する市区町村（${list.length}件）</b>
+          <div class="mgrid">${list.map(card).join('')}</div>
+          <p class="fhint" style="margin-top:12px">正本は総務省「全国地方公共団体コード」。名称・団体コード・<b>長の呼称</b>（区長／市長／町長／村長）を持ちます。
+            本デモは一部のみ収録しています。</p>
+        </div>
+      </div>
+    </div>
+    <style>${CSS}${PICK_CSS}</style>`, user, { width: 'mid' });
+}
+
 /** 申請フォーム。審査で決まる項目（被害の程度・対象区分）はここに出さない。 */
-export function renderApplyForm(user, t, { error = '' } = {}) {
+export function renderApplyForm(user, t, muni, { error = '', prefill = {} } = {}) {
   return appShell(t.title, `
     <div style="margin-top:22px">
-      <div class="crumb">発行申請 › ${esc(t.short)}</div>
+      <div class="crumb"><a href="/" style="color:inherit">発行カタログ</a> › <a href="/apply/${esc(t.id)}" style="color:inherit">${esc(t.short)}</a> › ${esc(muni.pref)} ${esc(muni.name)}</div>
       <h1 style="font-size:20px;margin:0 0 12px">${esc(t.title)}</h1>
       ${error ? `<div class="warn err">⚠️ ${esc(error)}</div>` : ''}
+      <div class="pin"><span class="pi">🏛</span>
+        <span>申請先　<b>${esc(muni.pref)} ${esc(muni.name)}</b>
+          <span class="sub">交付者に「${esc(muni.head)}」が記載されます</span></span>
+        <a class="chg" href="/apply/${esc(t.id)}">変更</a></div>
       <p class="lead">${esc(t.lead)}<br><span style="font-size:11px">${esc(t.basis)}</span></p>
-      <form class="acard" method="POST" action="/apply/${esc(t.id)}" enctype="multipart/form-data">
+      <form class="acard" method="POST" action="/apply/${esc(t.id)}/${esc(muni.code)}" enctype="multipart/form-data">
         <div class="sec">申請者<span class="tagro">住民基本台帳から自動入力</span></div>
         <div class="g2">
           <div class="fld"><label>氏名</label><div class="ro">${esc(user.family)} ${esc(user.given)}</div></div>
@@ -159,7 +203,7 @@ export function renderApplyForm(user, t, { error = '' } = {}) {
         <div class="fld"><label>${t.id === 'disaster' ? '世帯主住所' : '住所'}</label><div class="ro">${esc(user.address)}</div></div>
 
         <div class="sec">申請内容</div>
-        ${t.form.map((x) => field(x)).join('')}
+        ${t.form.map((x) => field(x, prefill[x.key] ?? '')).join('')}
 
         <div class="sec">${esc(t.attachmentLabel)}${t.attachmentRequired ? '<b class="req">必須</b>' : ''}</div>
         <label class="updrop">
@@ -173,96 +217,133 @@ export function renderApplyForm(user, t, { error = '' } = {}) {
           ${t.id === 'disaster' ? '市区町村の被害認定調査によって判定され、認定後に証明書へ記載されます。' : '交付自治体の審査により認定され、認定後に資格証へ記載されます。'}</div>
 
         <div class="acts"><button class="abtn" type="submit">この内容で申請する</button>
-          <a class="abtn gh" href="/">発行カタログへ戻る</a></div>
+          <a class="abtn gh" href="/apply/${esc(t.id)}">申請先を選び直す</a></div>
       </form>
     </div>
     <style>${CSS}</style>`, user, { width: 'mid' });
 }
 
-/** 申請一覧（メニュー › 申請一覧）。※管理者画面化は TODO。 */
-export function renderApplicationList(user, apps, { issuedBy = {}, applicants = {} } = {}) {
+/** 申請状況（メニュー › 申請状況）。**自分の申請だけ**。審査はここではできない。 */
+export function renderMyApplications(user, apps, { issuedBy = {} } = {}) {
   const row = (a) => {
     const t = getApplicationType(a.kind);
-    const act = a.status === 'approved' ? '詳細' : a.status === 'submitted' ? `${t.reviewTitle}へ` : '続き';
     return `<a class="arow" href="/applications/${esc(a.id)}">
       <span class="a-no">${esc(a.id)}</span>
       <span class="a-ty">${sw(t.credType)}<b>${esc(t.short)}</b></span>
-      <span class="a-sub"><b>${esc(labelOf(a))}</b><small>${esc(subOf(a) || t.lead)}</small></span>
-      <span class="a-who">${esc(applicants[a.userId] || a.userId)}</span>
+      <span class="a-sub"><b>${esc(labelOf(a))}</b>
+        <small>${[targetName(a) && `申請先 ${targetName(a)}`, subOf(a)].filter(Boolean).map(esc).join('　／　') || esc(t.lead)}</small></span>
       <span class="a-day">${esc((a.submitted_at || '').slice(0, 10))}</span>
       <span class="a-st">${chip(a, issuedBy[a.id] || 0)}</span>
-      <span class="a-act">${esc(act)} ›</span></a>`;
+      <span class="a-act">詳細 ›</span></a>`;
   };
-  return appShell('申請一覧', `
+  return appShell('申請状況', `
     <div style="margin-top:22px">
-      <h1 style="font-size:20px;margin:0 0 12px">申請一覧</h1>
-      <div class="todo">🚧 <b>TODO:</b> 本来この画面は自治体職員向けの管理画面です。現状は暫定として、申請した本人が同じ画面から審査（認定）できるようにしています。</div>
-      <p class="lead">この発行者が受け付けた交付申請です。<b>審査</b>を行うと、申請者のカタログで該当クレデンシャルが交付できるようになります。</p>
-      ${apps.length ? `<div class="acard p0"><div class="alist">
-        <div class="ahead"><span>受付番号</span><span>種別</span><span>申請の対象</span><span>申請者</span><span>申請日</span><span>状態</span><span></span></div>
+      <h1 style="font-size:20px;margin:0 0 12px">申請状況</h1>
+      <p class="lead">あなたが提出した交付申請です。<b>審査は自治体が行います</b>。認定されると発行カタログから交付できるようになります。</p>
+      ${apps.length ? `<div class="acard p0"><div class="alist my">
+        <div class="ahead"><span>受付番号</span><span>種別</span><span>申請の対象</span><span>申請日</span><span>状態</span><span></span></div>
         ${apps.map(row).join('')}
       </div></div>` : '<div class="acard" style="text-align:center;color:var(--muted);font-size:13px">申請はまだありません</div>'}
       <div class="acts">${applicationTypeList().map((t) =>
         `<a class="abtn gh" href="/apply/${esc(t.id)}">${esc(t.title)} →</a>`).join('')}</div>
     </div>
-    <style>${CSS}</style>`, user, { width: 'wide' });
+    <style>${CSS}${MY_CSS}</style>`, user, { width: 'wide' });
 }
 
-/** 審査（認定・却下・再判定）。左=申告内容、右=判定入力。 */
-export function renderApplicationReview(user, a, applicant, { justSubmitted = false, issued = [], existing = [] } = {}) {
+/** 申請の控え（住民向け・読み取り専用）。判定の入力欄は無い。 */
+export function renderMyApplication(user, a, { justSubmitted = false, issued = [] } = {}) {
   const t = getApplicationType(a.kind);
   const live = issued.filter((e) => !e.revoked);
-  const decided = a.decision || {};
-  const already = a.status === 'approved';
+  const view = statusView(a, { issued: live.length });
+  const d = a.decision || {};
   const kv = (k, v) => `<div class="fld"><label>${esc(k)}</label><div class="ro">${esc(v || '—')}</div></div>`;
-  return appShell(t.reviewTitle, `
+  return appShell(`${t.short}の申請`, `
     <div style="margin-top:22px">
-      <div class="crumb">申請一覧 › ${esc(a.id)}</div>
-      <h1 style="font-size:20px;margin:0 0 12px">${esc(t.reviewTitle)}　${chip(a, live.length)}</h1>
-      <p class="lead" style="margin:-6px 0 12px">${esc(statusView(a, { issued: live.length }).note)}</p>
+      <div class="crumb"><a href="/applications" style="color:inherit">申請状況</a> › ${esc(a.id)}</div>
+      <h1 style="font-size:20px;margin:0 0 12px">${esc(t.short)}の申請　${chip(a, live.length)}</h1>
+      <p class="lead" style="margin:-6px 0 12px">${esc(view.note)}</p>
       ${justSubmitted ? `<div class="warn">✔ 申請を受け付けました。受付番号 <b>${esc(a.id)}</b>。
-        この後、${esc(t.reviewTitle)}を行い、認定されると発行カタログから交付できるようになります。</div>` : ''}
-      <div class="todo">🚧 <b>TODO:</b> 管理者向け画面へ分離予定。現状は申請者本人が審査できる暫定運用です。</div>
+        この後、自治体が${esc(t.reviewTitle)}を行います。認定されると発行カタログから交付できるようになります。</div>` : ''}
       <div class="two">
         <div class="acard">
           <div class="sec">申請内容（申告）<span class="tagro">受付 ${esc(a.id)}</span></div>
-          ${kv('申請者', `${applicant?.family ?? ''} ${applicant?.given ?? ''}`)}
-          ${kv(a.kind === 'disaster' ? '世帯主住所' : '住所', applicant?.address)}
+          ${kv('申請先', targetName(a))}
+          ${kv('申請者', `${esc(user.family)} ${esc(user.given)}`)}
+          ${kv(a.kind === 'disaster' ? '世帯主住所' : '住所', user.address)}
           ${t.form.map((x) => kv(x.label, a.form?.[x.key])).join('')}
           ${a.attachments?.length ? `<div class="sec">添付（${a.attachments.length}件）</div><div class="uplist">
             ${a.attachments.map((f) => `<div class="upi">
               <span class="th${f.kind === 'pdf' ? ' pdf' : ''}">${f.kind === 'pdf' ? 'PDF' : '🖼️'}</span>
-              <div><b>${esc(f.name)}</b><small>${esc(f.kind.toUpperCase())} ／ ${Math.ceil(f.size / 1024)} KB${f.kind === 'pdf' ? ' ／ インライン表示せずダウンロードして確認' : ''}</small></div>
+              <div><b>${esc(f.name)}</b><small>${esc(f.kind.toUpperCase())} ／ ${Math.ceil(f.size / 1024)} KB</small></div>
             </div>`).join('')}</div>` : ''}
-          ${applicant?.household?.length ? `<div class="sec">世帯構成員<span class="tagro">住民基本台帳から連携（参考）</span></div>
-            <table class="tb3"><tr><th>氏名</th><th>続柄</th><th>生年月日</th></tr>
-              <tr><td>${esc(applicant.family)} ${esc(applicant.given)}</td><td>世帯主</td><td>${esc(applicant.birth)}</td></tr>
-              ${applicant.household.map((m) => `<tr><td>${esc(m.family)} ${esc(m.given)}</td><td>${esc(m.rel || '同居人')}</td><td>${esc(m.birth)}</td></tr>`).join('')}
-            </table>` : ''}
         </div>
-
-        <form class="acard" method="POST" action="/applications/${esc(a.id)}/decision">
-          <div class="sec">${already ? '再判定' : '審査・判定'}</div>
-          <p class="lead" style="margin-bottom:10px">${esc(t.reviewLead)}</p>
-          ${existing.length ? `<div class="warn">🔁 <b>この申請者には認定済みの${esc(t.short)}が${existing.length}件あります。</b>
-            同じ被災・同じ対象に対する<b>重複申請であれば却下</b>してください。別の災害・別の対象であればそのまま認定して構いません。
-            <div class="dupl">${existing.map((x) => `<div class="dup"><span class="mono">${esc(x.id)}</span>
-              <b>${esc(labelOf(x))}</b><small>認定 ${esc(subOf(x))}・${esc((x.decided_at || '').slice(0, 10))}</small></div>`).join('')}</div>
-          </div>` : ''}
-          ${already && live.length ? `<div class="warn err">⚠️ <b>交付済みのクレデンシャルがあります。</b>
-            判定を変えて証明書に載る内容が変わる場合、この申請から発行された ${live.length} 件を失効させ、新しい内容で再交付できるようにします。
-            内容が変わらない場合（例: 全壊 → 全壊）は失効させません。</div>` : ''}
-          ${t.decision.map((x) => field(x, decided[x.key] ?? '')).join('')}
-          <div class="fld"><label>発行者名</label>
-            <input name="authority" value="${esc(a.authority || '')}" placeholder="例: 熊本市長"></div>
-          <div class="acts">
-            <button class="abtn" type="submit" name="status" value="approved">${already ? '判定を変更する' : 'この内容で認定する'}</button>
-            <button class="abtn gh" type="submit" name="status" value="surveying">調査中にする</button>
-            <button class="abtn dn" type="submit" name="status" value="rejected">却下する</button>
-            <a class="abtn gh" href="/applications">一覧に戻る</a>
-          </div>
-        </form>
+        <div class="acard">
+          <div class="sec">審査の結果</div>
+          ${a.status === 'approved' ? `
+            ${t.decision.map((x) => kv(x.label, typeof d[x.key] === 'boolean' ? (d[x.key] ? '記載する' : '記載しない') : d[x.key])).join('')}
+            ${kv('整理番号', a.certificateNumber)}
+            ${kv('発行者名', a.authority)}
+            ${kv('認定日', (a.decided_at || '').slice(0, 10))}
+            ${/* 申請者に見せるのは担当課まで。証明書の交付者は「◯◯区長」であって担当者個人ではなく、
+                  職員個人名を申請者へ出す実務上の必要もない。氏名を含む記録（decided_by）は
+                  監査証跡として台帳と職員側の画面に残る */''}
+            ${a.decided_by?.office ? kv('担当課', a.decided_by.office) : ''}
+            ${live.length ? `<div class="warn">📄 このデジタル資格証は <b>${live.length} 件</b>交付済みです。</div>`
+              : view.chip === 'ok' ? '<div class="acts"><a class="abtn" href="/">発行カタログで受け取る</a></div>' : ''}`
+          : `<p class="lead">${esc(view.note)}</p>
+             <div class="todo">審査は自治体の窓口で行われます。結果が出るとこの画面に反映されます。</div>`}
+        </div>
       </div>
     </div>
-    <style>${CSS}</style>`, user, { width: 'wide' });
+    <style>${CSS}${MY_CSS}</style>`, user, { width: 'wide' });
 }
+
+// 申請先の選択（都道府県 → 市区町村）と、フォーム上部の申請先ピン
+const PICK_CSS = `
+.stepbar{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--muted);margin-bottom:14px;flex-wrap:wrap}
+.stepbar span.cur{background:var(--civic);color:#fff;border-radius:999px;padding:3px 11px;font-weight:700}
+.stepbar span.done{background:#EAF0FA;color:var(--civic);border-radius:999px;padding:3px 11px;font-weight:700}
+.stepbar span.todo{background:#F1F3F7;border-radius:999px;padding:3px 11px}
+.recent{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+.recent span{font-size:11.5px;color:var(--muted)}
+.recent a{text-decoration:none;font-size:12.5px;font-weight:700;color:var(--civic);background:#EAF0FA;
+  border:1px solid #D4DEF5;border-radius:999px;padding:6px 14px}
+.pick{display:grid;grid-template-columns:200px minmax(0,1fr);border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#fff}
+.pcol{border-right:1px solid var(--line);background:#FAFBFD}
+.pcol a{display:block;padding:9px 16px;font-size:13px;text-decoration:none;color:inherit}
+.pcol a.on{background:#fff;font-weight:700;color:var(--civic);box-shadow:inset 3px 0 0 var(--civic)}
+.mcol{padding:16px 18px}
+.pick b.h{display:block;font-size:10.5px;color:var(--muted);padding:11px 16px 7px;letter-spacing:.03em}
+.mcol b.h{padding:0 0 10px}
+.mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px}
+.mcard{display:flex;flex-direction:column;text-decoration:none;color:inherit;border:1px solid var(--line);
+  border-radius:10px;padding:10px 13px;background:#fff}
+.mcard:hover{border-color:var(--civic);background:#F7F9FD}
+.mcard b{font-size:13.5px}
+.mcard small{font-size:10.5px;color:var(--muted);font-family:ui-monospace,monospace}
+.mcard .isl{font-size:11px;color:var(--civic);font-weight:700;margin-top:3px}
+.pin{display:flex;align-items:center;gap:10px;background:#EAF0FA;border:1px solid #D4DEF5;border-radius:12px;
+  padding:11px 15px;margin-bottom:14px;font-size:13px}
+.pin .pi{font-size:17px}
+.pin b{font-size:14px}
+.pin .sub{font-size:11.5px;color:var(--muted);margin-left:8px}
+.pin .chg{margin-left:auto;font-size:12px;font-weight:700;color:var(--civic);text-decoration:none;white-space:nowrap}
+@media(max-width:640px){
+  .pick{grid-template-columns:1fr}
+  .pcol{border-right:0;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:4px;padding:10px 12px}
+  .pcol b.h{width:100%;padding:0 0 4px}
+  .pcol a{padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:#fff;font-size:12.5px}
+  .pcol a.on{box-shadow:none;background:var(--civic);color:#fff;border-color:var(--civic)}
+  .pin{flex-wrap:wrap}.pin .sub{margin-left:0;width:100%}
+}`;
+
+// 住民向け一覧は申請者列が無い（全部自分の申請）ので、その1列ぶんを詰める
+const MY_CSS = `
+.alist.my .ahead,.alist.my .arow{grid-template-columns:80px 140px minmax(0,1fr) 92px 150px auto}
+.alist.my .a-day{grid-column:4}.alist.my .a-st{grid-column:5}.alist.my .a-act{grid-column:6}
+@media(max-width:640px){
+  .alist.my .arow{grid-template-columns:34px minmax(0,1fr) auto}
+  .alist.my .a-day{grid-column:3/-1;grid-row:3;justify-self:end}
+  .alist.my .a-st{grid-column:3;grid-row:1}
+  .alist.my .a-act{grid-column:1/-1;grid-row:4}
+}`;

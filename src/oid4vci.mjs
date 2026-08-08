@@ -7,7 +7,8 @@ import { mint, verify as verifyCredential, catalog, personaClaims } from './issu
 import { StatusListService } from './status.mjs';
 import { createUserStore } from './users.mjs';
 import { APPLICATION_TYPES as APP_TYPES, getApplicationType, canTransition, canIssueFrom,
-  claimsFor, claimsFingerprint, requiresApplication, seedApplications } from './applications.mjs';
+  claimsFor, claimsFingerprint, requiresApplication, seedApplications, targetAuthority } from './applications.mjs';
+import { offersProcedure } from './municipalities.mjs';
 import { sha256, b64url } from './cbor.mjs';
 
 const PRE_AUTH_GRANT = 'urn:ietf:params:oauth:grant-type:pre-authorized_code';
@@ -138,10 +139,14 @@ export class IssuerService {
   }
 
   /** 申請を受け付ける。受付番号を採番し、状態は submitted（調査待ち）。 */
-  async submitApplication({ userId, kind, form = {}, attachments = [] }) {
+  async submitApplication({ userId, kind, targetCode = null, form = {}, attachments = [] }) {
     const t = getApplicationType(kind);
     if (!t) throw httpErr(400, 'invalid_request', `unknown application kind ${kind}`);
     if (!userId) throw httpErr(401, 'login_required', 'sign in first');
+    // 申請先は申請者が選ぶ（住所からは推定しない）。その自治体が扱わない手続きは受けない
+    if (targetCode && !offersProcedure(targetCode, kind)) {
+      throw httpErr(400, 'invalid_request', `この自治体は${t.short}を取り扱っていません`);
+    }
     await this._loadApps();
     const missing = t.form.filter((x) => x.required && !String(form[x.key] ?? '').trim()).map((x) => x.label);
     if (missing.length) throw httpErr(400, 'invalid_request', `未入力の必須項目: ${missing.join('・')}`);
@@ -149,6 +154,7 @@ export class IssuerService {
     const app = {
       id: `A-${String(this.applicationSeq).padStart(4, '0')}`,
       userId, kind, status: 'submitted',
+      target_code: targetCode || null,   // 申請先自治体（交付者名と管轄判定の正本）
       form, attachments,
       decision: null, authority: null, certificateNumber: null,
       submitted_at: new Date().toISOString(), decided_at: null,
@@ -183,7 +189,7 @@ export class IssuerService {
    * 内容が変わる場合だけ**その申請から出たVCを失効させる（全壊→全壊のような
    * 実質変化なしでは失効させない）。戻り値の revoked に失効した台帳項目が入る。
    */
-  async decideApplication(id, { status, decision = {}, authority = null } = {}) {
+  async decideApplication(id, { status, decision = {}, authority = null, staff = null } = {}) {
     await this._loadApps();
     await this._loadUsers();
     const app = this.applications.find((a) => a.id === id);
@@ -196,10 +202,14 @@ export class IssuerService {
       const missing = t.decision.filter((x) => x.required && !String(decision[x.key] ?? '').trim()).map((x) => x.label);
       if (missing.length) throw httpErr(400, 'invalid_request', `審査で決める項目が未入力: ${missing.join('・')}`);
     }
-    const next = { ...app, status, decided_at: new Date().toISOString() };
+    // 監査証跡: どの職員がいつ判定したか。名簿が後で変わっても記録は当時のまま残す
+    // （参照ではなくスナップショットで持つ）。
+    const next = { ...app, status, decided_at: new Date().toISOString(), decided_by: staff || null };
     if (status === 'approved') {
       next.decision = decision;
-      next.authority = authority || app.authority || 'デモ市区町村長';
+      // 交付者名は**申請先の自治体**から確定する。明示指定（旧レコードの手入力・テスト）が
+      // あればそれを優先し、無ければディレクトリ、最後に既存値。職員の所属は使わない。
+      next.authority = authority || targetAuthority(app) || app.authority || 'デモ市区町村長';
       // 証明書番号（整理番号）は交付時ではなく認定時に自治体が採番する
       next.certificateNumber = app.certificateNumber || `${app.kind === 'disaster' ? 'DS' : 'KG'}-${app.id.slice(2)}`;
     }

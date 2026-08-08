@@ -16,9 +16,10 @@ import { captureInbound, getLog, pushLog, buildEntry, createLogRing } from './de
 import { securityHeaders, csrfGuard } from './security.mjs';
 import { createWallet } from './wallet.mjs';
 import { allConfigIds, configInfo, jwks as issuerJwks, accountCatalog } from './issuer.mjs';
-import { applicationTypeList, getApplicationType, labelOf, subOf, STATUS } from './applications.mjs';
+import { getApplicationType, labelOf, subOf } from './applications.mjs';
 import { validateAttachment, displayName, safeStoredName, MAX_FILES } from './upload.mjs';
-import { renderApplyForm, renderApplicationList, renderApplicationReview } from './apply-demo.mjs';
+import { renderApplyForm, renderMunicipalityPicker, renderMyApplications, renderMyApplication } from './apply-demo.mjs';
+import { getMunicipality, suggestFromAddress } from './municipalities.mjs';
 
 // Lazy HTML loader for Node.js — not called in Workers (html string passed explicitly).
 async function loadHtml(rel) {
@@ -108,21 +109,44 @@ export function createApp(opts = {}) {
   // ---- 交付申請（罹災証明書・離島割引資格証） --------------------------------
   // 制度の形: 申請 → 自治体の審査 → 認定 → 交付可能。認定で決まる項目
   // （被害の程度・対象区分）は申請者に書かせない。
-  // TODO: 審査（/applications 以下）は本来この発行ポータルではなく自治体職員向けの
-  //       管理画面に置くもの。現状は暫定で、申請した本人が同じ画面から審査できる。
+  // 審査は**別オリジンの自治体窓口**（src/admin-app.mjs）にある。ここに置くのは
+  // 住民の操作だけ——申請の提出と、自分の申請状況の確認。
+  // ② 申請先の市区町村を選ぶ。**住所からは推定しない**——罹災の申請先は被災住家のある
+  //    自治体、離島は島の自治体で、どちらも住民票の自治体とは限らない。住民票からの
+  //    候補は「提案」として1件出すだけ。
   app.get('/apply/:kind', async (c) => {
     const user = await svc.sessionUser(sid(c));
     if (!user) return c.redirect(`/login?next=/apply/${c.req.param('kind')}`, 302);
     const t = getApplicationType(c.req.param('kind'));
     if (!t) return c.notFound();
-    return c.html(renderApplyForm(user, t, { error: c.req.query('e') || '' }));
+    return c.html(renderMunicipalityPicker(user, t, {
+      pref: c.req.query('pref') || '',
+      suggested: suggestFromAddress(user.address, t.id),
+    }));
   });
-  app.post('/apply/:kind', async (c) => {
+  // ③ 申請フォーム（申請先が確定している）
+  app.get('/apply/:kind/:code', async (c) => {
+    const user = await svc.sessionUser(sid(c));
+    const kind = c.req.param('kind');
+    if (!user) return c.redirect(`/login?next=/apply/${kind}/${c.req.param('code')}`, 302);
+    const t = getApplicationType(kind);
+    const muni = getMunicipality(c.req.param('code'));
+    if (!t || !muni) return c.notFound();
+    // 扱っていない手続きの URL を直接叩かれたら選択画面へ戻す
+    if (!muni.procedures.includes(t.id)) return c.redirect(`/apply/${kind}`, 302);
+    return c.html(renderApplyForm(user, t, muni, {
+      error: c.req.query('e') || '',
+      // 対象離島は申請先から決まるので埋めておく（複数島の自治体もあるので入力は残す）
+      prefill: muni.islands.length === 1 ? { island_name: muni.islands[0] } : {},
+    }));
+  });
+  app.post('/apply/:kind/:code', async (c) => {
     const user = await svc.sessionUser(sid(c));
     if (!user) return c.redirect('/login?next=/', 302);
     const kind = c.req.param('kind');
+    const code = c.req.param('code');
     const t = getApplicationType(kind);
-    if (!t) return c.notFound();
+    if (!t || !getMunicipality(code)) return c.notFound();
     try {
       const f = await c.req.parseBody({ all: true });
       const form = Object.fromEntries(t.form.map((x) => [x.key, String(f[x.key] ?? '').trim()]));
@@ -137,58 +161,34 @@ export function createApp(opts = {}) {
         attachments.push({ name: displayName(file.name, v.kind, i), kind: v.kind, size: v.bytes.length,
           stored: safeStoredName(v.kind, i) });
       }
-      const app2 = await svc.submitApplication({ userId: user.id, kind, form, attachments });
+      const app2 = await svc.submitApplication({ userId: user.id, kind, targetCode: code, form, attachments });
       return c.redirect(`/applications/${app2.id}?new=1`, 303);
     } catch (e) {
-      return c.redirect(`/apply/${kind}?e=${encodeURIComponent(e.description || e.message)}`, 303);
+      return c.redirect(`/apply/${kind}/${code}?e=${encodeURIComponent(e.description || e.message)}`, 303);
     }
   });
 
+  // 申請状況（住民のマイページ）。**自分の申請だけ**——以前はここが全員ぶんを出す
+  // 管理画面を兼ねており、他人の申請と氏名が住民に見えていた。
   app.get('/applications', async (c) => {
     const user = await svc.sessionUser(sid(c));
     if (!user) return c.redirect('/login?next=/applications', 302);
-    // 管理画面としての一覧なので全員ぶんを出す。誰の申請かが分からないと使えないので
-    // 申請者名を添える（TODO の管理者画面化まではこの形）。
-    const apps = await svc.listApplications();
+    const apps = await svc.listApplications({ userId: user.id });
     const led = await svc.issuances();
     const issuedBy = {};
     for (const e of led) if (e.applicationId && !e.revoked) issuedBy[e.applicationId] = (issuedBy[e.applicationId] || 0) + 1;
-    const applicants = {};
-    for (const id of new Set(apps.map((a) => a.userId))) {
-      const u = await svc.getUser(id);
-      if (u) applicants[id] = `${u.family} ${u.given}`;
-    }
-    return c.html(renderApplicationList(user, apps, { issuedBy, applicants }));
+    return c.html(renderMyApplications(user, apps, { issuedBy }));
   });
   app.get('/applications/:id', async (c) => {
     const user = await svc.sessionUser(sid(c));
     if (!user) return c.redirect('/login?next=/applications', 302);
     const a = await svc.getApplication(c.req.param('id'));
-    if (!a) return c.notFound();
-    // 同じ利用者が同じ種別で持っている認定。重複かどうかは審査担当が目視で判断する
-    return c.html(renderApplicationReview(user, a, await svc.getUser(a.userId), {
+    // 他人の申請は存在も明かさない（404 と区別できると受付番号の総当たりで漏れる）
+    if (!a || a.userId !== user.id) return c.notFound();
+    return c.html(renderMyApplication(user, a, {
       justSubmitted: c.req.query('new') === '1',
       issued: (await svc.issuances()).filter((e) => e.applicationId === a.id),
-      existing: await svc.existingApprovals(a),
     }));
-  });
-  app.post('/applications/:id/decision', async (c) => {
-    const user = await svc.sessionUser(sid(c));
-    const wantsJson = (c.req.header('content-type') || '').includes('application/json');
-    if (!user && !wantsJson) return c.redirect('/login?next=/applications', 302);
-    try {
-      const t0 = await svc.getApplication(c.req.param('id'));
-      if (!t0) return c.notFound();
-      const t = getApplicationType(t0.kind);
-      const raw = wantsJson ? await c.req.json() : await c.req.parseBody();
-      const decision = Object.fromEntries(t.decision.map((x) => [x.key,
-        x.type === 'check' ? raw.decision?.[x.key] ?? raw[x.key] === 'on' : String(raw.decision?.[x.key] ?? raw[x.key] ?? '').trim()]));
-      const out = await svc.decideApplication(c.req.param('id'), {
-        status: raw.status || 'approved', decision, authority: raw.authority || null,
-      });
-      if (wantsJson) return c.json({ ok: true, contentChanged: out.contentChanged, revoked: out.revoked, application: out.application });
-      return c.redirect(`/applications/${out.application.id}?done=1`, 303);
-    } catch (e) { return fail(c, e); }
   });
 
   // Static issuer demo page (legacy / direct URL fallback)

@@ -71,7 +71,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   **教訓: 適合を名乗る面は自己ループでなく仕様構造の golden/外部実装との適合テストで pin。簡略化は名乗りに明示。**
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（319, node:test）／
+`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（336, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
@@ -81,12 +81,13 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
 - `issuer.mjs` カタログ駆動 mint/verify + SAMPLE。`personaClaims/configInfo/allConfigIds`。schemas は **JSON バンドル import（import時fsゼロ）**、PKIは mint/verify 内で遅延読込
 - `oid4vci.mjs` IssuerService（offer/token/nonce/credential, proof検証, login/authorize, **memoryStore + kvStore**, httpErr）
 - `verifier.mjs` VerifierService（`createRequest({protocol})`・`verifyResponse`・statusResolver・linkedSameHolder）
-- `users.mjs` 人物4名+persona写像+CRUD／`offer.mjs` Credential Offer配送／`canonical.mjs` 決定性監査
+- `users.mjs` 人物4名+persona写像+CRUD／`municipalities.mjs` **自治体ディレクトリ**（交付者名と管轄の正本）／`offer.mjs` Credential Offer配送／`canonical.mjs` 決定性監査
 - `app.mjs` Hono（Issuer app + `createVerifierApp`）。`app.request()` でサーバ無しテスト
+- `admin-app.mjs` **自治体窓口（別オリジン）** `createAdminApp`＋`admin-demo.mjs` 画面＋`staff.mjs` 職員名簿
 - `wallet.mjs` wallet-core: `receive`(pre-auth)/`authorizeAndReceive`/`exchangeAndReceive`/`respond`（DCQL解決→JWE/HPKE）
 - `wallet-app.mjs` **Web ウォレット（別オリジン Hono app）**: `/add`(offer受領→OID4VCI)・`/oidc/cb`(code交換)・`/`（保管一覧）。HTTPSリダイレクトのみ（DC API不使用）
-- `authcode-demo.mjs` 共有 `shell(role: issuer|verifier|wallet)` + auth-code/offer/callback/consent描画 + pkce
-- `verifier-demo.mjs` 検証者コンソール `renderVerifyConsole`／`worker.mjs`+`wrangler.toml` Workers入口
+- `authcode-demo.mjs` 共有 `shell(role: issuer|verifier|wallet|admin)`/`appShell`/`adminShell` + auth-code/offer/callback/consent描画 + pkce
+- `verifier-demo.mjs` 検証者コンソール `renderVerifyConsole`／`worker-*.mjs`+`wrangler*.toml` Workers入口（issuer/verifier/wallet/admin）
 
 ## 申請ベース発行（2026-08-08 導入）
 罹災証明書・離島割引資格証は**自治体の審査を経ないと交付されない**。器は `src/applications.mjs` に集約
@@ -100,9 +101,24 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   「同じ利用者・同じ種別の認定済み申請」を並べて審査画面に申し送るだけで、**住所や災害名の
   文字列突合はしない**（「大江3丁目1番5号」と「大江3-1-5」は機械では解けず、誤検出は正当な
   申請を却下させる）。重複なら審査担当が却下する。自動失効もしない
+- **申請先の自治体は申請者が選ぶ**（2026-08-08・`src/municipalities.mjs`）。動線は
+  **カタログ → 手続き → 申請先 → フォーム**（`/apply/:kind` = 自治体選択・`/apply/:kind/:code` = フォーム）。
+  マイナポータルぴったりサービスは自治体が先だが、あれは手続きを探す総合窓口。こちらは書類を決めて来るので
+  逆順にし、**その手続きを扱う自治体だけ**に絞る（自治体を先に選ばせると「取扱いなし」の行き止まりを見せる）。
+  - **住所からは推定しない**。罹災の申請先は被災住家の自治体、離島は島の自治体で、どちらも住民票とは限らない
+    （準島民は島外在住）。`suggestFromAddress()` は候補を1件**提案**するだけ
+  - **`head`（長の呼称）は明示的に持つ**。名称＋「長」で作ると壊れる（特別区=区長／町村=町長・村長）。
+    **政令市の行政区は基礎自治体でないので表に載せない**（熊本市中央区あての交付者は「熊本市長」）
+  - `issuing_authority` は `targetAuthority(app)` から確定。**審査した職員の所属からは取らない**
+    （以前は職員の所属を既定値にしていて、千代田区の職員が熊本の申請を認定すると「千代田区長」が VC に載った）
+  - 離島の `issuing_municipality` も自由文でなくディレクトリの正式名称。回帰=test/municipalities.test.mjs
+  - **後方互換**: `target_code` が無い旧レコード（本番 KV にある）は管轄判定せず、交付者名は手入力欄に落ちる
 - 発行ゲートは `oid4vci.credential()`。persona 無し（SAMPLE・シナリオ selftest）は従来どおり通す
 - 画面は案D（3セクション: いつでも発行 / 認定済み（申請ごとに1行）/ 申請できる手続き）。一覧は
-  **PC=表組み・SP=3列グリッド**を1マークアップで両立。`src/apply-demo.mjs`
+  **PC=表組み・SP=3列グリッド**を1マークアップで両立。住民向け=`src/apply-demo.mjs`（申請フォーム＋
+  自分の申請状況）／職員向け=`src/admin-demo.mjs`（後述の自治体窓口）。CSS/部品は前者が export して共有
+- **`.fld input` の width:100% は radio/checkbox を除外する**（除外しないとつまみが行いっぱいに広がって
+  中央に浮き、ラベルが次行へ落ちる。罹災の6区分と離島の区分ラジオが崩れていた）
 - **離島の対象区分は申請へ一本化**（旧 `persona.island` と /account の編集欄は廃止。SEED は `seedApplications()` へ移行）
 - **罹災は内閣府統一様式（府政防第737号）に準拠**: 必須記載事項は 整理番号/世帯主住所/世帯主氏名/罹災原因/
   被災住家の所在地/住家の被害の程度。**世帯主住所と被災住家の所在地は別項目**。世帯構成員は追加記載事項欄①
@@ -111,7 +127,30 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   （JPEG/PNG/PDF。HEIC・WebP は検出して個別文言で拒否＝TODO、AVIF は対象外）。`ftyp` はブランドまで見ないと
   mp4/qt を通してしまう。SVG は XML＝スクリプトを持てるので不可。**PDF はインライン描画しない**
   （`inlineDataUri()` が null を返す）。accept 属性に HEIC を列挙しない＝iOS Safari の自動 JPEG 変換に乗る
-- ※審査画面は本来自治体職員向け。現状は暫定で申請者本人が審査できる（**管理者画面化は TODO**）
+
+## 管理機能の分離＝自治体窓口（2026-08-08・案B / issue #23）
+審査は住民ではなく**自治体職員**の仕事。発行ポータルに同居させていたため
+「申請者が自分を認定できる」「他人の申請と氏名が住民に見える」形が残っていた。**4つ目の Worker
+（別オリジン）＋職員名簿**で分離した。回帰=test/admin.test.mjs。
+- `src/staff.mjs` **職員名簿は persona と別テーブル**。persona に `role` を足さないのは、職員が
+  ログインピッカーに並んで自分に VC を発行しつつ自分の申請を審査できる形が残り、
+  `personaOverrides`/`/account`/発行ゲートが「role を無視してよいか」を判断させられるため。
+  **「persona = 資格証の主体」という不変条件を壊さない**
+- `src/admin-app.mjs`（`createAdminApp`）: `/`=一覧（全件・状態タブ）／`/a/:id`=審査／`/a/:id/decision`。
+  Cookie は `asid`、`csrfGuard(['asid'])`。JSON API は `x-staff-session` ヘッダ（テスト用）
+- **状態の正本は共有 KV**（`_persist:apps`/`_persist:state`）。IssuerService は毎アクセス読み直すので
+  どちらの Worker で認定しても即反映＝同期機構は不要。admin 側に PKI は要らない
+  （失効はビットを立てるだけ、Status List への署名は issuer 側）
+- 発行ポータル側は**自分の申請だけ**に縮退（`/applications`＝申請状況・`/applications/:id`＝控え。
+  他人の申請は **404**＝存在も明かさない）。判定の口は issuer に無い
+- **管轄で絞り込まない**（デモの制約としてサインイン画面に明記）。ただし申請が申請先の団体コードを
+  持つので**管轄外は判定できる**——`outOfJurisdiction()` で一覧にチップ・審査画面に警告を出す。
+  ブロックはしない。職員の所属もコード（`staff.code`）で持ち、名称はディレクトリから引く
+- 認定には `decided_by{id,name,office}`（当時のスナップショット）を記録＝監査証跡。ただし
+  **住民の画面に出すのは担当課まで**（証明書の交付者は「◯◯区長」であって担当者個人ではない）。
+  氏名は台帳と職員側の画面にだけ残す。回帰=test/admin.test.mjs
+- **管轄を絞らないことは職員サインイン画面に明記する**（「自治体ごとのアカウント管理はしていません／
+  すべての自治体あての申請を承認できます」）。書かないと権限管理があると誤解される。文言もテストで pin
 
 ## シナリオデモ（一般向け/玄人向け分離・ステップ型）
 `/verifier`=シナリオ選択（一般向け）／`/verifier/builder`=玄人ビルダー（プロトコル/tri-state/DCQL）。
@@ -239,7 +278,7 @@ devlog は `portrait|portrait_b64` をマスク。テスト `test/portrait.test.
 - **Web ウォレット**(別オリジン): pre-auth と authorization_code をブラウザ・リダイレクトで発行（`scripts/capture-webwallet.mjs` ww-01..05）
 
 ## UI
-役割ヘッダ: Issuer=青`#1C3F94`「Issuer」／Verifier=煉瓦`#9E3A3A`「Verifier」／Wallet=ティール`#2E7D6B`「Wallet」（和名+英名の重複表記は冗長のため廃止、2026-07-04）。
+役割ヘッダ: Issuer=青`#1C3F94`「Issuer」／Verifier=煉瓦`#9E3A3A`「Verifier」／Wallet=ティール`#2E7D6B`「Wallet」／自治体窓口=**江戸紫**`#745399`（住民向けでないことを色で示す・`role-admin`。青/煉瓦/ティールのどれとも色相が被らない唯一の空き域を選んだ。着せ替えは `body.role-admin` の `--civic/--role-soft/--role-line` だけ＝ヘッダもログインも追従）（和名+英名の重複表記は冗長のため廃止、2026-07-04）。
 実印朱色`#C8453C`は署名要素として温存（別系統）。`shell(title,body,{role})` で切替。
 
 ## ロードマップ
@@ -256,7 +295,7 @@ devlog は `portrait|portrait_b64` をマスク。テスト `test/portrait.test.
 - [x] M6 Android(Multipaz) 実機: **発行 done**（Pixel 10・pre-auth mdoc）＋**提示 done**（2026-08-07・DC API org-iso-mdoc/Annex C で `valid:true`）。
   Multipaz 固有要求2つ＝(1) AS metadata に `pushed_authorization_request_endpoint`(PAR/RFC 9126) が**文字列必須**（`asMetadata`+`POST /par`）、
   (2) Credential EP はトークンを **`DPoP` スキーム**で提示（`Bearer` 固定だと 401。両受理に修正、DPoP鍵バインド検証は未実装＝issue #4）
-- [x] M7 Workers本番化（3 Workers 稼働中。本番ドメインは `.deploy.env`→`npm run deploy` 注入・リポジトリはプレースホルダのみ。詳細 `docs/deploy.md`）
+- [x] M7 Workers本番化（4 Workers。本番ドメインは `.deploy.env`→`npm run deploy` 注入・リポジトリはプレースホルダのみ。詳細 `docs/deploy.md`）
 
 ## 自己改善ハーネス（2026-07-07 導入・正本は AgentVault テンプレ）
 `memory/`=5階層メモリ（L0憲法/L1作業状態/L2議論ログ/L3蒸留知見/L4圧縮）・実体は Vault、リポジトリには symlink（gitignore済み）。
