@@ -17,7 +17,7 @@ import { securityHeaders, csrfGuard } from './security.mjs';
 import { createWallet } from './wallet.mjs';
 import { allConfigIds, configInfo, jwks as issuerJwks, accountCatalog } from './issuer.mjs';
 import { getApplicationType, labelOf, subOf } from './applications.mjs';
-import { validateAttachment, displayName, safeStoredName, validateThumb, MAX_FILES } from './upload.mjs';
+import { validateAttachment, displayName, safeStoredName, validateThumb, ATT_MIME, MAX_FILES } from './upload.mjs';
 import { renderApplyForm, renderMunicipalityPicker, renderMyApplications, renderMyApplication } from './apply-demo.mjs';
 import { getMunicipality, suggestFromAddress } from './municipalities.mjs';
 
@@ -164,7 +164,7 @@ export function createApp(opts = {}) {
         const v = validateAttachment(new Uint8Array(await file.arrayBuffer()));
         if (!v.ok) throw httpFail(400, v.error);
         attachments.push({ name: displayName(file.name, v.kind, i), kind: v.kind, size: v.bytes.length,
-          stored: safeStoredName(v.kind, i), thumb: validateThumb(thumbs[i]) });
+          stored: safeStoredName(v.kind, i), thumb: validateThumb(thumbs[i]), bytes: v.bytes });
       }
       const app2 = await svc.submitApplication({ userId: user.id, kind, targetCode: code, form, attachments });
       return c.redirect(`/applications/${app2.id}?new=1`, 303);
@@ -184,6 +184,29 @@ export function createApp(opts = {}) {
     for (const e of led) if (e.applicationId && !e.revoked) issuedBy[e.applicationId] = (issuedBy[e.applicationId] || 0) + 1;
     return c.html(renderMyApplications(user, apps, { issuedBy }));
   });
+
+  // 添付の原本を返す。**種別は保存時にこちらが判定したもの**を使い、アップロード側の
+  // 申告は一切見ない。PDF は JavaScript を持てるのでインライン描画させず必ず添付扱いに
+  // する（画像は inline）。nosniff は securityHeaders() が全体に付けている。
+  const serveAttachment = (c, att) => {
+    const mime = ATT_MIME[att.kind] || 'application/octet-stream';
+    const inline = att.kind !== 'pdf';
+    c.header('content-type', mime);
+    c.header('content-disposition', `${inline ? 'inline' : 'attachment'}; filename="${att.stored || 'attachment'}"`);
+    c.header('cache-control', 'private, max-age=300');
+    return c.body(att.bytes);
+  };
+
+  // 原本は**本人にだけ**返す（受付番号の総当たりで他人の写真が出ないように）
+  app.get('/applications/:id/att/:idx', async (c) => {
+    const user = await svc.sessionUser(sid(c));
+    if (!user) return c.redirect('/login?next=/applications', 302);
+    const a = await svc.getApplication(c.req.param('id'));
+    if (!a || a.userId !== user.id) return c.notFound();
+    const att = await svc.getAttachment(a.id, Number(c.req.param('idx')));
+    return att ? serveAttachment(c, att) : c.notFound();
+  });
+
   app.get('/applications/:id', async (c) => {
     const user = await svc.sessionUser(sid(c));
     if (!user) return c.redirect('/login?next=/applications', 302);

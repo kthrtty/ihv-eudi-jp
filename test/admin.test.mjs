@@ -195,17 +195,20 @@ test('admin: 扱っていない自治体あての申請 URL は選択画面へ�
 
 // 添付の実アップロード経路（multipart）。原本は保存せず、クライアントが縮小した
 // サムネイルだけを載せる設計なので、**申告を信用しない**ことをここで固定する。
-test('admin: 添付はサムネイル付きで受理され、控えと審査画面に画像として出る', async () => {
+test('admin: 添付は原本つきで受理され、控えと審査画面から開ける', async () => {
   const sid = await login('u_002');
-  const jpeg = new Uint8Array(32); jpeg.set([0xff, 0xd8, 0xff, 0xe0]);
-  const pdf = new Uint8Array(32); pdf.set([...'%PDF-1.7'].map((c) => c.charCodeAt(0)));
+  const jpeg = new Uint8Array(64); jpeg.set([0xff, 0xd8, 0xff, 0xe0]);
+  const png = new Uint8Array(64); png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const pdf = new Uint8Array(64); pdf.set([...'%PDF-1.7'].map((c) => c.charCodeAt(0)));
   const thumb = 'data:image/jpeg;base64,' + Buffer.from(jpeg).toString('base64');
 
   const fd = new FormData();
   for (const [k, v] of Object.entries(DISASTER_FORM)) fd.set(k, v);
   fd.append('attachments', new Blob([jpeg], { type: 'image/jpeg' }), 'genkan.jpg');
+  fd.append('attachments', new Blob([png], { type: 'image/png' }), 'IMG_2017.png');
   fd.append('attachments', new Blob([pdf], { type: 'application/pdf' }), 'mitsumori.pdf');
-  // 2件目（PDF）にはサムネイルが無い。3件目はでっち上げ＝無視されるべき
+  // 2件目はサムネイル無し（実機の大きな写真で canvas 縮小に失敗した場合）。
+  // 3件目は PDF のバイト列を JPEG と偽ったサムネイル＝落とされるべき。
   fd.set('thumbs', JSON.stringify([thumb, '', 'data:image/jpeg;base64,' + Buffer.from(pdf).toString('base64')]));
   const r = await fetch(`${ISSUER}/apply/disaster/43100`, {
     method: 'POST', redirect: 'manual', headers: { cookie: `sid=${sid}` }, body: fd });
@@ -213,17 +216,37 @@ test('admin: 添付はサムネイル付きで受理され、控えと審査画�
   const appId = r.headers.get('location').split('/')[2].split('?')[0];
 
   const mine = await (await fetch(`${ISSUER}/applications/${appId}`, { headers: { cookie: `sid=${sid}` } })).text();
-  assert.ok(mine.includes('添付（2件）'), '2件とも受理される');
-  assert.ok(mine.includes('<img src="data:image/jpeg;base64,'), 'サムネイルを画像として出す（アイコンで代用しない）');
-  assert.ok(mine.includes('genkan.jpg') && mine.includes('mitsumori.pdf'), 'ファイル名が出る');
-  assert.ok(mine.includes('upi doc'), 'PDF はサムネイル無しのセル');
+  assert.ok(mine.includes('添付（3件）'), '3件とも受理される');
+  assert.ok(mine.includes(`href="/applications/${appId}/att/0"`), '添付は原本へのリンクになる');
+  assert.ok(mine.includes('<img src="data:image/jpeg;base64,'), 'サムネイルがあればそれを使う');
+  assert.ok(mine.includes(`<img src="/applications/${appId}/att/1"`),
+    'サムネイル生成に失敗した画像も、原本を出して絵が消えないようにする');
+  assert.ok(mine.includes('upi doc'), 'PDF だけは絵にしない');
+  assert.equal(mine.split('data:image/jpeg;base64,').length - 1, 1, '偽サムネイルは保存されない');
 
+  // 原本の配信: 種別はこちらが判定したものを返し、PDF は必ずダウンロード
+  const img = await fetch(`${ISSUER}/applications/${appId}/att/0`, { headers: { cookie: `sid=${sid}` } });
+  assert.equal(img.status, 200);
+  assert.equal(img.headers.get('content-type'), 'image/jpeg');
+  assert.match(img.headers.get('content-disposition'), /^inline/);
+  assert.deepEqual(new Uint8Array(await img.arrayBuffer()), jpeg, '原本がそのまま返る');
+  const doc = await fetch(`${ISSUER}/applications/${appId}/att/2`, { headers: { cookie: `sid=${sid}` } });
+  assert.equal(doc.headers.get('content-type'), 'application/pdf');
+  assert.match(doc.headers.get('content-disposition'), /^attachment/, 'PDF はインライン描画させない');
+
+  // 他人の原本は見えない（受付番号の総当たり対策）
+  const other = await login('u_003');
+  assert.equal((await fetch(`${ISSUER}/applications/${appId}/att/0`, { headers: { cookie: `sid=${other}` } })).status, 404);
+  assert.equal((await fetch(`${ISSUER}/applications/${appId}/att/0`, { redirect: 'manual' })).status, 302,
+    '未ログインはサインインへ');
+
+  // 職員側も同じものを開ける
   const staff = await staffLogin('s_003');
   const rev = await (await fetch(`${ADMIN}/a/${appId}`, { headers: { 'x-staff-session': staff } })).text();
-  assert.ok(rev.includes('<img src="data:image/jpeg;base64,'), '審査画面でも実サムネイル');
-  assert.ok(rev.includes('PDF はインライン描画しません'), 'PDF の扱いを審査担当に明示する');
-  // PDF のバイト列を JPEG と偽ったサムネイルは落ちている＝data URI は1つだけ
-  assert.equal(rev.split('<img src="data:image/jpeg;base64,').length - 1, 1, '偽サムネイルは保存されない');
+  assert.ok(rev.includes(`href="/a/${appId}/att/0"`), '審査画面からも原本を開ける');
+  const s0 = await fetch(`${ADMIN}/a/${appId}/att/0`, { headers: { 'x-staff-session': staff } });
+  assert.equal(s0.headers.get('content-type'), 'image/jpeg');
+  assert.equal((await fetch(`${ADMIN}/a/${appId}/att/0`, { redirect: 'manual' })).status, 302, '職員以外には返さない');
 });
 
 // 申請の動線が「カタログ → 手続き → 申請先 → フォーム」と深くなったので、
