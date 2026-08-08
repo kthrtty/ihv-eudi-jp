@@ -7,7 +7,7 @@ import { mint, verify as verifyCredential, catalog, personaClaims } from './issu
 import { StatusListService } from './status.mjs';
 import { createUserStore } from './users.mjs';
 import { APPLICATION_TYPES as APP_TYPES, getApplicationType, canTransition, canIssueFrom,
-  claimsFor, claimsFingerprint, requiresApplication, seedApplications, targetKey } from './applications.mjs';
+  claimsFor, claimsFingerprint, requiresApplication, seedApplications } from './applications.mjs';
 import { sha256, b64url } from './cbor.mjs';
 
 const PRE_AUTH_GRANT = 'urn:ietf:params:oauth:grant-type:pre-authorized_code';
@@ -218,14 +218,15 @@ export class IssuerService {
     return { application: app, revoked, contentChanged };
   }
 
-  /** 同じ人・同じ対象で、すでに認定済みの**別の**申請。重複申請の検出用。
-   *  自動では何もしない——重複を却下するかどうかは自治体の判断（実運用に合わせる）。 */
-  async duplicateApprovals(app) {
+  /** 同じ利用者が**同じ種別で**すでに持っている認定。審査担当への申し送り用。
+   *  住所や災害名の文字列突合はしない——「大江3丁目1番5号」と「大江3-1-5」のような
+   *  表記差は機械では解けず、誤検出は正当な申請を却下させかねない。実務どおり、
+   *  既存の認定を並べて**人が見て**重複かどうかを判断する。 */
+  async existingApprovals(app) {
     if (!app) return [];
     await this._loadApps();
-    const key = targetKey(app);
-    return this.applications.filter((x) => x.id !== app.id && x.userId === app.userId
-      && x.status === 'approved' && targetKey(x) === key);
+    return this.applications.filter((x) => x.id !== app.id
+      && x.userId === app.userId && x.kind === app.kind && x.status === 'approved');
   }
 
   /** ある申請から発行された未失効のVCを全て失効させる（形式ごとに複数枚ある）。 */

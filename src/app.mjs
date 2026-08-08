@@ -165,11 +165,11 @@ export function createApp(opts = {}) {
     if (!user) return c.redirect('/login?next=/applications', 302);
     const a = await svc.getApplication(c.req.param('id'));
     if (!a) return c.notFound();
-    // 同じ人・同じ対象で認定済みの申請＝重複の可能性。却下するかは自治体の判断
+    // 同じ利用者が同じ種別で持っている認定。重複かどうかは審査担当が目視で判断する
     return c.html(renderApplicationReview(user, a, await svc.getUser(a.userId), {
       justSubmitted: c.req.query('new') === '1',
       issued: (await svc.issuances()).filter((e) => e.applicationId === a.id),
-      duplicates: await svc.duplicateApprovals(a),
+      existing: await svc.existingApprovals(a),
     }));
   });
   app.post('/applications/:id/decision', async (c) => {

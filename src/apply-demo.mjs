@@ -85,6 +85,11 @@ ${swatchEmblemCss()}
 .chip.wait{background:#FDF7E3;color:#8a6d00}.chip.doing{background:#EAF0FA;color:#0a5eab}
 .chip.ok{background:#E7F3EE;color:#0E8A6B}.chip.ng{background:#FDECEA;color:#b3261e}.chip.na{background:#F1F3F7;color:#5B6B82}
 .chip.issued{background:#EAF0FA;color:#1C3F94}
+.dupl{display:flex;flex-direction:column;gap:6px;margin-top:9px}
+.dup{background:#fff;border:1px solid #e8dcb8;border-radius:8px;padding:8px 11px;display:flex;flex-direction:column;line-height:1.5}
+.dup .mono{font-family:ui-monospace,monospace;font-size:10.5px;color:var(--muted)}
+.dup b{font-size:12.5px;color:var(--ink)}
+.dup small{font-size:10.5px;color:var(--muted)}
 /* 差分（再判定） */
 .diff{display:flex;align-items:center;justify-content:center;gap:22px;margin:6px 0 14px;flex-wrap:wrap}
 .dcol{text-align:center;background:#F7F9FC;border-radius:11px;padding:13px 26px;min-width:170px}
@@ -204,7 +209,7 @@ export function renderApplicationList(user, apps, { issuedBy = {}, applicants = 
 }
 
 /** 審査（認定・却下・再判定）。左=申告内容、右=判定入力。 */
-export function renderApplicationReview(user, a, applicant, { justSubmitted = false, issued = [], duplicates = [] } = {}) {
+export function renderApplicationReview(user, a, applicant, { justSubmitted = false, issued = [], existing = [] } = {}) {
   const t = getApplicationType(a.kind);
   const live = issued.filter((e) => !e.revoked);
   const decided = a.decision || {};
@@ -239,9 +244,11 @@ export function renderApplicationReview(user, a, applicant, { justSubmitted = fa
         <form class="acard" method="POST" action="/applications/${esc(a.id)}/decision">
           <div class="sec">${already ? '再判定' : '審査・判定'}</div>
           <p class="lead" style="margin-bottom:10px">${esc(t.reviewLead)}</p>
-          ${duplicates.length ? `<div class="warn">🔁 <b>同じ対象で認定済みの申請があります</b>（${duplicates.map((x) => `${esc(x.id)}：${esc(labelOf(x))}`).join('／')}）。
-            重複申請であればこの申請を<b>却下</b>してください。認定すると同じ対象の資格証が2件有効になります
-            （表記の揺れは吸収していますが、「3丁目1番5号」と「3-1-5」のような差は検出できません。目視で確認してください）。</div>` : ''}
+          ${existing.length ? `<div class="warn">🔁 <b>この申請者には認定済みの${esc(t.short)}が${existing.length}件あります。</b>
+            同じ被災・同じ対象に対する<b>重複申請であれば却下</b>してください。別の災害・別の対象であればそのまま認定して構いません。
+            <div class="dupl">${existing.map((x) => `<div class="dup"><span class="mono">${esc(x.id)}</span>
+              <b>${esc(labelOf(x))}</b><small>認定 ${esc(subOf(x))}・${esc((x.decided_at || '').slice(0, 10))}</small></div>`).join('')}</div>
+          </div>` : ''}
           ${already && live.length ? `<div class="warn err">⚠️ <b>交付済みのクレデンシャルがあります。</b>
             判定を変えて証明書に載る内容が変わる場合、この申請から発行された ${live.length} 件を失効させ、新しい内容で再交付できるようにします。
             内容が変わらない場合（例: 全壊 → 全壊）は失効させません。</div>` : ''}
