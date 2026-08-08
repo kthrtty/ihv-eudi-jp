@@ -228,70 +228,39 @@ test('applications: スキーマ変更前に発行済みの罹災証明が検証
     '旧VCでも DCQL を充足する（要求項目を増やしていない）');
 });
 
-// 同じ人・同じ対象で認定が2つ有効になるのは制度的におかしいが、**自動では何もしない**。
-// 重複申請を却下するのは自治体の判断＝実運用に合わせる。実装は「検出して知らせる」まで。
-test('applications: 同じ対象の認定済み申請を重複として検出する（自動失効はしない）', async () => {
+// 重複申請の扱いは**自治体のオペレーション**に委ねる。実装は「この申請者は同じ種別で
+// 既にこれだけ認定を持っています」と並べるだけで、住所や災害名の文字列突合はしない
+// （「大江3丁目1番5号」と「大江3-1-5」は機械では解けず、誤検出は正当な申請を却下させる）。
+test('applications: 同じ利用者・同じ種別の認定を申し送る（自動判定も自動失効もしない）', async () => {
   const svc = new IssuerService();
   const ISLAND = { applied_category: '準島民', reason: '就学（離島出身・島外の学校に在学）',
     island_name: '種子島', municipality: '鹿児島県西之表市' };
   const a = await svc.submitApplication({ userId: 'u_002', kind: 'island', form: ISLAND });
   await svc.decideApplication(a.id, { status: 'approved', decision: { resident_category: '準島民', expiry_date: '2027-03-31' } });
 
-  // 同じ島でもう1件（表記を揺らしても検出できること）
-  const b = await svc.submitApplication({ userId: 'u_002', kind: 'island',
-    form: { ...ISLAND, applied_category: '島民', municipality: '鹿児島県 西之表市' } });
-  const dup = await svc.duplicateApprovals(b);
-  assert.equal(dup.length, 1, '表記が揺れていても重複を検出する');
-  assert.equal(dup[0].id, a.id);
-
-  // 認定しても古いほうは自動で無効化されない（自治体が却下で処理する前提）
-  await svc.decideApplication(b.id, { status: 'approved', decision: { resident_category: '島民', expiry_date: '2029-03-31' } });
-  assert.equal((await svc.getApplication(a.id)).status, 'approved', '自動では触らない');
-  assert.equal((await svc.issuableApplications('u_002', 'island')).length, 2);
-
-  // 運用どおり却下すれば1件に収束する
-  await svc.decideApplication(a.id, { status: 'rejected' });
-  const usable = await svc.issuableApplications('u_002', 'island');
-  assert.equal(usable.length, 1);
-  assert.equal(usable[0].id, b.id);
-});
-
-test('applications: 対象や申請者が違えば重複として検出しない', async () => {
-  const svc = new IssuerService();
-  const mk = async (userId, form) => {
-    const x = await svc.submitApplication({ userId, kind: 'island', form });
-    await svc.decideApplication(x.id, { status: 'approved', decision: { resident_category: '島民', expiry_date: '2029-03-31' } });
-    return x;
-  };
-  await mk('u_002', { applied_category: '島民', island_name: '種子島', municipality: '鹿児島県西之表市' });
-  // 別の島 → 重複ではない
-  const ishi = await svc.submitApplication({ userId: 'u_002', kind: 'island',
+  // 対象が同じでも別でも、同じ種別の認定はすべて申し送る（判断材料として並べる）
+  const same = await svc.submitApplication({ userId: 'u_002', kind: 'island', form: ISLAND });
+  const other = await svc.submitApplication({ userId: 'u_002', kind: 'island',
     form: { applied_category: '島民', island_name: '石垣島', municipality: '沖縄県石垣市' } });
-  assert.equal((await svc.duplicateApprovals(ishi)).length, 0, '別の島は併存してよい');
-  // 別人が同じ島 → 重複ではない（u_001 は seed で種子島の島民）
-  const other = await svc.submitApplication({ userId: 'u_003', kind: 'island',
-    form: { applied_category: '島民', island_name: '種子島', municipality: '鹿児島県西之表市' } });
-  assert.equal((await svc.duplicateApprovals(other)).length, 0, '別人の認定は無関係');
+  assert.equal((await svc.existingApprovals(same)).length, 1, '同じ対象');
+  assert.equal((await svc.existingApprovals(other)).length, 1, '別の対象でも並べる（判断は人）');
+
+  // 認定しても古いほうは自動で無効化されない
+  await svc.decideApplication(same.id, { status: 'approved', decision: { resident_category: '島民', expiry_date: '2029-03-31' } });
+  assert.equal((await svc.getApplication(a.id)).status, 'approved', '自動では触らない');
+  // 運用どおり重複を却下すれば収束する
+  await svc.decideApplication(a.id, { status: 'rejected' });
+  assert.deepEqual((await svc.issuableApplications('u_002', 'island')).map((x) => x.id), [same.id]);
 });
 
-// 対象キーは手入力の住所・災害名から作るので表記が揺れる。吸収しないと重複検出が
-// 空振りする。ただし丸めすぎると別の対象を重複と誤検出し、審査担当に正当な申請を
-// 却下させかねない。その線引きを pin する。
-test('applications: 対象キーは表記揺れを吸収するが、丸めすぎない', async () => {
-  const { targetKey, normalizeTargetPart } = await import('../src/applications.mjs');
-  const mk = (addr) => ({ kind: 'disaster', form: { disaster_name: '令和8年 熊本地震', damaged_address: addr } });
-  const base = targetKey(mk('熊本県熊本市中央区大江3-1-5'));
-  // 吸収する: 全角英数・ハイフン様記号・空白（全角含む）・大小文字
-  for (const v of ['熊本県熊本市中央区大江３-１-５', '熊本県熊本市中央区大江3－1－5',
-    '熊本県熊本市中央区大江3−1−5', '熊本県熊本市中央区 大江3-1-5', '熊本県熊本市中央区大江3‐1‐5']) {
-    assert.equal(targetKey(mk(v)), base, `表記揺れを吸収: ${v}`);
-  }
-  // 吸収しない: 別の住所、そして「丁目/番/号」表記（文字列では解けない＝別物として扱う）
-  assert.notEqual(targetKey(mk('熊本県熊本市中央区大江3-1-6')), base, '別の住所は別の対象');
-  assert.notEqual(targetKey(mk('熊本県熊本市中央区大江3丁目1番5号')), base,
-    '丁目表記は同一と断定しない（誤って失効させるより重複を残す）');
-  // カタカナ長音はハイフンに寄せない（別語が同一になる事故を避ける）
-  assert.notEqual(normalizeTargetPart('データ'), normalizeTargetPart('データ'.replace('ー', '-')));
-  // 災害名が違えば別の対象（同じ住家でも別の災害で罹災しうる）
-  assert.notEqual(targetKey({ kind: 'disaster', form: { disaster_name: '令和8年 豪雨', damaged_address: '熊本県熊本市中央区大江3-1-5' } }), base);
+test('applications: 種別と申請者が違えば申し送らない', async () => {
+  const svc = new IssuerService();
+  // u_001 は seed で島民の認定と罹災の認定を持つ
+  const d = await svc.submitApplication({ userId: 'u_001', kind: 'disaster', form: DISASTER_FORM });
+  const ex = await svc.existingApprovals(d);
+  assert.equal(ex.length, 1, '罹災の申請には罹災の認定だけを並べる');
+  assert.equal(ex[0].kind, 'disaster', '離島の認定は混ぜない');
+  // 別人の認定は無関係
+  const o = await svc.submitApplication({ userId: 'u_003', kind: 'disaster', form: DISASTER_FORM });
+  assert.equal((await svc.existingApprovals(o)).length, 0);
 });
