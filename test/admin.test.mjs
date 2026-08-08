@@ -198,6 +198,8 @@ test('admin: 扱っていない自治体あての申請 URL は選択画面へ�
   // 罹災は「災害が起きた自治体」だけ。種子島に罹災証明は出せない（災害が無いので）
   const dpick = await (await fetch(`${ISSUER}/apply/disaster`, { headers: { cookie: `sid=${sid}` } })).text();
   assert.ok(dpick.includes('令和6年能登半島地震'), 'まず災害を選ばせる');
+  assert.ok(dpick.includes('デジタル庁「オンライン申請ができる自治体」'), '対象一覧の出典を出す');
+  assert.ok(dpick.indexOf('令和8年熊本地震') < dpick.indexOf('平成28年熊本地震'), '発生日の降順で並ぶ');
   assert.ok(!dpick.includes('西之表市'), '災害を選ぶ前に自治体は出さない');
   const noto = await (await fetch(`${ISSUER}/apply/disaster?d=r6-noto-jishin`, { headers: { cookie: `sid=${sid}` } })).text();
   assert.ok(noto.includes('石川県'), '対象自治体が最も多い県が既定で開く');

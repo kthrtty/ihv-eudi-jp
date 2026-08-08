@@ -198,7 +198,8 @@ export const field = (x, val = '') => {
 export function renderDisasterPicker(user, t) {
   const row = (d) => `<a class="dcard" href="/apply/${esc(t.id)}?d=${encodeURIComponent(d.id)}">
     <b>${esc(d.name)}</b>
-    <small class="dwhen">発生 ${esc(d.occurred)}　／　対象 ${d.codes.length} 市区町村（本デモ収録分）</small>
+    <small class="dwhen">発生 ${esc(d.occurred)}　／　対象 ${d.codes.length} 市区町村
+      <span class="dsrc">${d.scope === 'digital-online' ? 'デジタル庁「オンライン申請ができる自治体」' : '内閣府「災害救助法の適用状況」から抜粋'}</span></small>
     <small class="dnote">${esc(d.note)}</small>
     <span class="dgo">申請先を選ぶ ›</span></a>`;
   return appShell(`${t.short} — 災害を選ぶ`, `
@@ -207,11 +208,12 @@ export function renderDisasterPicker(user, t) {
       <h1 style="font-size:20px;margin:0 0 10px">${esc(t.short)} — 対象の災害</h1>
       <div class="stepbar"><span class="done">① 手続き</span>›<span class="cur">② 災害</span>›<span class="todo">③ 申請先</span>›<span class="todo">④ 申請</span>›<span class="todo">⑤ 審査</span></div>
       <p class="lead">罹災証明書は<b>災害が発生した市区町村</b>が交付します（災害対策基本法 第90条の2）。
-        まず対象の災害を選んでください。</p>
+        まず対象の災害を選んでください（発生日の新しい順）。</p>
       <div class="dlist">${listDisasters().map(row).join('')}</div>
-      <div class="todo">🚧 <b>本デモは災害を固定データで持っています。</b>実運用では自治体の防災システムが災害を登録します。
-        対象自治体は内閣府「災害救助法の適用状況」からの抜粋で、網羅ではありません
-        （災害救助法の適用と罹災証明の交付対象は一致せず、適用されない小規模災害でも罹災証明は出ます）。</div>
+      <div class="todo">🚧 <b>本デモは災害を固定データで持っています。</b>実運用では自治体の防災システムが災害を登録します。<br>
+        <b>この一覧は「罹災証明が出る自治体のすべて」ではありません。</b>デジタル庁の一覧は
+        <b>オンライン申請を受け付ける自治体</b>に限られ、内閣府の適用状況からの抜粋は網羅ではありません
+        （そもそも災害救助法の適用と罹災証明の交付対象は一致せず、適用外の小規模災害でも罹災証明は出ます）。</div>
     </div>
     <style>${CSS}${PICK_CSS}</style>`, user, { width: 'mid' });
 }
@@ -551,6 +553,8 @@ const PICK_CSS = `
 .dcard .dwhen{display:block;font-size:11.5px;color:var(--civic);font-weight:700;margin-top:3px}
 .dcard .dnote{display:block;font-size:11.5px;color:var(--muted);line-height:1.7;margin-top:5px;padding-right:110px}
 .dcard .dgo{position:absolute;right:17px;bottom:15px;font-size:12.5px;font-weight:700;color:var(--civic);white-space:nowrap}
+.dcard .dsrc{display:inline-block;margin-left:9px;font-size:10.5px;font-weight:600;color:var(--muted);
+  background:#F3F5F9;border-radius:6px;padding:2px 8px}
 @media(max-width:640px){.dcard .dnote{padding-right:0}.dcard .dgo{position:static;display:block;margin-top:8px;text-align:right}}
 @media(max-width:640px){
   .pick{grid-template-columns:1fr}
