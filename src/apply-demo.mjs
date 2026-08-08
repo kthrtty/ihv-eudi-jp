@@ -21,18 +21,21 @@ export const chip = (app, issued = 0) => {
 
 /** 受理済み添付の一覧。**保存したサムネイルを出す**（アイコンで代用しない）。
  *  PDF はサムネイルを持たない＝インライン描画しない方針（PDF は JS を持てる）。 */
-export function attachmentsHtml(atts = []) {
+export function attachmentsHtml(atts = [], { base = '' } = {}) {
   if (!atts.length) return '';
-  const cell = (f) => {
-    const uri = thumbDataUri(f.thumb);
+  const cell = (f, i) => {
     const kb = `${Math.ceil((f.size || 0) / 1024)} KB`;
-    if (uri) {
-      return `<div class="upi"><img src="${esc(uri)}" alt="${esc(f.name)}">
-        <span class="sz">${esc(kb)}</span><span class="nm">${esc(f.name)}</span></div>`;
-    }
-    // サムネイル無し = PDF、または JS 無しで送られた画像
-    return `<div class="upi doc"><span class="pt">${f.kind === 'pdf' ? 'PDF' : String(f.kind || '').toUpperCase()}</span>
-      <span class="sz">${esc(kb)}</span><span class="nm">${esc(f.name)}</span></div>`;
+    const href = base ? `${base}/${i}` : '';
+    const open = (inner, cls = '') => (href
+      ? `<a class="upi${cls}" href="${esc(href)}" target="_blank" rel="noopener">${inner}</a>`
+      : `<div class="upi${cls}">${inner}</div>`);
+    const tail = `<span class="sz">${esc(kb)}</span><span class="nm">${esc(f.name)}</span>`;
+    // 画面に出す絵は、あればクライアント生成のサムネイル（軽い）、無ければ原本そのもの。
+    // 実機の大きな写真は canvas 縮小に失敗することがあり、そこで絵が消えていた。
+    const src = thumbDataUri(f.thumb) || (href && f.kind !== 'pdf' ? href : '');
+    if (src) return open(`<img src="${esc(src)}" alt="${esc(f.name)}" loading="lazy">${tail}`);
+    // PDF はインライン描画しない（PDF は JavaScript を持てる）。原本はダウンロードで開く
+    return open(`<span class="pt">${f.kind === 'pdf' ? 'PDF' : String(f.kind || '').toUpperCase()}</span>${tail}`, ' doc');
   };
   return `<div class="uplist">${atts.map(cell).join('')}</div>`;
 }
@@ -94,7 +97,9 @@ ${swatchEmblemCss()}
 .uptile b{font-size:11.5px;color:var(--civic)}
 /* 受理済みの添付（申請の控え・審査画面）。アイコンではなく保存したサムネイルを出す */
 .uplist{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:9px;margin-bottom:7px}
-.upi{position:relative;aspect-ratio:1;border-radius:11px;overflow:hidden;border:1px solid var(--line);background:#F3F5F9}
+.upi{position:relative;aspect-ratio:1;border-radius:11px;overflow:hidden;border:1px solid var(--line);
+  background:#F3F5F9;display:block;text-decoration:none;color:inherit}
+a.upi:hover{border-color:var(--civic);box-shadow:0 2px 10px rgba(14,26,43,.12)}
 .upi img{width:100%;height:100%;object-fit:cover;display:block}
 .upi .nm{position:absolute;left:0;right:0;bottom:0;color:#fff;font-size:10px;padding:14px 7px 5px;
   background:linear-gradient(transparent,rgba(0,0,0,.66));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -386,7 +391,9 @@ export function renderMyApplication(user, a, { justSubmitted = false, issued = [
           ${kv('申請者', `${esc(user.family)} ${esc(user.given)}`)}
           ${kv(a.kind === 'disaster' ? '世帯主住所' : '住所', user.address)}
           ${t.form.map((x) => kv(x.label, a.form?.[x.key])).join('')}
-          ${a.attachments?.length ? `<div class="sec">添付（${a.attachments.length}件）</div>${attachmentsHtml(a.attachments)}` : ''}
+          ${a.attachments?.length ? `<div class="sec">添付（${a.attachments.length}件）</div>
+            ${attachmentsHtml(a.attachments, { base: `/applications/${esc(a.id)}/att` })}
+            <span class="fhint">タップすると原本が開きます（PDF はダウンロード）。</span>` : ''}
         </div>
         <div class="acard">
           <div class="sec">審査の結果</div>

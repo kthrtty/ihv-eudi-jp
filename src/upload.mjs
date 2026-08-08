@@ -85,6 +85,10 @@ export function validateAttachment(bytes, { maxBytes = MAX_FILE_BYTES } = {}) {
  */
 export const renderPolicy = (kind) => (ACCEPTED[kind]?.inline ? 'inline' : 'chip');
 
+/** 種別 → 配信時の Content-Type。**アップロード側の申告は使わない**（保存時に
+ *  マジックバイトから決めた kind だけを信用する）。 */
+export const ATT_MIME = Object.fromEntries(Object.entries(ACCEPTED).map(([k, v]) => [k, v.mime]));
+
 /** 保存名。利用者が付けた名前は保持せず、こちらで決めた安全な名前にする
  *  （パス区切り・制御文字・二重拡張子・長大名の混入経路を断つ）。 */
 export const safeStoredName = (kind, idx) => `att-${String(idx).padStart(2, '0')}.${ACCEPTED[kind]?.ext ?? 'bin'}`;

@@ -76,8 +76,10 @@ export function renderAdminReview(staff, a, applicant, { issued = [], existing =
           ${kv('申請者', `${applicant?.family ?? ''} ${applicant?.given ?? ''}`)}
           ${kv(a.kind === 'disaster' ? '世帯主住所' : '住所', applicant?.address)}
           ${t.form.map((x) => kv(x.label, a.form?.[x.key])).join('')}
-          ${a.attachments?.length ? `<div class="sec">添付（${a.attachments.length}件）</div>${attachmentsHtml(a.attachments)}
-            ${a.attachments.some((f) => f.kind === 'pdf') ? '<span class="fhint">PDF はインライン描画しません（PDF は JavaScript を持てる）。原本はダウンロードして確認してください。</span>' : ''}` : ''}
+          ${a.attachments?.length ? `<div class="sec">添付（${a.attachments.length}件）</div>
+            ${attachmentsHtml(a.attachments, { base: `/a/${esc(a.id)}/att` })}
+            <span class="fhint">クリックすると原本が開きます。${a.attachments.some((f) => f.kind === 'pdf')
+              ? 'PDF はインライン描画せずダウンロードになります（PDF は JavaScript を持てる）。' : ''}</span>` : ''}
           ${applicant?.household?.length ? `<div class="sec">世帯構成員<span class="tagro">住民基本台帳から連携（参考）</span></div>
             <table class="tb3"><tr><th>氏名</th><th>続柄</th><th>生年月日</th></tr>
               <tr><td>${esc(applicant.family)} ${esc(applicant.given)}</td><td>世帯主</td><td>${esc(applicant.birth)}</td></tr>

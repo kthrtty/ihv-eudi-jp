@@ -71,7 +71,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   **教訓: 適合を名乗る面は自己ループでなく仕様構造の golden/外部実装との適合テストで pin。簡略化は名乗りに明示。**
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（340, node:test）／
+`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（341, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
@@ -134,6 +134,12 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   申請レコードに載せる（/account の顔写真と同じ手口。申請台帳は KV の1オブジェクトで、Workers に
   画像処理系が無い）。控え・審査画面は `attachmentsHtml()` が**実サムネイルを描く**（アイコンで代用しない）。
   PDF はサムネイルを持たない＝インライン描画しない方針のまま。JS 無効でも添付自体は成立する（サムネイルが無いだけ）
+- **添付の原本は別 KV キー**（`_att:<appId>:<idx>`）に置き、申請台帳（`_persist:apps`）には参照だけ残す
+  （台帳は KV の1オブジェクトなので 8MB の写真を抱えると破綻する）。配信は
+  issuer `/applications/:id/att/:idx`（**本人だけ**・他人は404）／admin `/a/:id/att/:idx`（**職員だけ**）。
+  Content-Type は**保存時にこちらが判定した kind** から決め、**PDF は必ず `Content-Disposition: attachment`**。
+  画面のサムネイルは thumb があればそれ、**無ければ原本 URL にフォールバック**する
+  （実機の大きな写真は canvas 縮小に失敗することがあり、そこで絵が消えていた＝2026-08-09 の報告）
 
 ## 管理機能の分離＝自治体窓口（2026-08-08・案B / issue #23）
 審査は住民ではなく**自治体職員**の仕事。発行ポータルに同居させていたため

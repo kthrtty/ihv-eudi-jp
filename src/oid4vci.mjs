@@ -138,6 +138,24 @@ export class IssuerService {
     await this.store.set('_persist:apps', { list: this.applications, seq: this.applicationSeq }, 86400 * 30);
   }
 
+  // 添付の**原本は申請台帳に入れない**（台帳は KV の1オブジェクトなので、8MB の写真を
+  // 抱えると容量が破綻する）。1件につき別キーへ置き、台帳には参照だけを残す。
+  // 画面のサムネイルは別途クライアントが縮小した JPEG（thumb）を使う。
+  static attKey(appId, idx) { return `_att:${appId}:${idx}`; }
+  async putAttachment(appId, idx, { kind, bytes }) {
+    await this.store.set(IssuerService.attKey(appId, idx), { kind, bytes }, 86400 * 30);
+  }
+  /** 添付の原本。無ければ null（期限切れ・旧レコード）。 */
+  async getAttachment(appId, idx) {
+    const app = await this.getApplication(appId);
+    const meta = app?.attachments?.[idx];
+    if (!meta) return null;
+    const blob = await this.store.get(IssuerService.attKey(appId, idx));
+    if (!blob) return null;
+    const bytes = blob.bytes instanceof Uint8Array ? blob.bytes : new Uint8Array(blob.bytes || []);
+    return bytes.length ? { kind: blob.kind || meta.kind, name: meta.name, stored: meta.stored, bytes } : null;
+  }
+
   /** 申請を受け付ける。受付番号を採番し、状態は submitted（調査待ち）。 */
   async submitApplication({ userId, kind, targetCode = null, form = {}, attachments = [] }) {
     const t = getApplicationType(kind);
@@ -161,6 +179,11 @@ export class IssuerService {
       // 交付済みVCとの突き合わせ用（再判定で内容が変わったかを見る）
       issuedFingerprint: null,
     };
+    // 原本は別キーへ。台帳に載せるのは種別・名前・サムネイルだけ
+    for (const [i, a] of attachments.entries()) {
+      if (a?.bytes) await this.putAttachment(app.id, i, { kind: a.kind, bytes: a.bytes });
+    }
+    app.attachments = attachments.map(({ bytes, ...rest }) => rest);
     this.applications.push(app);
     await this._saveApps();
     return app;
