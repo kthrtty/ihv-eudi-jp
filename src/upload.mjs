@@ -107,6 +107,34 @@ export function displayName(raw, kind, idx) {
   return s.length > 60 ? `${s.slice(0, 57)}…` : s;
 }
 
+// ---- サムネイル -------------------------------------------------------------
+// 原本（最大8MB）は保存しない。**クライアント側で縮小した JPEG** だけを受け取って
+// 申請レコードに載せる（/account の顔写真アップロードと同じ手口）。理由は2つ:
+//  - 申請台帳は KV の1オブジェクトなので、原本を抱えると容量が破綻する。
+//  - Workers に画像処理系が無く、サーバ側で縮小できない。
+// 受け取る側は**申告を信用しない**——バイト列を見て JPEG であることと上限だけを見る。
+export const MAX_THUMB_BYTES = 64 * 1024;
+
+/** クライアント由来のサムネイル（base64 / data URI）を検証し、base64 を返す。
+ *  少しでも怪しければ null（サムネイルが無いだけで、添付自体は成立する）。 */
+export function validateThumb(input) {
+  if (typeof input !== 'string' || !input) return null;
+  const s = input.replace(/^data:image\/jpeg;base64,/, '').trim();
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(s)) return null;
+  if (s.length > Math.ceil(MAX_THUMB_BYTES / 3) * 4 + 8) return null;   // デコード前に弾く
+  let bytes;
+  try { bytes = new Uint8Array(Buffer.from(s, 'base64')); } catch { return null; }
+  if (bytes.length === 0 || bytes.length > MAX_THUMB_BYTES) return null;
+  if (sniffFileType(bytes) !== 'jpeg') return null;   // PNG も PDF もここでは受けない
+  return Buffer.from(bytes).toString('base64');
+}
+
+/** サムネイルの data: URI。無ければ null（呼び出し側は原本を出さないこと）。 */
+export const thumbDataUri = (b64) => (b64 ? `data:image/jpeg;base64,${b64}` : null);
+
+/** サムネイル生成の目標。クライアントの canvas 縮小と揃える。 */
+export const THUMB_EDGE = 320;
+
 /** data: URI を組む。inline でない種別は null を返す（呼び出し側で誤用できない）。 */
 export function inlineDataUri(kind, bytes) {
   if (renderPolicy(kind) !== 'inline') return null;

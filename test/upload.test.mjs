@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import {
   sniffFileType, validateAttachment, renderPolicy, inlineDataUri,
   displayName, safeStoredName, MAX_FILE_BYTES, ACCEPTED, ACCEPT_ATTR,
+  validateThumb, thumbDataUri, MAX_THUMB_BYTES,
 } from '../src/upload.mjs';
 
 const buf = (...parts) => {
@@ -111,4 +112,25 @@ test('upload: 保存名・表示名に利用者由来の危険な文字を持ち
   assert.equal(displayName('///', 'jpeg', 2), 'att-02.jpg');
   // 長すぎる名前は切り詰める
   assert.ok(displayName('あ'.repeat(300), 'jpeg', 0).length <= 60);
+});
+
+
+// サムネイルはクライアント（canvas）が作った JPEG を受け取る＝**外部入力**。
+// 原本は保存しないので、ここが緩いと申請台帳に任意のバイト列が載る。
+test('upload: サムネイルは JPEG のバイト列だけを受け入れる', () => {
+  const b64 = (u8) => Buffer.from(u8).toString('base64');
+  assert.equal(validateThumb(b64(sample('jpeg'))), b64(sample('jpeg')), '素の base64');
+  assert.equal(validateThumb('data:image/jpeg;base64,' + b64(sample('jpeg'))), b64(sample('jpeg')), 'data URI も剥がす');
+
+  assert.equal(validateThumb(b64(sample('png'))), null, 'PNG は受けない（申告ではなく中身で判定）');
+  assert.equal(validateThumb(b64(sample('pdf'))), null, 'PDF は論外');
+  assert.equal(validateThumb('<svg onload=alert(1)>'), null, 'base64 ですらないものは弾く');
+  assert.equal(validateThumb(''), null);
+  assert.equal(validateThumb(null), null);
+  assert.equal(validateThumb(b64(pad(sample('jpeg'), MAX_THUMB_BYTES + 1))), null, '上限超過');
+});
+
+test('upload: サムネイルの data URI は image/jpeg 固定', () => {
+  assert.equal(thumbDataUri(null), null);
+  assert.match(thumbDataUri('AAAA'), /^data:image\/jpeg;base64,AAAA$/);
 });
