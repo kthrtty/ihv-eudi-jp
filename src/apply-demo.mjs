@@ -2,7 +2,7 @@
 // 一覧は **PC=表組み / SP=カード** を1マークアップで両立（列数だけ切り替える）。
 import { appShell } from './authcode-demo.mjs';
 import { WALLET_CARD_THEME, swatchEmblemHtml, swatchEmblemCss } from './authcode-demo.mjs';
-import { STATUS, labelOf, subOf, getApplicationType, applicationTypeList } from './applications.mjs';
+import { STATUS, statusView, labelOf, subOf, getApplicationType, applicationTypeList } from './applications.mjs';
 import { ACCEPT_ATTR, MAX_FILES, MAX_FILE_BYTES } from './upload.mjs';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -10,9 +10,11 @@ const sw = (type) => {
   const t = WALLET_CARD_THEME[type] || WALLET_CARD_THEME.pid;
   return `<span class="cic" style="--c1:${t.c1};--c2:${t.c2};--c3:${t.c3}">${swatchEmblemHtml(type)}</span>`;
 };
-const chip = (status) => {
-  const st = STATUS[status] || { label: status, chip: 'na' };
-  return `<span class="chip ${st.chip}">${esc(st.label)}</span>`;
+const chip = (app, issued = 0) => {
+  const v = statusView(app, { issued });
+  // 交付済みは状態と別軸（認定＝交付できる／実際に受け取ったか、は別）
+  return `<span class="chip ${v.chip}">${esc(v.label)}</span>`
+    + (issued > 0 ? `<span class="chip issued">交付済 ${issued}</span>` : '');
 };
 
 const CSS = `
@@ -64,7 +66,7 @@ ${swatchEmblemCss()}
 .upi>div{flex:1;min-width:0}
 /* 一覧: PC=表組み / SP=カード */
 .alist{display:flex;flex-direction:column}
-.ahead,.arow{display:grid;grid-template-columns:86px 150px minmax(0,1fr) 96px 132px auto;column-gap:12px;align-items:center;padding:11px 16px}
+.ahead,.arow{display:grid;grid-template-columns:80px 140px minmax(0,1fr) 82px 92px 150px auto;column-gap:12px;align-items:center;padding:11px 16px}
 .ahead{font-size:10.5px;color:var(--muted);font-weight:700;background:#F7F9FC;border-bottom:1px solid var(--line)}
 .arow{border-bottom:1px solid #eef1f6;font-size:12.5px;text-decoration:none;color:inherit}
 .arow:last-child{border-bottom:0}
@@ -75,12 +77,14 @@ ${swatchEmblemCss()}
 .a-sub{grid-column:3;min-width:0;display:flex;flex-direction:column;line-height:1.45}
 .a-sub b{font-size:12.5px;font-weight:500}
 .a-sub small{font-size:10.5px;color:var(--muted)}
-.a-day{grid-column:4}
-.a-st{grid-column:5}
-.a-act{grid-column:6;white-space:nowrap;color:var(--civic);font-weight:700}
+.a-who{grid-column:4}
+.a-day{grid-column:5}
+.a-st{grid-column:6;display:flex;gap:5px;flex-wrap:wrap}
+.a-act{grid-column:7;white-space:nowrap;color:var(--civic);font-weight:700}
 .chip{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:4px 11px;white-space:nowrap}
 .chip.wait{background:#FDF7E3;color:#8a6d00}.chip.doing{background:#EAF0FA;color:#0a5eab}
 .chip.ok{background:#E7F3EE;color:#0E8A6B}.chip.ng{background:#FDECEA;color:#b3261e}.chip.na{background:#F1F3F7;color:#5B6B82}
+.chip.issued{background:#EAF0FA;color:#1C3F94}
 /* 差分（再判定） */
 .diff{display:flex;align-items:center;justify-content:center;gap:22px;margin:6px 0 14px;flex-wrap:wrap}
 .dcol{text-align:center;background:#F7F9FC;border-radius:11px;padding:13px 26px;min-width:170px}
@@ -99,11 +103,11 @@ ${swatchEmblemCss()}
   .arow{grid-template-columns:34px minmax(0,1fr) auto;gap:2px 9px;padding:13px 14px;border-bottom:8px solid #F4F6FA}
   .a-ty{grid-column:1/3;grid-row:1}
   .a-ty b{font-size:13px;font-weight:700}
-  .a-st{grid-column:3;grid-row:1;justify-self:end}
+  .a-st{grid-column:3;grid-row:1;justify-self:end;flex-direction:column;align-items:flex-end}
   .a-sub{grid-column:1/-1;grid-row:2;margin-top:5px}
   .a-sub b{font-size:14px;font-weight:700}
-  .a-no,.a-day{font-size:11px;color:var(--muted);grid-row:3;margin-top:6px}
-  .a-no{grid-column:1/2}.a-day{grid-column:2/-1;justify-self:end}
+  .a-no,.a-who,.a-day{font-size:11px;color:var(--muted);grid-row:3;margin-top:6px}
+  .a-no{grid-column:1/2}.a-who{grid-column:2/3;justify-self:center}.a-day{grid-column:3/-1;justify-self:end}
   .a-act{grid-column:1/-1;grid-row:4;text-align:right;margin-top:9px;padding-top:9px;border-top:1px solid #eef1f6}
 }`;
 
@@ -171,7 +175,7 @@ export function renderApplyForm(user, t, { error = '' } = {}) {
 }
 
 /** 申請一覧（メニュー › 申請一覧）。※管理者画面化は TODO。 */
-export function renderApplicationList(user, apps) {
+export function renderApplicationList(user, apps, { issuedBy = {}, applicants = {} } = {}) {
   const row = (a) => {
     const t = getApplicationType(a.kind);
     const act = a.status === 'approved' ? '詳細' : a.status === 'submitted' ? `${t.reviewTitle}へ` : '続き';
@@ -179,8 +183,9 @@ export function renderApplicationList(user, apps) {
       <span class="a-no">${esc(a.id)}</span>
       <span class="a-ty">${sw(t.credType)}<b>${esc(t.short)}</b></span>
       <span class="a-sub"><b>${esc(labelOf(a))}</b><small>${esc(subOf(a) || t.lead)}</small></span>
+      <span class="a-who">${esc(applicants[a.userId] || a.userId)}</span>
       <span class="a-day">${esc((a.submitted_at || '').slice(0, 10))}</span>
-      <span class="a-st">${chip(a.status)}</span>
+      <span class="a-st">${chip(a, issuedBy[a.id] || 0)}</span>
       <span class="a-act">${esc(act)} ›</span></a>`;
   };
   return appShell('申請一覧', `
@@ -189,7 +194,7 @@ export function renderApplicationList(user, apps) {
       <div class="todo">🚧 <b>TODO:</b> 本来この画面は自治体職員向けの管理画面です。現状は暫定として、申請した本人が同じ画面から審査（認定）できるようにしています。</div>
       <p class="lead">この発行者が受け付けた交付申請です。<b>審査</b>を行うと、申請者のカタログで該当クレデンシャルが交付できるようになります。</p>
       ${apps.length ? `<div class="acard p0"><div class="alist">
-        <div class="ahead"><span>受付番号</span><span>種別</span><span>申請の対象</span><span>申請日</span><span>状態</span><span></span></div>
+        <div class="ahead"><span>受付番号</span><span>種別</span><span>申請の対象</span><span>申請者</span><span>申請日</span><span>状態</span><span></span></div>
         ${apps.map(row).join('')}
       </div></div>` : '<div class="acard" style="text-align:center;color:var(--muted);font-size:13px">申請はまだありません</div>'}
       <div class="acts">${applicationTypeList().map((t) =>
@@ -199,7 +204,7 @@ export function renderApplicationList(user, apps) {
 }
 
 /** 審査（認定・却下・再判定）。左=申告内容、右=判定入力。 */
-export function renderApplicationReview(user, a, applicant, { justSubmitted = false, issued = [] } = {}) {
+export function renderApplicationReview(user, a, applicant, { justSubmitted = false, issued = [], supersedes = [] } = {}) {
   const t = getApplicationType(a.kind);
   const live = issued.filter((e) => !e.revoked);
   const decided = a.decision || {};
@@ -208,7 +213,8 @@ export function renderApplicationReview(user, a, applicant, { justSubmitted = fa
   return appShell(t.reviewTitle, `
     <div style="margin-top:22px">
       <div class="crumb">申請一覧 › ${esc(a.id)}</div>
-      <h1 style="font-size:20px;margin:0 0 12px">${esc(t.reviewTitle)}　${chip(a.status)}</h1>
+      <h1 style="font-size:20px;margin:0 0 12px">${esc(t.reviewTitle)}　${chip(a, live.length)}</h1>
+      <p class="lead" style="margin:-6px 0 12px">${esc(statusView(a, { issued: live.length }).note)}</p>
       ${justSubmitted ? `<div class="warn">✔ 申請を受け付けました。受付番号 <b>${esc(a.id)}</b>。
         この後、${esc(t.reviewTitle)}を行い、認定されると発行カタログから交付できるようになります。</div>` : ''}
       <div class="todo">🚧 <b>TODO:</b> 管理者向け画面へ分離予定。現状は申請者本人が審査できる暫定運用です。</div>
@@ -233,6 +239,9 @@ export function renderApplicationReview(user, a, applicant, { justSubmitted = fa
         <form class="acard" method="POST" action="/applications/${esc(a.id)}/decision">
           <div class="sec">${already ? '再判定' : '審査・判定'}</div>
           <p class="lead" style="margin-bottom:10px">${esc(t.reviewLead)}</p>
+          ${supersedes.length ? `<div class="warn">🔁 <b>同じ対象の認定がすでにあります</b>（${supersedes.map((x) => esc(x.id)).join('・')}）。
+            この申請を認定すると、そちらは<b>「更新により無効」</b>になり、交付済みのクレデンシャルは失効します。
+            有効な認定は常に1件に保たれます。</div>` : ''}
           ${already && live.length ? `<div class="warn err">⚠️ <b>交付済みのクレデンシャルがあります。</b>
             判定を変えて証明書に載る内容が変わる場合、この申請から発行された ${live.length} 件を失効させ、新しい内容で再交付できるようにします。
             内容が変わらない場合（例: 全壊 → 全壊）は失効させません。</div>` : ''}
