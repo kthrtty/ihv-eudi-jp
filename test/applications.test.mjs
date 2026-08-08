@@ -252,8 +252,8 @@ test('applications: 同じ利用者・同じ種別の認定を申し送る（自
 
   // 対象が同じでも別でも、同じ種別の認定はすべて申し送る（判断材料として並べる）
   const same = await svc.submitApplication({ userId: 'u_002', kind: 'island', targetCode: '46213', form: ISLAND });
-  const other = await svc.submitApplication({ userId: 'u_002', kind: 'island', targetCode: '47207',
-    form: { applied_category: '島民', island_name: '石垣島' } });
+  const other = await svc.submitApplication({ userId: 'u_002', kind: 'island', targetCode: '42209',
+    form: { applied_category: '島民', island_name: '対馬' } });
   assert.equal((await svc.existingApprovals(same)).length, 1, '同じ対象');
   assert.equal((await svc.existingApprovals(other)).length, 1, '別の対象でも並べる（判断は人）');
 

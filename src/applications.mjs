@@ -23,6 +23,15 @@ export const targetOf = (app) => getMunicipality(app?.target_code);
 export const targetName = (app) => fullName(app?.target_code) ?? app?.form?.municipality ?? '';
 /** 証明書に載る交付者名。申請先から確定する（職員の所属からは取らない）。 */
 export const targetAuthority = (app) => authorityOf(app?.target_code);
+/** 対象路線の表示。**本デモの簡略化**——航空路線の一覧は持てないので島名から組む。 */
+const ROUTE_PIN = { 46213: '鹿児島=種子島', 46501: '鹿児島=種子島', 46502: '鹿児島=種子島' };
+export function routesFor(app) {
+  const pin = ROUTE_PIN[app?.target_code];
+  if (pin) return pin;
+  const isl = targetOf(app)?.islands ?? [];
+  return isl.length ? `${isl.join('・')}路線` : '鹿児島=種子島';
+}
+
 /** 罹災の対象災害。旧レコード（自由入力時代）は災害名・罹災日をフォームに持つ。 */
 export const disasterOf = (app) => getDisaster(app?.disaster_id);
 export const disasterName = (app) => disasterOf(app)?.name ?? app?.form?.disaster_name ?? '';
@@ -186,7 +195,9 @@ const island = {
       quasi_reason: quasi ? (w.reason || undefined) : undefined,
       island_name: w.island_name,
       issuing_municipality: targetName(app),   // 正式名称（旧レコードは申請時の自由文）
-      eligible_routes: app.form?.routes || '鹿児島=種子島',
+      // 対象路線の実データは持てないので島名から組む。種子島だけはシナリオ
+      // （さつま空輸 鹿児島=種子島）が値を突合するので実路線名を使う
+      eligible_routes: app.form?.routes || routesFor(app),
       fare_scheme: '有人国境離島(特定有人国境離島地域)',
       card_number: app.certificateNumber,
       issuing_authority: app.authority,

@@ -30,9 +30,13 @@ test('municipalities: 離島は自治体の属性、罹災は災害が母集団�
   assert.equal(offersProcedure('13101', 'disaster'), false, 'procedures に disaster は書かない');
 
   const islandPrefs = prefecturesFor('island');
-  assert.ok(!islandPrefs.includes('東京都'), '取扱いのない県は都道府県の段階で出さない');
-  assert.ok(islandPrefs.includes('鹿児島県'));
-  assert.deepEqual(municipalitiesIn('鹿児島県', 'island').map((x) => x.code), ['46213']);
+  // 特定有人国境離島地域は 8都道県（内閣府の公表値と一致）。東京都は伊豆諸島南部で入る
+  assert.equal(islandPrefs.length, 8, '8都道県');
+  assert.ok(islandPrefs.includes('東京都'), '伊豆諸島南部（三宅・御蔵島・八丈・青ヶ島）');
+  assert.ok(!islandPrefs.includes('大阪府'), '取扱いのない県は都道府県の段階で出さない');
+  assert.ok(!islandPrefs.includes('沖縄県'), '沖縄は根拠法が違う（沖縄振興特別措置法）ので含めない');
+  assert.deepEqual(municipalitiesIn('鹿児島県', 'island').map((x) => x.name),
+    ['西之表市', '薩摩川内市', '三島村', '十島村', '中種子町', '南種子町', '屋久島町']);
 
   // 罹災の母集団は災害マスタが決める
   assert.equal(coversMunicipality('r6-noto-jishin', '17204'), true, '輪島市は能登半島地震の対象');
@@ -45,9 +49,14 @@ test('municipalities: 離島は自治体の属性、罹災は災害が母集団�
 // 「離島と罹災は異なる母集団か」への回答: **別の軸で絞られるだけで交わりうる**。
 // 佐渡市は令和6年能登半島地震の対象であり、かつ離島（いまは離島データ未収録なので
 // 実装上は交差しないが、離島を実データへ広げれば両方に入る）。
-test('municipalities: 罹災と離島の母集団は交わりうる（佐渡市）', () => {
-  assert.equal(coversMunicipality('r6-noto-jishin', '15224'), true, '佐渡市は能登半島地震の対象');
-  assert.equal(getMunicipality('15224').name, '佐渡市');
+test('municipalities: 罹災と離島の母集団は交わりうる（佐渡市・輪島市）', () => {
+  for (const [code, name] of [['15224', '佐渡市'], ['17204', '輪島市']]) {
+    assert.equal(coversMunicipality('r6-noto-jishin', code), true, `${name}は能登半島地震の対象`);
+    assert.equal(offersProcedure(code, 'island'), true, `${name}は特定有人国境離島地域`);
+  }
+  // 輪島市は地震・豪雨の両方の対象でもある（同じ人が2枚持てる形）
+  assert.equal(coversMunicipality('r6-noto-gouu', '17204'), true);
+  assert.equal(getMunicipality('17204').islands[0], '舳倉島');
 });
 
 test('municipalities: 住所からの候補は「提案」であって決定ではない', () => {
