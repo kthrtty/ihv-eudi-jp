@@ -251,6 +251,35 @@ test('admin: 添付は原本つきで受理され、控えと審査画面から�
 
 // 申請の動線が「カタログ → 手続き → 申請先 → フォーム」と深くなったので、
 // どの画面からでもヘッダーのタイトルで各サイトのルートへ戻れることを固定する。
+// デモ用途のため添付は必須にしない。ただし**実制度では必要**なので、その旨を画面に残す。
+test('apply: 添付は必須にせず、デモ都合であることを画面に書く', async () => {
+  const sid = await login('u_002');
+  const form = await (await fetch(`${ISSUER}/apply/disaster/43100`, { headers: { cookie: `sid=${sid}` } })).text();
+  assert.ok(!form.includes('被害状況の写真・書類<b class="req">必須</b>'), '必須バッジを出さない');
+  assert.ok(form.includes('本デモでは任意'), '任意であることをラベルに出す');
+  assert.ok(form.includes('本デモでは添付なしでも申請できます'), 'デモ都合であることを明記する');
+  assert.ok(form.includes('1ファイル 2MB'), '上限を画面に出す');
+
+  // 実際に添付ゼロで申請できる
+  const r = await fetch(`${ISSUER}/apply/disaster/43100`, {
+    method: 'POST', redirect: 'manual',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: `sid=${sid}` },
+    body: new URLSearchParams(DISASTER_FORM).toString() });
+  assert.equal(r.status, 303, '添付なしでも受け付ける');
+});
+
+test('apply: 上限を超える添付は理由つきで断る', async () => {
+  const sid = await login('u_002');
+  const big = new Uint8Array(2 * 1024 * 1024 + 1); big.set([0xff, 0xd8, 0xff, 0xe0]);
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(DISASTER_FORM)) fd.set(k, v);
+  fd.append('attachments', new Blob([big], { type: 'image/jpeg' }), 'huge.jpg');
+  const r = await fetch(`${ISSUER}/apply/disaster/43100`, {
+    method: 'POST', redirect: 'manual', headers: { cookie: `sid=${sid}` }, body: fd });
+  assert.equal(r.status, 303);
+  assert.match(decodeURIComponent(r.headers.get('location')), /上限 2MB/, 'いくつを超えたか伝える');
+});
+
 test('shell: ヘッダーのタイトルはそのサイトのルートへのリンク', () => {
   // クラスの並び順は画面ごとに違う（ah-brand と併用する面がある）ので構造で見る
   const link = /<a[^>]*class="[^"]*brandlink[^"]*"[^>]*href="\/"/;
