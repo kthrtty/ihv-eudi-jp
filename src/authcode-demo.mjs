@@ -7,7 +7,7 @@ import { generateKeyPairSync, randomBytes, createHash } from 'node:crypto';
 import { SignJWT, importPKCS8 } from 'jose';
 import { catalog } from './issuer.mjs';
 import { devToggleHtml, devWidgetHtml } from './devlog.mjs';
-import { ISLAND_CATEGORIES, islandEligible } from './users.mjs';
+import { applicationTypeList } from './applications.mjs';
 import { verify as verifyCredential } from './issuer.mjs';
 import { offerQrSvg } from './offer.mjs';
 
@@ -429,6 +429,7 @@ function appHeaderHtml(user, dev = false) {
               <div><div style="font-size:15px;font-weight:700">${name}</div>${desc}<div style="font-family:monospace;font-size:12px;color:#5B6B82">${esc(user.id)}</div></div>
             </div>
             <div style="height:1px;background:#EEF1F6;margin:2px 0 6px"></div>
+            <a href="/applications" style="${mItem}"><span>📋</span> 申請一覧</a>
             <a href="/history" style="${mItem}"><span>📈</span> 発行履歴</a>
             <a href="/account" style="${mItem}"><span>⚙️</span> アカウント設定</a>
             <form method="POST" action="/logout" style="margin:0">
@@ -642,35 +643,54 @@ export function groupCatalog(configs) {
 /** Issuer portal top page: document-catalog rows (multi-select type+format) with a
  *  fixed action bar + bottom-sheet "wallet card" preview whose stack tracks the
  *  selection count. Offer options + JSON-preview + issue. Client-side vs POST /offer. */
-export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
+export function renderVcSelect(user, groups, { walletOrigin = '', approved = [] } = {}) {
   // 書類カタログ行（案A）: アイコン＝券面の和色スウォッチ＋白エンボス（swatchEmblemHtml）＝
   // ウォレット券面と色が一致し「この券のカード」と一目でわかる（装飾は最小限、アクセントバーは不採用）。
   // 2段組（名前は全幅・省略なし／説明+形式チップ）。PC=タイル格子／モバイル=1列の両方に反映。
   // 発行済みの「実体」＝ウォレットのカードは、下部シートのプレビュー（walletCardCss）で見せる。
-  // 離島割引資格証は対象者にしか交付されない。/account で「対象外」にした人には
-  // 形式チップを出さず、行ごと非活性にする（発行を試みても credential EP が断る）。
-  const ineligible = (type) => type === 'island' && !islandEligible(user);
-  const rows = groups.map((g) => {
+  // 交付に申請の認定が要る書類は、認定が無ければ行ごと非活性にして
+  // 「発行申請へ」の導線を出す（発行を試みても credential EP が断る）。
+  // 案D: 意味で三分する。認定が要る書類は「認定済み（申請ごとに1行）」と
+  // 「申請できる手続き」に分かれ、いつでも発行できる書類とは混ぜない。
+  const needsApp = (type) => applicationTypeList().some((t) => t.credType === type);
+  const rowOf = (g, { app = null } = {}) => {
     const th = WALLET_CARD_THEME[g.type] || WALLET_CARD_THEME.pid;
-    const off = ineligible(g.type);
-    const chips = off
-      ? '<span class="coff">交付対象外</span>'
-      : g.formats.map((f) =>
-        `<button type="button" class="fmtchip" data-cfg="${esc(f.configId)}" data-type="${esc(g.type)}" data-fmt="${esc(f.label)}">${esc(f.label)}</button>`).join('');
-    return `<div class="crow${off ? ' is-off' : ''}" data-type="${esc(g.type)}" style="--c1:${th.c1};--c2:${th.c2};--c3:${th.c3}">
+    const chips = g.formats.map((f) =>
+      `<button type="button" class="fmtchip" data-cfg="${esc(f.configId)}"${app ? ` data-app="${esc(app.id)}"` : ''} data-type="${esc(g.type)}" data-fmt="${esc(f.label)}">${esc(f.label)}</button>`).join('');
+    return `<div class="crow" data-type="${esc(g.type)}" style="--c1:${th.c1};--c2:${th.c2};--c3:${th.c3}">
       <span class="cic">${swatchEmblemHtml(g.type)}</span>
       <div class="cbody">
         <div class="cn">${esc(g.name)}</div>
+        ${app ? `<div class="csub"><span class="capp">${esc(app.label)}</span></div>` : ''}
         <div class="cl2">
           <span class="cd">${esc(g.desc)}</span>
           <span class="cchips">${chips}</span>
           <button type="button" class="cinfo" title="含まれる項目を見る" onclick="openClaims('${esc(g.type)}')">ⓘ</button>
         </div>
-        ${off ? '<div class="cnote">アカウント設定の「離島割引の対象区分」が<b>対象外</b>です。島民／準島民にすると交付できます。</div>'
-              : g.note ? `<div class="cnote">${esc(g.note)}</div>` : ''}
+        ${app ? (app.sub ? `<div class="cnote">認定 ${esc(app.sub)}・受付 ${esc(app.id)}</div>` : '')
+              : (g.note ? `<div class="cnote">${esc(g.note)}</div>` : '')}
       </div>
     </div>`;
+  };
+  const byType = Object.fromEntries(groups.map((g) => [g.type, g]));
+  const plain = groups.filter((g) => !needsApp(g.type)).map((g) => rowOf(g)).join('');
+  // 認定済みは申請1件につき1行（同じ人が複数の災害・複数の島を持てる）
+  const approvedRows = approved.map((a) => (byType[a.credType] ? rowOf(byType[a.credType], { app: a }) : '')).join('');
+  const applyRows = applicationTypeList().map((t) => {
+    const th = WALLET_CARD_THEME[t.credType] || WALLET_CARD_THEME.pid;
+    return `<a class="crow is-off" href="/apply/${esc(t.id)}" style="--c1:${th.c1};--c2:${th.c2};--c3:${th.c3};text-decoration:none;color:inherit">
+      <span class="cic">${swatchEmblemHtml(t.credType)}</span>
+      <div class="cbody"><div class="cn">${esc(t.title)}</div>
+        <div class="cl2"><span class="cd">${esc(t.lead)}</span>
+          <span class="cchips"><span class="applybtn">発行申請へ →</span></span></div>
+        <div class="cnote">${esc(t.basis)}</div>
+      </div></a>`;
   }).join('');
+  const sec = (title, body, hint = '') => (body
+    ? `<div class="sech">${esc(title)}${hint ? `<span class="sehint">${esc(hint)}</span>` : ''}</div>${body}` : '');
+  const rows = sec('いつでも発行できる', plain)
+    + sec('申請にもとづき交付（認定済み）', approvedRows)
+    + sec('申請できる手続き', applyRows, '認定を受けると上のカタログから交付できます');
   // cfg → {type, name, fmt}（プレビューのミニカード描画用）
   const cfgMeta = {};
   for (const g of groups) for (const f of g.formats) cfgMeta[f.configId] = { type: g.type, name: g.name, fmt: f.label };
@@ -831,6 +851,11 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
         if (!selected.size) { alert('クレデンシャルの形式を1つ以上選択してください'); return null; }
         const grant = $('grant').value;
         const body = { credential_configuration_ids: [...selected], grant, qr: withQr };
+        // どの認定（申請）から交付するか。同じ書類を複数件持てるので、選んだ
+        // チップの data-app を configId → applicationId の対応として送る。
+        var apps = {};
+        document.querySelectorAll('.fmtchip.on[data-app]').forEach(function (b) { apps[b.dataset.cfg] = b.dataset.app; });
+        if (Object.keys(apps).length) body.applications = apps;
         if ($('txcode').checked) body.tx_code = true; // issuer generates a fresh PIN
         const r = await fetch('/offer', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
         const d = await r.json();
@@ -917,6 +942,12 @@ export function renderVcSelect(user, groups, { walletOrigin = '' } = {}) {
       .fmtchip.on{background:var(--civic);border-color:var(--civic);color:#fff}
       .cinfo{flex:none;border:0;background:none;color:var(--muted);font-size:15px;cursor:pointer;padding:0 2px;line-height:1}
       .cnote{font-size:10.5px;color:#8A6D1F;margin-top:4px;line-height:1.5}
+      .csub{margin-top:2px}
+      .capp{display:inline-block;font-size:11px;font-weight:700;color:#1C3F94;background:#EAF0FA;border-radius:6px;padding:2px 8px}
+      .applybtn{font-size:11px;font-weight:700;padding:5px 12px;border-radius:8px;background:#fff;border:1px solid var(--civic);color:var(--civic)}
+      .sech{grid-column:1/-1;font-size:12px;font-weight:800;color:var(--muted);letter-spacing:.04em;margin:14px 0 2px}
+      .sech:first-child{margin-top:0}
+      .sehint{font-weight:400;font-size:11px;color:#8A97AB;margin-left:10px;letter-spacing:0}
       @media(max-width:520px){
         /* 狭幅では説明を隠して名前とチップに幅を割く（名前は絶対に省略しない） */
         .cl2{flex-wrap:wrap}
@@ -1192,7 +1223,6 @@ export function renderAccount(user, docs = []) {
       <button type="button" class="hh-del" title="この世帯員を削除">✕</button>
     </div>`;
   const members = user.household || [];
-  const island = user.island || { category: '対象外' };
   return appShell('アカウント設定', `
     <div style="margin-top:24px">
       <div style="display:flex;align-items:center;justify-content:space-between">
@@ -1244,23 +1274,6 @@ export function renderAccount(user, docs = []) {
           <div id="hh-rows">${members.map((m, i) => memberRow(m, i)).join('')}</div>
           <button type="button" class="btn ghost2" id="hh-add" style="margin:4px 0 14px">＋ 世帯員を追加</button>
 
-          <div style="border-top:1px solid var(--line);margin:18px 0 14px"></div>
-          <div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:4px">離島割引の対象区分（離島割引資格証）</div>
-          <div class="hint" style="margin:0 0 10px">自治体が審査して台帳に載せる区分です。<b>住民票やPIDからは導けません</b>（準島民は島外在住のため住所では判定できない）。<b>対象外</b>にすると、この人には離島割引資格証が交付されません。</div>
-          <div class="isl-cats">
-            ${ISLAND_CATEGORIES.map((cat) => `
-              <label class="isl-cat${island.category === cat ? ' on' : ''}">
-                <input type="radio" name="isl_category" value="${esc(cat)}"${island.category === cat ? ' checked' : ''}>
-                <span>${esc(cat)}</span>
-              </label>`).join('')}
-          </div>
-          <div class="hint" style="margin:8px 0 10px">島民＝島に住民登録がある人／準島民＝島外に住むが介護・就学などで往来する人（壱岐市・八丈町・五島市に実在の区分）。</div>
-          ${f('準島民の事由（準島民のときだけ資格証に載ります）', 'isl_reason', island.reason)}
-          <div class="isl-2">
-            ${f('対象離島', 'isl_island_name', island.island_name)}
-            ${f('交付自治体', 'isl_municipality', island.municipality)}
-          </div>
-          ${f('有効期限（実制度: 島民＝交付から3年 / 準島民＝1年・就学は卒業月末）', 'isl_expiry', island.expiry)}
 
           <button type="submit" class="btn" style="margin-top:6px;display:block">保存する</button>
         </form>

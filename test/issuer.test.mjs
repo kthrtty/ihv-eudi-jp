@@ -2,7 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
 import { mint, verify, allConfigIds, personaClaims } from '../src/issuer.mjs';
-import { createUserStore, islandEligible } from '../src/users.mjs';
+import { createUserStore } from '../src/users.mjs';
+import { IssuerService } from '../src/oid4vci.mjs';
+import { claimsFor, canIssueFrom } from '../src/applications.mjs';
 
 const holderJwk = () => generateKeyPairSync('ec', { namedCurve: 'P-256' }).publicKey.export({ format: 'jwk' });
 
@@ -54,48 +56,52 @@ test('issuer: custom claim override works', async () => {
   assert.equal(r.claims.family_name, '佐藤');
 });
 
-// 離島割引の対象区分は persona 由来。準島民は島外在住＝住所で判定できない層なので、
-// 「住民票/PID から導けない属性を自治体が判定して載せる」という制度の形をここで pin する。
-// 区分は /account の離島割引セクションで編集でき、対象外＝交付されない。
-test('issuer: 離島割引資格証の区分は persona で決まる（島民 / 準島民 / 対象外）', () => {
+// 離島の対象区分・罹災の被害程度は **交付申請の認定** が正本（2026-08-08 に
+// persona.island から移行）。住民票やPIDから導けない属性を自治体が審査して載せる、
+// という制度の形をここで pin する。
+test('applications: 認定内容から VC クレームが組まれる（離島＝区分と事由）', async () => {
+  const svc = new IssuerService();
   const store = createUserStore();
-  const shimin = personaClaims('island_mdoc', store.get('u_001'));
-  assert.equal(shimin.resident_category, '島民');
-  assert.equal(shimin.quasi_reason, undefined, '島民に準島民事由は載せない');
-  assert.equal(shimin.island_name, '種子島');
-
-  const junto = personaClaims('island_mdoc', store.get('u_004'));
-  assert.equal(junto.resident_category, '準島民');
-  assert.match(junto.quasi_reason, /就学/);
-  assert.equal(junto.card_number, 'KG-2026-000488');
-  assert.equal(junto.expiry_date, '2027-03-31', '学生区分は卒業月末（島民の3年とは異なる）');
-
-  assert.equal(islandEligible(store.get('u_001')), true);
-  assert.equal(islandEligible(store.get('u_002')), false, '対象外の persona には交付しない');
-
-  // 回帰: expiry_date/card_number は他の証明書にもあるので、離島以外へ漏らさないこと
-  for (const cfg of ['juminhyo_mdoc', 'single_sdjwt', 'vaccine_mdoc']) {
-    const other = personaClaims(cfg, store.get('u_004'));
-    assert.equal(other.expiry_date, undefined, `${cfg} に離島の有効期限が漏れている`);
-    assert.equal(other.card_number, undefined, `${cfg} に離島の資格証番号が漏れている`);
-  }
+  const [island] = await svc.issuableApplications('u_004', 'island');
+  assert.ok(island, '田中 美咲は準島民として認定済み');
+  const c = claimsFor(island, store.get('u_004'));
+  assert.equal(c.resident_category, '準島民');
+  assert.match(c.quasi_reason, /就学/);
+  assert.equal(c.expiry_date, '2027-03-31', '学生区分は卒業月末（島民の3年とは異なる）');
+  // 島民には準島民事由を載せない（最も機微な項目なので、区分で明確に分ける）
+  const [shimin] = await svc.issuableApplications('u_001', 'island');
+  assert.equal(claimsFor(shimin, store.get('u_001')).resident_category, '島民');
+  assert.equal(claimsFor(shimin, store.get('u_001')).quasi_reason, undefined);
 });
 
-// /account からの編集（区分の切り替え）。cleanIsland の値域検証と、準島民以外に
-// 変えたら事由を落とすところまで。資格証番号は自治体採番なので編集で消えない。
-test('issuer: 離島割引の区分は /account の編集で切り替わる（事由は準島民のときだけ残る）', () => {
+test('applications: 認定が無い利用者は交付対象にならない', async () => {
+  const svc = new IssuerService();
+  assert.equal((await svc.issuableApplications('u_002', 'island')).length, 0, '佐藤 花子は申請していない');
+  assert.equal((await svc.issuableApplications('u_003', 'island')).length, 0);
+});
+
+test('applications: 「対象外」で認定された申請からは交付しない', async () => {
+  const svc = new IssuerService();
+  const app = await svc.submitApplication({ userId: 'u_002', kind: 'island',
+    form: { applied_category: '島民', island_name: '石垣島', municipality: '沖縄県石垣市' } });
+  const { application } = await svc.decideApplication(app.id, {
+    status: 'approved', decision: { resident_category: '対象外', expiry_date: '2027-03-31' } });
+  assert.equal(application.status, 'approved');
+  assert.equal(canIssueFrom(application), false, '認定＝必ず交付可能、ではない');
+  assert.equal((await svc.issuableApplications('u_002', 'island')).length, 0);
+});
+
+test('applications: 罹災の認定内容が統一様式どおりのクレームになる', async () => {
+  const svc = new IssuerService();
   const store = createUserStore();
-  store.update('u_004', { island: { category: '島民', reason: '就学', island_name: '種子島', municipality: '鹿児島県西之表市', expiry: '2029-03-31' } });
-  const now = personaClaims('island_mdoc', store.get('u_004'));
-  assert.equal(now.resident_category, '島民');
-  assert.equal(now.quasi_reason, undefined, '島民に切り替えたら準島民事由は落ちる');
-  assert.equal(now.card_number, 'KG-2026-000488', '資格証番号は自治体採番なので編集では消えない');
-
-  store.update('u_004', { island: { category: 'でたらめ' } });
-  assert.equal(islandEligible(store.get('u_004')), false, '値域外の区分は対象外に丸める');
-
-  store.update('u_002', { island: { category: '準島民', reason: '介護（要介護の親族の介護で年6回以上来島）' } });
-  const q = personaClaims('island_mdoc', store.get('u_002'));
-  assert.equal(q.resident_category, '準島民');
-  assert.match(q.quasi_reason, /介護/);
+  const [d] = await svc.issuableApplications('u_001', 'disaster');
+  const c = claimsFor(d, store.get('u_001'));
+  // 内閣府統一様式の必須記載事項: 世帯主住所と被災住家の所在地は別項目
+  assert.equal(c.head_of_household_address, '東京都千代田区1-1-1');
+  assert.equal(c.address, '東京都千代田区1-1-1');
+  assert.equal(c.damage_level, '半壊');
+  assert.equal(c.disaster_name, '令和7年台風第10号');
+  // 追加記載事項欄①（世帯構成員）— 本人＋世帯員
+  assert.equal(c.household_members[0].relationship_to_head, '世帯主');
+  assert.ok(c.household_members.some((m) => m.given_name === '莉子'));
 });

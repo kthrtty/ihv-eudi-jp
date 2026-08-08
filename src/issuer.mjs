@@ -96,8 +96,15 @@ const SAMPLE = {
     marital_status: '独身(未婚)', statement: '婚姻の記録なし', certificate_number: 'SG-0001',
     issuing_authority: '千代田区長', issuance_date: '2026-06-01', expiry_date: '2026-12-01',
   },
+  // 統一様式どおり世帯主住所と被災住家の所在地は別項目。世帯構成員は追加記載事項欄①。
   disaster: {
-    family_name: '山田', given_name: '太郎', address: '東京都千代田区1-1-1', disaster_name: '令和7年台風第10号',
+    family_name: '山田', given_name: '太郎',
+    head_of_household_address: '東京都千代田区1-1-1', address: '東京都千代田区1-1-1',
+    household_members: [
+      { family_name: '山田', given_name: '太郎', birth_date: '1990-01-15', relationship_to_head: '世帯主' },
+      { family_name: '山田', given_name: '莉子', birth_date: '2015-06-10', relationship_to_head: '子' },
+    ],
+    disaster_name: '令和7年台風第10号',
     disaster_date: '2025-09-12', damage_level: '半壊', building_type: '木造2階建', certificate_number: 'DS-0001',
     issuing_authority: '千代田区長', issuance_date: '2026-06-01', expiry_date: '2027-06-01',
   },
@@ -257,7 +264,7 @@ export function accountCatalog(persona) {
   const DRV = new Set(['head_of_household_name', 'relationship_to_head', 'household_members', 'head_of_family']);
   // 区分・事由・有効期限・島名・自治体は /account の離島割引セクションで編集できる（=edit）。
   // 資格証番号だけは自治体が採番するもので編集欄が無いため drv 扱いにする。
-  const ISLAND_DRV = new Set(['card_number']);
+  const ISLAND_DRV = new Set(['card_number', 'resident_category', 'quasi_reason', 'damage_level']);
   return Object.entries(schemas).map(([credId, schema]) => {
     const overrides = persona ? personaOverrides(persona, schema.claims.map((c) => c.key)) : {};
     const data = { ...SAMPLE[credId], ...overrides };
@@ -269,8 +276,8 @@ export function accountCatalog(persona) {
     }
     const claims = schema.claims.map((c) => ({
       key: c.key, label: c.display?.ja || c.key, value: data[c.key],
-      // 離島割引の区分まわりは persona.island 由来（/account に編集欄が無い）ので
-      // 'edit' と表示すると「ここで直せる」と誤解させる。'drv'（発行時に決まる）扱い。
+      // 離島の区分・罹災の判定は交付申請の認定で決まる（/account では変えられない）。
+      // 'edit' と表示すると「ここで直せる」と誤解させるので 'drv'（発行時に決まる）扱い。
       src: /^age_over_\d+$/.test(c.key) || DRV.has(c.key) ? 'drv'
         : credId === 'island' && ISLAND_DRV.has(c.key) && c.key in overrides ? 'drv'
         : c.key in overrides ? 'edit' : 'fix',

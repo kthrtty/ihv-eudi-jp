@@ -40,7 +40,8 @@
         "path": [
           "family_name"
         ]
-      }
+      },
+      "note": "世帯主氏名"
     },
     {
       "key": "given_name",
@@ -61,14 +62,36 @@
         "path": [
           "given_name"
         ]
+      },
+      "note": "世帯主氏名"
+    },
+    {
+      "key": "head_of_household_address",
+      "type": "string",
+      "display": {
+        "ja": "世帯主住所",
+        "en": "Head of household address"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": false,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.disaster.1",
+        "element": "head_of_household_address"
+      },
+      "sdjwt": {
+        "path": [
+          "head_of_household_address"
+        ]
       }
     },
     {
       "key": "address",
       "type": "string",
       "display": {
-        "ja": "罹災住所",
-        "en": "Damaged property address"
+        "ja": "被災住家の所在地",
+        "en": "Damaged dwelling address"
       },
       "basic_four": false,
       "selective_disclosure": true,
@@ -81,6 +104,27 @@
       "sdjwt": {
         "path": [
           "address"
+        ]
+      }
+    },
+    {
+      "key": "household_members",
+      "type": "array",
+      "display": {
+        "ja": "世帯構成員（続柄付き）",
+        "en": "Household members"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": true,
+      "sensitive": true,
+      "mdoc": {
+        "namespace": "jp.go.disaster.1",
+        "element": "household_members"
+      },
+      "sdjwt": {
+        "path": [
+          "household_members"
         ]
       }
     },

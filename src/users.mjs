@@ -18,12 +18,10 @@ import portraits from '../assets/portraits.json' with { type: 'json' };
 const SEED = [
   { id: 'u_001', family: '山田', given: '太郎', family_kana: 'ヤマダ', given_kana: 'タロウ',
     birth: '1990-01-15', sex: 1, address: '東京都千代田区1-1-1', honseki: '東京都千代田区千代田1番', desc: '医師（国家資格あり）',
-    household: [{ family: '山田', given: '莉子', birth: '2015-06-10', rel: '子' }],
-    island: { category: '島民', reason: '', island_name: '種子島', municipality: '鹿児島県西之表市',
-      card_number: 'KG-2026-000123', expiry: '2029-03-14' } },
+    household: [{ family: '山田', given: '莉子', birth: '2015-06-10', rel: '子' }] },
   { id: 'u_002', family: '佐藤', given: '花子', family_kana: 'サトウ', given_kana: 'ハナコ',
     birth: '1988-07-03', sex: 2, address: '東京都新宿区西新宿2-8-1', honseki: '東京都新宿区西新宿2番', desc: '公務員',
-    household: [], island: { category: '対象外' } },
+    household: [] },
   { id: 'u_003', family: '鈴木', given: '一郎', family_kana: 'スズキ', given_kana: 'イチロウ',
     birth: '1975-12-20', sex: 1, address: '神奈川県横浜市西区みなとみらい3-3', honseki: '神奈川県横浜市西区1番', desc: '会社員・二児の父',
     // 住民票の続柄表記は平成7年以降「子」に統一（長男/長女は戸籍側の表記）。
@@ -31,16 +29,10 @@ const SEED = [
     household: [
       { family: '鈴木', given: '奈々', birth: '1978-05-02', rel: '妻' },
       { family: '鈴木', given: '桃子', birth: '2010-03-05', rel: '子' },
-    ], island: { category: '対象外' } },
+    ] },
   { id: 'u_004', family: '田中', given: '美咲', family_kana: 'タナカ', given_kana: 'ミサキ',
     birth: '2002-04-10', sex: 2, address: '大阪府大阪市北区梅田1-1', honseki: '大阪府大阪市北区梅田1番', desc: '学生（離島出身・準島民）',
-    household: [],
-    // 離島割引の準島民: 島外在住なので住所では判定できない層。実制度でも「市民が扶養する
-    // 市外在住の学生」「離島出身で島外の学校に通う学生」が区分として存在する（壱岐市・八丈町）。
-    // 学生区分の有効期限は卒業月末（島民の3年とは異なる）。
-    island: { category: '準島民', reason: '就学（離島出身・島外の学校に在学）',
-      island_name: '種子島', municipality: '鹿児島県西之表市',
-      card_number: 'KG-2026-000488', expiry: '2027-03-31' } },
+    household: [], },
 ];
 
 // persona attribute -> the credential claim keys it should fill
@@ -65,25 +57,10 @@ export function cleanHousehold(list) {
     .filter((m) => m.family && m.given);
 }
 
-// 離島割引の対象区分。実制度では自治体が審査して台帳に載せる（住民票やPIDから
-// 導けない—準島民は島外在住なので住所では判定できない）。ここは「その審査結果」を
-// 人ごとに持たせる領域で、/account の離島割引セクションから編集する。
-export const ISLAND_CATEGORIES = ['対象外', '島民', '準島民'];
-const ISLAND_FIELDS = ['category', 'reason', 'island_name', 'municipality', 'expiry'];
-export function cleanIsland(v) {
-  if (!v || typeof v !== 'object') return { category: '対象外' };
-  const out = {};
-  for (const k of ISLAND_FIELDS) if (v[k] != null) out[k] = String(v[k]).trim();
-  if (!ISLAND_CATEGORIES.includes(out.category)) out.category = '対象外';
-  // 事由は準島民にしか意味が無い（島民は住民登録が根拠）ので、区分を変えたら落とす
-  if (out.category !== '準島民') out.reason = '';
-  // card_number は自治体が採番するもので利用者は編集できない（既存値を引き継ぐ）
-  if (v.card_number != null) out.card_number = String(v.card_number).trim();
-  return out;
-}
-/** 離島割引資格証の交付対象か（対象外＝自治体はカードを交付しない）。 */
-export const islandEligible = (persona) =>
-  !!persona && (!persona.island || persona.island.category !== '対象外');
+// 離島割引の対象区分は **交付申請（src/applications.mjs）へ一本化**した（2026-08-08）。
+// 以前はここに persona.island があり /account から直接編集できたが、正本が
+// 「自治体の審査結果」と「利用者が編集できる欄」の2つに割れていた。制度の形
+// （自治体が審査して台帳に載せる）に合わせ、認定済み申請だけを正本とする。
 
 /** Given a persona and the claim keys a credential declares, return overrides. */
 export function personaOverrides(persona, claimKeys) {
@@ -99,18 +76,6 @@ export function personaOverrides(persona, claimKeys) {
   // and household_members = 本人（世帯主）+ 登録済み世帯員（続柄付き）
   if (keys.has('head_of_household_name')) out.head_of_household_name = selfName;
   if (keys.has('relationship_to_head')) out.relationship_to_head = '世帯主';
-  // 離島割引資格証: persona.island を持つ人だけ区分を差し替える（無ければ SAMPLE=島民）。
-  // resident_category はこの資格証にしか無いので、それをこのブロック全体のゲートにする
-  // （expiry_date/card_number は他の証明書にもあるため、素の keys.has では効かせられない）。
-  if (keys.has('resident_category') && persona.island) {
-    const is = persona.island;
-    if (is.category) out.resident_category = is.category;
-    if (keys.has('quasi_reason') && is.reason) out.quasi_reason = is.reason;
-    if (keys.has('card_number') && is.card_number) out.card_number = is.card_number;
-    if (keys.has('expiry_date') && is.expiry) out.expiry_date = is.expiry;
-    if (keys.has('island_name') && is.island_name) out.island_name = is.island_name;
-    if (keys.has('issuing_municipality') && is.municipality) out.issuing_municipality = is.municipality;
-  }
   if (keys.has('household_members')) {
     out.household_members = [
       { family_name: persona.family, given_name: persona.given, birth_date: persona.birth, relationship_to_head: '世帯主' },
@@ -123,7 +88,7 @@ export function personaOverrides(persona, claimKeys) {
 }
 
 export function createUserStore() {
-  const users = new Map(SEED.map((u) => [u.id, { ...u, household: (u.household || []).map((m) => ({ ...m })), island: u.island ? { ...u.island } : undefined }]));
+  const users = new Map(SEED.map((u) => [u.id, { ...u, household: (u.household || []).map((m) => ({ ...m })) }]));
   return {
     list: () => [...users.values()].map(({ id, family, given }) => ({ id, initial: family[0], name: `${family} ${given}` })),
     // portrait はアップロード値があればそれ、なければバンドル既定イラスト。
@@ -142,8 +107,6 @@ export function createUserStore() {
         if (k in patch) u[k] = patch[k];
       }
       if ('household' in patch) u.household = cleanHousehold(patch.household);
-      // 離島割引の区分は card_number（自治体採番）だけ既存値を残して差し替える
-      if ('island' in patch) u.island = cleanIsland({ card_number: u.island?.card_number, ...patch.island });
       // portrait: 非空文字列=カスタム写真を保存 / 空文字列=既定イラストへ戻す
       if ('portrait' in patch) {
         const v = typeof patch.portrait === 'string' ? patch.portrait.trim() : '';
@@ -155,9 +118,9 @@ export function createUserStore() {
     // Workers each isolate gets a fresh SEED copy, so edits MUST round-trip
     // through KV (oid4vci _loadUsers/_saveUsers) or issued VCs revert to the
     // original persona after an isolate switch.
-    dump: () => [...users.values()].map((u) => ({ ...u, household: (u.household || []).map((m) => ({ ...m })), island: u.island ? { ...u.island } : undefined })),
+    dump: () => [...users.values()].map((u) => ({ ...u, household: (u.household || []).map((m) => ({ ...m })) })),
     restore: (list) => {
-      for (const u of list || []) if (u && u.id && users.has(u.id)) users.set(u.id, { ...u, household: (u.household || []).map((m) => ({ ...m })), island: u.island ? { ...u.island } : undefined });
+      for (const u of list || []) if (u && u.id && users.has(u.id)) users.set(u.id, { ...u, household: (u.household || []).map((m) => ({ ...m })) });
     },
   };
 }
