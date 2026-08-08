@@ -64,6 +64,12 @@ const CSS = `
   .top.wallet .role{color:#2E7D6B;background:#E8F2EF;border:1px solid #D2E5DF}
   /* issuer (appShell) header brand truncation */
   .ah-brand{min-width:0}.ah-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* ヘッダーのタイトルは各サイトのルートへ戻る導線。動線が深くなっても必ず戻れるように、
+     見た目は変えず（下線・色を付けず）hover でだけ反応させる */
+  .brandlink{text-decoration:none;color:inherit;display:block;border-radius:8px;padding:2px 6px;margin-left:-6px}
+  header.top .brandlink{display:flex;flex-direction:column;justify-content:center}
+  .brandlink:hover{background:rgba(14,26,43,.055)}
+  .brandlink:focus-visible{outline:2px solid var(--civic);outline-offset:1px}
   /* 案A: on narrow screens, collapse to avatar-only + hide brand sub-labels */
   @media(max-width:560px){
     .top small{display:none}
@@ -243,7 +249,7 @@ export const shell = (title, body, { brand = 'デジタル資格証発行ポー�
   const roleBadge = `<span class="role">${role === 'verifier' ? 'Verifier' : role === 'wallet' ? 'Wallet' : 'Issuer'}</span>`;
   const right = dev ? `<span class="dev-hdr-right">${devToggleHtml()}${roleBadge}</span>` : roleBadge;
   return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${roleHead(role, title)}${FONTS}<style>${CSS}</style></head>
-<body class="role-${role}">${SENTINEL}<div class="topwrap"><header class="top ${role}"><span class="tag"></span><div><b>${esc(brand)}</b><small>${esc(sub)}</small></div>${right}</header>${DEMO_BAND}</div><div class="${cls}">${body}</div>${dev ? devWidgetHtml() : ''}${STICKY_JS}</body></html>`;
+<body class="role-${role}">${SENTINEL}<div class="topwrap"><header class="top ${role}"><span class="tag"></span><a class="brandlink" href="/"><b>${esc(brand)}</b><small>${esc(sub)}</small></a>${right}</header>${DEMO_BAND}</div><div class="${cls}">${body}</div>${dev ? devWidgetHtml() : ''}${STICKY_JS}</body></html>`;
 };
 
 /** Wallet-start page: build the authorization request URL (+QR) the wallet opens. */
@@ -405,8 +411,8 @@ function appHeaderHtml(user, dev = false) {
   if (!user) return `
     <header class="ahdr" style="background:#EAF0FA;border-bottom:1px solid #D4DEF5;padding:0 24px;display:flex;align-items:center;gap:12px">
       <span style="width:4px;height:28px;border-radius:2px;background:#1C3F94;flex-shrink:0;display:block"></span>
-      <div class="ah-brand"><div class="ah-title" style="font-size:16px;font-weight:700;color:#0E1A2B;line-height:1.2">IHV 発行ポータル</div>
-        <div class="ah-sub" style="font-size:10px;letter-spacing:.14em;color:#5B6B82">CREDENTIAL ISSUER</div></div>
+      <a class="ah-brand brandlink" href="/"><div class="ah-title" style="font-size:16px;font-weight:700;color:#0E1A2B;line-height:1.2">IHV 発行ポータル</div>
+        <div class="ah-sub" style="font-size:10px;letter-spacing:.14em;color:#5B6B82">CREDENTIAL ISSUER</div></a>
       ${dev ? `<div style="margin-left:auto">${devBtn}</div>` : ''}
     </header>`;
   const initial = esc(user.family[0]);
@@ -418,8 +424,8 @@ function appHeaderHtml(user, dev = false) {
   return `
     <header class="ahdr" style="background:#EAF0FA;border-bottom:1px solid #D4DEF5;padding:0 24px;display:flex;align-items:center;gap:12px">
       <span style="width:4px;height:28px;border-radius:2px;background:#1C3F94;flex-shrink:0;display:block"></span>
-      <div class="ah-brand"><div class="ah-title" style="font-size:16px;font-weight:700;color:#0E1A2B;line-height:1.2">IHV 発行ポータル</div>
-        <div class="ah-sub" style="font-size:10px;letter-spacing:.14em;color:#5B6B82">CREDENTIAL ISSUER</div></div>
+      <a class="ah-brand brandlink" href="/"><div class="ah-title" style="font-size:16px;font-weight:700;color:#0E1A2B;line-height:1.2">IHV 発行ポータル</div>
+        <div class="ah-sub" style="font-size:10px;letter-spacing:.14em;color:#5B6B82">CREDENTIAL ISSUER</div></a>
       <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
         ${devBtn}
         <details style="position:relative">
@@ -461,8 +467,8 @@ export function appShell(title, body, user = null, { width = 'narrow', dev = tru
 // 発行ポータルとは別オリジンで動く自治体職員向けの内部システム。意匠は共有しつつ
 // 色（墨紺）とヘッダーで「住民向けの画面ではない」ことを明示する。
 function adminHeaderHtml(staff) {
-  const brand = `<div class="ah-brand"><div class="ah-title" style="font-size:16px;font-weight:700;color:#0E1A2B;line-height:1.2">交付申請 審査システム</div>
-    <div class="ah-sub" style="font-size:10px;letter-spacing:.14em;color:#5B6B82">MUNICIPAL BACK OFFICE</div></div>`;
+  const brand = `<a class="ah-brand brandlink" href="/"><div class="ah-title" style="font-size:16px;font-weight:700;color:#0E1A2B;line-height:1.2">交付申請 審査システム</div>
+    <div class="ah-sub" style="font-size:10px;letter-spacing:.14em;color:#5B6B82">MUNICIPAL BACK OFFICE</div></a>`;
   const bar = 'background:var(--role-soft);border-bottom:1px solid var(--role-line);padding:0 24px;display:flex;align-items:center;gap:12px';
   const rule = '<span style="width:4px;height:28px;border-radius:2px;background:var(--civic);flex-shrink:0;display:block"></span>';
   if (!staff) return `<header class="ahdr" style="${bar}">${rule}${brand}</header>`;

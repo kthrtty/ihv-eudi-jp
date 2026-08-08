@@ -12,6 +12,7 @@ import { createAdminApp } from '../src/admin-app.mjs';
 import { createWallet } from '../src/wallet.mjs';
 import { memoryStore } from '../src/oid4vci.mjs';
 import { listStaff } from '../src/staff.mjs';
+import { shell, appShell, adminShell } from '../src/authcode-demo.mjs';
 
 const IPORT = 8983, APORT = 8984;
 const ISSUER = `http://127.0.0.1:${IPORT}`;
@@ -223,6 +224,22 @@ test('admin: 添付はサムネイル付きで受理され、控えと審査画�
   assert.ok(rev.includes('PDF はインライン描画しません'), 'PDF の扱いを審査担当に明示する');
   // PDF のバイト列を JPEG と偽ったサムネイルは落ちている＝data URI は1つだけ
   assert.equal(rev.split('<img src="data:image/jpeg;base64,').length - 1, 1, '偽サムネイルは保存されない');
+});
+
+// 申請の動線が「カタログ → 手続き → 申請先 → フォーム」と深くなったので、
+// どの画面からでもヘッダーのタイトルで各サイトのルートへ戻れることを固定する。
+test('shell: ヘッダーのタイトルはそのサイトのルートへのリンク', () => {
+  // クラスの並び順は画面ごとに違う（ah-brand と併用する面がある）ので構造で見る
+  const link = /<a[^>]*class="[^"]*brandlink[^"]*"[^>]*href="\/"/;
+  const staff = { id: 's_001', name: '大津 陽介', title: '主事', office: '千代田区役所 総務課', municipality: '東京都 千代田区' };
+  const user = { id: 'u_001', family: '山田', given: '太郎', desc: '' };
+  assert.match(appShell('x', '', user), link, '発行ポータル（ログイン済み）');
+  assert.match(appShell('x', '', null), link, '発行ポータル（未ログイン）');
+  assert.match(adminShell('x', '', staff), link, '自治体窓口（サインイン済み）');
+  assert.match(adminShell('x', '', null), link, '自治体窓口（サインイン画面）');
+  for (const role of ['issuer', 'verifier', 'wallet']) {
+    assert.match(shell('x', '', { role }), link, `shell(${role})`);
+  }
 });
 
 test('admin: 職員セッション Cookie への別オリジン POST は CSRF ガードで止まる', async () => {
