@@ -258,7 +258,8 @@ test('apply: 添付は必須にせず、デモ都合であることを画面に�
   assert.ok(!form.includes('被害状況の写真・書類<b class="req">必須</b>'), '必須バッジを出さない');
   assert.ok(form.includes('本デモでは任意'), '任意であることをラベルに出す');
   assert.ok(form.includes('本デモでは添付なしでも申請できます'), 'デモ都合であることを明記する');
-  assert.ok(form.includes('1ファイル 2MB'), '上限を画面に出す');
+  assert.ok(form.includes('写真は 8MB まで選べます'), '選べる上限を画面に出す');
+  assert.ok(form.includes('長辺 1600px へ縮小して保存'), '原寸で保管しないことを明示する');
 
   // 実際に添付ゼロで申請できる
   const r = await fetch(`${ISSUER}/apply/disaster/43100`, {
@@ -278,6 +279,35 @@ test('apply: 上限を超える添付は理由つきで断る', async () => {
     method: 'POST', redirect: 'manual', headers: { cookie: `sid=${sid}` }, body: fd });
   assert.equal(r.status, 303);
   assert.match(decodeURIComponent(r.headers.get('location')), /上限 2MB/, 'いくつを超えたか伝える');
+});
+
+// デモに写真を残し続けない。7日 TTL に加え、審査が終わった時点でも原本を消す。
+// 台帳のサムネイルは残るので、控えの見た目は保たれる。
+test('apply: 審査が終わると添付の原本は削除される（サムネイルは残る）', async () => {
+  const sid = await login('u_002');
+  const jpeg = new Uint8Array(64); jpeg.set([0xff, 0xd8, 0xff, 0xe0]);
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(DISASTER_FORM)) fd.set(k, v);
+  fd.append('attachments', new Blob([jpeg], { type: 'image/jpeg' }), 'genkan.jpg');
+  fd.set('thumbs', JSON.stringify(['data:image/jpeg;base64,' + Buffer.from(jpeg).toString('base64')]));
+  const r = await fetch(`${ISSUER}/apply/disaster/43100`, {
+    method: 'POST', redirect: 'manual', headers: { cookie: `sid=${sid}` }, body: fd });
+  const appId = r.headers.get('location').split('/')[2].split('?')[0];
+  assert.equal((await fetch(`${ISSUER}/applications/${appId}/att/0`, { headers: { cookie: `sid=${sid}` } })).status, 200,
+    '審査前は原本を開ける');
+
+  const staff = await staffLogin('s_003');
+  await fetch(`${ADMIN}/a/${appId}/decision`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-staff-session': staff },
+    body: JSON.stringify({ status: 'approved', decision: { damage_level: '半壊' } }) });
+
+  assert.equal((await fetch(`${ISSUER}/applications/${appId}/att/0`, { headers: { cookie: `sid=${sid}` } })).status, 404,
+    '認定後は原本が消えている');
+  const mine = await (await fetch(`${ISSUER}/applications/${appId}`, { headers: { cookie: `sid=${sid}` } })).text();
+  assert.ok(mine.includes('添付（1件）'), '添付があったこと自体は残す');
+  assert.ok(mine.includes('<img src="data:image/jpeg;base64,'), 'サムネイルは残るので何を出したか分かる');
+  assert.ok(mine.includes('審査終了により原本は削除済み'), '消えた理由を出す');
+  assert.ok(!mine.includes(`href="/applications/${appId}/att/0"`), '開けないものをリンクにしない');
 });
 
 test('shell: ヘッダーのタイトルはそのサイトのルートへのリンク', () => {
