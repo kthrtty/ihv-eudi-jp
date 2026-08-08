@@ -66,6 +66,9 @@ const CSS = `
   .ah-brand{min-width:0}.ah-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   /* ヘッダーのタイトルは各サイトのルートへ戻る導線。動線が深くなっても必ず戻れるように、
      見た目は変えず（下線・色を付けず）hover でだけ反応させる */
+  /* ボタン内の文字色をブラウザ既定に任せない。UA によっては白系になり、白い面に
+     白文字で消える。色を明示しているクラス（.abtn 等）はそちらが勝つので影響しない */
+  button{color:var(--ink)}
   .brandlink{text-decoration:none;color:inherit;display:block;border-radius:8px;padding:2px 6px;margin-left:-6px}
   header.top .brandlink{display:flex;flex-direction:column;justify-content:center}
   .brandlink:hover{background:rgba(14,26,43,.055)}
@@ -522,7 +525,9 @@ export function renderStaffLogin(staff, { next = '/' } = {}) {
     <button type="submit" style="width:230px;text-align:left;cursor:pointer;background:#fff;border:1px solid var(--role-line);border-radius:14px;padding:16px 18px;font:inherit;display:flex;gap:12px;align-items:center">
       <span style="width:40px;height:40px;border-radius:10px;background:var(--civic);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0">庁</span>
       <span style="min-width:0">
-        <b style="display:block;font-size:14.5px">${esc(s.name)}</b>
+        ${/* 色は必ず明示する。ブラウザ既定のボタン文字色に任せると、環境によっては
+             白カードに白文字で消える（発行ポータルの .login-nm は明示していたので出ていた） */''}
+        <b style="display:block;font-size:14.5px;color:#0E1A2B">${esc(s.name)}</b>
         <small style="display:block;font-size:11px;color:#5B6B82">${esc(s.title)}　${esc(s.municipality)}</small>
       </span>
     </button></form>`;

@@ -12,7 +12,7 @@ import { createAdminApp } from '../src/admin-app.mjs';
 import { createWallet } from '../src/wallet.mjs';
 import { memoryStore } from '../src/oid4vci.mjs';
 import { listStaff } from '../src/staff.mjs';
-import { shell, appShell, adminShell } from '../src/authcode-demo.mjs';
+import { shell, appShell, adminShell, renderStaffLogin } from '../src/authcode-demo.mjs';
 
 const IPORT = 8983, APORT = 8984;
 const ISSUER = `http://127.0.0.1:${IPORT}`;
@@ -240,6 +240,17 @@ test('shell: ヘッダーのタイトルはそのサイトのルートへのリ�
   for (const role of ['issuer', 'verifier', 'wallet']) {
     assert.match(shell('x', '', { role }), link, `shell(${role})`);
   }
+});
+
+// 実機（iPhone）で職員名だけが消える報告。名前以外は全て色を明示していたので、
+// ブラウザ既定のボタン文字色に依存していた1箇所が原因。既定色に頼らないことを固定する。
+test('shell: サインインカードの氏名は色を明示する（UA 既定のボタン文字色に頼らない）', () => {
+  const html = renderStaffLogin(listStaff());
+  for (const s of listStaff()) {
+    const re = new RegExp('<b[^>]*color:#[0-9A-Fa-f]{6}[^>]*>' + s.name + '</b>');
+    assert.match(html, re, `${s.name} の氏名に色指定がある`);
+  }
+  assert.ok(html.includes('button{color:var(--ink)}'), 'ボタン既定色のフォールバックも入れる');
 });
 
 test('admin: 職員セッション Cookie への別オリジン POST は CSRF ガードで止まる', async () => {
