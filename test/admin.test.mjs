@@ -437,13 +437,17 @@ test('apply: 住基にあるものは入力させず、無いもの・決まら�
   const sid = await login('u_003');   // 鈴木一郎（世帯員2名）
   const form = await (await fetch(`${ISSUER}/apply/disaster/43100?d=r8-kumamoto`, { headers: { cookie: `sid=${sid}` } })).text();
 
-  assert.ok(form.includes('市が保有している情報'), '保有ブロックがある');
+  // ブロック名を保有主体で呼ばない。住基を持つのは住民票のある自治体で申請先とは限らず
+  // （下宿・単身赴任）、申請先も市とは限らない（町・村・特別区）
+  assert.ok(form.includes('住民票に記載されている情報'), '「何の情報か」で呼ぶ');
+  assert.ok(!/市が保有|市の保有情報/.test(form), '保有主体を決めつけない');
+  assert.ok(form.includes('（熊本市が必要に応じて照会します）'), '照会する主体は申請先の実名で書く');
   assert.ok(form.includes('あなたにしか分からないこと'), '申告ブロックがある');
   // 住基にあるもの＝読み取り専用（入力欄にしない）
   assert.ok(form.includes('<span>氏名</span><div>鈴木 一郎</div>'));
   assert.ok(!form.includes('name="family_name"'), '氏名を入力させない');
   // **電話番号は住基に無い**ので申告させる
-  assert.ok(form.includes('電話番号は住民基本台帳に含まれません'), '聞く理由を書く');
+  assert.ok(form.includes('電話番号は住民票に記載されません'), '聞く理由を書く');
   assert.ok(form.includes('name="contact_tel"'), '電話番号は入力項目');
   // 被災住家は住民票と一致しないことがある
   assert.ok(form.includes('name="same_address"'), '「世帯主住所と同じ」チェック');
