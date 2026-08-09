@@ -166,29 +166,46 @@ a.upi:hover{border-color:var(--civic);box-shadow:0 2px 10px rgba(14,26,43,.12)}
   .a-act{grid-column:1/-1;grid-row:4;text-align:right;margin-top:9px;padding-top:9px;border-top:1px solid #eef1f6}
 }`;
 
-export const field = (x, val = '') => {
+/** 条件付き表示の目印。**別の項目の値に依存する項目**（島民には無関係な「準島民の事由」など）に付ける。
+ *  出し分けは JS だが、**サーバ側でも normalize/validate で担保する**（JS 無効でも壊れない）。 */
+const when = (x) => (x.showWhen
+  ? ` data-when-key="${esc(x.showWhen.key)}" data-when-value="${esc(x.showWhen.value)}"` : '');
+
+export const field = (x, val = '', muni = null) => {
   const req = x.required ? '<b class="req">必須</b>' : '';
+  // **申請先の自治体から決まる項目**（対象離島）。1つなら選ばせず読み取り専用にする
+  if (x.fromMunicipality && muni) {
+    const opts = muni[x.fromMunicipality] || [];
+    if (opts.length === 1) {
+      return `<div class="fld"><label>${esc(x.label)}</label><div class="ro">${esc(opts[0])}</div>
+        <input type="hidden" name="${esc(x.key)}" value="${esc(opts[0])}">
+        <span class="fhint">${esc(muni.name)}の対象離島です（選択の必要はありません）</span></div>`;
+    }
+    return `<div class="fld"><label>${esc(x.label)} ${req}</label>
+      <select name="${esc(x.key)}">${opts.map((o) => `<option${val === o ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select>
+      <span class="fhint">${esc(muni.name)}が対象とする離島から選びます</span></div>`;
+  }
   const hint = x.hint ? `<span class="fhint">${esc(x.hint)}</span>` : '';
   if (x.type === 'radio') {
-    return `<div class="fld"><label>${esc(x.label)} ${req}</label><div class="rg">
+    return `<div class="fld"${when(x)}><label>${esc(x.label)} ${req}</label><div class="rg">
       ${(x.options || []).map(([v, d]) => `<label><input type="radio" name="${esc(x.key)}" value="${esc(v)}"${val === v ? ' checked' : ''}>
         <b>${esc(v)}</b>${d ? `<small>${esc(d)}</small>` : ''}</label>`).join('')}
     </div>${hint}</div>`;
   }
   if (x.type === 'select') {
-    return `<div class="fld"><label>${esc(x.label)} ${req}</label>
-      <select name="${esc(x.key)}">${(x.options || []).map((o) => `<option${val === o ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select>${hint}</div>`;
+    return `<div class="fld"${when(x)}><label>${esc(x.label)} ${req}</label>
+      <select name="${esc(x.key)}">${x.empty ? `<option value=""${val ? '' : ' selected'}>${esc(x.empty)}</option>` : ''}${(x.options || []).map((o) => `<option${val === o ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select>${hint}</div>`;
   }
   if (x.type === 'textarea') {
-    return `<div class="fld"><label>${esc(x.label)} ${req}</label>
+    return `<div class="fld"${when(x)}><label>${esc(x.label)} ${req}</label>
       <textarea name="${esc(x.key)}" rows="3" placeholder="${esc(x.placeholder || '')}">${esc(val)}</textarea>${hint}</div>`;
   }
   if (x.type === 'check') {
-    return `<div class="fld"><label>${esc(x.label)}</label>
+    return `<div class="fld"${when(x)}><label>${esc(x.label)}</label>
       <label style="font-size:12px;font-weight:500;color:#3d4d63">
         <input type="checkbox" name="${esc(x.key)}"${x.default ? ' checked' : ''}> 記載する</label>${hint}</div>`;
   }
-  return `<div class="fld"><label>${esc(x.label)} ${req}</label>
+  return `<div class="fld"${when(x)}><label>${esc(x.label)} ${req}</label>
     <input type="${x.type === 'date' ? 'date' : 'text'}" name="${esc(x.key)}" value="${esc(val)}" placeholder="${esc(x.placeholder || '')}">${hint}</div>`;
 };
 
@@ -344,7 +361,7 @@ export function renderApplyForm(user, t, muni, { error = '', prefill = {}, disas
         <div class="fld"><label>${t.id === 'disaster' ? '世帯主住所' : '住所'}</label><div class="ro">${esc(user.address)}</div></div>
 
         <div class="sec">申請内容</div>
-        ${t.form.map((x) => field(x, prefill[x.key] ?? '')).join('')}
+        ${t.form.map((x) => field(x, prefill[x.key] ?? '', muni)).join('')}
 
         <div class="sec">${esc(t.attachmentLabel)}${t.attachmentRequired ? '<span class="tagro">本デモでは任意</span>' : ''}</div>
         ${t.attachmentRequired ? `<span class="fhint">実際の手続きでは${esc(t.attachmentLabel)}の提出が必要ですが、
@@ -360,10 +377,30 @@ export function renderApplyForm(user, t, muni, { error = '', prefill = {}, disas
              マジックバイトと上限を再検証する）。JS 無効なら空のまま＝添付は成立する */''}
         <input type="hidden" name="thumbs" id="upthumbs" value="">
         <span class="fhint">カメラで撮影／ファイルから選択。<b>複数選べます</b>（＋を押すたびに追加）。
-          JPEG・PNG・PDF ／ 写真は ${Math.floor(MAX_PICK_BYTES / 1024 / 1024)}MB まで選べます・PDF は ${Math.floor(MAX_FILE_BYTES / 1024 / 1024)}MB まで・最大 ${MAX_FILES} 件。
-          <b>写真は送信前に長辺 ${STORE_EDGE}px へ縮小して保存します</b>（保存量を抑えるため。原寸のままでは保管しません）</span>
+          JPEG・PNG・PDF ／ 写真は ${Math.floor(MAX_PICK_BYTES / 1024 / 1024)}MB・PDF は ${Math.floor(MAX_FILE_BYTES / 1024 / 1024)}MB まで・最大 ${MAX_FILES} 件。
+          <b>写真は縮小保存します</b></span>
         ${t.attachmentHint ? `<span class="fhint">${esc(t.attachmentHint)}</span>` : ''}
         <script>
+        // 条件付き項目の出し分け。無関係な項目を触れる状態にしない（島民に「準島民の事由」など）。
+        // 隠すだけでなく disabled にして送信もさせない。サーバ側でも落とすので二重の網。
+        (function () {
+          var flds = document.querySelectorAll('.fld[data-when-key]');
+          if (!flds.length) return;
+          function sync() {
+            for (var i = 0; i < flds.length; i++) {
+              var f = flds[i], k = f.getAttribute('data-when-key'), v = f.getAttribute('data-when-value');
+              var src = document.querySelector('[name="' + k + '"]:checked') || document.querySelector('[name="' + k + '"]');
+              var on = !!src && src.value === v;
+              f.style.display = on ? '' : 'none';
+              var ins = f.querySelectorAll('input,select,textarea');
+              for (var j = 0; j < ins.length; j++) ins[j].disabled = !on;
+            }
+          }
+          document.addEventListener('change', function (e) {
+            if (e.target && e.target.name) sync();
+          });
+          sync();
+        })();
         (function () {
           var inp = document.getElementById('upfile'), grid = document.getElementById('upgrid'),
               tile = document.getElementById('uptile'), hid = document.getElementById('upthumbs');

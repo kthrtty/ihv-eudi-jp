@@ -172,10 +172,16 @@ const island = {
   form: [
     f('applied_category', '申請する区分', 'radio', { required: true,
       options: [['島民', '対象離島に住民登録がある'], ['準島民', '島外に住むが、介護・就学などで反復して往来する']] }),
-    f('reason', '準島民の事由', 'select', { options: ISLAND_REASONS,
-      hint: '区分が「準島民」のときのみ資格証に記載されます' }),
+    // **島民には無関係な項目**なので、準島民を選んだときだけ出す（showWhen）。
+    // 表示の出し分けは JS なので、サーバ側でも normalize で落とす（申請レコードに残さない）。
+    f('reason', '準島民の事由', 'select', { options: ISLAND_REASONS, empty: '選択してください',
+      showWhen: { key: 'applied_category', value: '準島民' },
+      hint: '介護・就学などで島へ反復して往来する事由。資格証に記載されます' }),
     // 交付自治体は**申請先（target_code）で決まる**のでここでは聞かない
-    f('island_name', '対象離島', 'text', { required: true, placeholder: '例: 種子島' }),
+    // **自由入力にしない**。申請先の自治体が決まれば対象離島は一意（多くは1島）か短い
+    // 選択肢に定まる。自由入力にすると台帳に表記揺れと誤記が残る（災害名で経験済み）。
+    f('island_name', '対象離島', 'select', { required: true, fromMunicipality: 'islands',
+      hint: '申請先の自治体が対象とする離島' }),
   ],
   decision: [
     f('resident_category', '対象区分（認定）', 'radio', { required: true,
@@ -183,6 +189,21 @@ const island = {
     f('expiry_date', '有効期限', 'date', { required: true,
       hint: '実制度: 島民＝交付から3年 / 準島民＝1年・就学は卒業月末' }),
   ],
+  // 島民として申請したのに準島民の事由が残らないようにする（画面の出し分けに頼らない）
+  normalize: (form, muni) => ({
+    ...form,
+    reason: form.applied_category === '準島民' ? form.reason : '',
+    // 1島しかない自治体は選ばせない（画面でも読み取り専用）
+    island_name: muni?.islands?.length === 1 ? muni.islands[0] : form.island_name,
+  }),
+  validate: (form, muni) => {
+    if (form.applied_category === '準島民' && !String(form.reason || '').trim()) return '準島民の事由を選んでください';
+    // 申請先の自治体が対象としない島は受けない（画面の選択肢に頼らない）
+    if (muni && !muni.islands.includes(form.island_name)) {
+      return `${muni.name}が対象とする離島は ${muni.islands.join('・')} です`;
+    }
+    return null;
+  },
   label: (app) => [targetName(app), app.form?.island_name].filter(Boolean).join('・') || '離島割引',
   sub: (app) => app.decision?.resident_category ?? '',
   toClaims: (app, persona) => {
