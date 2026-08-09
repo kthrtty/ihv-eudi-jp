@@ -34,6 +34,10 @@ export function routesFor(app) {
 
 /** 罹災の対象災害。旧レコード（自由入力時代）は災害名・罹災日をフォームに持つ。 */
 export const disasterOf = (app) => getDisaster(app?.disaster_id);
+/** 交付年月日＝**認定した日**。紙は「上記のとおり、相違ないことを証明します。〇年〇月〇日」
+ *  の一行で、これが無いと SAMPLE の固定日が出てしまう（いつ交付されたかが嘘になる）。 */
+export const decidedOn = (app) => (app?.decided_at || '').slice(0, 10) || undefined;
+
 export const disasterName = (app) => disasterOf(app)?.name ?? app?.form?.disaster_name ?? '';
 export const disasterDate = (app) => disasterOf(app)?.occurred ?? app?.form?.disaster_date ?? '';
 
@@ -228,8 +232,12 @@ const disaster = {
       disaster_name: disasterName(app), disaster_date: disasterDate(app),
       damage_level: d.damage_level,
       building_type: w.building_type || undefined,
+      additional_note: d.extra_note || undefined,      // 追加記載事項欄②③（自治体の任意欄）
       certificate_number: app.certificateNumber,
       issuing_authority: app.authority,
+      // 紙の「上記のとおり、相違ないことを証明します。〇年〇月〇日」＝**認定した日**。
+      // 入れないと SAMPLE の固定日（2026-06-01）が出て、いつ交付されたか嘘になる
+      issuance_date: decidedOn(app),
     };
     if (d.include_household !== false) {
       // 申告された「被災住家の世帯構成員」を使う。旧レコードは住基の世帯へフォールバック
@@ -318,6 +326,7 @@ const island = {
       quasi_reason: quasi ? (w.reason || undefined) : undefined,
       island_name: w.island_name,
       issuing_municipality: targetName(app),   // 正式名称（旧レコードは申請時の自由文）
+      issuance_date: decidedOn(app),
       // 対象路線の実データは持てないので島名から組む。種子島だけはシナリオ
       // （さつま空輸 鹿児島=種子島）が値を突合するので実路線名を使う
       eligible_routes: app.form?.routes || routesFor(app),

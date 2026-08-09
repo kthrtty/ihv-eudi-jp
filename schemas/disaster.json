@@ -214,6 +214,27 @@
       }
     },
     {
+      "key": "additional_note",
+      "type": "string",
+      "display": {
+        "ja": "追加記載事項",
+        "en": "Additional note"
+      },
+      "basic_four": false,
+      "selective_disclosure": true,
+      "optional": true,
+      "sensitive": false,
+      "mdoc": {
+        "namespace": "jp.go.disaster.1",
+        "element": "additional_note"
+      },
+      "sdjwt": {
+        "path": [
+          "additional_note"
+        ]
+      }
+    },
+    {
       "key": "certificate_number",
       "type": "string",
       "display": {

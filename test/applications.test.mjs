@@ -344,3 +344,29 @@ test('applications: 被害の原因は災害マスタから初期値が入り、
   assert.ok(body.includes('name="consent_info"') && !body.includes('name="consent_info" checked'));
   assert.ok(body.includes('本手続の処理に限り'), '同意の本文を全文出す（チップに畳まない）');
 });
+
+// 紙の罹災証明書（内閣府統一様式・府政防第737号）の必須記載事項が VC に全部あること。
+// 必須は 整理番号／世帯主住所／世帯主氏名／罹災原因／被災住家の所在地／住家の被害の程度 の6つ。
+// **交付年月日は認定した日**でなければならない（SAMPLE の固定日が出ると嘘になる）。
+test('applications: 罹災 VC は紙の統一様式の必須記載事項をすべて含む', async () => {
+  const svc = new IssuerService();
+  const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', ...DISASTER,
+    form: { ...DISASTER_FORM, damaged_address: '熊本県熊本市中央区大江3-1-5' } });
+  const { application } = await svc.decideApplication(app.id, { status: 'approved',
+    decision: { damage_level: '半壊', extra_note: '床上浸水・土地の一部流出' }, authority: '熊本市長' });
+  const c = claimsFor(application, { family: '佐藤', given: '花子', address: '東京都千代田区1-1-1' });
+
+  assert.ok(c.certificate_number, '整理番号');
+  assert.equal(c.head_of_household_address, '東京都千代田区1-1-1', '世帯主住所');
+  assert.equal(`${c.family_name} ${c.given_name}`, '佐藤 花子', '世帯主氏名');
+  assert.ok(c.disaster_name && c.disaster_date, '罹災原因（〇年〇月〇日の〇〇による）');
+  assert.equal(c.address, '熊本県熊本市中央区大江3-1-5', '被災住家の所在地（世帯主住所とは別項目）');
+  assert.equal(c.damage_level, '半壊', '住家の被害の程度');
+  assert.equal(c.issuing_authority, '熊本市長', '交付者（〇〇市町村長）');
+  // 追加記載事項欄①＝世帯構成員、②③＝自治体の任意欄（浸水区分・住家以外の被害など）
+  assert.ok(Array.isArray(c.household_members), '追加記載事項欄①');
+  assert.equal(c.additional_note, '床上浸水・土地の一部流出', '追加記載事項欄②③を捨てない');
+  // 交付年月日＝認定日。SAMPLE の固定日（2026-06-01）に落ちてはならない
+  assert.equal(c.issuance_date, application.decided_at.slice(0, 10));
+  assert.notEqual(c.issuance_date, '2026-06-01');
+});
