@@ -17,7 +17,7 @@ import { securityHeaders, csrfGuard } from './security.mjs';
 import { createWallet } from './wallet.mjs';
 import { allConfigIds, configInfo, jwks as issuerJwks, accountCatalog } from './issuer.mjs';
 import { getApplicationType, labelOf, subOf, parseHousehold, parseChecks, parseConsents } from './applications.mjs';
-import { validateAttachment, displayName, safeStoredName, validateThumb, ATT_MIME, MAX_FILES, MAX_TOTAL_BYTES, attIdx } from './upload.mjs';
+import { validateAttachment, displayName, safeStoredName, validateThumb, ATT_MIME, MAX_FILES, MAX_TOTAL_BYTES, attIdx, reencodeImage } from './upload.mjs';
 import { renderApplyForm, renderMunicipalityPicker, renderDisasterPicker, renderMyApplications, renderMyApplication } from './apply-demo.mjs';
 import { getMunicipality, suggestFromAddress } from './municipalities.mjs';
 import { getDisaster, coversMunicipality } from './disasters.mjs';
@@ -31,7 +31,8 @@ async function loadHtml(rel) {
 }
 
 export function createApp(opts = {}) {
-  const { issuerHtml = null, verifierPki = null, statusPki = null, walletOrigin: issuerWalletOrigin = '', ...svcOpts } = opts;
+  const { issuerHtml = null, verifierPki = null, statusPki = null, walletOrigin: issuerWalletOrigin = '',
+    images = null, ...svcOpts } = opts;
   const svc = new IssuerService({ ...svcOpts, statusPki });
   const app = new Hono();
   // Expose the IssuerService to the embedding runtime / tests (in-process only —
@@ -197,8 +198,13 @@ export function createApp(opts = {}) {
         if (total > MAX_TOTAL_BYTES) {
           throw httpFail(400, `添付の合計が大きすぎます（上限 ${Math.floor(MAX_TOTAL_BYTES / 1024 / 1024)}MB）`);
         }
-        attachments.push({ name: displayName(file.name, v.kind, i), kind: v.kind, size: v.bytes.length,
-          stored: safeStoredName(v.kind, i), thumb: validateThumb(thumbs[i]), bytes: v.bytes });
+        // 正規化（EXIF・継ぎ足しを落とす）の上に、**可能なら描き直す**。Images バインディングが
+        // 無い環境では null が返り、正規化済みのバイト列をそのまま保存する
+        const re = await reencodeImage(images, v.kind, v.bytes);
+        const kind = re ? 'jpeg' : v.kind;               // 描き直したものは常に JPEG
+        const stored = re || v.bytes;
+        attachments.push({ name: displayName(file.name, kind, i), kind, size: stored.length,
+          stored: safeStoredName(kind, i), thumb: validateThumb(thumbs[i]), bytes: stored });
       }
       const app2 = await svc.submitApplication({ userId: user.id, kind, targetCode: code,
         disasterId, form, attachments });

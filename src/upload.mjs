@@ -185,6 +185,28 @@ export function sanitizePng(bytes) {
   return null;
 }
 
+/**
+ * **本物の再エンコード**（Cloudflare Images バインディング）。デコードして描き直すので、
+ * 構造が正しくても中身が壊れている画像＝デコーダの脆弱性を狙うバイト列も消える。
+ * 変換は Images 側で走るので Worker の CPU（無料プランは 1リクエスト 10ms）を食わない。
+ *
+ * バインディングが無い環境（Node の開発・テスト、Images 未有効）では **null** を返し、
+ * 呼び出し側は sanitize 済みのバイト列をそのまま使う（機能を落とすが壊れない）。
+ * Images 側が読めない画像でも null（＝拒否ではなく正規化止まり）にする——ここで弾くと、
+ * Images の一時障害でアップロードが全滅する。
+ */
+export async function reencodeImage(images, kind, bytes, { edge = STORE_EDGE, quality = 82 } = {}) {
+  if (!images || (kind !== 'jpeg' && kind !== 'png')) return null;
+  try {
+    const res = await images.input(new Blob([bytes]).stream())
+      .transform({ width: edge, height: edge, fit: 'scale-down' })
+      .output({ format: 'image/jpeg', quality });
+    const out = new Uint8Array(await (await res.response()).arrayBuffer());
+    // 返ってきたものも**中身で確かめる**（バインディングの申告は信用しない）
+    return sniffFileType(out) === 'jpeg' && out.length > 0 ? out : null;
+  } catch { return null; }
+}
+
 /** 種別に応じた正規化。PDF は正規化できないので素通し（インライン描画しない運用で守る）。 */
 export function sanitizeAttachment(kind, bytes) {
   if (kind === 'jpeg') return sanitizeJpeg(bytes);

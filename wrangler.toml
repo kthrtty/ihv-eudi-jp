@@ -20,3 +20,8 @@ id      = "84ba206f1832417ea3dcfc0db2960d6d"
 
 [assets]
 directory = "web"
+
+# 添付画像の再エンコード（デコードして描き直す）。変換は Images 側で走るので
+# Worker の CPU（無料プランは 1リクエスト 10ms）を食わない。月5,000変換まで無料。
+[images]
+binding = "IMAGES"
