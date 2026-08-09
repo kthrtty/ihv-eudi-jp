@@ -85,6 +85,7 @@ ${swatchEmblemCss()}
 .cslist label:has(input:checked){border-color:var(--civic);background:#F7FAFF}
 .cslist input{margin-top:2px}
 /* 住所: 申請先から決まる前置は読み取り専用の見た目で、入力欄と1つの帯に見せる */
+.adr-same{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11.5px;font-weight:500;color:#3d4d63}
 .adr{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:8px;background:#fff;overflow:hidden}
 .adr-fix{display:flex;align-items:center;padding:9px 11px;background:#F3F5F9;color:var(--muted);font-size:12.5px;white-space:nowrap;border-right:1px solid var(--line)}
 .adr input{border:0!important;border-radius:0!important;flex:1;min-width:0}
@@ -228,7 +229,7 @@ const when = (x) => {
     + (checked === undefined ? ` data-when-value="${esc(value)}"` : ` data-when-checked="${checked ? 1 : 0}"`);
 };
 
-export const field = (x, val = '', muni = null) => {
+export const field = (x, val = '', muni = null, opts = {}) => {
   const req = x.required ? '<b class="req">必須</b>' : '';
   // **申請先の自治体から決まる項目**（対象離島）。1つなら選ばせず読み取り専用にする
   if (x.fromMunicipality && muni) {
@@ -285,9 +286,21 @@ export const field = (x, val = '', muni = null) => {
   // 住所を構造的に作れなくする（自由入力だと「熊本市長が横浜市の家を証明する」が作れた）。
   if (x.type === 'address') {
     const detail = stripPrefix(muni, val);
+    const pre = addressPrefix(muni);
+    // 住民票の住所が**同じ市区町村のときだけ**「同じ」を出す。前置が一致するかを見るだけなので、
+    // 表記揺れで外れても「近道が出ない」で済む（住所から自治体を当てには行かない）。
+    const res = String(opts.residence || '');
+    const resDetail = (pre && res.startsWith(pre)) ? res.slice(pre.length).trim() : '';
+    // 使えないときは**黙って消さずに理由を出す**（なぜ近道が無いのか分からないと迷う）
+    const note = resDetail
+      ? `<label class="adr-same"><input type="checkbox" id="adrSame" data-adr="${esc(resDetail)}" checked>
+           住民票の住所と同じ</label>`
+      : (res ? `<span class="fhint">住民票の住所は <b>${esc(res)}</b> です。申請先と市区町村が違うため、
+           そのままは使えません（被災した住家の住所を入力してください）</span>` : '');
     return `<div class="fld"><label>${esc(x.label)} ${req}</label>
-      <div class="adr"><span class="adr-fix">${esc(addressPrefix(muni)) || '（申請先の市区町村）'}</span>
-        <input name="${esc(x.key)}" value="${esc(detail)}" placeholder="${esc(x.placeholder || '')}"></div>
+      <div class="adr"><span class="adr-fix">${esc(pre) || '（申請先の市区町村）'}</span>
+        <input name="${esc(x.key)}" id="adrDetail" value="${esc(detail)}" placeholder="${esc(x.placeholder || '')}"></div>
+      ${note}
       ${x.hint ? `<span class="fhint">${x.hint}</span>` : ''}</div>`;
   }
   // 複数選択。**空も正当な答え**（損壊箇所が無いこともある）なので、required でなければ
@@ -487,7 +500,8 @@ export function renderApplyForm(user, t, muni, { error = '', prefill = {}, disas
       <form class="acard" method="POST" action="/apply/${esc(t.id)}/${esc(muni.code)}${pref ? `?pref=${encodeURIComponent(pref)}` : ''}" enctype="multipart/form-data">
         ${disaster ? `<input type="hidden" name="disaster_id" value="${esc(disaster.id)}">` : ''}
         <div class="sec">あなたにしか分からないこと<span class="tagro">住民票では決まりません</span></div>
-        ${t.form.map((x) => field(x, prefill[x.key] ?? initialFor(x, { user, muni, disaster }) ?? '', muni)).join('')}
+        ${t.form.map((x) => field(x, prefill[x.key] ?? initialFor(x, { user, muni, disaster }) ?? '', muni,
+          { residence: user?.address })).join('')}
 
         <div class="sec">${esc(t.attachmentLabel)}${t.attachmentRequired ? '<b class="req">必須</b>' : '<span class="tagro">原則任意</span>'}</div>
         <div class="warn err" id="uperr" style="display:none"></div>
@@ -530,6 +544,21 @@ export function renderApplyForm(user, t, muni, { error = '', prefill = {}, disas
             if (e.target && e.target.name) sync();
           });
           sync();
+        })();
+        (function () {
+          // 「住民票の住所と同じ」: 入れる／消すの近道。**市区町村が一致するときしか出ない**ので、
+          // 他所の番地が入る余地は無い。JS 無効でも値は最初から入っている（サーバ側で前置済み）
+          var same = document.getElementById('adrSame'), adr = document.getElementById('adrDetail');
+          if (same && adr) {
+            same.addEventListener('change', function () {
+              adr.value = same.checked ? same.getAttribute('data-adr') : '';
+              if (!same.checked) adr.focus();
+            });
+            // 手で書き換えたらチェックを外す（「同じ」と言いながら違う値、を残さない）
+            adr.addEventListener('input', function () {
+              same.checked = adr.value.trim() === same.getAttribute('data-adr');
+            });
+          }
         })();
         (function () {
           // 世帯構成員の行: 空行は隠しておき、＋で1行ずつ出す。✕ は値を消して隠す
