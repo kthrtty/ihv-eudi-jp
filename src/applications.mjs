@@ -72,6 +72,20 @@ export const canTransition = (from, to) => (TRANSITIONS[from] || []).includes(to
 
 const f = (key, label, type, o = {}) => ({ key, label, type, required: !!o.required, ...o });
 
+/** 世帯構成員の続柄。住民票の表記に合わせる（長男/長女は戸籍側の表記）。 */
+export const HOUSEHOLD_RELS = ['世帯主', '妻', '夫', '子', '父', '母', '祖父', '祖母', '兄弟姉妹', 'その他'];
+/** 世帯構成員の行（hh_<i>_family/given/rel/birth）を配列に畳む。空行は落とす。
+ *  生年月日まで持つのは実際の様式に合わせたもの（宇土市は1人目を必須にしている）。 */
+export function parseHousehold(raw = {}, max = 9) {
+  const out = [];
+  for (let i = 0; i < max; i++) {
+    const g = (k) => String(raw[`hh_${i}_${k}`] ?? '').trim();
+    const [family, given, rel, birth] = [g('family'), g('given'), g('rel'), g('birth')];
+    if (family || given) out.push({ family, given, rel: rel || 'その他', birth });
+  }
+  return out;
+}
+
 // ---- 罹災証明書 -------------------------------------------------------------
 // 様式は内閣府「罹災証明書の様式の統一化について」（府政防第737号・令和2年3月30日）。
 // 必須記載事項は 整理番号／世帯主住所／世帯主氏名／罹災原因／被災住家の所在地／
@@ -100,16 +114,26 @@ const disaster = {
   surveyingLabel: '現地調査中',
   reviewLead: '現地調査および写真に基づき、内閣府「災害の被害認定基準」により住家の被害の程度を判定します。',
   attachmentLabel: '被害状況の写真',
-  // **実制度でも原則任意**（天草市のオンライン申請画面の表記を確認）。ただし自己判定調査を
-  // 希望する場合は必須になる＝条件付き必須。「必須だがデモでは任意」と書いていたのは誤り。
+  // **要否は自治体によって違う**。実際のオンライン申請画面で確認した2例:
+  //   天草市 … 「原則任意ですが、自己判定調査を希望する場合は必須」
+  //   宇土市 … 「必須」（写真の撮り方の指示つき）
+  // 手続きの型に固定値として持たせられる性質ではないので、本デモは任意にしたうえで
+  // 「自治体によって異なる」と画面に書く。1自治体の表記で一般化しない。
   attachmentRequired: false,
-  attachmentHint: '原則任意です。ただし<b>自己判定調査</b>（写真で確認し現地調査を行わない方式）を'
-    + '希望する場合は必須になります。自己判定調査で交付できるのは、住家の被害の程度が'
-    + '「準半壊に至らない（一部損壊）」に該当する場合のみです。',
+  attachmentHint: '<b>要否は自治体によって異なります</b>（必須の自治体もあれば、原則任意で'
+    + '<b>自己判定調査</b>（写真で確認し現地調査を行わない方式）を希望する場合だけ必須の自治体もあります）。'
+    + '被害箇所は「寄り」と全景の「引き」を、屋外は4方向、浸水は深さがわかるように撮ります。',
+  // 実制度の期限（宇土市の表記。自治体により異なる）
+  deadlineNote: '災害発生日から1年以内（自治体により異なる）',
   form: [
     f('damaged_address', '被災住家の所在地', 'text', { required: true,
       hint: '世帯主住所と異なる場合（別宅・転居前など）はその住所を入力してください' }),
     f('building_type', '住家の種別', 'select', { options: ['木造2階建', '木造平屋', '非木造（共同住宅）', 'その他'] }),
+    // **住民票の世帯ではなく「被災住家の世帯構成員」**。実際の様式もここは申告事項で、
+    // 申請者が①〜⑨まで手入力する。住基から初期値を入れるが、下宿・単身赴任などで
+    // 住民票の世帯と食い違うので**加除できなければならない**。
+    f('household_members', '被災住家の世帯構成員', 'household', { max: 9,
+      hint: '住民票の世帯から初期値を入れています。<b>被災した住家に住んでいた人</b>に合わせて追加・削除してください' }),
     // 災害名・罹災日は**災害マスタ由来**（申請の入口で災害を選ぶ）。自由入力に戻すと
     // 「令和8年熊本地震・テスト」のような値が台帳に残る
 
@@ -139,12 +163,17 @@ const disaster = {
       issuing_authority: app.authority,
     };
     if (d.include_household !== false) {
-      claims.household_members = [
-        { family_name: persona?.family, given_name: persona?.given, birth_date: persona?.birth, relationship_to_head: '世帯主' },
-        ...(persona?.household || []).map((m) => ({
-          family_name: m.family, given_name: m.given, birth_date: m.birth, relationship_to_head: m.rel || '同居人',
-        })),
-      ];
+      // 申告された「被災住家の世帯構成員」を使う。旧レコードは住基の世帯へフォールバック
+      const declared = Array.isArray(w.household_members) ? w.household_members : null;
+      claims.household_members = declared
+        ? declared.map((m) => ({ family_name: m.family, given_name: m.given,
+          birth_date: m.birth || undefined, relationship_to_head: m.rel || 'その他' }))
+        : [
+          { family_name: persona?.family, given_name: persona?.given, birth_date: persona?.birth, relationship_to_head: '世帯主' },
+          ...(persona?.household || []).map((m) => ({
+            family_name: m.family, given_name: m.given, birth_date: m.birth, relationship_to_head: m.rel || '同居人',
+          })),
+        ];
     }
     return claims;
   },
