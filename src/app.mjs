@@ -177,6 +177,7 @@ export function createApp(opts = {}) {
         x.type === 'household' ? parseHousehold(f, x.max)
           : x.type === 'checkgroup' ? parseChecks(f, x.key, x.options)
             : x.type === 'consent' ? parseConsents(f, x.items)
+              // 住所は**町名以下だけ**が送られてくる。市区町村は normalize が申請先から前置する
               : String(f[x.key] ?? '').trim()]));
       // 添付は multipart で来る。種別は**中身のバイト列**から判定する（申告は信用しない）。
       // 未選択でもブラウザは空の File を送ってくるので、中身のあるものだけを添付とみなす

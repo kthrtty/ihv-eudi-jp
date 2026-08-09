@@ -452,29 +452,35 @@ test('apply: 住基にあるものは入力させず、無いもの・決まら�
   // **電話番号は住基に無い**ので申告させる
   assert.ok(form.includes('電話番号は住民票に記載されません'), '聞く理由を書く');
   assert.ok(form.includes('name="contact_tel"'), '電話番号は入力項目');
-  // 被災住家は住民票と一致しないことがある
-  assert.ok(form.includes('name="same_address"'), '「世帯主住所と同じ」チェック');
-  assert.ok(form.includes('data-when-key="same_address" data-when-checked="0"'), '外したときだけ住所欄を出す');
+  // **被災住家の市区町村は申請先から確定させる**。災対法90条の2 は「市町村長は…調査し」＝
+  // その市町村が調べられる家でなければ成立しない。自由入力だと「熊本市長が横浜市の家の罹災を
+  // 証明する」申請が作れた（2026-08-09 本番で実測）
+  assert.ok(form.includes('<span class="adr-fix">熊本県熊本市</span>'), '市区町村は読み取り専用で前置');
+  assert.ok(form.includes('町名以下'), '入力するのは町名以下だと書く');
+  assert.ok(!form.includes('name="same_address"'), '「世帯主住所に同じ」チェックは廃止');
+  // 鈴木一郎の住民票は横浜市＝申請先（熊本市）と違うので、住所の初期値は入れない
+  assert.ok(!form.includes('value="神奈川県横浜市西区みなとみらい3-3"'), '他所の番地を初期値にしない');
 
-  // 「同じ」なら住基の住所が被災住家になる（チェックの状態に頼らず値を確定させる）
+  // 町名以下だけを送ると、申請先の市区町村が前置された完全な住所になる
   const r = await fetch(`${ISSUER}/apply/disaster/43100?d=r8-kumamoto`, {
     method: 'POST', redirect: 'manual',
     headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: `sid=${sid}` },
     body: wireForm({ disaster_id: 'r8-kumamoto', contact_tel: '090-0000-0000',
-      same_address: 'on', statement: '倒壊', damage_cause: ['地震'], property_type: '住家（持家）',
-      consents: { info: true, support: true } }).toString() });
+      damaged_address: '中央区大江3丁目1番5号', statement: '倒壊', damage_cause: ['地震'],
+      property_type: '住家（持家）', consents: { info: true, support: true } }).toString() });
   assert.equal(r.status, 303);
   const id = r.headers.get('location').split('/')[2].split('?')[0];
   const mine = await (await fetch(`${ISSUER}/applications/${id}`, { headers: { cookie: `sid=${sid}` } })).text();
-  assert.ok(mine.includes('神奈川県横浜市西区みなとみらい3-3'), '住基の住所が入る');
+  assert.ok(mine.includes('熊本県熊本市中央区大江3丁目1番5号'), '申請先の市区町村が前置される');
+  assert.ok(!mine.includes('熊本県熊本市神奈川県'), '住基の住所は繋がない');
 
-  // チェックを外して未入力なら断る
+  // 町名以下が空なら断る
   const miss = await fetch(`${ISSUER}/apply/disaster/43100?d=r8-kumamoto`, {
     method: 'POST', redirect: 'manual',
     headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: `sid=${sid}` },
     body: wireForm({ disaster_id: 'r8-kumamoto', contact_tel: '090-0000-0000', statement: '倒壊',
       damage_cause: ['地震'], property_type: '住家（持家）', consents: { info: true, support: true } }).toString() });
-  assert.match(decodeURIComponent(miss.headers.get('location')), /被災住家の所在地を入力してください/);
+  assert.match(decodeURIComponent(miss.headers.get('location')), /未入力の必須項目: 被災住家の所在地/);
 });
 
 test('apply: 対象離島は自由入力ではなく申請先の自治体から決まる', async () => {
