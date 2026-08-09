@@ -17,7 +17,7 @@ import { securityHeaders, csrfGuard } from './security.mjs';
 import { createWallet } from './wallet.mjs';
 import { allConfigIds, configInfo, jwks as issuerJwks, accountCatalog } from './issuer.mjs';
 import { getApplicationType, labelOf, subOf, parseHousehold, parseChecks, parseConsents } from './applications.mjs';
-import { validateAttachment, displayName, safeStoredName, validateThumb, ATT_MIME, MAX_FILES, MAX_TOTAL_BYTES } from './upload.mjs';
+import { validateAttachment, displayName, safeStoredName, validateThumb, ATT_MIME, MAX_FILES, MAX_TOTAL_BYTES, attIdx } from './upload.mjs';
 import { renderApplyForm, renderMunicipalityPicker, renderDisasterPicker, renderMyApplications, renderMyApplication } from './apply-demo.mjs';
 import { getMunicipality, suggestFromAddress } from './municipalities.mjs';
 import { getDisaster, coversMunicipality } from './disasters.mjs';
@@ -240,7 +240,8 @@ export function createApp(opts = {}) {
     if (!user) return c.redirect('/login?next=/applications', 302);
     const a = await svc.getApplication(c.req.param('id'));
     if (!a || a.userId !== user.id) return c.notFound();
-    const att = await svc.getAttachment(a.id, Number(c.req.param('idx')));
+    const idx = attIdx(c.req.param('idx'));
+    const att = idx === null ? null : await svc.getAttachment(a.id, idx);
     return att ? serveAttachment(c, att) : c.notFound();
   });
 
