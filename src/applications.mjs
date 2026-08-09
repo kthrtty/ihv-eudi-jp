@@ -239,6 +239,9 @@ const disaster = {
       // 入れないと SAMPLE の固定日（2026-06-01）が出て、いつ交付されたか嘘になる
       issuance_date: decidedOn(app),
     };
+    // **記載しないと決めたら null**（キーごと落とす）。undefined にすると mint が
+    // SAMPLE の世帯構成員で埋めてしまう
+    claims.household_members = null;
     if (d.include_household !== false) {
       // 申告された「被災住家の世帯構成員」を使う。旧レコードは住基の世帯へフォールバック
       const declared = Array.isArray(w.household_members) ? w.household_members : null;
@@ -363,8 +366,10 @@ export function claimsFor(app, persona) {
   const t = getApplicationType(app?.kind);
   if (!t) return {};
   const c = t.toClaims(app, persona);
-  // undefined は落とす（mint 側で「未指定」と「空文字」を混同させない）
-  return Object.fromEntries(Object.entries(c).filter(([, v]) => v !== undefined && v !== null && v !== ''));
+  // undefined / 空文字は「未指定」＝ mint の SAMPLE で埋めてよい。**null は「載せない」**
+  // という明示で、mint が SAMPLE ごと落とす（下の #2 参照）。両者を混同すると、
+  // 「世帯構成員を記載しない」と判定したときに SAMPLE の山田家が実在の人の VC に載る。
+  return Object.fromEntries(Object.entries(c).filter(([, v]) => v !== undefined && v !== ''));
 }
 
 /** 交付内容の同一性を判定するためのハッシュ材料。発行日・有効期限のように

@@ -34,6 +34,12 @@ OID4VCI 1.0 で発行し、OID4VP 1.0 + HAIP で提示する EUDI/ARF 流クレ�
 - byte 一致が要るのは独立再構成→ハッシュ/署名する面のみ＝SessionTranscript C/D・DeviceAuthenticationBytes（配列＝キー順非依存）
 - Annex C は `base64url(cborEncode(EncryptionInfo))` が正（生配列を base64 しない）。突合 `npm run interop`
 - jose `importPKCS8` は文字列PEM（Buffer不可）
+- **SAMPLE は「未指定を埋める既定値」で、明示的な「載せない」を埋めてはいけない**（2026-08-09 本番で実測）:
+  `mint` の `{...SAMPLE[credId], ...claims}` が、審査で「世帯構成員を記載しない」と決めた VC に
+  **SAMPLE の山田家（山田 太郎・莉子）を載せていた**。`claimsFor` は undefined/空文字だけを落とし
+  **`null` は残す**＝「このクレームは載せない」の明示で、`mint` が SAMPLE ごと `delete` する。
+  同じ穴は `issuing_authority` 等にもあった（未設定だと SAMPLE の「千代田区長」が載る）。
+  回帰=test/applications.test.mjs「「記載しない」と判定した項目に SAMPLE が漏れない」
 - **schemas/*.json は必ず `scripts/gen-schemas.mjs` 経由で変更**（手編集禁止）: 過去に `household_members`/`age_over_20` が
   JSON 直編集で入り生成器が陳腐化→再生成で消えテスト13件落ち＋カタログ（クレーム広告）だけ欠落が残る実害（2026-07-10 還元済・
   現在は byte 一致）。直編集すると次の再生成が黙って巻き戻す
@@ -77,7 +83,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   **教訓: 適合を名乗る面は自己ループでなく仕様構造の golden/外部実装との適合テストで pin。簡略化は名乗りに明示。**
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（360, node:test）／
+`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（361, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）

@@ -119,7 +119,9 @@ export function createAdminApp(opts = {}) {
       const t = getApplicationType(a0.kind);
       const raw = json ? await c.req.json() : await c.req.parseBody();
       const decision = Object.fromEntries(t.decision.map((x) => [x.key,
-        x.type === 'check' ? raw.decision?.[x.key] ?? raw[x.key] === 'on' : String(raw.decision?.[x.key] ?? raw[x.key] ?? '').trim()]));
+        // チェックは JSON（真偽）が優先。無ければ HTML フォームの流儀（送られてこない＝未チェック）
+        x.type === 'check' ? (raw.decision?.[x.key] ?? (raw[x.key] === 'on'))
+          : String(raw.decision?.[x.key] ?? raw[x.key] ?? '').trim()]));
       const out = await svc.decideApplication(c.req.param('id'), {
         status: raw.status || 'approved',
         decision,
