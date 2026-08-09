@@ -2,11 +2,11 @@
 // 「通ってはいけないもの」を通さないことを中心に固定する。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { REAL_JPEG, REAL_PNG, FAKE_PDF, withTrailer } from './img.mjs';
 import {
   sniffFileType, validateAttachment, renderPolicy, inlineDataUri,
   displayName, safeStoredName, MAX_FILE_BYTES, MAX_TOTAL_BYTES, ACCEPTED, ACCEPT_ATTR,
-  validateThumb, thumbDataUri, MAX_THUMB_BYTES,
-} from '../src/upload.mjs';
+  validateThumb, thumbDataUri, MAX_THUMB_BYTES, sanitizeJpeg, sanitizePng, sanitizeAttachment } from '../src/upload.mjs';
 
 const buf = (...parts) => {
   const arr = [];
@@ -20,11 +20,9 @@ const buf = (...parts) => {
 const pad = (b, n = 32) => { const o = new Uint8Array(n); o.set(b.slice(0, n)); return o; };
 // ISO-BMFF: [4B box size]["ftyp"][4B brand]
 const bmff = (brand) => pad(buf([0, 0, 0, 0x20], 'ftyp', brand));
-const sample = (kind) => ({
-  jpeg: pad(buf([0xff, 0xd8, 0xff, 0xe0])),
-  png: pad(buf([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
-  pdf: pad(buf('%PDF-1.7')),
-}[kind]);
+// **実物を使う**。マジックバイトだけ合わせた塊は sanitizeAttachment が落とす
+// （画に要る構造が無いものを台帳に載せない、というのが正しい挙動）。
+const sample = (kind) => ({ jpeg: REAL_JPEG, png: REAL_PNG, pdf: FAKE_PDF }[kind]);
 
 test('upload: 受け入れるのは JPEG / PNG / PDF の3種だけ', () => {
   assert.deepEqual(Object.keys(ACCEPTED).sort(), ['jpeg', 'pdf', 'png']);
@@ -81,9 +79,13 @@ test('upload: validateAttachment は理由つきで落とす', () => {
   assert.equal(validateAttachment(new Uint8Array(0)).ok, false);
   const short = validateAttachment(pad(buf([0xff, 0xd8, 0xff]), 8));
   assert.equal(short.ok, false, '12バイト未満は判定材料が無いので通さない');
-  const big = validateAttachment(pad(buf([0xff, 0xd8, 0xff, 0xe0]), MAX_FILE_BYTES + 1));
+  const big = validateAttachment(pad(REAL_JPEG, MAX_FILE_BYTES + 1));
   assert.equal(big.ok, false);
   assert.match(big.error, /大きすぎ/);
+  // マジックバイトだけ合っていて中身が画になっていないものは受け入れない
+  const hollow = validateAttachment(pad(buf([0xff, 0xd8, 0xff, 0xe0])));
+  assert.equal(hollow.ok, false, 'JPEG を名乗るだけの塊');
+  assert.match(hollow.error, /読み取れませんでした/);
   const ok = validateAttachment(sample('jpeg'));
   assert.equal(ok.ok, true);
   assert.equal(ok.kind, 'jpeg');
@@ -119,15 +121,17 @@ test('upload: 保存名・表示名に利用者由来の危険な文字を持ち
 // 原本は保存しないので、ここが緩いと申請台帳に任意のバイト列が載る。
 test('upload: サムネイルは JPEG のバイト列だけを受け入れる', () => {
   const b64 = (u8) => Buffer.from(u8).toString('base64');
-  assert.equal(validateThumb(b64(sample('jpeg'))), b64(sample('jpeg')), '素の base64');
-  assert.equal(validateThumb('data:image/jpeg;base64,' + b64(sample('jpeg'))), b64(sample('jpeg')), 'data URI も剥がす');
+  // **返るのは正規化後**（EXIF を落としたバイト列）なので、入力そのものとは限らない
+  const clean = b64(sanitizeJpeg(REAL_JPEG));
+  assert.equal(validateThumb(b64(REAL_JPEG)), clean, '素の base64');
+  assert.equal(validateThumb('data:image/jpeg;base64,' + b64(REAL_JPEG)), clean, 'data URI も剥がす');
 
   assert.equal(validateThumb(b64(sample('png'))), null, 'PNG は受けない（申告ではなく中身で判定）');
   assert.equal(validateThumb(b64(sample('pdf'))), null, 'PDF は論外');
   assert.equal(validateThumb('<svg onload=alert(1)>'), null, 'base64 ですらないものは弾く');
   assert.equal(validateThumb(''), null);
   assert.equal(validateThumb(null), null);
-  assert.equal(validateThumb(b64(pad(sample('jpeg'), MAX_THUMB_BYTES + 1))), null, '上限超過');
+  assert.equal(validateThumb(b64(pad(REAL_JPEG, MAX_THUMB_BYTES + 1))), null, '上限超過');
 });
 
 test('upload: サムネイルの data URI は image/jpeg 固定', () => {
@@ -143,4 +147,35 @@ test('upload: 添付の上限は 1ファイル 2MB / 合計 8MB / 6件', () => {
   const over = validateAttachment(pad(buf([0xff, 0xd8, 0xff, 0xe0]), MAX_FILE_BYTES + 1));
   assert.equal(over.ok, false);
   assert.match(over.error, /上限 2MB/, 'いくつを超えたのか文言に出す');
+});
+
+// 本当は**デコードして描き直す**のが理想だが、Workers 無料プランの CPU は 1リクエスト 10ms で、
+// WASM の JPEG デコード+エンコードは 200ms〜3秒かかるため isolate 内では不可能
+// （Cloudflare Images バインディングが本命）。その代わりに**画に要る構造だけを残す**。
+test('upload: 画像は保存前に正規化する（EXIF・付随データ・終端より後ろを落とす）', () => {
+  const jpeg = sanitizeJpeg(REAL_JPEG);
+  assert.ok(jpeg && jpeg.length > 0);
+  assert.ok(jpeg.length < REAL_JPEG.length, 'APPn（EXIF/ICC/XMP）ぶん小さくなる');
+  assert.deepEqual([...jpeg.slice(0, 2)], [0xff, 0xd8], 'SOI で始まる');
+  assert.deepEqual([...jpeg.slice(-2)], [0xff, 0xd9], 'EOI で終わる');
+  assert.equal(sniffFileType(jpeg), 'jpeg', '正規化後も JPEG として通る');
+  // 終端の後ろに継ぎ足したバイト列は消える（ZIP や script を付ける古典的な手口）
+  const trailed = sanitizeJpeg(withTrailer(REAL_JPEG));
+  assert.deepEqual(trailed, jpeg, '継ぎ足しは残らない');
+  assert.ok(!Buffer.from(trailed).includes('script'));
+  // 冪等（正規化済みをもう一度通しても変わらない）
+  assert.deepEqual(sanitizeJpeg(jpeg), jpeg);
+
+  // PNG は critical チャンクだけ残す。CRC も見るので壊れていれば受け入れない
+  const png = sanitizePng(REAL_PNG);
+  assert.deepEqual(png, REAL_PNG, '既に最小の PNG は変わらない');
+  assert.deepEqual(sanitizePng(withTrailer(REAL_PNG)), REAL_PNG, 'IEND 以降は切り捨てる');
+  const broken = new Uint8Array(REAL_PNG); broken[20] ^= 0xff;
+  assert.equal(sanitizePng(broken), null, 'CRC が合わなければ受け入れない');
+
+  // 構造が読めないものは受け入れない（マジックバイトだけ合っている塊）
+  assert.equal(sanitizeJpeg(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0])), null);
+  assert.equal(sanitizePng(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])), null);
+  // PDF は正規化できないので素通し（インライン描画しない運用で守る）
+  assert.deepEqual(sanitizeAttachment('pdf', FAKE_PDF), FAKE_PDF);
 });

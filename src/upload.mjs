@@ -85,7 +85,11 @@ export function validateAttachment(bytes, { maxBytes = MAX_FILE_BYTES } = {}) {
     return { ok: false, error: '対応していない形式です（JPEG / PNG / PDF）' };
   }
   const meta = ACCEPTED[kind];
-  return { ok: true, kind, mime: meta.mime, label: meta.label, inline: meta.inline, bytes: b };
+  // **保存するのは正規化後のバイト列**（EXIF/GPS・付随データ・終端より後ろの継ぎ足しを落とす）。
+  // 構造が読めなければ受け入れない——「マジックバイトだけ合っている塊」を台帳に載せない
+  const clean = sanitizeAttachment(kind, b);
+  if (!clean) return { ok: false, error: '画像として読み取れませんでした（別の写真をお試しください）' };
+  return { ok: true, kind, mime: meta.mime, label: meta.label, inline: meta.inline, bytes: clean };
 }
 
 /**
@@ -97,6 +101,96 @@ export const renderPolicy = (kind) => (ACCEPTED[kind]?.inline ? 'inline' : 'chip
 /** 種別 → 配信時の Content-Type。**アップロード側の申告は使わない**（保存時に
  *  マジックバイトから決めた kind だけを信用する）。 */
 export const ATT_MIME = Object.fromEntries(Object.entries(ACCEPTED).map(([k, v]) => [k, v.mime]));
+
+// ---- 画像の正規化（再エンコードの代わり）------------------------------------
+// 本当は**デコードして描き直す**のが理想（悪意あるバイト列が構造ごと消える）。だが
+// Workers 無料プランの CPU は 1リクエスト 10ms で、WASM の JPEG デコード+エンコードは
+// 200ms〜3秒かかるため isolate 内では不可能。Cloudflare Images バインディング
+// （変換は Images 側で走る・月5,000変換まで無料）を使うのが本命で、それまでの間、
+// **画に必要な構造だけを残して他を全部落とす**ことで実効的に同じ効果を狙う。
+//
+// これで消えるもの:
+//  - **EXIF（GPS を含む）**。被災住家の写真に撮影場所が乗るのは privacy の実害。
+//    クライアントの canvas 縮小でも消えるが、縮小に失敗すると原本にフォールバックし、
+//    そもそも敵対的なクライアントは何でも送れるので、**サーバ側で必ず落とす**
+//  - ICC/XMP/コメントなどの付随データ、**画像の終端より後ろに継ぎ足したバイト列**
+//    （JPEG の EOI や PNG の IEND 以降に ZIP や script を付ける古典的な手口）
+// 消えないもの: デコーダの脆弱性を突く「正しい構造の壊れた画像」。そこは再エンコードが要る。
+
+/** JPEG: セグメントを辿り、画に要るものだけ残す。APPn（EXIF/ICC/XMP）とコメントは落とし、
+ *  EOI より後ろは切り捨てる。構造が読めなければ null（＝受け入れない）。 */
+export function sanitizeJpeg(bytes) {
+  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+  if (b.length < 4 || b[0] !== 0xff || b[1] !== 0xd8) return null;
+  const out = [0xff, 0xd8];
+  let i = 2;
+  while (i < b.length) {
+    if (b[i] !== 0xff) return null;                       // マーカー境界が壊れている
+    let m = b[i + 1];
+    while (m === 0xff) { i++; m = b[i + 1]; }             // 埋め草の 0xFF は読み飛ばす
+    if (m === undefined) return null;
+    if (m === 0xd9) { out.push(0xff, 0xd9); return new Uint8Array(out); }   // EOI: ここで終わり
+    if (m >= 0xd0 && m <= 0xd7) { i += 2; continue; }     // RSTn（本体は SOS 側で処理）
+    const len = (b[i + 2] << 8) | b[i + 3];
+    if (!(len >= 2) || i + 2 + len > b.length) return null;
+    const drop = (m >= 0xe0 && m <= 0xef) || m === 0xfe;  // APPn / COM は落とす
+    if (!drop) for (let k = i; k < i + 2 + len; k++) out.push(b[k]);
+    i += 2 + len;
+    if (m === 0xda) {                                     // SOS: 以降はエントロピー符号
+      while (i < b.length) {
+        if (b[i] === 0xff && b[i + 1] !== 0x00 && !(b[i + 1] >= 0xd0 && b[i + 1] <= 0xd7)) break;
+        out.push(b[i++]);
+      }
+      if (i >= b.length) return null;                     // EOI に行き着かない＝壊れている
+    }
+  }
+  return null;
+}
+
+const CRC_TABLE = (() => {
+  const t = new Int32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c;
+  }
+  return t;
+})();
+const crc32 = (buf) => {
+  let c = 0xffffffff;
+  for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+};
+
+/** PNG: 画に要る critical チャンク（+ tRNS）だけ残す。eXIf/tEXt/zTXt/iTXt などの
+ *  付随チャンクと、IEND より後ろは落とす。**CRC も検証する**（壊れていれば受け入れない）。 */
+export function sanitizePng(bytes) {
+  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+  const SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (b.length < 8 || SIG.some((v, k) => b[k] !== v)) return null;
+  const KEEP = new Set(['IHDR', 'PLTE', 'IDAT', 'IEND', 'tRNS']);
+  const out = [...SIG];
+  let i = 8, sawIhdr = false;
+  while (i + 8 <= b.length) {
+    const len = ((b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3]) >>> 0;
+    if (len > 0x7fffffff || i + 12 + len > b.length) return null;
+    const type = String.fromCharCode(b[i + 4], b[i + 5], b[i + 6], b[i + 7]);
+    const stored = ((b[i + 8 + len] << 24) | (b[i + 9 + len] << 16) | (b[i + 10 + len] << 8) | b[i + 11 + len]) >>> 0;
+    if (crc32(b.subarray(i + 4, i + 8 + len)) !== stored) return null;
+    if (type === 'IHDR') { if (sawIhdr || i !== 8) return null; sawIhdr = true; }
+    if (KEEP.has(type)) for (let k = i; k < i + 12 + len; k++) out.push(b[k]);
+    i += 12 + len;
+    if (type === 'IEND') return sawIhdr ? new Uint8Array(out) : null;   // 以降は切り捨て
+  }
+  return null;
+}
+
+/** 種別に応じた正規化。PDF は正規化できないので素通し（インライン描画しない運用で守る）。 */
+export function sanitizeAttachment(kind, bytes) {
+  if (kind === 'jpeg') return sanitizeJpeg(bytes);
+  if (kind === 'png') return sanitizePng(bytes);
+  return bytes;
+}
 
 /** URL の添付インデックス。**厳密な整数だけ**受ける。`Number()` に素で渡すと
  *  `'0.0'`/`' 0'`/`'+0'`/`'0e0'` が同じ資源の別表記になり、キャッシュや監査ログが
@@ -150,7 +244,8 @@ export function validateThumb(input) {
   try { bytes = new Uint8Array(Buffer.from(s, 'base64')); } catch { return null; }
   if (bytes.length === 0 || bytes.length > MAX_THUMB_BYTES) return null;
   if (sniffFileType(bytes) !== 'jpeg') return null;   // PNG も PDF もここでは受けない
-  return Buffer.from(bytes).toString('base64');
+  const clean = sanitizeJpeg(bytes);                  // サムネイルも EXIF ごと落とす
+  return clean ? Buffer.from(clean).toString('base64') : null;
 }
 
 /** サムネイルの data: URI。無ければ null（呼び出し側は原本を出さないこと）。 */
