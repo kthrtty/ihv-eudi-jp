@@ -118,7 +118,7 @@ export function renderAdminReview(staff, a, applicant, { issued = [], existing =
             <div class="dupl">${existing.map((x) => `<div class="dup"><span class="mono">${esc(x.id)}</span>
               <b>${esc(labelOf(x))}</b><small>認定 ${esc(subOf(x))}・${esc((x.decided_at || '').slice(0, 10))}</small></div>`).join('')}</div>
           </div>` : ''}
-          ${already && live.length ? `<div class="warn err">⚠️ <b>交付済みのクレデンシャルがあります。</b>
+          ${already && live.length ? `<div class="warn err">⚠️ <b>交付済みのデジタル資格証があります。</b>
             判定を変えて証明書に載る内容が変わる場合、この申請から発行された ${live.length} 件を失効させ、新しい内容で再交付できるようにします。
             内容が変わらない場合（例: 全壊 → 全壊）は失効させません。</div>` : ''}
           ${t.decision.map((x) => field(x, decided[x.key] ?? '')).join('')}

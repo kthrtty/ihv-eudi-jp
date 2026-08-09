@@ -172,7 +172,10 @@ a.upi:hover{border-color:var(--civic);box-shadow:0 2px 10px rgba(14,26,43,.12)}
 .upi.doc .sz{color:#8a2b22;background:#fbdcd8}
 /* 一覧: PC=表組み / SP=カード */
 .alist{display:flex;flex-direction:column}
-.ahead,.arow{display:grid;grid-template-columns:80px 140px minmax(0,1fr) 82px 92px 150px auto;column-gap:12px;align-items:center;padding:11px 16px}
+/* 最終列を auto にすると**行ごとに幅が変わる**（.ahead と .arow は別々のグリッドなので
+   トラック幅が共有されない）。行動ラベルが長い行だけ 1fr の取り分が減り、申請者・申請日・
+   状態が左へずれる。全トラックを内容非依存にして揃える */
+.ahead,.arow{display:grid;grid-template-columns:80px 140px minmax(0,1fr) 82px 92px 150px 168px;column-gap:12px;align-items:center;padding:11px 16px}
 .ahead{font-size:10.5px;color:var(--muted);font-weight:700;background:#F7F9FC;border-bottom:1px solid var(--line)}
 .arow{border-bottom:1px solid #eef1f6;font-size:12.5px;text-decoration:none;color:inherit}
 .arow:last-child{border-bottom:0}
@@ -186,7 +189,7 @@ a.upi:hover{border-color:var(--civic);box-shadow:0 2px 10px rgba(14,26,43,.12)}
 .a-who{grid-column:4}
 .a-day{grid-column:5}
 .a-st{grid-column:6;display:flex;gap:5px;flex-wrap:wrap}
-.a-act{grid-column:7;white-space:nowrap;color:var(--civic);font-weight:700}
+.a-act{grid-column:7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right;color:var(--civic);font-weight:700}
 .chip{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:4px 11px;white-space:nowrap}
 .chip.wait{background:#FDF7E3;color:#8a6d00}.chip.doing{background:#EAF0FA;color:#0a5eab}
 .chip.ok{background:#E7F3EE;color:#0E8A6B}.chip.ng{background:#FDECEA;color:#b3261e}.chip.na{background:#F1F3F7;color:#5B6B82}
@@ -871,7 +874,7 @@ const PICK_CSS = `
 
 // 住民向け一覧は申請者列が無い（全部自分の申請）ので、その1列ぶんを詰める
 const MY_CSS = `
-.alist.my .ahead,.alist.my .arow{grid-template-columns:80px 140px minmax(0,1fr) 92px 150px auto}
+.alist.my .ahead,.alist.my .arow{grid-template-columns:80px 140px minmax(0,1fr) 92px 150px 120px}
 .alist.my .a-day{grid-column:4}.alist.my .a-st{grid-column:5}.alist.my .a-act{grid-column:6}
 @media(max-width:640px){
   .alist.my .arow{grid-template-columns:34px minmax(0,1fr) auto}

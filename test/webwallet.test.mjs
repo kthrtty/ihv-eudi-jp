@@ -642,7 +642,7 @@ test('wallet redesigned: multi-scope ＋カタログ発行 — one authorization
     const cbRes = await wallet.request(`/oidc/cb?code=${cb.searchParams.get('code')}&state=${state}`, { headers: { cookie } });
     assert.match(await cbRes.text(), /デジタル資格証を取得しています/);
     const { receipt } = await driveAdd(wallet, cbRes);
-    assert.match(receipt, /2 件のクレデンシャル/);
+    assert.match(receipt, /2 件のデジタル資格証/);
     const creds = await (await wallet.request('/creds', { headers: { cookie } })).json();
     assert.deepEqual(creds.map((x) => x.configId).sort(), ['juminhyo_mdoc', 'pid_mdoc']);
   } finally {

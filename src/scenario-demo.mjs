@@ -21,7 +21,7 @@ const specEmblem = (sp) => {
   return `<span class="temb" style="--c1:${th.c1};--c2:${th.c2};--c3:${th.c3}">${swatchEmblemHtml(t)}</span>`;
 };
 
-const SHELL_OPTS = { brand: 'クレデンシャル検証ポータル', sub: 'VERIFIER', role: 'verifier', width: 'mid', dev: true };
+const SHELL_OPTS = { brand: 'デジタル資格証検証ポータル', sub: 'VERIFIER', role: 'verifier', width: 'mid', dev: true };
 
 const fmtVal = (k, vRaw) => {
   const v = claimVal(vRaw);
