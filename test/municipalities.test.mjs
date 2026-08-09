@@ -81,7 +81,8 @@ test('municipalities: 交付者名は申請先から確定する（審査した�
   const svc = new IssuerService();
   const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', targetCode: '43100',
     disasterId: 'h28-kumamoto',
-    form: { contact_tel: '090-0000-0000', damaged_address: '熊本県熊本市中央区大江3-1-5', statement: '倒壊' } });
+    form: { contact_tel: '090-0000-0000', damaged_address: '熊本県熊本市中央区大江3-1-5', statement: '倒壊',
+      damage_cause: ['地震'], property_type: '住家（持家）', consents: { info: true, support: true } } });
   const chiyoda = getStaff('s_001');           // 千代田区の職員
   assert.equal(outOfJurisdiction(chiyoda, app), true, '管轄外だと分かる（ブロックはしない）');
 
@@ -109,7 +110,8 @@ test('municipalities: 離島の交付自治体クレームは自由文でなく�
 test('municipalities: 申請先を持たない旧レコードでも審査できる（後方互換）', async () => {
   const svc = new IssuerService();
   const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', disasterId: 'r1-higashinihon',
-    form: { contact_tel: '090-0000-0000', damaged_address: '東京都世田谷区玉川3-1-1', statement: '浸水' } });
+    form: { contact_tel: '090-0000-0000', damaged_address: '東京都世田谷区玉川3-1-1', statement: '浸水',
+      damage_cause: ['豪雨'], property_type: '住家（持家）', consents: { info: true, support: true } } });
   assert.equal(app.target_code, null);
   assert.equal(outOfJurisdiction(getStaff('s_001'), app), false, '判定できないので管轄外とは言わない');
   // ディレクトリから引けないので、審査担当が入力した交付者名がそのまま使われる

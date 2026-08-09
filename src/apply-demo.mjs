@@ -74,6 +74,22 @@ ${swatchEmblemCss()}
 .rg label:has(input:checked){border-color:var(--civic);background:#F4F7FD;box-shadow:0 0 0 1px var(--civic) inset}
 .rg label b{font-size:13px}
 .rg label small{display:block;font-size:10.5px;color:var(--muted);margin-top:1px;margin-left:22px}
+/* 複数選択。**「どれか1つ」ではない**ことがラジオと見分けられなければならないので、
+   角丸を小さくし枠を密に並べる（ラジオは .rg で 2列カード） */
+.cg{display:flex;flex-wrap:wrap;gap:7px}
+.cg label{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:8px;padding:7px 11px;font-size:12.5px;background:#fff;cursor:pointer}
+.cg label:has(input:checked){border-color:var(--civic);background:#F4F7FD;box-shadow:0 0 0 1px var(--civic) inset;font-weight:700}
+/* 同意事項は**読ませる**のが目的なので、チップ化せず本文を全文出す */
+.cslist{display:grid;gap:7px}
+.cslist label{display:grid;grid-template-columns:auto 1fr;gap:9px;align-items:start;border:1px solid var(--line);border-radius:10px;padding:11px 13px;background:#fff;cursor:pointer;font-size:12px;font-weight:400;color:var(--ink);line-height:1.75;margin:0}
+.cslist label:has(input:checked){border-color:var(--civic);background:#F7FAFF}
+.cslist input{margin-top:2px}
+/* 審査画面の読み取り表示（同意した/しなかったを一目で。入力欄には見せない） */
+.ro-list{gap:5px}
+.ro-list>div{display:grid;grid-template-columns:18px 1fr;gap:8px;align-items:start;border:1px solid var(--line);border-radius:9px;padding:9px 11px;background:#F7F9FC;font-size:11.5px;line-height:1.7}
+.ro-list>div.yes{color:var(--ink)}
+.ro-list>div.yes>span:first-child{color:#2E7D6B;font-weight:800}
+.ro-list>div.no{color:var(--muted)}
 .warn{background:#FDF7E3;border-radius:10px;padding:12px 14px;font-size:11.5px;color:#6b5a1e;line-height:1.8;margin:14px 0}
 .warn.err{background:#FDECEA;color:#8a2b22}
 .todo{background:#F3F5F9;border:1px dashed #c3cede;border-radius:10px;padding:11px 14px;font-size:11.5px;color:var(--muted);line-height:1.7;margin-bottom:12px}
@@ -259,6 +275,22 @@ export const field = (x, val = '', muni = null) => {
     return `<div class="fld"${when(x)}><label>${esc(x.label)} ${req}</label>
       <textarea name="${esc(x.key)}" rows="3" placeholder="${esc(x.placeholder || '')}">${esc(val)}</textarea>${hint}</div>`;
   }
+  // 複数選択。**空も正当な答え**（損壊箇所が無いこともある）なので、required でなければ
+  // 何も選ばずに進める。値は配列で来る（parseChecks）。
+  if (x.type === 'checkgroup') {
+    const on = new Set(Array.isArray(val) ? val : (val ? [val] : []));
+    return `<div class="fld"${when(x)}><label>${esc(x.label)} ${req}</label><div class="cg">
+      ${(x.options || []).map((o) => `<label><input type="checkbox" name="${esc(x.key)}" value="${esc(o)}"${on.has(o) ? ' checked' : ''}>${esc(o)}</label>`).join('')}
+    </div>${hint}</div>`;
+  }
+  // 同意事項。**既定でチェックを入れない**——同意は申請者の行為であって初期値ではない。
+  if (x.type === 'consent') {
+    const on = (val && typeof val === 'object') ? val : {};
+    return `<div class="fld"><label>${esc(x.label)}</label><div class="cslist">
+      ${(x.items || []).map((c) => `<label><input type="checkbox" name="consent_${esc(c.key)}"${on[c.key] ? ' checked' : ''}>
+        <span>${esc(c.text)}${c.required ? '<b class="req">必須</b>' : ''}</span></label>`).join('')}
+    </div>${hint}</div>`;
+  }
   if (x.type === 'check') {
     return `<div class="fld"${when(x)}><label>${esc(x.label)}</label>
       <label style="font-size:12px;font-weight:500;color:#3d4d63">
@@ -427,7 +459,7 @@ export function renderApplyForm(user, t, muni, { error = '', prefill = {}, disas
       <form class="acard" method="POST" action="/apply/${esc(t.id)}/${esc(muni.code)}${pref ? `?pref=${encodeURIComponent(pref)}` : ''}" enctype="multipart/form-data">
         ${disaster ? `<input type="hidden" name="disaster_id" value="${esc(disaster.id)}">` : ''}
         <div class="sec">あなたにしか分からないこと<span class="tagro">住民票では決まりません</span></div>
-        ${t.form.map((x) => field(x, prefill[x.key] ?? '', muni)).join('')}
+        ${t.form.map((x) => field(x, prefill[x.key] ?? (x.fromDisaster && disaster ? disaster[x.fromDisaster] : '') ?? '', muni)).join('')}
 
         <div class="sec">${esc(t.attachmentLabel)}${t.attachmentRequired ? '<b class="req">必須</b>' : '<span class="tagro">原則任意</span>'}</div>
         <div class="warn err" id="uperr" style="display:none"></div>

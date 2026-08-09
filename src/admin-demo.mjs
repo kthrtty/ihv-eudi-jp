@@ -53,6 +53,29 @@ export function renderAdminList(staff, apps, { issuedBy = {}, applicants = {}, s
 }
 
 /** 審査（認定・却下・再判定）。左=申告内容、右=判定入力。 */
+/** 申請内容の1項目。**型ごとに保存形が違う**（配列・オブジェクト・行の配列）ので、
+ *  そのまま esc() に渡すと `[object Object]` が並ぶ。審査に使う画面なので必ず読める形にする。 */
+function formRow(x, v, kv) {
+  if (x.reviewHide) return '';
+  if (x.type === 'consent') {
+    const on = (v && typeof v === 'object') ? v : {};
+    return `<div class="fld"><label>${esc(x.label)}</label>
+      <div class="cslist ro-list">${(x.items || []).map((c) => `<div class="${on[c.key] ? 'yes' : 'no'}">
+        <span>${on[c.key] ? '✓' : '—'}</span><span>${esc(c.text)}</span></div>`).join('')}</div></div>`;
+  }
+  if (x.type === 'checkgroup') return kv(x.label, (v || []).join('・'));
+  if (x.type === 'check') return kv(x.label, v ? 'はい' : 'いいえ');
+  if (x.type === 'household') {
+    const rows = Array.isArray(v) ? v : [];
+    if (!rows.length) return kv(x.label, '');
+    return `<div class="fld"><label>${esc(x.label)}<span class="tagro">申請者の申告</span></label>
+      <table class="tb3"><tr><th>氏名</th><th>続柄</th><th>生年月日</th></tr>
+        ${rows.map((m) => `<tr><td>${esc(`${m.family || ''} ${m.given || ''}`.trim())}</td>
+          <td>${esc(m.rel || '')}</td><td>${esc(m.birth || '')}</td></tr>`).join('')}</table></div>`;
+  }
+  return kv(x.label, v);
+}
+
 export function renderAdminReview(staff, a, applicant, { issued = [], existing = [] } = {}) {
   const t = getApplicationType(a.kind);
   const live = issued.filter((e) => !e.revoked);
@@ -75,7 +98,7 @@ export function renderAdminReview(staff, a, applicant, { issued = [], existing =
           <div class="sec">申請内容（申告）<span class="tagro">受付 ${esc(a.id)}</span></div>
           ${kv('申請者', `${applicant?.family ?? ''} ${applicant?.given ?? ''}`)}
           ${kv(a.kind === 'disaster' ? '世帯主住所' : '住所', applicant?.address)}
-          ${t.form.map((x) => kv(x.label, a.form?.[x.key])).join('')}
+          ${t.form.map((x) => formRow(x, a.form?.[x.key], kv)).join('')}
           ${a.attachments?.length ? `<div class="sec">添付（${a.attachments.length}件）</div>
             ${attachmentsHtml(a.attachments, { base: `/a/${esc(a.id)}/att` })}
             <span class="fhint">クリックすると原本が開きます。${a.attachments.some((f) => f.kind === 'pdf')

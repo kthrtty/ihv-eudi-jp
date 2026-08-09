@@ -77,7 +77,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   **教訓: 適合を名乗る面は自己ループでなく仕様構造の golden/外部実装との適合テストで pin。簡略化は名乗りに明示。**
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（348, node:test）／
+`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（359, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
@@ -182,6 +182,16 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
 - **罹災は内閣府統一様式（府政防第737号）に準拠**: 必須記載事項は 整理番号/世帯主住所/世帯主氏名/罹災原因/
   被災住家の所在地/住家の被害の程度。**世帯主住所と被災住家の所在地は別項目**。世帯構成員は追加記載事項欄①
   （MUST ではないが内閣府の記載例に載る）。判定は6区分（中規模半壊は令和2年12月の支援法改正で新設）
+- **被害の申告は選択式で構造化（案B・2026-08-09）**: 自由記述だけだと審査側が読み取って分類し直すことになる。
+  実際の様式（天草市・宇土市）に倣い `damage_cause`（被害の原因・災害マスタの `kinds` から初期値。同じ台風でも
+  家ごとに暴風／高潮と分かれるので**確定させず変更可**）／`property_type`（り災した物件）／`building_parts`（8種）／
+  `equipment_parts`（6種）／`consents`（同意4件・必須は住基税照会と支援業務利用の2件）。
+  **損壊箇所と原因は VC のクレームに載せない**——統一様式の必須記載事項は「住家の被害の程度」であって箇所ではない。
+  項目型 `checkgroup`/`consent` を追加し、**保存形（配列・オブジェクト）とワイヤ形（同名の繰り返し・`consent_<key>=on`）が
+  違う**ことに注意（テストは `test/form-wire.mjs` の `wireForm/setWire` で変換）。必須判定は `missingRequired()` に集約
+  ——**同意は既定で真にしない**（送られてこない＝同意していない）。`String({})` は必ず truthy なので型で判定する。
+  審査画面は `formRow()` が型ごとに整形（素で埋めると `[object Object]` が並ぶ）。`reviewHide:true` の項目
+  （`same_address` のような入力補助）は審査画面に出さない
 - **添付は `src/upload.mjs` で一元判定**: 拡張子/Content-Type を信用せず**マジックバイト**で許可リスト判定
   （JPEG/PNG/PDF。HEIC・WebP は検出して個別文言で拒否＝TODO、AVIF は対象外）
 - **写真は送信前にクライアントで長辺1600pxへ縮小して送る**（2026-08-09）。スマホのカメラ写真は 12MP で 4〜6MB あり、
