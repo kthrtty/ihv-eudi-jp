@@ -363,9 +363,7 @@ export function renderApplyForm(user, t, muni, { error = '', prefill = {}, disas
         <div class="sec">申請内容</div>
         ${t.form.map((x) => field(x, prefill[x.key] ?? '', muni)).join('')}
 
-        <div class="sec">${esc(t.attachmentLabel)}${t.attachmentRequired ? '<span class="tagro">本デモでは任意</span>' : ''}</div>
-        ${t.attachmentRequired ? `<span class="fhint">実際の手続きでは${esc(t.attachmentLabel)}の提出が必要ですが、
-          <b>本デモでは添付なしでも申請できます</b>（動作を試しやすくするため）。</span>` : ''}
+        <div class="sec">${esc(t.attachmentLabel)}${t.attachmentRequired ? '<b class="req">必須</b>' : '<span class="tagro">原則任意</span>'}</div>
         <div class="warn err" id="uperr" style="display:none"></div>
         <div class="upgrid" id="upgrid">
           <label class="uptile" id="uptile">
@@ -379,7 +377,7 @@ export function renderApplyForm(user, t, muni, { error = '', prefill = {}, disas
         <span class="fhint">カメラで撮影／ファイルから選択。<b>複数選べます</b>（＋を押すたびに追加）。
           JPEG・PNG・PDF ／ 写真は ${Math.floor(MAX_PICK_BYTES / 1024 / 1024)}MB・PDF は ${Math.floor(MAX_FILE_BYTES / 1024 / 1024)}MB まで・最大 ${MAX_FILES} 件。
           <b>写真は縮小保存します</b></span>
-        ${t.attachmentHint ? `<span class="fhint">${esc(t.attachmentHint)}</span>` : ''}
+        ${t.attachmentHint ? `<span class="fhint">${t.attachmentHint}</span>` : ''}
         <script>
         // 条件付き項目の出し分け。無関係な項目を触れる状態にしない（島民に「準島民の事由」など）。
         // 隠すだけでなく disabled にして送信もさせない。サーバ側でも落とすので二重の網。

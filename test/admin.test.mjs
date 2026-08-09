@@ -272,9 +272,11 @@ test('admin: 添付は原本つきで受理され、控えと審査画面から�
 test('apply: 添付は必須にせず、デモ都合であることを画面に書く', async () => {
   const sid = await login('u_002');
   const form = await (await fetch(`${ISSUER}/apply/disaster/43100?d=${DISASTER_ID}`, { headers: { cookie: `sid=${sid}` } })).text();
-  assert.ok(!form.includes('被害状況の写真・書類<b class="req">必須</b>'), '必須バッジを出さない');
-  assert.ok(form.includes('本デモでは任意'), '任意であることをラベルに出す');
-  assert.ok(form.includes('本デモでは添付なしでも申請できます'), 'デモ都合であることを明記する');
+  // 実制度でも原則任意（自己判定調査を希望する場合だけ必須）。「必須だがデモでは任意」は誤りだった
+  assert.ok(!form.includes('<b class="req">必須</b></div>'), '添付に必須バッジを出さない');
+  assert.ok(form.includes('原則任意'), '実制度どおり原則任意と出す');
+  assert.ok(form.includes('自己判定調査'), '必須になる条件（自己判定調査）を書く');
+  assert.ok(!form.includes('本デモでは添付なしでも'), 'デモ都合という誤った説明はしない');
   assert.ok(form.includes('写真は 8MB'), '選べる上限を画面に出す');
   assert.ok(form.includes('写真は縮小保存します'), '原寸で保管しないことは明示する');
 
