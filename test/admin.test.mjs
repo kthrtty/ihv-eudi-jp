@@ -358,6 +358,38 @@ test('apply: 災害は都道府県チップで絞り込め、絞り込みは申�
   assert.ok(next.includes(`/apply/disaster?pref=${encodeURIComponent('石川県')}`), '災害を変更しても絞り込みは維持');
 });
 
+// 絞り込みは**フォームまで運び、戻る導線でも保つ**。落とすと都道府県を選び直させる。
+test('apply: 都道府県の絞り込みが災害→申請先→フォーム→戻る まで保たれる', async () => {
+  const sid = await login('u_002');
+  const get = async (u) => (await fetch(ISSUER + u, { headers: { cookie: `sid=${sid}` } })).text();
+  const P = encodeURIComponent('熊本県');
+
+  // ② 災害（熊本県で絞る）→ カードのリンクに pref が載る
+  const step2 = await get(`/apply/disaster?pref=${P}`);
+  assert.ok(step2.includes(`href="/apply/disaster?d=r8-kumamoto&pref=${P}"`), '災害カードが pref を運ぶ');
+
+  // ③ 申請先 → 市区町村カードにも pref が載る
+  const step3 = await get(`/apply/disaster?d=r8-kumamoto&pref=${P}`);
+  assert.ok(step3.includes('熊本県 の対象市区町村（19件）'), '県が引き継がれている');
+  assert.ok(step3.includes(`href="/apply/disaster/43100?d=r8-kumamoto&pref=${P}"`), '市区町村カードも pref を運ぶ');
+
+  // ④ フォーム → 戻る導線すべてが災害と県を保つ
+  const form = await get(`/apply/disaster/43100?d=r8-kumamoto&pref=${P}`);
+  assert.ok(form.includes(`href="/apply/disaster?d=r8-kumamoto&pref=${P}"`), '「申請先を選び直す」が両方保つ');
+  assert.ok(form.includes(`href="/apply/disaster?pref=${P}"`), '「災害を変更」も県を保つ');
+  assert.ok(form.includes(`action="/apply/disaster/43100?pref=${P}"`), 'POST 先にも載せる（エラーで戻れるように）');
+
+  // 絞り込み無しでは、そもそも市区町村を出さない（都道府県を選ばせる）
+  const plain = await get('/apply/disaster?d=r8-kumamoto');
+  assert.equal((plain.match(/class="mcard"/g) || []).length, 0);
+  assert.ok(plain.includes('対象の都道府県を選択してください'));
+
+  // 災害を持たない離島側は pref だけを運ぶ（余計な d を付けない）
+  const isl = await get(`/apply/island?pref=${encodeURIComponent('長崎県')}`);
+  assert.ok(isl.includes(`href="/apply/island/42209?pref=${encodeURIComponent('長崎県')}"`), '離島は pref だけ');
+  assert.ok(!isl.includes('d=r8'), '関係のないパラメータは付けない');
+});
+
 test('apply: 申請先は都道府県を選ぶまで市区町村を出さない（3状態）', async () => {
   const sid = await login('u_002');
   const get = async (q) => (await fetch(`${ISSUER}/apply/island${q}`, { headers: { cookie: `sid=${sid}` } })).text();
