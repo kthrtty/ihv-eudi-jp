@@ -146,6 +146,7 @@ export function createApp(opts = {}) {
     return c.html(renderApplyForm(user, t, muni, {
       error: c.req.query('e') || '',
       disaster,
+      pref: c.req.query('pref') || '',
       // 対象離島は申請先から決まるので埋めておく（複数島の自治体もあるので入力は残す）
       prefill: muni.islands.length === 1 ? { island_name: muni.islands[0] } : {},
     }));
@@ -159,6 +160,7 @@ export function createApp(opts = {}) {
     if (!t || !getMunicipality(code)) return c.notFound();
     // 対象の災害は catch 側（エラーで選択画面へ戻すとき）でも要るので try の外で持つ
     let disasterId = null;
+    const backPref = c.req.query('pref') || '';
     try {
       const f = await c.req.parseBody({ all: true });
       disasterId = String(f.disaster_id ?? '') || null;
@@ -188,8 +190,9 @@ export function createApp(opts = {}) {
         disasterId, form, attachments });
       return c.redirect(`/applications/${app2.id}?new=1`, 303);
     } catch (e) {
-      const q = disasterId ? `d=${encodeURIComponent(disasterId)}&` : '';
-      return c.redirect(`/apply/${kind}/${code}?${q}e=${encodeURIComponent(e.description || e.message)}`, 303);
+      const q = [disasterId ? `d=${encodeURIComponent(disasterId)}` : '', backPref ? `pref=${encodeURIComponent(backPref)}` : '']
+        .filter(Boolean).join('&');
+      return c.redirect(`/apply/${kind}/${code}?${q ? `${q}&` : ''}e=${encodeURIComponent(e.description || e.message)}`, 303);
     }
   });
 

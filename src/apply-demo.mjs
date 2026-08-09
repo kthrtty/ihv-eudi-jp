@@ -264,7 +264,9 @@ export function renderMunicipalityPicker(user, t, { pref = '', suggested = null,
   const cur = prefs.includes(asked) ? asked : '';
   const list = cur ? municipalitiesIn(cur, proc, codes) : [];
   const q = disaster ? `?d=${encodeURIComponent(disaster.id)}` : '';
-  const card = (x) => `<a class="mcard" href="/apply/${esc(t.id)}/${esc(x.code)}${q}">
+  // フォームまで pref を運ぶ。運ばないと「申請先を選び直す」で絞り込みが消える
+  const qq = (p) => `${q}${p ? `${q ? '&' : '?'}pref=${encodeURIComponent(p)}` : ''}`;
+  const card = (x) => `<a class="mcard" href="/apply/${esc(t.id)}/${esc(x.code)}${qq(cur)}">
     <b>${esc(x.name)}</b><small>${esc(x.code)}</small>
     ${/* 対象離島は**離島割引の属性**。罹災の申請先には関係ないので出さない
          （輪島市・佐渡市のように両方の母集団に入る自治体があるため素で出すと漏れる） */''}
@@ -298,7 +300,7 @@ export function renderMunicipalityPicker(user, t, { pref = '', suggested = null,
       <p class="lead">${esc(t.applyToLead)}<br>
         <b>この手続きを扱う自治体だけ</b>を出しています。住所からは推定しません——申請先はご自身で選びます。</p>
       ${suggested ? `<div class="recent"><span>住民票の住所から</span>
-        <a href="/apply/${esc(t.id)}/${esc(suggested.code)}${q}">${esc(suggested.pref)} ${esc(suggested.name)}</a></div>` : ''}
+        <a href="/apply/${esc(t.id)}/${esc(suggested.code)}${qq(suggested.pref)}">${esc(suggested.pref)} ${esc(suggested.name)}</a></div>` : ''}
       <div class="pick">
         <div class="pcol"><b class="h">都道府県${t.id === 'island' ? '（取扱いのある県のみ）' : ''}</b>
           ${prefs.map((p) => `<a href="${href(p)}" class="${p === cur ? 'on' : ''}">${esc(p)}<i>${municipalitiesIn(p, proc, codes).length}</i></a>`).join('')}
@@ -313,21 +315,26 @@ export function renderMunicipalityPicker(user, t, { pref = '', suggested = null,
 }
 
 /** 申請フォーム。審査で決まる項目（被害の程度・対象区分）はここに出さない。 */
-export function renderApplyForm(user, t, muni, { error = '', prefill = {}, disaster = null } = {}) {
+export function renderApplyForm(user, t, muni, { error = '', prefill = {}, disaster = null, pref = '' } = {}) {
+  // 選択画面へ戻る導線は**絞り込みを保つ**（落とすと都道府県を選び直させることになる）
+  const bk = (withD) => {
+    const qs = [withD && disaster ? `d=${encodeURIComponent(disaster.id)}` : '', pref ? `pref=${encodeURIComponent(pref)}` : ''].filter(Boolean);
+    return `/apply/${esc(t.id)}${qs.length ? `?${qs.join('&')}` : ''}`;
+  };
   return appShell(t.title, `
     <div style="margin-top:22px">
-      <div class="crumb"><a href="/" style="color:inherit">発行カタログ</a> › <a href="/apply/${esc(t.id)}" style="color:inherit">${esc(t.short)}</a> › ${esc(muni.pref)} ${esc(muni.name)}</div>
+      <div class="crumb"><a href="/" style="color:inherit">発行カタログ</a> › <a href="${bk(false)}" style="color:inherit">${esc(t.short)}</a> › ${esc(muni.pref)} ${esc(muni.name)}</div>
       <h1 style="font-size:20px;margin:0 0 12px">${esc(t.title)}</h1>
       ${error ? `<div class="warn err">⚠️ ${esc(error)}</div>` : ''}
       ${disaster ? `<div class="pin"><span class="pi">🌊</span>
         <span>対象の災害　<b>${esc(disaster.name)}</b><span class="sub">発生 ${esc(disaster.occurred)}</span></span>
-        <a class="chg" href="/apply/${esc(t.id)}">変更</a></div>` : ''}
+        <a class="chg" href="${bk(false)}">変更</a></div>` : ''}
       <div class="pin"><span class="pi">🏛</span>
         <span>申請先　<b>${esc(muni.pref)} ${esc(muni.name)}</b>
           <span class="sub">交付者に「${esc(muni.head)}」が記載されます</span></span>
-        <a class="chg" href="/apply/${esc(t.id)}${disaster ? `?d=${encodeURIComponent(disaster.id)}` : ''}">変更</a></div>
+        <a class="chg" href="${bk(true)}">変更</a></div>
       <p class="lead">${esc(t.lead)}<br><span style="font-size:11px">${esc(t.basis)}</span></p>
-      <form class="acard" method="POST" action="/apply/${esc(t.id)}/${esc(muni.code)}" enctype="multipart/form-data">
+      <form class="acard" method="POST" action="/apply/${esc(t.id)}/${esc(muni.code)}${pref ? `?pref=${encodeURIComponent(pref)}` : ''}" enctype="multipart/form-data">
         ${disaster ? `<input type="hidden" name="disaster_id" value="${esc(disaster.id)}">` : ''}
         <div class="sec">申請者<span class="tagro">住民基本台帳から自動入力</span></div>
         <div class="g2">
@@ -485,7 +492,7 @@ export function renderApplyForm(user, t, muni, { error = '', prefill = {}, disas
           ${t.id === 'disaster' ? '市区町村の被害認定調査によって判定され、認定後に証明書へ記載されます。' : '交付自治体の審査により認定され、認定後に資格証へ記載されます。'}</div>
 
         <div class="acts"><button class="abtn" type="submit">この内容で申請する</button>
-          <a class="abtn gh" href="/apply/${esc(t.id)}${disaster ? `?d=${encodeURIComponent(disaster.id)}` : ''}">申請先を選び直す</a></div>
+          <a class="abtn gh" href="${bk(true)}">申請先を選び直す</a></div>
       </form>
     </div>
     <style>${CSS}</style>`, user, { width: 'mid' });
