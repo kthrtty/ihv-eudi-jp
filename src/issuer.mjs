@@ -7,6 +7,9 @@ import { tag1004, b64url } from './cbor.mjs';
 import { issueMdoc, verifyMdoc } from './mdoc.mjs';
 import { issueSdJwtVc, verifySdJwtVc } from './sdjwt.mjs';
 import { personaOverrides } from './users.mjs';
+// accountCatalog が「この書類は交付申請で決まる」を判定するために使う（循環しない：
+// applications.mjs は issuer.mjs を import しない）
+import { requiresApplication, getApplicationType, labelOf, subOf, targetAuthority } from './applications.mjs';
 // schemas are bundled (no fs at import) so the module loads on Workers; PKI keys
 // are still read lazily inside mint()/verify() (to be injected via env — see docs).
 import catalog from '../schemas/credential-catalog.json' with { type: 'json' };
@@ -264,13 +267,31 @@ export function personaClaims(configId, persona) {
  * with provenance: 'edit' = fed by the editable persona fields, 'drv' = derived
  * from them at issuance (age_over_NN, household composition, 筆頭者), 'fix' =
  * issuer-assigned / sample-fixed (not user-changeable). Mirrors mint() exactly. */
-export function accountCatalog(persona) {
+export function accountCatalog(persona, applications = []) {
   const DRV = new Set(['head_of_household_name', 'relationship_to_head', 'household_members', 'head_of_family']);
   // 区分・事由・有効期限・島名・自治体は /account の離島割引セクションで編集できる（=edit）。
   // 資格証番号だけは自治体が採番するもので編集欄が無いため drv 扱いにする。
   const ISLAND_DRV = new Set(['card_number', 'resident_category', 'quasi_reason', 'damage_level']);
   return Object.entries(schemas).map(([credId, schema]) => {
     const overrides = persona ? personaOverrides(persona, schema.claims.map((c) => c.key)) : {};
+    // **交付申請ベースの書類は persona からほとんど流れない**（姓・名だけ）。
+    // 中身は申請の認定で決まり、しかも**申請1件＝VC1枚**なので同じ種別を複数持てる。
+    // ここで SAMPLE 混じりの1件を並べると、実際に交付される VC と全項目が食い違う
+    // （山田太郎の罹災は SAMPLE の「千代田区長・令和7年台風第10号」を表示していたが、
+    //  実際は A-0002 の「世田谷区長・令和元年東日本台風」だった）。属性表は出さず、
+    // 認定済みの申請を並べて控え（実物）へ送る。
+    if (requiresApplication(credId)) {
+      const mine = applications.filter((a) => getApplicationType(a.kind)?.credType === credId);
+      return {
+        type: credId,
+        byApplication: mine.map((a) => ({
+          id: a.id, label: labelOf(a), sub: subOf(a), authority: targetAuthority(a) || a.authority || '',
+        })),
+        // persona の編集がそのまま効くのは氏名だけ（それ以外は申請の申告値・認定値）
+        claims: schema.claims.filter((c) => ['family_name', 'given_name'].includes(c.key))
+          .map((c) => ({ key: c.key, label: c.display?.ja || c.key, value: overrides[c.key], src: 'edit' })),
+      };
+    }
     const data = { ...SAMPLE[credId], ...overrides };
     if (data.birth_date) {
       for (const c of schema.claims) {

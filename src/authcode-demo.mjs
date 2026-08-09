@@ -792,7 +792,7 @@ export function renderVcSelect(user, groups, { walletOrigin = '', approved = [] 
   return appShell('デジタル資格証を発行する', `
     <div class="catwrap">
      <div class="catmain">
-      <h2 class="h2">発行できるデジタル資格証</h2>
+      <h2 class="h2">発行できるデジタル資格証・証明書</h2>
       <div class="hint" style="margin:0 0 14px">形式チップ（mdoc / SD-JWT）で複数選択できます。複数種別・複数形式をまとめて1つのオファーに含められます。下のバーの<b>「発行」でそのまま発行</b>、「プレビュー」でウォレットに入る姿を確認できます。</div>
       <div class="catlist">${rows}</div>
      </div><!-- /catmain -->
@@ -1299,6 +1299,22 @@ export function renderAccount(user, docs = []) {
     const t = TYPE_META[d.type] || {};
     const rows = d.claims.map((c) =>
       `<tr><td>${esc(c.label)}<span class="src mono">${esc(c.key)}</span></td><td>${fmtVal(c.value)} ${srcB(c.src)}</td></tr>`).join('');
+    // **交付申請ベースの書類はここに属性表を出さない**。中身は申請の認定で決まり、
+    // 申請1件＝VC1枚なので同じ種別を複数持てる。1件ぶんの表を出すと、実際に交付される
+    // VC と食い違ううえ「1枚しか持てない」ように見える。実物は控え（/applications/:id）にある。
+    if (d.byApplication) {
+      const list = d.byApplication.length
+        ? `<div class="appq">${d.byApplication.map((a) => `<a class="appq-row" href="/applications/${esc(a.id)}">
+             <span class="appq-no">${esc(a.id)}</span>
+             <span class="appq-lb"><b>${esc(a.label)}</b><small>${[a.authority, a.sub].filter(Boolean).map(esc).join('　／　')}</small></span>
+             <span class="appq-go">控えを見る ›</span></a>`).join('')}</div>`
+        : `<div class="appq-none">交付できる申請がありません。<a href="/">発行カタログ</a>から申請します。</div>`;
+      return `<details class="doc"${i < 2 ? ' open' : ''}><summary><span class="sw" style="background:${t.c1 || '#607D8B'}"></span>${esc(t.name || d.type)}<span class="n">申請ごと</span></summary>
+        <table class="ro-table">${rows}</table>
+        <div class="appq-note">これ以外の項目は<b>交付申請の認定</b>で決まります（被災住家の所在地・世帯構成員・被害程度など）。
+          ここでは編集できません。<b>申請1件につき1枚</b>交付されます。</div>
+        ${list}</details>`;
+    }
     return `<details class="doc"${i < 2 ? ' open' : ''}><summary><span class="sw" style="background:${t.c1 || '#607D8B'}"></span>${esc(t.name || d.type)}<span class="n">${d.claims.length}項目</span></summary>
       <table class="ro-table">${rows}</table></details>`;
   }).join('');
@@ -1413,6 +1429,20 @@ export function renderAccount(user, docs = []) {
       .b-edit{background:#E7F3EE;color:#0E8A6B}.b-drv{background:#EAF0FA;color:#1C3F94}.b-fix{background:#F1F3F7;color:#5B6B82}
       .ro-legend{display:flex;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin:0 0 12px;align-items:center}
       details.doc{border:1px solid var(--line);border-radius:11px;margin-bottom:9px;background:#fff}
+      /* 交付申請ベースの書類: 属性表の代わりに認定済み申請を並べ、控え（実物）へ送る */
+      .appq-note{margin:0 14px 10px;background:#F7F9FC;border-radius:9px;padding:10px 12px;font-size:11.5px;color:var(--muted);line-height:1.75}
+      .appq-note b{color:var(--ink)}
+      .appq{display:flex;flex-direction:column;margin:0 14px 12px;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+      .appq-row{display:grid;grid-template-columns:76px minmax(0,1fr) 92px;gap:10px;align-items:center;padding:10px 12px;
+        text-decoration:none;color:inherit;border-bottom:1px solid #eef1f6;background:#fff}
+      .appq-row:last-child{border-bottom:0}
+      .appq-row:hover{background:#FAFBFD}
+      .appq-no{font-family:ui-monospace,monospace;font-size:11.5px;color:var(--muted)}
+      .appq-lb{display:flex;flex-direction:column;min-width:0;line-height:1.45}
+      .appq-lb b{font-size:12.5px;font-weight:500}
+      .appq-lb small{font-size:10.5px;color:var(--muted)}
+      .appq-go{font-size:11.5px;font-weight:700;color:var(--civic);text-align:right;white-space:nowrap}
+      .appq-none{margin:0 14px 12px;font-size:12px;color:var(--muted)}
       details.doc>summary{cursor:pointer;padding:11px 14px;font-size:13.5px;font-weight:700;list-style:none;display:flex;align-items:center;gap:9px}
       details.doc>summary::-webkit-details-marker{display:none}
       details.doc>summary .sw{width:13px;height:13px;border-radius:4px;flex:none}

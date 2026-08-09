@@ -10,7 +10,7 @@ import { createAdminApp } from '../src/admin-app.mjs';
 import { createWallet } from '../src/wallet.mjs';
 import { IssuerService, memoryStore } from '../src/oid4vci.mjs';
 import { canTransition, claimsFingerprint, claimsFor, getApplicationType } from '../src/applications.mjs';
-import { mint } from '../src/issuer.mjs';
+import { mint, accountCatalog } from '../src/issuer.mjs';
 import { renderApplyForm } from '../src/apply-demo.mjs';
 import { getDisaster } from '../src/disasters.mjs';
 import { getMunicipality } from '../src/municipalities.mjs';
@@ -397,4 +397,39 @@ test('applications: 「記載しない」と判定した項目に SAMPLE が漏�
 
   const on = await issue(true);
   assert.equal(on.household_members[0].family_name, '佐藤', '記載するなら申請者の世帯');
+});
+
+// /account は「編集した属性が VC にどう効くか」を見せる画面。**交付申請ベースの書類は
+// persona からほとんど流れず**（姓・名だけ）、中身は認定で決まり、しかも申請1件＝VC1枚
+// なので同じ種別を複数持てる。以前はここに SAMPLE 混じりの1件ぶんの表を出していて、
+// 実際に交付される VC と**全項目が食い違って**いた（山田太郎の罹災は「千代田区長・
+// 令和7年台風第10号」と表示されるが、実物は A-0002 の「世田谷区長・令和元年東日本台風」）。
+test('applications: /account は申請ベースの書類に SAMPLE の1件を並べない', async () => {
+  const svc = new IssuerService();
+  const persona = svc.users.get('u_001');
+  const cat = accountCatalog(persona, await svc.issuableApplications('u_001'));
+  const dis = cat.find((d) => d.type === 'disaster');
+
+  assert.deepEqual(dis.claims.map((c) => c.key), ['family_name', 'given_name'],
+    'persona の編集が効くのは氏名だけ');
+  // 申請の申告値・認定値をここに出さない（出すと「編集反映」「自動導出」が嘘になる）
+  for (const k of ['address', 'household_members', 'damage_level', 'disaster_name', 'issuing_authority']) {
+    assert.ok(!dis.claims.some((c) => c.key === k), `${k} は /account に出さない`);
+  }
+  // 代わりに**実物の申請**を並べる（複数持てることが見える）
+  assert.equal(dis.byApplication.length, 1);
+  assert.equal(dis.byApplication[0].id, 'A-0002');
+  assert.equal(dis.byApplication[0].authority, '世田谷区長', 'SAMPLE の千代田区長ではない');
+  assert.match(dis.byApplication[0].label, /令和元年東日本台風/);
+
+  // 2件目を認定すると2行になる（1申請＝1枚）
+  const app = await svc.submitApplication({ userId: 'u_001', kind: 'disaster', ...DISASTER, form: DISASTER_FORM });
+  await svc.decideApplication(app.id, { status: 'approved', decision: { damage_level: '全壊' } });
+  const after = accountCatalog(persona, await svc.issuableApplications('u_001')).find((d) => d.type === 'disaster');
+  assert.equal(after.byApplication.length, 2);
+  assert.equal(after.byApplication[1].authority, '熊本市長');
+
+  // 申請ベースでない書類は従来どおり全項目を出す
+  const pid = cat.find((d) => d.type === 'pid');
+  assert.ok(pid.claims.length > 5 && !pid.byApplication);
 });

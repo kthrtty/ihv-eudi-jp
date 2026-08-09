@@ -105,7 +105,7 @@ export function renderVerifyConsole(groups = []) {
       <div class="step" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
         <span><a href="/verifier" style="color:inherit;text-decoration:none">← シナリオデモ</a> ｜ 検証要求ビルダー · OpenID4VP / DCQL</span>
         <a href="/verifier/history" style="font-weight:700;color:var(--verify);text-decoration:none">提示履歴 →</a></div>
-      <h1>提示を要求するデジタル資格証と項目を選ぶ</h1>
+      <h1>提示を要求するデジタル資格証・証明書と項目を選ぶ</h1>
       <div class="muted" style="font-size:12px;margin-bottom:4px">開発者向け: プロトコル・提示先・要求項目を自由に組んで実ウォレットへ提示要求できます。一般向けは <a href="/verifier">シナリオデモ</a> へ。</div>
 
       <label class="lbl">デジタル資格証（発行者が提示可能なものから選択 — カードの形式をクリック）</label>
