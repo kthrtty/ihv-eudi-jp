@@ -98,6 +98,15 @@ export const renderPolicy = (kind) => (ACCEPTED[kind]?.inline ? 'inline' : 'chip
  *  マジックバイトから決めた kind だけを信用する）。 */
 export const ATT_MIME = Object.fromEntries(Object.entries(ACCEPTED).map(([k, v]) => [k, v.mime]));
 
+/** URL の添付インデックス。**厳密な整数だけ**受ける。`Number()` に素で渡すと
+ *  `'0.0'`/`' 0'`/`'+0'`/`'0e0'` が同じ資源の別表記になり、キャッシュや監査ログが
+ *  同一資源を別物として数えることになる（認可は別途効いているので実害は無いが、
+ *  URL は1資源1表記にしておく）。 */
+export function attIdx(raw) {
+  const s = String(raw ?? '');
+  return /^\d{1,3}$/.test(s) ? Number(s) : null;
+}
+
 /** 保存名。利用者が付けた名前は保持せず、こちらで決めた安全な名前にする
  *  （パス区切り・制御文字・二重拡張子・長大名の混入経路を断つ）。 */
 export const safeStoredName = (kind, idx) => `att-${String(idx).padStart(2, '0')}.${ACCEPTED[kind]?.ext ?? 'bin'}`;

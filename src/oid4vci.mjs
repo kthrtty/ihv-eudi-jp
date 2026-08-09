@@ -8,7 +8,7 @@ import { StatusListService } from './status.mjs';
 import { createUserStore } from './users.mjs';
 import { APPLICATION_TYPES as APP_TYPES, getApplicationType, canTransition, canIssueFrom,
   claimsFor, claimsFingerprint, requiresApplication, seedApplications, targetAuthority,
-  missingRequired } from './applications.mjs';
+  missingRequired, overlongFields } from './applications.mjs';
 import { offersProcedure, getMunicipality } from './municipalities.mjs';
 import { coversMunicipality, getDisaster } from './disasters.mjs';
 import { sha256, b64url } from './cbor.mjs';
@@ -203,6 +203,8 @@ export class IssuerService {
     const clean = t.normalize ? t.normalize(form, muni, persona) : form;
     const missing = missingRequired(t, clean);
     if (missing.length) throw httpErr(400, 'invalid_request', `未入力の必須項目: ${missing.join('・')}`);
+    const long = overlongFields(t.form, clean);
+    if (long.length) throw httpErr(400, 'invalid_request', `入力が長すぎます: ${long.join('・')}`);
     const bad = t.validate ? t.validate(clean, muni, persona) : null;
     if (bad) throw httpErr(400, 'invalid_request', bad);
     this.applicationSeq += 1;
@@ -262,15 +264,20 @@ export class IssuerService {
     if (status === 'approved') {
       const missing = t.decision.filter((x) => x.required && !String(decision[x.key] ?? '').trim()).map((x) => x.label);
       if (missing.length) throw httpErr(400, 'invalid_request', `審査で決める項目が未入力: ${missing.join('・')}`);
+      // 追加記載事項は VC のクレームになるので、ここでも長さを見る
+      const long = overlongFields(t.decision, decision);
+      if (long.length) throw httpErr(400, 'invalid_request', `入力が長すぎます: ${long.join('・')}`);
     }
     // 監査証跡: どの職員がいつ判定したか。名簿が後で変わっても記録は当時のまま残す
     // （参照ではなくスナップショットで持つ）。
     const next = { ...app, status, decided_at: new Date().toISOString(), decided_by: staff || null };
     if (status === 'approved') {
       next.decision = decision;
-      // 交付者名は**申請先の自治体**から確定する。明示指定（旧レコードの手入力・テスト）が
-      // あればそれを優先し、無ければディレクトリ、最後に既存値。職員の所属は使わない。
-      next.authority = authority || targetAuthority(app) || app.authority || 'デモ市区町村長';
+      // 交付者名は**申請先の自治体から確定**する。ディレクトリで引けるなら手入力は見ない
+      // ——審査画面は申請先がある申請で入力欄を出さないが、**画面で隠すだけでは防御にならない**
+      // （エンドポイントに直接投げれば任意の交付者名が署名済み VC に載る。2026-08-09 実測）。
+      // 手入力が効くのは target_code を持たない旧レコードだけ（後方互換）。職員の所属は使わない。
+      next.authority = targetAuthority(app) || authority || app.authority || 'デモ市区町村長';
       // 証明書番号（整理番号）は交付時ではなく認定時に自治体が採番する
       next.certificateNumber = app.certificateNumber || `${app.kind === 'disaster' ? 'DS' : 'KG'}-${app.id.slice(2)}`;
     }

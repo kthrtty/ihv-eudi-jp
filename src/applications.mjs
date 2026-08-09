@@ -116,6 +116,31 @@ export const DISASTER_CONSENTS = [
 
 /** 世帯構成員の続柄。住民票の表記に合わせる（長男/長女は戸籍側の表記）。 */
 export const HOUSEHOLD_RELS = ['世帯主', '妻', '夫', '子', '父', '母', '祖父', '祖母', '兄弟姉妹', 'その他'];
+/** 自由入力の上限。**申請台帳は KV の1オブジェクト**なので、1件が肥ると全体が壊れる
+ *  （添付の原本を別キーに逃がしたのと同じ理由）。選択式の項目は選択肢が上限になるので対象外。 */
+const MAX_LEN = { textarea: 2000, text: 200, tel: 40, address: 200, date: 20, select: 100, radio: 100 };
+export const maxLenOf = (x) => x.maxLen ?? MAX_LEN[x.type] ?? 200;
+
+/** 長すぎる自由入力を探す。**切り詰めず断る**（黙って削ると申請者の言葉が消える）。 */
+export function overlongFields(fields, form) {
+  const out = [];
+  for (const x of fields || []) {
+    if (!(x.type in MAX_LEN)) continue;
+    const v = form?.[x.key];
+    if (typeof v === 'string' && v.length > maxLenOf(x)) out.push(`${x.label}（最大${maxLenOf(x)}文字）`);
+  }
+  // 世帯構成員の各セルも自由入力。行数は parseHousehold が抑えるが長さは別
+  for (const x of fields || []) {
+    if (x.type !== 'household') continue;
+    for (const m of (Array.isArray(form?.[x.key]) ? form[x.key] : [])) {
+      if (Object.values(m || {}).some((v) => typeof v === 'string' && v.length > 100)) {
+        out.push(`${x.label}（1項目あたり最大100文字）`); break;
+      }
+    }
+  }
+  return out;
+}
+
 /** 「入力された」と言えるか。**型ごとに空の意味が違う**ので String() では判定できない
  *  （空配列は `''` になって偶然通るが、同意の object は `[object Object]` で必ず通ってしまう）。 */
 export function missingRequired(t, form) {
@@ -131,9 +156,11 @@ export function missingRequired(t, form) {
   return out;
 }
 
-/** 複数選択（checkgroup）を配列にする。単一値でも配列に揃える。 */
-export const parseChecks = (raw, key, options) => [].concat(raw?.[key] ?? [])
-  .map((v) => String(v)).filter((v) => options.includes(v));
+/** 複数選択（checkgroup）を配列にする。単一値でも配列に揃える。
+ *  **選択肢に無い値は捨て、重複は畳む**——同じ値を数百回送られると申請台帳
+ *  （`_persist:apps` は KV の1オブジェクト）が1件で膨らむ。これで最大は選択肢の数。 */
+export const parseChecks = (raw, key, options) => [...new Set([].concat(raw?.[key] ?? [])
+  .map((v) => String(v)).filter((v) => options.includes(v)))];
 /** 同意（consent_<key>）を真偽の対応表にする。 */
 export const parseConsents = (raw, items) =>
   Object.fromEntries(items.map((c) => [c.key, raw?.[`consent_${c.key}`] === 'on']));

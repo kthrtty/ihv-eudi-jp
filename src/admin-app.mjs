@@ -13,7 +13,7 @@ import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { IssuerService } from './oid4vci.mjs';
 import { securityHeaders, csrfGuard } from './security.mjs';
 import { getApplicationType } from './applications.mjs';
-import { ATT_MIME } from './upload.mjs';
+import { ATT_MIME, attIdx } from './upload.mjs';
 import { listStaff, getStaff, staffStamp } from './staff.mjs';
 import { renderStaffLogin } from './authcode-demo.mjs';
 import { renderAdminList, renderAdminReview } from './admin-demo.mjs';
@@ -98,7 +98,8 @@ export function createAdminApp(opts = {}) {
   app.get('/a/:id/att/:idx', async (c) => {
     const staff = await staffOf(c);
     if (!staff) return c.redirect(`/login?next=/a/${encodeURIComponent(c.req.param('id'))}`, 302);
-    const att = await svc.getAttachment(c.req.param('id'), Number(c.req.param('idx')));
+    const idx = attIdx(c.req.param('idx'));
+    const att = idx === null ? null : await svc.getAttachment(c.req.param('id'), idx);
     if (!att) return c.notFound();
     c.header('content-type', ATT_MIME[att.kind] || 'application/octet-stream');
     c.header('content-disposition', `${att.kind === 'pdf' ? 'attachment' : 'inline'}; filename="${att.stored || 'attachment'}"`);

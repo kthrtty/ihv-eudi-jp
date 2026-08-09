@@ -83,7 +83,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   **教訓: 適合を名乗る面は自己ループでなく仕様構造の golden/外部実装との適合テストで pin。簡略化は名乗りに明示。**
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（362, node:test）／
+`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（365, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
@@ -221,6 +221,15 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   ——**同意は既定で真にしない**（送られてこない＝同意していない）。`String({})` は必ず truthy なので型で判定する。
   審査画面は `formRow()` が型ごとに整形（素で埋めると `[object Object]` が並ぶ）。`reviewHide:true` の項目
   （`same_address` のような入力補助）は審査画面に出さない
+- **画面で隠すのは防御ではない**（2026-08-09 セキュリティ確認で実測）: 審査画面は申請先がある申請で
+  発行者名の入力欄を出さないが、`/a/:id/decision` は `authority` を受けており、**任意の交付者名が
+  署名済み VC に載せられた**（`authority || targetAuthority(app)` の順で手入力が勝っていた）。
+  正しい順は **`targetAuthority(app) || authority`**＝ディレクトリで引けるなら手入力は見ない。
+  手入力が効くのは target_code を持たない旧レコードだけ
+- **申請台帳を1件で膨らませられないこと**（同上）: `_persist:apps` は KV の1オブジェクトなので、
+  **checkgroup は重複を畳み**（`parseChecks` が Set。上限＝選択肢の数）、**自由入力は長さで断る**
+  （`overlongFields`。textarea 2000 / text 200 / 世帯構成員のセル 100。**切り詰めず断る**——
+  黙って削ると申請者の言葉が消える）。審査の `extra_note` は VC のクレームになるのでそちらでも見る
 - **添付は `src/upload.mjs` で一元判定**: 拡張子/Content-Type を信用せず**マジックバイト**で許可リスト判定
   （JPEG/PNG/PDF。HEIC・WebP は検出して個別文言で拒否＝TODO、AVIF は対象外）
 - **写真は送信前にクライアントで長辺1600pxへ縮小して送る**（2026-08-09）。スマホのカメラ写真は 12MP で 4〜6MB あり、
