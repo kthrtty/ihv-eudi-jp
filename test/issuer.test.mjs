@@ -68,10 +68,16 @@ test('applications: 認定内容から VC クレームが組まれる（離島�
   assert.equal(c.resident_category, '準島民');
   assert.match(c.quasi_reason, /就学/);
   assert.equal(c.expiry_date, '2027-03-31', '学生区分は卒業月末（島民の3年とは異なる）');
-  // 島民には準島民事由を載せない（最も機微な項目なので、区分で明確に分ける）
+  // 島民には準島民事由を載せない（最も機微な項目なので、区分で明確に分ける）。
+  // **null =「載せない」の明示**で、undefined（未指定）にすると mint の SAMPLE が埋めてしまう
   const [shimin] = await svc.issuableApplications('u_001', 'island');
-  assert.equal(claimsFor(shimin, store.get('u_001')).resident_category, '島民');
-  assert.equal(claimsFor(shimin, store.get('u_001')).quasi_reason, undefined);
+  const sc = claimsFor(shimin, store.get('u_001'));
+  assert.equal(sc.resident_category, '島民');
+  assert.equal(sc.quasi_reason, null, '載せないの明示（undefined だと SAMPLE に埋められる）');
+  const m = await mint('island_sdjwt', { holderJwk: { kty: 'EC', crv: 'P-256', x: 'A'.repeat(43), y: 'B'.repeat(43) }, claims: sc });
+  assert.ok(!String(m.credential).split('~').slice(1).some((d) => {
+    try { return JSON.parse(Buffer.from(d, 'base64url').toString())[1] === 'quasi_reason'; } catch { return false; }
+  }), '発行された VC にも載らない');
 });
 
 test('applications: 認定が無い利用者は交付対象にならない', async () => {
