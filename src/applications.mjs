@@ -231,8 +231,10 @@ const disaster = {
       address: w.damaged_address,                      // 被災住家の所在地（統一様式の必須）
       disaster_name: disasterName(app), disaster_date: disasterDate(app),
       damage_level: d.damage_level,
-      building_type: w.building_type || undefined,
-      additional_note: d.extra_note || undefined,      // 追加記載事項欄②③（自治体の任意欄）
+      // **任意項目は undefined ではなく null**。undefined だと SAMPLE が埋めて、
+      // 誰も申告していない「木造2階建」が証明書に載る（証明書に嘘の事実を作らない）
+      building_type: w.building_type || null,
+      additional_note: d.extra_note || null,           // 追加記載事項欄②③（自治体の任意欄）
       certificate_number: app.certificateNumber,
       issuing_authority: app.authority,
       // 紙の「上記のとおり、相違ないことを証明します。〇年〇月〇日」＝**認定した日**。
@@ -326,7 +328,7 @@ const island = {
       family_name: persona?.family, given_name: persona?.given, birth_date: persona?.birth,
       resident_category: d.resident_category,
       // 準島民の事由は最も機微な項目。準島民以外では載せない
-      quasi_reason: quasi ? (w.reason || undefined) : undefined,
+      quasi_reason: quasi ? (w.reason || null) : null,
       island_name: w.island_name,
       issuing_municipality: targetName(app),   // 正式名称（旧レコードは申請時の自由文）
       issuance_date: decidedOn(app),
