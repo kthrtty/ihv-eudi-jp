@@ -13,6 +13,8 @@ import { createWallet } from '../src/wallet.mjs';
 import { memoryStore } from '../src/oid4vci.mjs';
 import { listStaff } from '../src/staff.mjs';
 import { wireForm, setWire } from './form-wire.mjs';
+import { REAL_JPEG, REAL_PNG, FAKE_PDF } from './img.mjs';
+import { sanitizeJpeg } from '../src/upload.mjs';
 import { shell, appShell, adminShell, renderStaffLogin } from '../src/authcode-demo.mjs';
 
 const IPORT = 8983, APORT = 8984;
@@ -218,9 +220,7 @@ test('admin: 扱っていない自治体あての申請 URL は選択画面へ�
 // サムネイルだけを載せる設計なので、**申告を信用しない**ことをここで固定する。
 test('admin: 添付は原本つきで受理され、控えと審査画面から開ける', async () => {
   const sid = await login('u_002');
-  const jpeg = new Uint8Array(64); jpeg.set([0xff, 0xd8, 0xff, 0xe0]);
-  const png = new Uint8Array(64); png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-  const pdf = new Uint8Array(64); pdf.set([...'%PDF-1.7'].map((c) => c.charCodeAt(0)));
+  const jpeg = REAL_JPEG, png = REAL_PNG, pdf = FAKE_PDF;
   const thumb = 'data:image/jpeg;base64,' + Buffer.from(jpeg).toString('base64');
 
   const fd = new FormData();
@@ -250,7 +250,9 @@ test('admin: 添付は原本つきで受理され、控えと審査画面から�
   assert.equal(img.status, 200);
   assert.equal(img.headers.get('content-type'), 'image/jpeg');
   assert.match(img.headers.get('content-disposition'), /^inline/);
-  assert.deepEqual(new Uint8Array(await img.arrayBuffer()), jpeg, '原本がそのまま返る');
+  // **返るのは正規化後**。アップロードされたバイト列をそのまま保存しない
+  // （EXIF/GPS・付随データ・終端より後ろの継ぎ足しを落としてから台帳と KV に載せる）
+  assert.deepEqual(new Uint8Array(await img.arrayBuffer()), sanitizeJpeg(jpeg), '正規化した画像が返る');
   const doc = await fetch(`${ISSUER}/applications/${appId}/att/2`, { headers: { cookie: `sid=${sid}` } });
   assert.equal(doc.headers.get('content-type'), 'application/pdf');
   assert.match(doc.headers.get('content-disposition'), /^attachment/, 'PDF はインライン描画させない');
@@ -308,7 +310,7 @@ test('apply: 上限を超える添付は理由つきで断る', async () => {
 // 台帳のサムネイルは残るので、控えの見た目は保たれる。
 test('apply: 審査が終わると添付の原本は削除される（サムネイルは残る）', async () => {
   const sid = await login('u_002');
-  const jpeg = new Uint8Array(64); jpeg.set([0xff, 0xd8, 0xff, 0xe0]);
+  const jpeg = REAL_JPEG;
   const fd = new FormData();
   setWire(fd, DISASTER_FORM);
   fd.append('attachments', new Blob([jpeg], { type: 'image/jpeg' }), 'genkan.jpg');

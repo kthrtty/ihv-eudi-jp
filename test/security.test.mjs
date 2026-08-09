@@ -98,6 +98,7 @@ import { serve } from '@hono/node-server';
 import { createAdminApp } from '../src/admin-app.mjs';
 import { memoryStore } from '../src/oid4vci.mjs';
 import { attIdx } from '../src/upload.mjs';
+import { REAL_JPEG, FAKE_PDF, withTrailer } from './img.mjs';
 
 const SIP = 8993, SAP = 8994;
 const SI = `http://127.0.0.1:${SIP}`, SA = `http://127.0.0.1:${SAP}`;
@@ -116,9 +117,7 @@ const sLogin = async (u) => (await (await fetch(`${SI}/login`, { method: 'POST',
   headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: u }) })).json()).session_id;
 const sStaff = async (x) => (await (await fetch(`${SA}/login`, { method: 'POST',
   headers: { 'content-type': 'application/json' }, body: JSON.stringify({ staff_id: x }) })).json()).session_id;
-const SBYTES = (head, len = 64) => { const b = new Uint8Array(len); b.set(head); return b; };
-const SJPEG = SBYTES([0xff, 0xd8, 0xff, 0xe0]);
-const SPDF = SBYTES([...'%PDF-1.7'].map((c) => c.charCodeAt(0)));
+const SJPEG = REAL_JPEG, SPDF = FAKE_PDF;
 /** 罹災の申請を1件出す（申請先=川崎市・令和元年東日本台風）。 */
 const sSubmit = async (sid, extra = {}, files = []) => {
   const fd = new FormData();

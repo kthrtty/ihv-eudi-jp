@@ -83,7 +83,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   **教訓: 適合を名乗る面は自己ループでなく仕様構造の golden/外部実装との適合テストで pin。簡略化は名乗りに明示。**
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（365, node:test）／
+`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（366, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
@@ -232,6 +232,15 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   黙って削ると申請者の言葉が消える）。審査の `extra_note` は VC のクレームになるのでそちらでも見る
 - **添付は `src/upload.mjs` で一元判定**: 拡張子/Content-Type を信用せず**マジックバイト**で許可リスト判定
   （JPEG/PNG/PDF。HEIC・WebP は検出して個別文言で拒否＝TODO、AVIF は対象外）
+- **画像は保存前に正規化する**（2026-08-09・`sanitizeJpeg`/`sanitizePng`）: JPEG は APPn（EXIF/ICC/XMP）と
+  COM を落として EOI で切り、PNG は critical チャンク（+tRNS）だけ残して IEND で切る（**CRC も検証**）。
+  構造が読めなければ受け入れない。これで **EXIF の GPS**（被災住家の写真に撮影場所が乗る privacy 実害）と
+  **終端より後ろの継ぎ足し**が消える。**理想はデコードして描き直す再エンコードだが、Workers 無料プランの
+  CPU は 1リクエスト 10ms** で WASM の JPEG デコード+エンコードは 200ms〜3秒＝isolate 内では不可能。
+  **本命は Cloudflare Images バインディング**（変換は Images 側で走る・全アカウント月5,000変換まで無料）。
+  クライアントの canvas 縮小も再エンコードだが、失敗時は原本にフォールバックし敵対的クライアントは
+  何でも送れるので**サーバ側で必ず落とす**。テストは実物の画像を使う（`test/img.mjs`。マジックバイトだけの
+  偽物は正規化が落とすため）
 - **写真は送信前にクライアントで長辺1600pxへ縮小して送る**（2026-08-09）。スマホのカメラ写真は 12MP で 4〜6MB あり、
   原寸を保存すると KV が膨らむ。縮小すると 300〜500KB＝**保存量が約1/10**。選べる上限は**写真8MB / PDF2MB**
   （PDF は縮小できない）、**保存側の上限は2MB**。縮小できなかったときは原本にフォールバックし上限で判定。
