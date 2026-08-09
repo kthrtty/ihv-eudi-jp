@@ -126,7 +126,15 @@ const disaster = {
   // 実制度の期限（宇土市の表記。自治体により異なる）
   deadlineNote: '災害発生日から1年以内（自治体により異なる）',
   form: [
-    f('damaged_address', '被災住家の所在地', 'text', { required: true,
+    // **住基に電話番号は無い**。しかも被災者は住家に住めていないことがあるので、
+    // 登録住所ではなく「いま連絡がつく先」を聞く（実際の様式も現在の連絡先を別に取る）
+    f('contact_tel', '電話番号', 'tel', { required: true, placeholder: '090-0000-0000',
+      hint: '審査の連絡や現地調査の日程調整に使います。市は電話番号を保有していません' }),
+    f('contact_place', '避難先など', 'text', { placeholder: '例: 宇土市民体育館',
+      hint: '住家に住めていない場合の居場所。分かる範囲で構いません' }),
+    f('same_address', '被災住家の所在地', 'check', { default: true, checkLabel: '世帯主住所に同じ',
+      hint: '下宿・単身赴任などで住民票と違う場合はチェックを外して住所を入力します' }),
+    f('damaged_address', '被災住家の所在地', 'text', { showWhen: { key: 'same_address', checked: false },
       hint: '世帯主住所と異なる場合（別宅・転居前など）はその住所を入力してください' }),
     f('building_type', '住家の種別', 'select', { options: ['木造2階建', '木造平屋', '非木造（共同住宅）', 'その他'] }),
     // **住民票の世帯ではなく「被災住家の世帯構成員」**。実際の様式もここは申告事項で、
@@ -146,6 +154,12 @@ const disaster = {
     f('include_household', '世帯構成員を証明書に記載する', 'check', { default: true,
       hint: '内閣府統一様式の追加記載事項欄①' }),
   ],
+  // 「同じ」なら住基の住所をそのまま被災住家にする。チェックの状態に頼らず値を確定させる
+  normalize: (form, muni, persona) => ({
+    ...form,
+    damaged_address: form.same_address ? (persona?.address || form.damaged_address) : form.damaged_address,
+  }),
+  validate: (form) => (String(form.damaged_address || '').trim() ? null : '被災住家の所在地を入力してください'),
   // 見出し = 同じ書類の複数件を見分けるもの（災害名 ＋ 被災住家）
   label: (app) => [disasterName(app), app.form?.damaged_address].filter(Boolean).join('・') || '罹災証明',
   sub: (app) => app.decision?.damage_level ?? '',

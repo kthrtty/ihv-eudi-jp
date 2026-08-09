@@ -40,6 +40,7 @@ const decideAs = (id, body) => fetch(`${ADMIN}/a/${id}/decision`, {
 
 // 災害名・罹災日は災害マスタ由来になったのでフォームには無い
 const DISASTER_FORM = {
+  contact_tel: '090-0000-0000',   // 住基に無いので必須の申告項目
   damaged_address: '熊本県熊本市中央区大江3-1-5', building_type: '木造2階建',
   statement: '1階の柱が傾き居住できません',
 };
