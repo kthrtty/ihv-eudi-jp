@@ -7,7 +7,8 @@ import { mint, verify as verifyCredential, catalog, personaClaims } from './issu
 import { StatusListService } from './status.mjs';
 import { createUserStore } from './users.mjs';
 import { APPLICATION_TYPES as APP_TYPES, getApplicationType, canTransition, canIssueFrom,
-  claimsFor, claimsFingerprint, requiresApplication, seedApplications, targetAuthority } from './applications.mjs';
+  claimsFor, claimsFingerprint, requiresApplication, seedApplications, targetAuthority,
+  missingRequired } from './applications.mjs';
 import { offersProcedure, getMunicipality } from './municipalities.mjs';
 import { coversMunicipality, getDisaster } from './disasters.mjs';
 import { sha256, b64url } from './cbor.mjs';
@@ -200,7 +201,7 @@ export class IssuerService {
     await this._loadUsers();                       // 住基の値（住所）を正規化で使う
     const persona = this.users.get(userId);
     const clean = t.normalize ? t.normalize(form, muni, persona) : form;
-    const missing = t.form.filter((x) => x.required && !String(clean[x.key] ?? '').trim()).map((x) => x.label);
+    const missing = missingRequired(t, clean);
     if (missing.length) throw httpErr(400, 'invalid_request', `未入力の必須項目: ${missing.join('・')}`);
     const bad = t.validate ? t.validate(clean, muni, persona) : null;
     if (bad) throw httpErr(400, 'invalid_request', bad);

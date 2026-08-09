@@ -72,8 +72,51 @@ export const canTransition = (from, to) => (TRANSITIONS[from] || []).includes(to
 
 const f = (key, label, type, o = {}) => ({ key, label, type, required: !!o.required, ...o });
 
+/** 実際の様式にある選択肢。**損壊箇所は VC のクレームにしない**——内閣府統一様式の
+ *  必須記載事項ではないので、審査の材料として申請レコードにだけ残す。 */
+export const DAMAGE_CAUSES = ['地震', '津波', '暴風', '竜巻', '豪雨', '崖崩れ', '高潮', 'その他'];
+export const PROPERTY_TYPES = ['住家（持家）', '住家（借家）', '非住家', 'その他'];
+export const BUILDING_PARTS = ['屋根', '基礎', '柱', '天井', '外壁', '内壁', '建具', '床'];
+export const EQUIPMENT_PARTS = ['浴室', '台所', 'トイレ', '浄化槽', '配管', 'その他'];
+/** 同意事項。実際の様式（宇土市）に倣う。上2つが必須。 */
+export const DISASTER_CONSENTS = [
+  { key: 'info', required: true,
+    text: '本手続の処理に限り、申請書に記載のある者の住民基本台帳関係情報および地方税関係情報について、'
+      + '申請先の自治体が必要に応じて取得することに同意します。' },
+  { key: 'support', required: true,
+    text: '交付された罹災証明書について、申請先の自治体が各種支援業務の事務手続を処理する際に、'
+      + '必要に応じて確認・利用することに同意します。' },
+  { key: 'selfjudge', required: false,
+    text: '被害が軽微で明らかに「準半壊に至らない（一部損壊）」に該当する場合、現地調査を省略し'
+      + '被害状況の写真等で判定する自己判定方式に同意します。' },
+  { key: 'photo', required: false,
+    text: '提出した被害状況の写真について、災害に関する広報や被害状況の説明資料等に二次利用することに同意します。' },
+];
+
 /** 世帯構成員の続柄。住民票の表記に合わせる（長男/長女は戸籍側の表記）。 */
 export const HOUSEHOLD_RELS = ['世帯主', '妻', '夫', '子', '父', '母', '祖父', '祖母', '兄弟姉妹', 'その他'];
+/** 「入力された」と言えるか。**型ごとに空の意味が違う**ので String() では判定できない
+ *  （空配列は `''` になって偶然通るが、同意の object は `[object Object]` で必ず通ってしまう）。 */
+export function missingRequired(t, form) {
+  const out = [];
+  for (const x of t.form || []) {
+    if (x.type === 'consent') {
+      // **同意は既定で真にしない**。送られてこない＝「同意していない」であって欠損ではない
+      if ((x.items || []).some((c) => c.required && !form?.[x.key]?.[c.key])) out.push(x.label);
+    } else if (x.type === 'checkgroup') {
+      if (x.required && !(form?.[x.key] || []).length) out.push(x.label);
+    } else if (x.required && !String(form?.[x.key] ?? '').trim()) out.push(x.label);
+  }
+  return out;
+}
+
+/** 複数選択（checkgroup）を配列にする。単一値でも配列に揃える。 */
+export const parseChecks = (raw, key, options) => [].concat(raw?.[key] ?? [])
+  .map((v) => String(v)).filter((v) => options.includes(v));
+/** 同意（consent_<key>）を真偽の対応表にする。 */
+export const parseConsents = (raw, items) =>
+  Object.fromEntries(items.map((c) => [c.key, raw?.[`consent_${c.key}`] === 'on']));
+
 /** 世帯構成員の行（hh_<i>_family/given/rel/birth）を配列に畳む。空行は落とす。
  *  生年月日まで持つのは実際の様式に合わせたもの（宇土市は1人目を必須にしている）。 */
 export function parseHousehold(raw = {}, max = 9) {
@@ -132,11 +175,21 @@ const disaster = {
       hint: '審査の連絡や現地調査の日程調整に使います。電話番号は住民票に記載されません' }),
     f('contact_place', '避難先など', 'text', { placeholder: '例: 宇土市民体育館',
       hint: '住家に住めていない場合の居場所。分かる範囲で構いません' }),
-    f('same_address', '被災住家の所在地', 'check', { default: true, checkLabel: '世帯主住所に同じ',
+    // 入力を助けるためだけのチェック。答えは normalize が damaged_address に畳むので、
+    // **審査画面には出さない**（出すと「被災住家の所在地: いいえ」という行が住所の隣に並ぶ）
+    f('same_address', '被災住家の所在地', 'check', { reviewHide: true, default: true, checkLabel: '世帯主住所に同じ',
       hint: '下宿・単身赴任などで住民票と違う場合はチェックを外して住所を入力します' }),
     f('damaged_address', '被災住家の所在地', 'text', { showWhen: { key: 'same_address', checked: false },
       hint: '世帯主住所と異なる場合（別宅・転居前など）はその住所を入力してください' }),
+    // 災害種別は**災害を選べばほぼ決まる**ので初期値を入れる。ただし同じ台風でも家ごとに
+    // 暴風／高潮と分かれるので変更できる（「決まるもの」だが一意ではない）
+    f('damage_cause', '被害の原因', 'checkgroup', { required: true, options: DAMAGE_CAUSES,
+      fromDisaster: 'kinds', hint: '対象の災害から初期値を入れています。実際の被害に合わせて選び直せます' }),
+    f('property_type', 'り災した物件', 'radio', { required: true,
+      options: PROPERTY_TYPES.map((x) => [x, '']) }),
     f('building_type', '住家の種別', 'select', { options: ['木造2階建', '木造平屋', '非木造（共同住宅）', 'その他'] }),
+    f('building_parts', '建物の損壊箇所', 'checkgroup', { options: BUILDING_PARTS }),
+    f('equipment_parts', '設備の損壊箇所', 'checkgroup', { options: EQUIPMENT_PARTS }),
     // **住民票の世帯ではなく「被災住家の世帯構成員」**。実際の様式もここは申告事項で、
     // 申請者が①〜⑨まで手入力する。住基から初期値を入れるが、下宿・単身赴任などで
     // 住民票の世帯と食い違うので**加除できなければならない**。
@@ -148,6 +201,7 @@ const disaster = {
 
     f('statement', '被害の状況', 'textarea', { required: true,
       placeholder: '例: 地震により1階部分の柱が傾き、居住できない状態です' }),
+    f('consents', '同意事項', 'consent', { items: DISASTER_CONSENTS }),
   ],
   decision: [
     f('damage_level', '被害の程度（判定）', 'radio', { required: true, options: DAMAGE_LEVELS }),

@@ -12,6 +12,7 @@ import { createAdminApp } from '../src/admin-app.mjs';
 import { createWallet } from '../src/wallet.mjs';
 import { memoryStore } from '../src/oid4vci.mjs';
 import { listStaff } from '../src/staff.mjs';
+import { wireForm, setWire } from './form-wire.mjs';
 import { shell, appShell, adminShell, renderStaffLogin } from '../src/authcode-demo.mjs';
 
 const IPORT = 8983, APORT = 8984;
@@ -41,6 +42,8 @@ const DISASTER_FORM = {
   contact_tel: '090-0000-0000',   // 住基に無いので必須の申告項目
   damaged_address: '熊本県熊本市中央区大江3-1-5', building_type: '木造2階建',
   statement: '1階の柱が傾き居住できません', disaster_id: DISASTER_ID,
+  // 必須の同意（住基/税の照会・支援業務での利用）。**既定で真にはならない**ので明示する
+  damage_cause: ['地震'], property_type: '住家（持家）', consents: { info: true, support: true },
 };
 /** 住民として申請を出し、受付番号を返す（画面と同じ HTTP 経路）。
  *  申請先の団体コードが URL に載る＝住所からは推定しない。 */
@@ -48,7 +51,7 @@ const submit = async (sid, kind = 'disaster', code = '43100', form = DISASTER_FO
   const r = await fetch(`${ISSUER}/apply/${kind}/${code}`, {
     method: 'POST', redirect: 'manual',
     headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: `sid=${sid}` },
-    body: new URLSearchParams(form).toString(),
+    body: wireForm(form).toString(),
   });
   assert.equal(r.status, 303);
   return r.headers.get('location').split('/')[2].split('?')[0];
@@ -221,7 +224,7 @@ test('admin: 添付は原本つきで受理され、控えと審査画面から�
   const thumb = 'data:image/jpeg;base64,' + Buffer.from(jpeg).toString('base64');
 
   const fd = new FormData();
-  for (const [k, v] of Object.entries(DISASTER_FORM)) fd.set(k, v);
+  setWire(fd, DISASTER_FORM);
   fd.append('attachments', new Blob([jpeg], { type: 'image/jpeg' }), 'genkan.jpg');
   fd.append('attachments', new Blob([png], { type: 'image/png' }), 'IMG_2017.png');
   fd.append('attachments', new Blob([pdf], { type: 'application/pdf' }), 'mitsumori.pdf');
@@ -285,7 +288,7 @@ test('apply: 添付は必須にせず、デモ都合であることを画面に�
   const r = await fetch(`${ISSUER}/apply/disaster/43100`, {
     method: 'POST', redirect: 'manual',
     headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: `sid=${sid}` },
-    body: new URLSearchParams(DISASTER_FORM).toString() });
+    body: wireForm(DISASTER_FORM).toString() });
   assert.equal(r.status, 303, '添付なしでも受け付ける');
 });
 
@@ -293,7 +296,7 @@ test('apply: 上限を超える添付は理由つきで断る', async () => {
   const sid = await login('u_002');
   const big = new Uint8Array(2 * 1024 * 1024 + 1); big.set([0xff, 0xd8, 0xff, 0xe0]);
   const fd = new FormData();
-  for (const [k, v] of Object.entries(DISASTER_FORM)) fd.set(k, v);
+  setWire(fd, DISASTER_FORM);
   fd.append('attachments', new Blob([big], { type: 'image/jpeg' }), 'huge.jpg');
   const r = await fetch(`${ISSUER}/apply/disaster/43100`, {
     method: 'POST', redirect: 'manual', headers: { cookie: `sid=${sid}` }, body: fd });
@@ -307,7 +310,7 @@ test('apply: 審査が終わると添付の原本は削除される（サムネ�
   const sid = await login('u_002');
   const jpeg = new Uint8Array(64); jpeg.set([0xff, 0xd8, 0xff, 0xe0]);
   const fd = new FormData();
-  for (const [k, v] of Object.entries(DISASTER_FORM)) fd.set(k, v);
+  setWire(fd, DISASTER_FORM);
   fd.append('attachments', new Blob([jpeg], { type: 'image/jpeg' }), 'genkan.jpg');
   fd.set('thumbs', JSON.stringify(['data:image/jpeg;base64,' + Buffer.from(jpeg).toString('base64')]));
   const r = await fetch(`${ISSUER}/apply/disaster/43100`, {
@@ -457,8 +460,9 @@ test('apply: 住基にあるものは入力させず、無いもの・決まら�
   const r = await fetch(`${ISSUER}/apply/disaster/43100?d=r8-kumamoto`, {
     method: 'POST', redirect: 'manual',
     headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: `sid=${sid}` },
-    body: new URLSearchParams({ disaster_id: 'r8-kumamoto', contact_tel: '090-0000-0000',
-      same_address: 'on', statement: '倒壊' }).toString() });
+    body: wireForm({ disaster_id: 'r8-kumamoto', contact_tel: '090-0000-0000',
+      same_address: 'on', statement: '倒壊', damage_cause: ['地震'], property_type: '住家（持家）',
+      consents: { info: true, support: true } }).toString() });
   assert.equal(r.status, 303);
   const id = r.headers.get('location').split('/')[2].split('?')[0];
   const mine = await (await fetch(`${ISSUER}/applications/${id}`, { headers: { cookie: `sid=${sid}` } })).text();
@@ -468,7 +472,8 @@ test('apply: 住基にあるものは入力させず、無いもの・決まら�
   const miss = await fetch(`${ISSUER}/apply/disaster/43100?d=r8-kumamoto`, {
     method: 'POST', redirect: 'manual',
     headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: `sid=${sid}` },
-    body: new URLSearchParams({ disaster_id: 'r8-kumamoto', contact_tel: '090-0000-0000', statement: '倒壊' }).toString() });
+    body: wireForm({ disaster_id: 'r8-kumamoto', contact_tel: '090-0000-0000', statement: '倒壊',
+      damage_cause: ['地震'], property_type: '住家（持家）', consents: { info: true, support: true } }).toString() });
   assert.match(decodeURIComponent(miss.headers.get('location')), /被災住家の所在地を入力してください/);
 });
 
@@ -565,4 +570,28 @@ test('admin: 職員セッション Cookie への別オリジン POST は CSRF �
     body: new URLSearchParams({ status: 'approved', damage_level: '全壊' }).toString(),
   });
   assert.equal(r.status, 403);
+});
+
+// 申請内容の保存形は型ごとに違う（配列・オブジェクト・行の配列）。審査画面はそれを
+// **読める形**にしなければならない——素で埋め込むと `[object Object]` が並び、
+// 同意したかどうかも分からなくなる。
+test('admin: 選択式の被害申告と同意が審査画面で読める形になる', async () => {
+  const appId = await submit(await login('u_002'), 'disaster', '43100', {
+    ...DISASTER_FORM, damage_cause: ['地震', '津波'], building_parts: ['屋根', '柱'],
+    consents: { info: true, support: true },   // 任意の2件は入れない
+  });
+  const staff = await staffLogin('s_003');
+  const html = await (await fetch(`${ADMIN}/a/${appId}`, { headers: { 'x-staff-session': staff } })).text();
+  const body = html.slice(html.indexOf('<body'));
+
+  assert.ok(!body.includes('[object Object]'), '保存形をそのまま埋め込まない');
+  assert.ok(body.includes('地震・津波'), '複数選択は全部見せる（1つに丸めない）');
+  assert.ok(body.includes('屋根・柱'));
+  // 同意は「した／しなかった」が分かる形。任意の同意を入れていないことも見える
+  assert.ok(body.includes('本手続の処理に限り'), '同意の本文を審査側も読める');
+  assert.ok(/class="yes"[^]*?住民基本台帳関係情報/.test(body), '同意したものは印がつく');
+  assert.ok(/class="no"[^]*?二次利用/.test(body), '同意しなかったものも隠さず出す');
+  // 入力を助けるためだけのチェックは出さない（住所の隣に「いいえ」が並ぶ）
+  assert.ok(!body.includes('>いいえ<'), 'same_address は審査画面に出さない');
+  assert.equal((body.match(/被災住家の所在地/g) || []).length, 1, '住所の行は1つ');
 });

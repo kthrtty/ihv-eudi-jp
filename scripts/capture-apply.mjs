@@ -59,6 +59,13 @@ await page.uncheck('[name=same_address]');
 await page.fill('input[name=damaged_address]', '石川県輪島市河井町1-1');
 await page.fill('input[name=contact_tel]', '090-0000-0000');
 await page.fill('textarea[name=statement]', '地震により1階部分の柱が傾き、居住できない状態です。');
+// 被害の申告（選択式）と同意。**必須の同意は既定で入っていない**ので明示的に入れる
+await page.check('input[name=property_type][value="住家（持家）"]');
+for (const v of ['屋根', '柱']) await page.check(`input[name=building_parts][value="${v}"]`);
+await page.check('input[name=equipment_parts][value="浴室"]');
+await page.check('input[name=consent_info]');
+await page.check('input[name=consent_support]');
+await page.check('input[name=consent_selfjudge]');
 await Promise.all([page.waitForNavigation({ timeout: 15000 }).catch(() => {}), page.click('form[action="/apply/disaster/17204"] button[type=submit]')]);
 await settle(page);
 await page.screenshot({ path: out + 'ap-03-received.png', fullPage: true });
@@ -105,7 +112,8 @@ await mob.addCookies(await ctx.cookies());
 const mp = await mob.newPage();
 for (const [path, name] of [['/applications', 'ap-sp-list'], ['/apply/island', 'ap-sp-pick-island'],
   ['/apply/island/46213', 'ap-sp-form-island'], ['/apply/disaster', 'ap-sp-pick-disaster'],
-  ['/apply/disaster?pref=' + encodeURIComponent('石川県'), 'ap-sp-pick-disaster-filtered'], ['/', 'ap-sp-catalog']]) {
+  ['/apply/disaster?pref=' + encodeURIComponent('石川県'), 'ap-sp-pick-disaster-filtered'],
+  ['/apply/disaster/17204?d=r6-noto-jishin', 'ap-sp-form-disaster'], ['/', 'ap-sp-catalog']]) {
   await mp.goto(ISSUER + path);
   await settle(mp);
   await mp.screenshot({ path: out + `${name}.png`, fullPage: true });

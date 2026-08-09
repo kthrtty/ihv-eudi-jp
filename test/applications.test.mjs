@@ -2,13 +2,17 @@
 // 失効の規則がこの機能の肝: 「証明書に載る内容が変わったときだけ失効」。
 // 全壊→全壊のような実質変化なしで失効させると、利用者は無意味に再交付を強いられる。
 import { test } from 'node:test';
+import { wireForm } from './form-wire.mjs';
 import assert from 'node:assert/strict';
 import { serve } from '@hono/node-server';
 import { createApp } from '../src/app.mjs';
 import { createAdminApp } from '../src/admin-app.mjs';
 import { createWallet } from '../src/wallet.mjs';
 import { IssuerService, memoryStore } from '../src/oid4vci.mjs';
-import { canTransition, claimsFingerprint, claimsFor } from '../src/applications.mjs';
+import { canTransition, claimsFingerprint, claimsFor, getApplicationType } from '../src/applications.mjs';
+import { renderApplyForm } from '../src/apply-demo.mjs';
+import { getDisaster } from '../src/disasters.mjs';
+import { getMunicipality } from '../src/municipalities.mjs';
 
 const IPORT = 8981, APORT = 8982;
 const ISSUER = `http://127.0.0.1:${IPORT}`;
@@ -43,7 +47,11 @@ const DISASTER_FORM = {
   contact_tel: '090-0000-0000',   // 住基に無いので必須の申告項目
   damaged_address: '熊本県熊本市中央区大江3-1-5', building_type: '木造2階建',
   statement: '1階の柱が傾き居住できません',
+  // 必須の同意（住基/税の照会・支援業務での利用）。**既定で真にはならない**ので明示する
+  damage_cause: ['地震'], property_type: '住家（持家）', consents: { info: true, support: true },
 };
+
+
 // 平成28年熊本地震（h28-kumamoto）の対象自治体＝熊本市 43100
 const DISASTER = { targetCode: '43100', disasterId: 'h28-kumamoto' };
 
@@ -177,7 +185,7 @@ test('applications: 申請→認定→交付→再判定→失効 を発行 EP �
   const submit = await fetch(`${ISSUER}/apply/disaster/43100`, {
     method: 'POST', redirect: 'manual',
     headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: `sid=${sid}` },
-    body: new URLSearchParams({ ...DISASTER_FORM, disaster_id: DISASTER.disasterId }).toString(),
+    body: wireForm({ ...DISASTER_FORM, disaster_id: DISASTER.disasterId }).toString(),
   });
   assert.equal(submit.status, 303);
   const appId = submit.headers.get('location').split('/')[2].split('?')[0];
@@ -276,4 +284,63 @@ test('applications: 種別と申請者が違えば申し送らない', async () 
   // 別人の認定は無関係
   const o = await svc.submitApplication({ userId: 'u_003', kind: 'disaster', ...DISASTER, form: DISASTER_FORM });
   assert.equal((await svc.existingApprovals(o)).length, 0);
+});
+
+// 実際の様式（天草市・宇土市）は被害を自由記述でなく**選択肢で拾っている**。自由文だけだと
+// 審査側が読み取って分類し直すことになり、写真だけでは分からない箇所も落ちる。
+// **ただし損壊箇所は VC のクレームにしない**——内閣府統一様式の必須記載事項は
+// 「住家の被害の程度」であって箇所ではない。審査の材料として申請レコードにだけ残す。
+test('applications: 被害の申告は選択式で構造化され、VC には載らない', async () => {
+  const svc = new IssuerService();
+  const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', ...DISASTER,
+    form: { ...DISASTER_FORM, damage_cause: ['地震', '津波'],
+      building_parts: ['屋根', '柱'], equipment_parts: ['浴室'] } });
+  assert.deepEqual(app.form.damage_cause, ['地震', '津波'], '複数選べる（1つに丸めない）');
+  assert.deepEqual(app.form.building_parts, ['屋根', '柱']);
+
+  const { application } = await svc.decideApplication(app.id,
+    { status: 'approved', decision: { damage_level: '半壊' }, authority: '熊本市長' });
+  const claims = claimsFor(application, { family: '佐藤', given: '花子' });
+  assert.equal(claims.damage_level, '半壊', '証明されるのは被害の程度');
+  for (const k of ['building_parts', 'equipment_parts', 'damage_cause']) {
+    assert.ok(!(k in claims), `${k} は VC のクレームに載せない`);
+  }
+});
+
+// 同意は申請者の行為であって初期値ではない。**送られてこない＝同意していない**であり、
+// 欠損として補ってはならない。String() 判定だと object は必ず truthy になって素通りする。
+test('applications: 必須の同意が無ければ受け付けない（既定で真にしない）', async () => {
+  const svc = new IssuerService();
+  const t = getApplicationType('disaster');
+  const consent = t.form.find((x) => x.key === 'consents');
+  assert.deepEqual(consent.items.filter((c) => c.required).map((c) => c.key), ['info', 'support']);
+
+  await assert.rejects(
+    () => svc.submitApplication({ userId: 'u_002', kind: 'disaster', ...DISASTER,
+      form: { ...DISASTER_FORM, consents: { info: true } } }),
+    /同意事項/, '任意の同意は無くてよいが、必須が欠けたら断る');
+  // 任意の同意（自己判定方式・写真の二次利用）は無くても通る
+  const ok = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', ...DISASTER,
+    form: { ...DISASTER_FORM, consents: { info: true, support: true } } });
+  assert.equal(ok.form.consents.photo, undefined);
+  // 必須の選択も同様に、空配列は「未入力」（String([]) === '' に頼らず型で判定する）
+  await assert.rejects(
+    () => svc.submitApplication({ userId: 'u_002', kind: 'disaster', ...DISASTER,
+      form: { ...DISASTER_FORM, damage_cause: [] } }), /被害の原因/);
+});
+
+// 災害を選べば種別はほぼ決まる。ただし同じ台風でも家ごとに暴風／高潮と分かれるので
+// **確定させず初期値にする**（読み取り専用にしない）。
+test('applications: 被害の原因は災害マスタから初期値が入り、変更できる', async () => {
+  const html = renderApplyForm(
+    { id: 'u_002', family: '佐藤', given: '花子', address: '東京都千代田区1-1-1' },
+    getApplicationType('disaster'), getMunicipality('43100'),
+    { disaster: getDisaster('r8-kumamoto') });
+  const body = html.slice(html.indexOf('<body'));
+  assert.ok(body.includes('value="地震" checked'), '災害マスタの種別が初期選択');
+  assert.ok(body.includes('value="津波"') && !body.includes('value="津波" checked'), '他の種別も選べる');
+  assert.ok(!body.includes('readonly'), '読み取り専用にしない');
+  // 同意は既定でチェックを入れない
+  assert.ok(body.includes('name="consent_info"') && !body.includes('name="consent_info" checked'));
+  assert.ok(body.includes('本手続の処理に限り'), '同意の本文を全文出す（チップに畳まない）');
 });
