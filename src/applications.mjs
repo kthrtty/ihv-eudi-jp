@@ -76,6 +76,23 @@ export const canTransition = (from, to) => (TRANSITIONS[from] || []).includes(to
 
 const f = (key, label, type, o = {}) => ({ key, label, type, required: !!o.required, ...o });
 
+// ---- 住所（市区町村は申請先から確定・入力は町名以下）------------------------
+// `fullName()` は「熊本県 熊本市」と空白を挟む表示用なので、住所の連結には使わない。
+/** 申請先の「県＋市区町村」。ディレクトリに無ければ空（旧レコードの経路）。 */
+export const addressPrefix = (muni) => (muni ? `${muni.pref}${muni.name}` : '');
+/** 保存済みの住所から前置部分を落として**町名以下**を取り出す。前置が付いていない
+ *  （旧レコード・自由入力）ならそのまま返す。 */
+export function stripPrefix(muni, address) {
+  const s = String(address ?? '').trim();
+  const p = addressPrefix(muni);
+  return (p && s.startsWith(p)) ? s.slice(p.length).trim() : s;
+}
+/** 町名以下に前置を足して完全な住所にする。二重に前置しない。 */
+export function joinAddress(muni, detail) {
+  const d = stripPrefix(muni, detail);
+  return d ? `${addressPrefix(muni)}${d}` : '';
+}
+
 /** 実際の様式にある選択肢。**損壊箇所は VC のクレームにしない**——内閣府統一様式の
  *  必須記載事項ではないので、審査の材料として申請レコードにだけ残す。 */
 export const DAMAGE_CAUSES = ['地震', '津波', '暴風', '竜巻', '豪雨', '崖崩れ', '高潮', 'その他'];
@@ -179,12 +196,14 @@ const disaster = {
       hint: '審査の連絡や現地調査の日程調整に使います。電話番号は住民票に記載されません' }),
     f('contact_place', '避難先など', 'text', { placeholder: '例: 宇土市民体育館',
       hint: '住家に住めていない場合の居場所。分かる範囲で構いません' }),
-    // 入力を助けるためだけのチェック。答えは normalize が damaged_address に畳むので、
-    // **審査画面には出さない**（出すと「被災住家の所在地: いいえ」という行が住所の隣に並ぶ）
-    f('same_address', '被災住家の所在地', 'check', { reviewHide: true, default: true, checkLabel: '世帯主住所に同じ',
-      hint: '下宿・単身赴任などで住民票と違う場合はチェックを外して住所を入力します' }),
-    f('damaged_address', '被災住家の所在地', 'text', { showWhen: { key: 'same_address', checked: false },
-      hint: '世帯主住所と異なる場合（別宅・転居前など）はその住所を入力してください' }),
+    // **市区町村は申請先から確定させ、入力させるのは町名以下だけ**。災害対策基本法 第90条の2 は
+    // 「市町村長は…住家の被害…の状況を**調査し**」＝その市町村が調べられる家＝管内の家でなければ
+    // 成立しない。自由入力にしていたため「熊本市長が横浜市の家の罹災を証明する」申請が作れていた
+    // （2026-08-09 本番で実測。`same_address` の既定オンで世帯主住所がそのまま入るため必ず起きた）。
+    f('damaged_address', '被災住家の所在地', 'address', { required: true,
+      placeholder: '例: 中央区大江3丁目1番5号',
+      hint: '市区町村は申請先から決まります。<b>町名以下</b>を入力してください'
+        + '（住民票の住所が同じ市区町村なら初期値を入れています。実際に被災した住家に直してください）' }),
     // 災害種別は**災害を選べばほぼ決まる**ので初期値を入れる。ただし同じ台風でも家ごとに
     // 暴風／高潮と分かれるので変更できる（「決まるもの」だが一意ではない）
     f('damage_cause', '被害の原因', 'checkgroup', { required: true, options: DAMAGE_CAUSES,
@@ -213,12 +232,16 @@ const disaster = {
     f('include_household', '世帯構成員を証明書に記載する', 'check', { default: true,
       hint: '内閣府統一様式の追加記載事項欄①' }),
   ],
-  // 「同じ」なら住基の住所をそのまま被災住家にする。チェックの状態に頼らず値を確定させる
-  normalize: (form, muni, persona) => ({
+  // 入力は町名以下だけ。市区町村は申請先から前置して**完全な住所を確定させる**
+  // （画面の出し分けに頼らず、JS 無効でも同じ値になる）。旧レコードは既に完全な住所を
+  // 持つので、前置済みならそのまま通す
+  normalize: (form, muni) => ({
     ...form,
-    damaged_address: form.same_address ? (persona?.address || form.damaged_address) : form.damaged_address,
+    damaged_address: joinAddress(muni, form.damaged_address),
   }),
-  validate: (form) => (String(form.damaged_address || '').trim() ? null : '被災住家の所在地を入力してください'),
+  // 未入力は共通の必須チェック（missingRequired）で断る。normalize が町名以下を空白だけに
+  // したときも joinAddress が '' を返すので、ここで重ねて見る必要はない
+  validate: () => null,
   // 見出し = 同じ書類の複数件を見分けるもの（災害名 ＋ 被災住家）
   label: (app) => [disasterName(app), app.form?.damaged_address].filter(Boolean).join('・') || '罹災証明',
   sub: (app) => app.decision?.damage_level ?? '',

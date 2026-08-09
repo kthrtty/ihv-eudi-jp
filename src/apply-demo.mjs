@@ -3,7 +3,7 @@
 // 一覧は **PC=表組み / SP=カード** を1マークアップで両立（列数だけ切り替える）。
 import { appShell } from './authcode-demo.mjs';
 import { WALLET_CARD_THEME, swatchEmblemHtml, swatchEmblemCss } from './authcode-demo.mjs';
-import { STATUS, statusView, labelOf, subOf, getApplicationType, applicationTypeList, targetName, disasterName, disasterDate, HOUSEHOLD_RELS } from './applications.mjs';
+import { STATUS, statusView, labelOf, subOf, getApplicationType, applicationTypeList, targetName, disasterName, disasterDate, HOUSEHOLD_RELS, addressPrefix, stripPrefix } from './applications.mjs';
 import { listDisasters } from './disasters.mjs';
 import { prefecturesFor, municipalitiesIn } from './municipalities.mjs';
 import { ACCEPT_ATTR, MAX_FILES, MAX_FILE_BYTES, MAX_TOTAL_BYTES, MAX_PICK_BYTES, STORE_EDGE, THUMB_EDGE, thumbDataUri } from './upload.mjs';
@@ -84,6 +84,12 @@ ${swatchEmblemCss()}
 .cslist label{display:grid;grid-template-columns:auto 1fr;gap:9px;align-items:start;border:1px solid var(--line);border-radius:10px;padding:11px 13px;background:#fff;cursor:pointer;font-size:12px;font-weight:400;color:var(--ink);line-height:1.75;margin:0}
 .cslist label:has(input:checked){border-color:var(--civic);background:#F7FAFF}
 .cslist input{margin-top:2px}
+/* 住所: 申請先から決まる前置は読み取り専用の見た目で、入力欄と1つの帯に見せる */
+.adr{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:8px;background:#fff;overflow:hidden}
+.adr-fix{display:flex;align-items:center;padding:9px 11px;background:#F3F5F9;color:var(--muted);font-size:12.5px;white-space:nowrap;border-right:1px solid var(--line)}
+.adr input{border:0!important;border-radius:0!important;flex:1;min-width:0}
+@media(max-width:520px){.adr{flex-direction:column}
+  .adr-fix{border-right:0;border-bottom:1px solid var(--line)}}
 /* 審査画面の読み取り表示（同意した/しなかったを一目で。入力欄には見せない） */
 .ro-list{gap:5px}
 .ro-list>div{display:grid;grid-template-columns:18px 1fr;gap:8px;align-items:start;border:1px solid var(--line);border-radius:9px;padding:9px 11px;background:#F7F9FC;font-size:11.5px;line-height:1.7}
@@ -275,6 +281,15 @@ export const field = (x, val = '', muni = null) => {
     return `<div class="fld"${when(x)}><label>${esc(x.label)} ${req}</label>
       <textarea name="${esc(x.key)}" rows="3" placeholder="${esc(x.placeholder || '')}">${esc(val)}</textarea>${hint}</div>`;
   }
+  // 市区町村は申請先から確定。**入力させるのは町名以下だけ**にして、申請先と食い違う
+  // 住所を構造的に作れなくする（自由入力だと「熊本市長が横浜市の家を証明する」が作れた）。
+  if (x.type === 'address') {
+    const detail = stripPrefix(muni, val);
+    return `<div class="fld"><label>${esc(x.label)} ${req}</label>
+      <div class="adr"><span class="adr-fix">${esc(addressPrefix(muni)) || '（申請先の市区町村）'}</span>
+        <input name="${esc(x.key)}" value="${esc(detail)}" placeholder="${esc(x.placeholder || '')}"></div>
+      ${x.hint ? `<span class="fhint">${x.hint}</span>` : ''}</div>`;
+  }
   // 複数選択。**空も正当な答え**（損壊箇所が無いこともある）なので、required でなければ
   // 何も選ばずに進める。値は配列で来る（parseChecks）。
   if (x.type === 'checkgroup') {
@@ -298,6 +313,19 @@ export const field = (x, val = '', muni = null) => {
   }
   return `<div class="fld"${when(x)}><label>${esc(x.label)} ${req}</label>
     <input type="${x.type === 'date' ? 'date' : x.type === 'tel' ? 'tel' : 'text'}" name="${esc(x.key)}" value="${esc(val)}" placeholder="${esc(x.placeholder || '')}">${hint}</div>`;
+};
+
+/** 入力欄の初期値。**「決まるもの」は入れておくが確定はさせない**（利用者が直せる）。
+ *  住所は住民票が**同じ市区町村のときだけ**入れる——違う自治体の番地を入れると、
+ *  申請先の市区町村に他所の番地が繋がった住所になる。前置が一致するかを見るだけなので、
+ *  表記揺れで一致しなくても「初期値が入らない」で済む（住所から自治体を当てには行かない）。 */
+const initialFor = (x, { user, muni, disaster }) => {
+  if (x.fromDisaster && disaster) return disaster[x.fromDisaster];
+  if (x.type === 'address') {
+    const p = addressPrefix(muni);
+    return (p && String(user?.address || '').startsWith(p)) ? user.address : '';
+  }
+  return '';
 };
 
 /** 手続きの進行表示。区切りの「›」もフレックス項目にして**チップと光学的に揃える**
@@ -459,7 +487,7 @@ export function renderApplyForm(user, t, muni, { error = '', prefill = {}, disas
       <form class="acard" method="POST" action="/apply/${esc(t.id)}/${esc(muni.code)}${pref ? `?pref=${encodeURIComponent(pref)}` : ''}" enctype="multipart/form-data">
         ${disaster ? `<input type="hidden" name="disaster_id" value="${esc(disaster.id)}">` : ''}
         <div class="sec">あなたにしか分からないこと<span class="tagro">住民票では決まりません</span></div>
-        ${t.form.map((x) => field(x, prefill[x.key] ?? (x.fromDisaster && disaster ? disaster[x.fromDisaster] : '') ?? '', muni)).join('')}
+        ${t.form.map((x) => field(x, prefill[x.key] ?? initialFor(x, { user, muni, disaster }) ?? '', muni)).join('')}
 
         <div class="sec">${esc(t.attachmentLabel)}${t.attachmentRequired ? '<b class="req">必須</b>' : '<span class="tagro">原則任意</span>'}</div>
         <div class="warn err" id="uperr" style="display:none"></div>
