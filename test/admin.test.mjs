@@ -329,6 +329,35 @@ test('apply: 審査が終わると添付の原本は削除される（サムネ�
 
 // 申請先の一覧は**都道府県を選ぶまで市区町村を出さない**（使われない候補を先読みしない）。
 // 3状態: 未選択＝選ぶよう促す／選択したが対象なし＝無いと言う／対象あり＝並べる。
+// 災害画面の都道府県チップは**任意の絞り込み**。確実に答えられる「被災地の県」から
+// 絞れる道を用意しつつ、災害名で探す道（すべて）も塞がない。
+test('apply: 災害は都道府県チップで絞り込め、絞り込みは申請先へ引き継がれる', async () => {
+  const sid = await login('u_002');
+  const get = async (q) => (await fetch(`${ISSUER}/apply/disaster${q}`, { headers: { cookie: `sid=${sid}` } })).text();
+
+  const all = await get('');
+  assert.equal((all.match(/class="dcard"/g) || []).length, 5, '既定は絞らず全件');
+  assert.ok(all.includes('すべて<i>5</i>') && all.includes('石川県<i>2</i>'), 'チップに件数を出す');
+  assert.ok(all.indexOf('宮城県') < all.indexOf('熊本県'), 'チップは地理順（北から南）');
+  assert.ok(all.includes('新潟県・富山県・石川県'), '絞る前は対象都道府県をカードに出す');
+
+  const ish = await get(`?pref=${encodeURIComponent('石川県')}`);
+  assert.equal((ish.match(/class="dcard"/g) || []).length, 2, '石川県は2件（能登半島地震・奥能登豪雨）');
+  assert.ok(ish.includes('対象 7 市区町村（石川県）'), '件数もその県のぶんに切り替える');
+  assert.ok(!ish.includes('令和8年熊本地震'), '他県の災害は出さない');
+  assert.ok(ish.includes(`d=r6-noto-jishin&pref=${encodeURIComponent('石川県')}`), '絞り込みをリンクに載せる');
+
+  const none = await get(`?pref=${encodeURIComponent('大阪府')}`);
+  assert.equal((none.match(/class="dcard"/g) || []).length, 0);
+  assert.ok(none.includes('を対象とする災害は登録されていません'), '無いことを言う');
+
+  // 申請先の画面へ引き継がれ、県を選び直さずに済む
+  const next = await get(`?d=r6-noto-jishin&pref=${encodeURIComponent('石川県')}`);
+  assert.equal((next.match(/class="mcard"/g) || []).length, 7, '石川県の7市町がすぐ出る');
+  assert.ok(next.includes('他県も見る（全11件）'), '絞り込みを外す道も残す');
+  assert.ok(next.includes(`/apply/disaster?pref=${encodeURIComponent('石川県')}`), '災害を変更しても絞り込みは維持');
+});
+
 test('apply: 申請先は都道府県を選ぶまで市区町村を出さない（3状態）', async () => {
   const sid = await login('u_002');
   const get = async (q) => (await fetch(`${ISSUER}/apply/island${q}`, { headers: { cookie: `sid=${sid}` } })).text();

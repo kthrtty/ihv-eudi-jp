@@ -35,15 +35,18 @@ await page.waitForURL((u) => new URL(u).pathname === '/', { timeout: 8000 });
 await settle(page);
 await page.screenshot({ path: out + 'ap-01-catalog.png', fullPage: true });
 
-// ② 対象の災害を選ぶ（罹災は「災害 → 対象自治体」の順）
+// ② 対象の災害を選ぶ（都道府県チップで絞れる）
 await page.goto(`${ISSUER}/apply/disaster`);
 await settle(page);
 await page.screenshot({ path: out + 'ap-02a-pick-disaster.png', fullPage: true });
-
-// ③ その災害の対象自治体
-await page.goto(`${ISSUER}/apply/disaster?d=r6-noto-jishin`);
+await page.goto(`${ISSUER}/apply/disaster?pref=${encodeURIComponent('石川県')}`);
 await settle(page);
-await page.screenshot({ path: out + 'ap-02b-pick-muni.png', fullPage: true });
+await page.screenshot({ path: out + 'ap-02b-pick-disaster-filtered.png', fullPage: true });
+
+// ③ その災害の対象自治体（②の絞り込みが引き継がれる）
+await page.goto(`${ISSUER}/apply/disaster?d=r6-noto-jishin&pref=${encodeURIComponent('石川県')}`);
+await settle(page);
+await page.screenshot({ path: out + 'ap-02c-pick-muni.png', fullPage: true });
 
 // ④ 申請フォーム（災害と申請先が固定されている）
 await page.goto(`${ISSUER}/apply/disaster/17204?d=r6-noto-jishin`);
@@ -98,7 +101,8 @@ const mob = await browser.newContext({ viewport: { width: 390, height: 844 }, de
 await mob.addCookies(await ctx.cookies());
 const mp = await mob.newPage();
 for (const [path, name] of [['/applications', 'ap-sp-list'], ['/apply/island', 'ap-sp-pick-island'],
-  ['/apply/island/46213', 'ap-sp-form-island'], ['/apply/disaster', 'ap-sp-pick-disaster'], ['/', 'ap-sp-catalog']]) {
+  ['/apply/island/46213', 'ap-sp-form-island'], ['/apply/disaster', 'ap-sp-pick-disaster'],
+  ['/apply/disaster?pref=' + encodeURIComponent('石川県'), 'ap-sp-pick-disaster-filtered'], ['/', 'ap-sp-catalog']]) {
   await mp.goto(ISSUER + path);
   await settle(mp);
   await mp.screenshot({ path: out + `${name}.png`, fullPage: true });

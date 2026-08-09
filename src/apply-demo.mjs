@@ -204,11 +204,25 @@ const stepbar = (steps, cur) => `<div class="stepbar">${steps
 /** 対象の災害を選ぶ（罹災のみ・手続き → **災害** → 自治体 → フォーム）。
  *  罹災証明は自治体の恒常的なサービスではなく、災害というイベントに従属する
  *  （災害対策基本法 第90条の2「当該市町村の地域に係る災害が発生した場合において」）。 */
-export function renderDisasterPicker(user, t) {
-  const row = (d) => `<a class="dcard" href="/apply/${esc(t.id)}?d=${encodeURIComponent(d.id)}">
+export function renderDisasterPicker(user, t, { pref = '' } = {}) {
+  // 都道府県での絞り込みは**任意**（既定はすべて）。順序は北から南（SEED の並び）。
+  // 「被災した住家の場所」は必ず答えられるが「災害の正式名称」は出てこないことがあるので、
+  // 確実に答えられるほうから絞れる道を用意する。災害名で探す道も塞がない。
+  const all = listDisasters();
+  const allCodes = [...new Set(all.flatMap((d) => d.codes))];
+  const prefs = prefecturesFor(null, allCodes);
+  const asked = String(pref || '').slice(0, 20);
+  const cur = prefs.includes(asked) ? asked : '';
+  // 未選択＝すべて／選択して該当あり＝絞る／選択したが該当なし＝無いと言う（申請先の画面と同じ3状態）
+  const hits = cur ? all.filter((d) => municipalitiesIn(cur, null, d.codes).length) : (asked ? [] : all);
+  const nIn = (d, p) => municipalitiesIn(p, null, d.codes).length;
+  const chip = (p, label, n) => `<a href="/apply/${esc(t.id)}${p ? `?pref=${encodeURIComponent(p)}` : ''}"
+    class="${p === cur ? 'on' : ''}">${esc(label)}<i>${n}</i></a>`;
+  const row = (d) => `<a class="dcard" href="/apply/${esc(t.id)}?d=${encodeURIComponent(d.id)}${cur ? `&pref=${encodeURIComponent(cur)}` : ''}">
     <b>${esc(d.name)}</b>
-    <small class="dwhen">発生 ${esc(d.occurred)}　／　対象 ${d.codes.length} 市区町村
+    <small class="dwhen">発生 ${esc(d.occurred)}　／　対象 ${cur ? nIn(d, cur) : d.codes.length} 市区町村${cur ? `（${esc(cur)}）` : ''}
       <span class="dsrc">${d.scope === 'digital-online' ? 'デジタル庁「オンライン申請ができる自治体」' : '内閣府「災害救助法の適用状況」から抜粋'}</span></small>
+    ${cur ? '' : `<small class="dpref">${prefecturesFor(null, d.codes).map(esc).join('・')}</small>`}
     <small class="dnote">${esc(d.note)}</small>
     <span class="dgo">申請先を選ぶ ›</span></a>`;
   return appShell(`${t.short} — 災害を選ぶ`, `
@@ -217,8 +231,16 @@ export function renderDisasterPicker(user, t) {
       <h1 style="font-size:20px;margin:0 0 10px">${esc(t.short)} — 対象の災害</h1>
       ${stepbar(['手続き', '災害', '申請先', '申請', '審査'], 1)}
       <p class="lead">罹災証明書は<b>災害が発生した市区町村</b>が交付します（災害対策基本法 第90条の2）。
-        まず対象の災害を選んでください（発生日の新しい順）。</p>
-      <div class="dlist">${listDisasters().map(row).join('')}</div>
+        発生日の新しい順に並んでいます。</p>
+      <div class="pfilt"><span class="lb">都道府県で絞る</span>
+        ${chip('', 'すべて', all.length)}
+        ${prefs.map((p) => chip(p, p, all.filter((d) => nIn(d, p)).length)).join('')}
+        <span class="hint">被災した住家のある都道府県で絞れます。${cur
+          ? `いまは <b>${esc(cur)}</b> で絞り込み中。`
+          : '選ばなくても構いません。'}</span></div>
+      ${hits.length ? `<div class="dlist">${hits.map(row).join('')}</div>`
+        : `<div class="mnone">${esc(asked)}を対象とする災害は登録されていません。<br>
+             上の<b>すべて</b>から他の災害を選んでください。</div>`}
       <div class="todo">🚧 <b>本デモは災害を固定データで持っています。</b>実運用では自治体の防災システムが災害を登録します。<br>
         <b>この一覧は「罹災証明が出る自治体のすべて」ではありません。</b>デジタル庁の一覧は
         <b>オンライン申請を受け付ける自治体</b>に限られ、内閣府の適用状況からの抜粋は網羅ではありません
@@ -269,7 +291,10 @@ export function renderMunicipalityPicker(user, t, { pref = '', suggested = null,
         : stepbar(['手続き', '申請先', '申請', '審査', '交付'], 1)}
       ${disaster ? `<div class="pin"><span class="pi">🌊</span>
         <span>対象の災害　<b>${esc(disaster.name)}</b><span class="sub">発生 ${esc(disaster.occurred)}</span></span>
-        <a class="chg" href="/apply/${esc(t.id)}">災害を変更</a></div>` : ''}
+        <a class="chg" href="/apply/${esc(t.id)}${cur ? `?pref=${encodeURIComponent(cur)}` : ''}">災害を変更</a></div>` : ''}
+      ${disaster && cur ? `<div class="pin"><span class="pi">📍</span>
+        <span>都道府県　<b>${esc(cur)}</b><span class="sub">前の画面での絞り込み</span></span>
+        <a class="chg" href="/apply/${esc(t.id)}?d=${encodeURIComponent(disaster.id)}">他県も見る（全${disaster.codes.length}件）</a></div>` : ''}
       <p class="lead">${esc(t.applyToLead)}<br>
         <b>この手続きを扱う自治体だけ</b>を出しています。住所からは推定しません——申請先はご自身で選びます。</p>
       ${suggested ? `<div class="recent"><span>住民票の住所から</span>
@@ -591,6 +616,15 @@ const PICK_CSS = `
 .dcard .dgo{position:absolute;right:17px;bottom:15px;font-size:12.5px;font-weight:700;color:var(--civic);white-space:nowrap}
 .dcard .dsrc{display:inline-block;margin-left:9px;font-size:10.5px;font-weight:600;color:var(--muted);
   background:#F3F5F9;border-radius:6px;padding:2px 8px}
+.dcard .dpref{display:block;font-size:11px;font-weight:700;color:#5B6B82;margin-top:4px}
+.pfilt{display:flex;flex-wrap:wrap;gap:7px;align-items:center;background:#fff;border:1px solid var(--line);
+  border-radius:13px;padding:12px 14px;margin-bottom:14px}
+.pfilt .lb{font-size:11px;font-weight:700;color:var(--muted);margin-right:3px}
+.pfilt a{font-size:12.5px;font-weight:700;text-decoration:none;color:var(--civic);background:#fff;
+  border:1px solid var(--line);border-radius:999px;padding:6px 13px}
+.pfilt a.on{background:var(--civic);color:#fff;border-color:var(--civic)}
+.pfilt a i{font-style:normal;font-weight:600;opacity:.65;margin-left:5px}
+.pfilt .hint{width:100%;font-size:10.5px;color:#8A97AB;margin-top:2px;line-height:1.6}
 @media(max-width:640px){.dcard .dnote{padding-right:0}.dcard .dgo{position:static;display:block;margin-top:8px;text-align:right}}
 @media(max-width:640px){
   .pick{grid-template-columns:1fr}
