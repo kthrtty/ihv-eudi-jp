@@ -333,7 +333,6 @@ export function renderApplyForm(user, t, muni, { error = '', prefill = {}, disas
         ${disaster ? selChip('対象', disaster.name, bk(false)) : ''}
         ${selChip('申請先', `${muni.pref} ${muni.name}`, bk(true))}
       </div>
-      <p class="fhint" style="margin:-8px 0 12px">交付者には「${esc(muni.head)}」が記載されます。</p>
       <p class="lead">${esc(t.lead)}<br><span style="font-size:11px">${esc(t.basis)}</span></p>
       <form class="acard" method="POST" action="/apply/${esc(t.id)}/${esc(muni.code)}${pref ? `?pref=${encodeURIComponent(pref)}` : ''}" enctype="multipart/form-data">
         ${disaster ? `<input type="hidden" name="disaster_id" value="${esc(disaster.id)}">` : ''}
