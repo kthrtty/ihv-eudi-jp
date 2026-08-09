@@ -605,17 +605,19 @@ test('admin: 選択式の被害申告と同意が審査画面で読める形に�
   assert.equal((body.match(/被災住家の所在地/g) || []).length, 1, '住所の行は1つ');
 });
 
-// 住民票の住所が申請先と同じ市区町村なら、被災住家の入力を省ける。
-// **一致するときだけ**出るので、他所の番地が入る余地は無い（そこが以前の同名チェックとの違い）。
-test('apply: 住民票が申請先と同じ市区町村なら被災住家をプレフィルする', async () => {
+// 住民票の住所が申請先と同じ市区町村なら、入力を省く近道を出す。
+// **初期値にはしない**——住民票の住所は「申請者の住所」で「被災住家の所在地」ではなく、
+// 同じことが多いだけ。証明書に「この建物」と載る値なので、申告は本人の操作にする。
+// 近道は**一致するときだけ**出るので、他所の番地が入る余地は無い。
+test('apply: 住民票が申請先と同じ市区町村なら入力を省く近道を出す', async () => {
   const sid = await login('u_003');   // 鈴木一郎は川崎市＝令和元年東日本台風の対象
   const form = await (await fetch(`${ISSUER}/apply/disaster/14130?d=r1-higashinihon`,
     { headers: { cookie: `sid=${sid}` } })).text();
 
   assert.ok(form.includes('<span class="adr-fix">神奈川県川崎市</span>'), '申請先が前置される');
-  assert.ok(form.includes('value="川崎区宮本町1-1"'), '町名以下が初期値に入る');
-  assert.ok(form.includes('id="adrSame"') && form.includes('住民票の住所と同じ'), '外す近道を出す');
-  assert.ok(form.includes('data-adr="川崎区宮本町1-1"'), 'チェックで戻せるよう値を持つ');
+  assert.ok(form.includes('id="adrDetail" value=""'), '初期値は入れない（申告は本人の操作）');
+  assert.ok(form.includes('住民票の住所を使う（川崎区宮本町1-1）'), '押す前に何が入るか見える');
+  assert.ok(form.includes('data-adr="川崎区宮本町1-1"'));
   assert.ok(!form.includes('神奈川県川崎市神奈川県'), '前置を二重にしない');
 
   // 何も直さず送れば、住民票の住所がそのまま被災住家になる
