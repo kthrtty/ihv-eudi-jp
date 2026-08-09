@@ -207,6 +207,10 @@ const disaster = {
     c('disaster_date', 'full-date', { ja: '罹災日', en: 'Date of disaster' }, { ns: DS_NS }),
     c('damage_level', 'string', { ja: '被害程度', en: 'Damage level' }, { ns: DS_NS, note: 'e.g. 全壊/半壊/一部損壊' }),
     c('building_type', 'string', { ja: '建物種別', en: 'Building type' }, { ns: DS_NS, optional: true }),
+    // 追加記載事項欄②③（任意）。②=被災住家に関すること（床上・床下浸水）、
+    // ③=それ以外（住家以外の建物や動産の被害、証明書の使用目的）。自治体が独自支援策の
+    // ために定める欄なので**自由文**。統一様式でも中身は規定されていない。
+    c('additional_note', 'string', { ja: '追加記載事項', en: 'Additional note' }, { ns: DS_NS, optional: true }),
     c('certificate_number', 'string', { ja: '証明書番号', en: 'Certificate number' }, { ns: DS_NS }),
     c('issuing_authority', 'string', { ja: '発行者', en: 'Issuing authority' }, { ns: DS_NS, sd: false }),
     c('issuance_date', 'full-date', { ja: '発行日', en: 'Issuance date' }, { ns: DS_NS, sd: false }),
