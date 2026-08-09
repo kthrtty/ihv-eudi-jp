@@ -353,7 +353,7 @@ test('Verifier: native DC API /vp/verify records to global history (newest-first
   assert.ok(html.indexOf('qualification_name') < html.indexOf('family_name'), 'newest (qualification) appears before older (pid)');
 });
 
-test('履歴: 形式代替（credential_sets）要求でも「提示されたクレデンシャル」は実際に提示された1形式のみ', async () => {
+test('履歴: 形式代替（credential_sets）要求でも「提示されたデジタル資格証」は実際に提示された1形式のみ', async () => {
   const { createVerifierApp } = await import('../src/app.mjs');
   const w = await walletWith(['tax_mdoc']); // mdoc しか持たないウォレット
   const vapp = createVerifierApp({ statusResolver: async () => (await w.issuerApp.request('/status-lists/0')).text() });

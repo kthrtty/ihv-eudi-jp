@@ -105,10 +105,10 @@ export function renderVerifyConsole(groups = []) {
       <div class="step" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
         <span><a href="/verifier" style="color:inherit;text-decoration:none">← シナリオデモ</a> ｜ 検証要求ビルダー · OpenID4VP / DCQL</span>
         <a href="/verifier/history" style="font-weight:700;color:var(--verify);text-decoration:none">提示履歴 →</a></div>
-      <h1>提示を要求するクレデンシャルと項目を選ぶ</h1>
+      <h1>提示を要求するデジタル資格証と項目を選ぶ</h1>
       <div class="muted" style="font-size:12px;margin-bottom:4px">開発者向け: プロトコル・提示先・要求項目を自由に組んで実ウォレットへ提示要求できます。一般向けは <a href="/verifier">シナリオデモ</a> へ。</div>
 
-      <label class="lbl">クレデンシャル（発行者が提示可能なものから選択 — カードの形式をクリック）</label>
+      <label class="lbl">デジタル資格証（発行者が提示可能なものから選択 — カードの形式をクリック）</label>
       <div class="vcsel">${cfgCards}</div>
 
       <label class="lbl">プロトコル</label>
@@ -361,7 +361,7 @@ export function renderVerifyConsole(groups = []) {
       .checks{display:grid;gap:6px;margin-top:8px}.ck2{font-size:13px}
       .cok{color:var(--verify);font-weight:700}.cng{color:var(--muted)}
     </style>
-    ${renderClaimsModal(groups)}`, { brand: 'クレデンシャル検証ポータル', sub: 'VERIFIER', role: 'verifier', width: 'mid', dev: true });
+    ${renderClaimsModal(groups)}`, { brand: 'デジタル資格証検証ポータル', sub: 'VERIFIER', role: 'verifier', width: 'mid', dev: true });
 }
 
 const claimNames = (request) => (request.dcql_query?.credentials || [])
@@ -383,7 +383,7 @@ export function renderWebVerify({ request, requestUri, walletPresent }) {
       <div style="text-align:center;margin-top:12px"><a class="btn" id="present" href="${walletPresent}">Web ウォレットで提示する</a></div>
       <div class="hint">request は <span class="mono">request_uri</span> で参照配信（DC API 不使用）：<span class="mono" style="font-size:11px">${requestUri}</span></div>
     </div>
-    <style>.pill{display:inline-block;font-size:12px;background:#f7f9fc;border:1px solid var(--line);border-radius:999px;padding:2px 9px;margin:2px}</style>`, { brand: 'クレデンシャル検証ポータル', sub: 'VERIFIER', role: 'verifier', dev: true });
+    <style>.pill{display:inline-block;font-size:12px;background:#f7f9fc;border:1px solid var(--line);border-radius:999px;padding:2px 9px;margin:2px}</style>`, { brand: 'デジタル資格証検証ポータル', sub: 'VERIFIER', role: 'verifier', dev: true });
 }
 
 /** Verifier result page after the web wallet posts the encrypted vp_token. */
@@ -412,7 +412,7 @@ export function renderWebVerifyResult(result) {
     table.cl{width:100%;border-collapse:collapse;font-size:13px}table.cl td{padding:7px 8px;border-bottom:1px solid var(--line)}table.cl td:first-child{color:var(--muted)}
     .navrow{display:flex;gap:10px;margin-top:18px}.navrow .btn{flex:1;text-align:center}
     .pill{display:inline-block;font-size:12px;background:#f7f9fc;border:1px solid var(--line);border-radius:999px;padding:2px 9px;margin:2px}${VP_SEG_CSS}</style>${VP_SEG_JS}`,
-    { brand: 'クレデンシャル検証ポータル', sub: 'VERIFIER', role: 'verifier', dev: true });
+    { brand: 'デジタル資格証検証ポータル', sub: 'VERIFIER', role: 'verifier', dev: true });
 }
 
 /** Global presentation history — one shared log of every presentation this Verifier
@@ -440,7 +440,7 @@ export function renderVerifierSettings(ttlSec, saved = false) {
         <button type="submit" class="btn">保存する</button>
       </form>
       <div class="navrow"><a class="btn ghost" href="/verifier">検証ポータルトップへ</a></div>
-    </div>`, { brand: 'クレデンシャル検証ポータル', sub: 'VERIFIER', role: 'verifier' });
+    </div>`, { brand: 'デジタル資格証検証ポータル', sub: 'VERIFIER', role: 'verifier' });
 }
 
 export function renderVerifyHistory(entries = [], { page = 1, per = 10 } = {}) {
@@ -486,7 +486,7 @@ export function renderVerifyHistory(entries = [], { page = 1, per = 10 } = {}) {
         <span class="at">${esc(fmtAt(e.at))} JST</span>
       </div>
       <div class="hbody">
-        <div class="hk">提示されたクレデンシャル</div>
+        <div class="hk">提示されたデジタル資格証</div>
         <div class="hcreds">${credLine(e.creds)}</div>
         ${vpSeg(claimsBlock(e), rawPanels(e.raws || []))}
         ${e.errors?.length ? `<div class="hint" style="color:#9E3A3A;margin-top:8px">${esc(e.errors.join('; '))}</div>` : ''}
@@ -523,5 +523,5 @@ export function renderVerifyHistory(entries = [], { page = 1, per = 10 } = {}) {
     .more[open]>summary::before{content:"▾ "}
     .more[open]>summary{color:var(--muted)}
     .navrow{display:flex;gap:10px;margin-top:18px}.navrow .btn{flex:1;text-align:center}${VP_SEG_CSS}</style>${VP_SEG_JS}`,
-    { brand: 'クレデンシャル検証ポータル', sub: 'VERIFIER', role: 'verifier', dev: true });
+    { brand: 'デジタル資格証検証ポータル', sub: 'VERIFIER', role: 'verifier', dev: true });
 }

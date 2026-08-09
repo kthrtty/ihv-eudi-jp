@@ -241,7 +241,7 @@ export const roleHead = (role, title) => {
 };
 // 全画面共通ディスクレーマー（issuer/verifier/wallet）— ヘッダー直下の極細バンド（案Ｂ）。
 // topwrap ごと sticky なのでスクロール中も常時見える。
-const DEMO_BAND = '<div class="demoband">本デモ中の組織・人物・デジタル資格証明等は全て架空のものです</div>';
+const DEMO_BAND = '<div class="demoband">本デモ中の組織・人物・デジタル資格証等は全て架空のものです</div>';
 // header compact-on-scroll: one sentinel + IntersectionObserver (no scroll handler)
 const STICKY_JS = `<script>(function(){var h=document.querySelector('header.top,header.ahdr');var s=document.getElementById('hdr-sent');
 if(h&&s&&'IntersectionObserver' in window)new IntersectionObserver(function(e){h.classList.toggle('compact',!e[0].isIntersecting)}).observe(s)})();</script>`;
@@ -271,7 +271,7 @@ export async function renderAuthStart({ issuer, configId, redirectUri, verifier,
       <div class="urlbox mono">${esc(url)}</div>
       <img class="qr" alt="authorization request QR" src="data:image/svg+xml;utf8,${encodeURIComponent(qr)}">
       <div style="text-align:center;margin-top:8px"><a class="btn" id="open" href="${esc(url)}">この認可要求URLを開く</a></div>
-      <div class="hint">要求クレデンシャル: <b>${esc(dispName(configId))}</b> / scope=<span class="mono">${esc(configId)}</span></div>
+      <div class="hint">要求デジタル資格証: <b>${esc(dispName(configId))}</b> / scope=<span class="mono">${esc(configId)}</span></div>
     </div>`);
 }
 
@@ -326,7 +326,7 @@ export async function renderOfferAuthcode({ offer, offerUri, authorizeUrl, confi
       <div style="text-align:center;margin-top:4px"><a href="${esc(offerDeepLink)}" style="font-size:12.5px;font-weight:700;color:var(--civic);text-decoration:none">📱 この端末のウォレットで開く（QRの代わり）</a></div>
       <div class="req mono" style="font-size:12px"><div class="k">credential_offer.grants</div>${esc(JSON.stringify(offer.grants))}</div>
       <div style="text-align:center;margin-top:10px"><a class="btn" id="open" href="${esc(authorizeUrl)}">ウォレットの動作を再現（認可へ進む）</a></div>
-      <div class="hint">要求クレデンシャル: <b>${esc(dispName(configId))}</b> / 配送: by reference（<span class="mono">credential_offer_uri</span>）</div>
+      <div class="hint">要求デジタル資格証: <b>${esc(dispName(configId))}</b> / 配送: by reference（<span class="mono">credential_offer_uri</span>）</div>
     </div>`);
 }
 
@@ -403,7 +403,7 @@ export function renderLogin(users, next = '/', { note = null } = {}) {
         <span style="width:8px;height:8px;border-radius:50%;background:#0E8A6B;flex-shrink:0;display:inline-block"></span>
         パスワード不要のデモ用サインイン。実環境ではマイナンバーカードやパスキーを用いて当人認証します。
       </div>
-      <footer style="margin-top:18px;font-size:11px;color:#5B6B82">本デモ中の組織・人物・デジタル資格証明等は全て架空のものです</footer>
+      <footer style="margin-top:18px;font-size:11px;color:#5B6B82">本デモ中の組織・人物・デジタル資格証等は全て架空のものです</footer>
     </div>
   </body></html>`;
 }
@@ -570,7 +570,7 @@ export function renderConsentScreen(q, user, infos = []) {
       ${rows}
       <div class="who"><span class="seal" style="width:38px;height:38px;font-size:16px">${esc((user.family ?? '?')[0])}</span>
         <div style="font-size:13.5px"><b>${esc(`${user.family} ${user.given}`)}</b> としてサインイン中<br>
-        <span style="font-size:11px;color:var(--muted)">あなたの登録情報がクレデンシャルに記載されます</span></div></div>
+        <span style="font-size:11px;color:var(--muted)">あなたの登録情報がデジタル資格証に記載されます</span></div></div>
       <div style="font-size:12px;color:var(--muted)">要求元: <b style="color:var(--ink)">${esc(q.client_id || 'wallet')}</b>（${esc(init)}）</div>
       <details class="techfold"><summary>技術詳細（PKCE / scope / redirect_uri）</summary>
         <div class="req mono" style="font-size:11.5px;margin-top:8px">
@@ -789,10 +789,10 @@ export function renderVcSelect(user, groups, { walletOrigin = '', approved = [] 
   // cfg → {type, name, fmt}（プレビューのミニカード描画用）
   const cfgMeta = {};
   for (const g of groups) for (const f of g.formats) cfgMeta[f.configId] = { type: g.type, name: g.name, fmt: f.label };
-  return appShell('クレデンシャルを発行する', `
+  return appShell('デジタル資格証を発行する', `
     <div class="catwrap">
      <div class="catmain">
-      <h2 class="h2">発行できるクレデンシャル</h2>
+      <h2 class="h2">発行できるデジタル資格証</h2>
       <div class="hint" style="margin:0 0 14px">形式チップ（mdoc / SD-JWT）で複数選択できます。複数種別・複数形式をまとめて1つのオファーに含められます。下のバーの<b>「発行」でそのまま発行</b>、「プレビュー」でウォレットに入る姿を確認できます。</div>
       <div class="catlist">${rows}</div>
      </div><!-- /catmain -->
@@ -827,7 +827,7 @@ export function renderVcSelect(user, groups, { walletOrigin = '', approved = [] 
     <!-- 固定アクションバー: 選択数 + プレビュー / 発行 / ⚙設定。中央寄せグループで左右バランス -->
     <div class="actbar" id="actbar">
       <div class="ab-in">
-        <span class="ab-cnt" id="abCnt">クレデンシャルを選択</span>
+        <span class="ab-cnt" id="abCnt">デジタル資格証を選択</span>
         <button type="button" class="ab-prev" id="prevBtn" onclick="openSheet()" disabled>プレビュー</button>
         <button type="button" class="btn ab-issue" id="issue" disabled>発行</button>
         <button type="button" class="gearbtn" id="optbtn" title="発行オプション（設定）" aria-expanded="false">⚙</button>
@@ -925,7 +925,7 @@ export function renderVcSelect(user, groups, { walletOrigin = '', approved = [] 
       }
       function renderBar() {
         const n = selected.size;
-        $('abCnt').innerHTML = n ? ('<b>' + n + '</b> 構成を選択中') : 'クレデンシャルを選択';
+        $('abCnt').innerHTML = n ? ('<b>' + n + '</b> 構成を選択中') : 'デジタル資格証を選択';
         $('issue').disabled = !n; $('issue').textContent = n ? ('発行（' + n + '）') : '発行';
         $('prevBtn').disabled = !n;
       }
@@ -943,7 +943,7 @@ export function renderVcSelect(user, groups, { walletOrigin = '', approved = [] 
       window.openSheet = function () { if (!selected.size) return; renderStack(); $('psheet').classList.add('open'); $('psheetScrim').classList.add('show'); $('psheet').setAttribute('aria-hidden', 'false'); };
       window.closeSheet = function () { $('psheet').classList.remove('open'); $('psheetScrim').classList.remove('show'); $('psheet').setAttribute('aria-hidden', 'true'); };
       async function buildOffer(withQr) {
-        if (!selected.size) { alert('クレデンシャルの形式を1つ以上選択してください'); return null; }
+        if (!selected.size) { alert('デジタル資格証の形式を1つ以上選択してください'); return null; }
         const grant = $('grant').value;
         const body = { credential_configuration_ids: [...selected], grant, qr: withQr };
         // どの認定（申請）から交付するか。同じ書類を複数件持てるので、選んだ
@@ -1324,7 +1324,7 @@ export function renderAccount(user, docs = []) {
         <h1 style="font-size:22px;margin:0">アカウント設定</h1>
         <a href="/" style="color:var(--civic);text-decoration:none;font-size:14px">← 発行に戻る</a>
       </div>
-      <div class="hint" style="margin:10px 0 16px">左＝編集できる属性（保存すると次回以降の発行クレデンシャルに反映・セッション連動）／右＝VC に載るが直接変更できない属性とその由来。</div>
+      <div class="hint" style="margin:10px 0 16px">左＝編集できる属性（保存すると次回以降の発行デジタル資格証に反映・セッション連動）／右＝VC に載るが直接変更できない属性とその由来。</div>
       <div class="acols">
       <div>
       <div class="sec-t">✏️ 編集できる属性</div>

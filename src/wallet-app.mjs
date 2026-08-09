@@ -717,7 +717,7 @@ function presentConsent({ request, plan, have, held = [], statusMap = {} }) {
   const heldLine = held.length ? held.map((h) => `${esc(h.configId)}（${esc(h.fmt)}）`).join('、') : 'なし';
   const notHeld = `
     <div class="hint" style="color:#9E3A3A;margin-top:12px">
-      要求された形式・種別のクレデンシャルを保有していません。<br>
+      要求された形式・種別のデジタル資格証を保有していません。<br>
       <b>要求</b>: ${reqLine || '—'}<br><b>保有</b>: ${heldLine}
       <div style="margin-top:6px">同じ種別でも <b>mdoc / SD-JWT の形式が一致</b>している必要があります。該当形式での発行を受けてください。</div>
     </div>`;
@@ -761,7 +761,7 @@ function presentConsent({ request, plan, have, held = [], statusMap = {} }) {
     const embIcon = `<span class="cic" style="--c1:${th.c1};--c2:${th.c2};--c3:${th.c3}">${swatchEmblemHtml(type)}</span>`;
     const multi = q.matches.length > 1;
     const picker = multi ? `<div class="picker">
-      <div class="pk-h">一致する候補が${q.matches.length}件。提示するクレデンシャルを選択：</div>
+      <div class="pk-h">一致する候補が${q.matches.length}件。提示するデジタル資格証を選択：</div>
       ${q.matches.map((m, i) => { const st = statusMap[m.id]; return `<label class="prow${st?.revoked ? ' is-bad' : ''}">
         <input type="radio" name="cred:${esc(q.dcqlId)}" value="${esc(m.id)}" data-q="${esc(q.dcqlId)}" data-qi="${qi}" ${stData(st)} ${i === 0 ? 'checked' : ''}>
         <span class="rdo"></span><span class="pr-tx">${esc(typeName(type))} <span class="mono">${esc(m.id.slice(0, 8))}</span></span>${presentStatChip(st)}
@@ -804,7 +804,7 @@ function presentConsent({ request, plan, have, held = [], statusMap = {} }) {
   const peekStatus = !peekSt?.checked ? '未確認' : peekSt.revoked ? '失効' : '有効';
   const peek = peekType
     ? `<div class="vpeek" id="vpeek">${vcardHtml(peekType, { title: typeName(peekType), fmt: plan[0].isMdoc ? 'mdoc' : 'SD-JWT', status: peekStatus, revoked: !!peekSt?.revoked, unknown: !peekSt?.checked })}
-        <div class="peek-warn" id="peekWarn" ${peekSt?.revoked ? '' : 'hidden'}>⚠ このクレデンシャルは<b>失効</b>しています。提示先で検証に失敗する可能性があります。</div></div>`
+        <div class="peek-warn" id="peekWarn" ${peekSt?.revoked ? '' : 'hidden'}>⚠ このデジタル資格証は<b>失効</b>しています。提示先で検証に失敗する可能性があります。</div></div>`
     : '';
   const verified = v.src !== 'client_metadata.client_name';
   return shell('提示の確認', `
@@ -1005,7 +1005,7 @@ function credModal(c, raw) {
       <div class="mc">
         <div class="pan pan-attr"><div class="dfull">${full}</div></div>
         <div class="pan pan-raw" hidden>${noteBanner}<div class="rawfmt">${esc(fmtLabel)}</div><pre class="djson">${rawJson}</pre>${compact}</div></div>
-      <div class="mfoot"><button type="button" class="vc-del" onclick="askDelete('${esc(c.id)}','${esc(name)}')">${delGlyph()}<span>このクレデンシャルを削除</span></button></div>
+      <div class="mfoot"><button type="button" class="vc-del" onclick="askDelete('${esc(c.id)}','${esc(name)}')">${delGlyph()}<span>このデジタル資格証を削除</span></button></div>
     </div></div>`;
 }
 
@@ -1014,7 +1014,7 @@ const DELETE_CONFIRM = `<div class="vc-confirm" id="delConfirm" hidden>
   <div class="vc-scrim" onclick="cancelDelete()"></div>
   <div class="confirm">
     <div class="cf-ic">${delGlyph(26)}</div>
-    <h3 class="cf-h">クレデンシャルを削除</h3>
+    <h3 class="cf-h">デジタル資格証を削除</h3>
     <p class="cf-p"><span id="delName" class="cf-nm"></span> をウォレットから削除します。<br>この操作は取り消せません。</p>
     <form method="POST" id="delForm" class="cf-btns">
       <button type="button" class="cf-cancel" onclick="cancelDelete()">キャンセル</button>
@@ -1028,7 +1028,7 @@ const RESET_CONFIRM = `<div class="vc-confirm" id="resetConfirm" hidden>
   <div class="confirm">
     <div class="cf-ic">${delGlyph(26)}</div>
     <h3 class="cf-h">ウォレットを初期化</h3>
-    <p class="cf-p">保管中の<span class="cf-nm">すべてのクレデンシャル</span>とホルダーバインディング鍵を削除します。<br>この操作は取り消せません。</p>
+    <p class="cf-p">保管中の<span class="cf-nm">すべてのデジタル資格証</span>とホルダーバインディング鍵を削除します。<br>この操作は取り消せません。</p>
     <form method="POST" action="/reset" class="cf-btns">
       <button type="button" class="cf-cancel" onclick="cancelReset()">キャンセル</button>
       <button type="submit" class="cf-del">初期化する</button>
@@ -1138,7 +1138,7 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
         <div class="wstack" id="wstack">${s.creds.map(cardOf).join('')}</div>
         <div class="wlist" id="wlist">${s.creds.map(listRow).join('')}</div>
        </div>${n > 1 ? '<div class="rhint"><span class="rh-touch">カードを長押しすると並び替えできます</span><span class="rh-pc">左のハンドル（⣿）をドラッグすると並び替えできます</span>（新しく受け取ったカードは一番上に入ります）</div>' : ''}`
-    : `<div class="ghost-card">クレデンシャルがありません<br><span style="font-size:11.5px">右下の ＋ から発行を受けられます</span></div>`;
+    : `<div class="ghost-card">デジタル資格証がありません<br><span style="font-size:11.5px">右下の ＋ から発行を受けられます</span></div>`;
 
   // ＋カタログ: 8種タイル × issuer式チップ（クリック=選択・複数可）→ 複数 scope で認可へ
   const types = [...new Set(cat.map((x) => credType(x.configId)))];
@@ -1712,12 +1712,12 @@ function credDetail(cr, raw, st, acts = []) {
           <a href="/dev/holder-key" style="font-size:12px;font-weight:700;color:var(--muted)">🔑 バインディング鍵を表示 →</a>
         </div>
       </details>
-      <button type="button" class="wdel" onclick="document.getElementById('delConfirm').hidden=false">このクレデンシャルを削除</button>
+      <button type="button" class="wdel" onclick="document.getElementById('delConfirm').hidden=false">このデジタル資格証を削除</button>
     </div>
     <div class="vc-confirm" id="delConfirm" hidden>
       <div class="vc-scrim" onclick="document.getElementById('delConfirm').hidden=true"></div>
       <div class="confirm">
-        <h3 class="cf-h">クレデンシャルを削除</h3>
+        <h3 class="cf-h">デジタル資格証を削除</h3>
         <p class="cf-p"><b>${esc(typeName(type))}</b> をウォレットから削除します。<br>この操作は取り消せません。</p>
         <form method="POST" action="/cred/${esc(cr.id)}/delete" class="cf-btns">
           <button type="button" class="cf-cancel" onclick="document.getElementById('delConfirm').hidden=true">キャンセル</button>
@@ -1775,11 +1775,11 @@ function credFragment(cr, raw, st, acts = []) {
           <a href="/dev/holder-key" style="font-size:12px;font-weight:700;color:var(--muted)">🔑 バインディング鍵を表示 →</a>
         </div>
       </details>
-      <button type="button" class="wd-del" onclick="wdDelConfirm(this,true)">このクレデンシャルを削除</button>
+      <button type="button" class="wd-del" onclick="wdDelConfirm(this,true)">このデジタル資格証を削除</button>
       <div class="wd-dc" hidden>
         <div class="wd-dc-scrim" onclick="wdDelConfirm(this,false)"></div>
         <div class="wd-dc-box">
-          <h3 class="wd-dc-h">クレデンシャルを削除</h3>
+          <h3 class="wd-dc-h">デジタル資格証を削除</h3>
           <p class="wd-dc-p"><b>${esc(typeName(type))}</b> をウォレットから削除します。<br>この操作は元に戻せません。再発行が必要となります。</p>
           <div class="wd-dc-btns">
             <button type="button" class="wd-dc-cancel" onclick="wdDelConfirm(this,false)">キャンセル</button>
@@ -2065,7 +2065,7 @@ function settingsPage(ttlSec, saved = false) {
         <a href="/dev/holder-key" style="display:block;font-size:13.5px;font-weight:700;color:#2E7D6B;text-decoration:none;padding:10px 0">🔑 バインディング鍵を表示 →</a>
         <button type="button" onclick="askReset()"
           style="display:block;font:inherit;font-size:13.5px;font-weight:700;color:#C8453C;background:none;border:none;padding:10px 0;cursor:pointer">⚠ ウォレットを初期化…</button>
-        <div class="hint" style="margin-top:2px">初期化は保管中のすべてのクレデンシャルとホルダーバインディング鍵を削除します。</div>
+        <div class="hint" style="margin-top:2px">初期化は保管中のすべてのデジタル資格証とホルダーバインディング鍵を削除します。</div>
       </div>
     </div>
     ${RESET_CONFIRM}
@@ -2083,11 +2083,11 @@ function added(s, recs, grant) {
     title: typeName(credType(c.configId)), sub: c.configId,
     fmt: c.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT', style: 'margin-top:12px',
   })).join('');
-  const title = list.length === 1 ? esc(typeName(credType(list[0].configId))) : `${list.length} 件のクレデンシャル`;
+  const title = list.length === 1 ? esc(typeName(credType(list[0].configId))) : `${list.length} 件のデジタル資格証`;
   return shell('発行完了', `
     <div class="card">
       <div class="step">OID4VCI（${esc(grant)}）で受領</div>
-      <div class="ok">✓ クレデンシャルをウォレットに保管しました</div>
+      <div class="ok">✓ デジタル資格証をウォレットに保管しました</div>
       <h1 style="font-size:18px">${title}</h1>
       ${cards}
       <div style="margin-top:16px"><a class="btn" href="/" style="display:block;text-align:center">ウォレットを開く</a></div>
@@ -2116,10 +2116,10 @@ function pinScreen(offer, txMeta) {
 
 function requestPicker(configs, issuerBase) {
   const opts = configs.map((id) => `<option value="${esc(id)}">${esc(id)}</option>`).join('');
-  return shell('クレデンシャル取得', `
+  return shell('デジタル資格証取得', `
     <div class="card">
       <div class="step">STEP 1 / ウォレット起点 — 認可コード（PKCE）</div>
-      <h1>取得するクレデンシャルを選ぶ</h1>
+      <h1>取得するデジタル資格証を選ぶ</h1>
       <div class="hint">発行者: <span class="mono">${esc(issuerBase)}</span><br>
         種別を選んで「認可要求を生成」を押すと、ウォレットが PKCE 付きの認可要求 URL を組み立てます。</div>
       <form method="GET" action="/request" style="margin-top:14px">
@@ -2149,7 +2149,7 @@ function authRequestPreview({ url, configIds = [], issuerBase }) {
       <div class="step">発行者にログインして取得（authorization_code + PKCE）</div>
       <h1>以下の ${configIds.length} 件の発行を要求します</h1>
       ${rows}
-      <div class="hint" style="margin-top:12px">「認可へ進む」で発行者のサインイン・同意画面に移動します。同意すると、このウォレットにクレデンシャルが発行されます。</div>
+      <div class="hint" style="margin-top:12px">「認可へ進む」で発行者のサインイン・同意画面に移動します。同意すると、このウォレットにデジタル資格証が発行されます。</div>
       <a class="btn" href="${esc(url)}" style="display:block;text-align:center;margin-top:14px">認可へ進む（発行者へ移動）</a>
       <details class="urlfold">
         <summary>開発者向け: 認可要求 URL（PKCE / scope / state）</summary>
