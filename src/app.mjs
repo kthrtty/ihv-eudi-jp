@@ -122,7 +122,7 @@ export function createApp(opts = {}) {
     if (!t) return c.notFound();
     // 罹災は「災害 → 対象自治体」。災害未選択ならまず災害を選ばせる
     const disaster = t.byDisaster ? getDisaster(c.req.query('d')) : null;
-    if (t.byDisaster && !disaster) return c.html(renderDisasterPicker(user, t));
+    if (t.byDisaster && !disaster) return c.html(renderDisasterPicker(user, t, { pref: c.req.query('pref') || '' }));
     return c.html(renderMunicipalityPicker(user, t, {
       pref: c.req.query('pref') || '',
       suggested: suggestFromAddress(user.address, disaster ? null : t.id, disaster?.codes ?? null),
