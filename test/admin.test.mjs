@@ -354,8 +354,10 @@ test('apply: 災害は都道府県チップで絞り込め、絞り込みは申�
   // 申請先の画面へ引き継がれ、県を選び直さずに済む
   const next = await get(`?d=r6-noto-jishin&pref=${encodeURIComponent('石川県')}`);
   assert.equal((next.match(/class="mcard"/g) || []).length, 7, '石川県の7市町がすぐ出る');
-  assert.ok(next.includes('他県も見る（全11件）'), '絞り込みを外す道も残す');
-  assert.ok(next.includes(`/apply/disaster?pref=${encodeURIComponent('石川県')}`), '災害を変更しても絞り込みは維持');
+  // 選択済みの条件は「ラベル: 値 ✕」の1行。✕ が選び直し（＝絞り込みを外す道）
+  assert.ok(next.includes('<span class="k">都道府県</span>'), '都道府県のチップを出す');
+  assert.ok(next.includes('href="/apply/disaster?d=r6-noto-jishin"'), '✕ で絞り込みを外せる');
+  assert.ok(next.includes(`href="/apply/disaster?pref=${encodeURIComponent('石川県')}"`), '対象の✕は絞り込みを維持したまま災害選択へ');
 });
 
 // 絞り込みは**フォームまで運び、戻る導線でも保つ**。落とすと都道府県を選び直させる。
@@ -375,6 +377,10 @@ test('apply: 都道府県の絞り込みが災害→申請先→フォーム→�
 
   // ④ フォーム → 戻る導線すべてが災害と県を保つ
   const form = await get(`/apply/disaster/43100?d=r8-kumamoto&pref=${P}`);
+  // フォームだけ PICK_CSS を読み込んでおらず、選択済みチップが素のテキストに崩れていた
+  assert.ok(form.includes('.sel .x{'), 'フォームにも選択チップの CSS が入る');
+  assert.ok(form.includes('<span class="k">対象</span>') && form.includes('<span class="k">申請先</span>'),
+    '選択済みは「ラベル: 値 ✕」の1行');
   assert.ok(form.includes(`href="/apply/disaster?d=r8-kumamoto&pref=${P}"`), '「申請先を選び直す」が両方保つ');
   assert.ok(form.includes(`href="/apply/disaster?pref=${P}"`), '「災害を変更」も県を保つ');
   assert.ok(form.includes(`action="/apply/disaster/43100?pref=${P}"`), 'POST 先にも載せる（エラーで戻れるように）');
