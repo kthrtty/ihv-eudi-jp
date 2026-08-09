@@ -192,6 +192,15 @@ export const field = (x, val = '') => {
     <input type="${x.type === 'date' ? 'date' : 'text'}" name="${esc(x.key)}" value="${esc(val)}" placeholder="${esc(x.placeholder || '')}">${hint}</div>`;
 };
 
+/** 手続きの進行表示。区切りの「›」もフレックス項目にして**チップと光学的に揃える**
+ *  （テキストのまま置くと行ボックスの都合で沈み、折り返し時は行末に取り残される）。 */
+const NUM = ['①', '②', '③', '④', '⑤', '⑥'];
+// クラス名は sb- で始める。**`.todo` は注記ボックスに既にある名前**で、そちらの
+// margin-bottom:12px を拾って未通過チップだけ 6px 浮いていた（衝突事故）。
+const stepbar = (steps, cur) => `<div class="stepbar">${steps
+  .map((s, i) => `<span class="${i < cur ? 'sb-done' : i === cur ? 'sb-cur' : 'sb-next'}">${NUM[i]} ${esc(s)}</span>`)
+  .join('<i>›</i>')}</div>`;
+
 /** 対象の災害を選ぶ（罹災のみ・手続き → **災害** → 自治体 → フォーム）。
  *  罹災証明は自治体の恒常的なサービスではなく、災害というイベントに従属する
  *  （災害対策基本法 第90条の2「当該市町村の地域に係る災害が発生した場合において」）。 */
@@ -206,7 +215,7 @@ export function renderDisasterPicker(user, t) {
     <div style="margin-top:22px">
       <div class="crumb"><a href="/" style="color:inherit">発行カタログ</a> › 申請できる手続き › ${esc(t.short)}</div>
       <h1 style="font-size:20px;margin:0 0 10px">${esc(t.short)} — 対象の災害</h1>
-      <div class="stepbar"><span class="done">① 手続き</span>›<span class="cur">② 災害</span>›<span class="todo">③ 申請先</span>›<span class="todo">④ 申請</span>›<span class="todo">⑤ 審査</span></div>
+      ${stepbar(['手続き', '災害', '申請先', '申請', '審査'], 1)}
       <p class="lead">罹災証明書は<b>災害が発生した市区町村</b>が交付します（災害対策基本法 第90条の2）。
         まず対象の災害を選んでください（発生日の新しい順）。</p>
       <div class="dlist">${listDisasters().map(row).join('')}</div>
@@ -222,38 +231,52 @@ export function renderDisasterPicker(user, t) {
  *  **その手続きを扱う自治体だけ**を出す。自治体を先に選ばせると「取扱いなし」という
  *  行き止まりを見せることになるので、絞り込みの向きはこちらが正しい。 */
 export function renderMunicipalityPicker(user, t, { pref = '', suggested = null, disaster = null } = {}) {
-  // 罹達は災害の対象自治体だけ、離島は取扱いのある自治体だけ
+  // 罹災は災害の対象自治体だけ、離島は取扱いのある自治体だけ
   const codes = disaster ? disaster.codes : null;
   const proc = disaster ? null : t.id;
   const prefs = prefecturesFor(proc, codes);
-  // 既定は、住民票からの提案 → 対象自治体が最も多い県（＝被害の中心）→ 先頭 の順
-  const most = prefs.slice().sort((a, b) => municipalitiesIn(b, proc, codes).length - municipalitiesIn(a, proc, codes).length)[0];
-  const cur = prefs.includes(pref) ? pref : (suggested && prefs.includes(suggested.pref) ? suggested.pref : (most || prefs[0]));
-  const list = municipalitiesIn(cur, proc, codes);
+  // **都道府県を選ぶまで市区町村は出さない**（全件を先読みしても大半は使われない）。
+  // 3状態: 未選択＝選ぶよう促す／選択したが対象なし＝無いと言う／対象あり＝並べる。
+  // 件数バッジはメモリ上の配列を数えるだけなので転送量は増えない。
+  const asked = String(pref || '').slice(0, 20);   // 利用者由来。出力時は必ず esc する
+  const cur = prefs.includes(asked) ? asked : '';
+  const list = cur ? municipalitiesIn(cur, proc, codes) : [];
   const q = disaster ? `?d=${encodeURIComponent(disaster.id)}` : '';
   const card = (x) => `<a class="mcard" href="/apply/${esc(t.id)}/${esc(x.code)}${q}">
     <b>${esc(x.name)}</b><small>${esc(x.code)}</small>
     ${x.islands.length ? `<span class="isl">対象離島: ${esc(x.islands.join('・'))}</span>` : ''}</a>`;
+  const href = (p) => `/apply/${esc(t.id)}?${disaster ? `d=${encodeURIComponent(disaster.id)}&` : ''}pref=${encodeURIComponent(p)}`;
+  const noneMsg = (p) => `<b class="h">${esc(p)}</b>
+    <div class="mnone">${esc(p)}に、${disaster ? `<b>${esc(disaster.name)}</b>の対象となる` : `${esc(t.short)}を交付する`}市区町村は<b>ありません</b>。<br>
+      左の一覧から別の都道府県を選んでください。</div>`;
+  const body = cur
+    ? `<b class="h">${esc(cur)} の${disaster ? '対象' : `${esc(t.short)}を交付する`}市区町村（${list.length}件）</b>
+       <div class="mgrid">${list.map(card).join('')}</div>`
+    : (asked
+      // 対象のある県だけをタブに出しているので通常は来ない。URL を直接叩かれたときの受け皿
+      ? noneMsg(asked)
+      : `<b class="h">申請先の都道府県</b>
+         <div class="mnone">まず<b>対象の都道府県を選択してください</b>。<br>
+           選ぶと、${disaster ? `<b>${esc(disaster.name)}</b>の対象` : `${esc(t.short)}を交付する`}市区町村が表示されます。</div>`);
   return appShell(`${t.short} — 申請先を選ぶ`, `
     <div style="margin-top:22px">
       <div class="crumb"><a href="/" style="color:inherit">発行カタログ</a> › 申請できる手続き › ${esc(t.short)}</div>
       <h1 style="font-size:20px;margin:0 0 10px">${esc(t.short)} — 申請先の市区町村</h1>
-      <div class="stepbar">${disaster
-        ? `<span class="done">① 手続き</span>›<span class="done">② 災害</span>›<span class="cur">③ 申請先</span>›<span class="todo">④ 申請</span>›<span class="todo">⑤ 審査</span>`
-        : `<span class="done">① 手続き</span>›<span class="cur">② 申請先</span>›<span class="todo">③ 申請</span>›<span class="todo">④ 審査</span>›<span class="todo">⑤ 交付</span>`}</div>
+      ${disaster
+        ? stepbar(['手続き', '災害', '申請先', '申請', '審査'], 2)
+        : stepbar(['手続き', '申請先', '申請', '審査', '交付'], 1)}
       ${disaster ? `<div class="pin"><span class="pi">🌊</span>
         <span>対象の災害　<b>${esc(disaster.name)}</b><span class="sub">発生 ${esc(disaster.occurred)}</span></span>
         <a class="chg" href="/apply/${esc(t.id)}">災害を変更</a></div>` : ''}
       <p class="lead">${esc(t.applyToLead)}<br>
         <b>この手続きを扱う自治体だけ</b>を出しています。住所からは推定しません——申請先はご自身で選びます。</p>
       ${suggested ? `<div class="recent"><span>住民票の住所から</span>
-        <a href="/apply/${esc(t.id)}/${esc(suggested.code)}">${esc(suggested.pref)} ${esc(suggested.name)}</a></div>` : ''}
+        <a href="/apply/${esc(t.id)}/${esc(suggested.code)}${q}">${esc(suggested.pref)} ${esc(suggested.name)}</a></div>` : ''}
       <div class="pick">
         <div class="pcol"><b class="h">都道府県${t.id === 'island' ? '（取扱いのある県のみ）' : ''}</b>
-          ${prefs.map((p) => `<a href="/apply/${esc(t.id)}?${disaster ? `d=${encodeURIComponent(disaster.id)}&` : ''}pref=${encodeURIComponent(p)}" class="${p === cur ? 'on' : ''}">${esc(p)}</a>`).join('')}
+          ${prefs.map((p) => `<a href="${href(p)}" class="${p === cur ? 'on' : ''}">${esc(p)}<i>${municipalitiesIn(p, proc, codes).length}</i></a>`).join('')}
         </div>
-        <div class="mcol"><b class="h">${esc(cur)} の${disaster ? '対象' : `${esc(t.short)}を交付する`}市区町村（${list.length}件）</b>
-          <div class="mgrid">${list.map(card).join('')}</div>
+        <div class="mcol">${body}
           <p class="fhint" style="margin-top:12px">正本は総務省「全国地方公共団体コード」。名称・団体コード・<b>長の呼称</b>（区長／市長／町長／村長）を持ちます。
             本デモは一部のみ収録しています。</p>
         </div>
@@ -517,10 +540,16 @@ export function renderMyApplication(user, a, { justSubmitted = false, issued = [
 
 // 申請先の選択（都道府県 → 市区町村）と、フォーム上部の申請先ピン
 const PICK_CSS = `
-.stepbar{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--muted);margin-bottom:14px;flex-wrap:wrap}
-.stepbar span.cur{background:var(--civic);color:#fff;border-radius:999px;padding:3px 11px;font-weight:700}
-.stepbar span.done{background:#EAF0FA;color:var(--civic);border-radius:999px;padding:3px 11px;font-weight:700}
-.stepbar span.todo{background:#F1F3F7;border-radius:999px;padding:3px 11px}
+/* チップと区切りの高さを揃える。**枠線の有無で高さが変わると光学的にずれる**ので、
+   box-sizing と固定の高さを与え、未通過だけ破線という差は色で表す */
+.stepbar{display:flex;align-items:center;flex-wrap:wrap;gap:6px 7px;margin-bottom:14px;font-size:11.5px;color:var(--muted)}
+.stepbar span,.stepbar i{box-sizing:border-box;height:26px;display:inline-flex;align-items:center;
+  align-self:center;line-height:1;white-space:nowrap}
+.stepbar span{padding:0 12px;border-radius:999px;border:1px solid transparent}
+.stepbar span.sb-cur{background:var(--civic);color:#fff;font-weight:700;border-color:var(--civic)}
+.stepbar span.sb-done{background:#EAF0FA;color:var(--civic);font-weight:700;border-color:#D4DEF5}
+.stepbar span.sb-next{background:#F7F9FC;border-style:dashed;border-color:#d5dce6}
+.stepbar i{font-style:normal;font-size:12px;color:#b6bec9;padding:0 1px}
 .recent{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
 .recent span{font-size:11.5px;color:var(--muted)}
 .recent a{text-decoration:none;font-size:12.5px;font-weight:700;color:var(--civic);background:#EAF0FA;
@@ -529,6 +558,11 @@ const PICK_CSS = `
 .pcol{border-right:1px solid var(--line);background:#FAFBFD}
 .pcol a{display:block;padding:9px 16px;font-size:13px;text-decoration:none;color:inherit}
 .pcol a.on{background:#fff;font-weight:700;color:var(--civic);box-shadow:inset 3px 0 0 var(--civic)}
+.pcol a i{float:right;font-style:normal;font-size:11px;color:var(--muted);background:#EDF1F7;border-radius:999px;padding:1px 7px}
+.pcol a.on i{background:#E3EAF7;color:var(--civic)}
+.mnone{background:#F7F9FC;border:1px dashed #c3cede;border-radius:11px;padding:26px 18px;text-align:center;
+  font-size:12.5px;color:var(--muted);line-height:1.9}
+.mnone b{color:var(--ink)}
 .mcol{padding:16px 18px}
 .pick b.h{display:block;font-size:10.5px;color:var(--muted);padding:11px 16px 7px;letter-spacing:.03em}
 .mcol b.h{padding:0 0 10px}
@@ -562,6 +596,8 @@ const PICK_CSS = `
   .pcol b.h{width:100%;padding:0 0 4px}
   .pcol a{padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:#fff;font-size:12.5px}
   .pcol a.on{box-shadow:none;background:var(--civic);color:#fff;border-color:var(--civic)}
+  .pcol a i{float:none;margin-left:5px}
+  .pcol a.on i{background:rgba(255,255,255,.25);color:#fff}
   .pin{flex-wrap:wrap}.pin .sub{margin-left:0;width:100%}
 }`;
 

@@ -201,9 +201,9 @@ test('admin: 扱っていない自治体あての申請 URL は選択画面へ�
   assert.ok(dpick.includes('デジタル庁「オンライン申請ができる自治体」'), '対象一覧の出典を出す');
   assert.ok(dpick.indexOf('令和8年熊本地震') < dpick.indexOf('平成28年熊本地震'), '発生日の降順で並ぶ');
   assert.ok(!dpick.includes('西之表市'), '災害を選ぶ前に自治体は出さない');
-  const noto = await (await fetch(`${ISSUER}/apply/disaster?d=r6-noto-jishin`, { headers: { cookie: `sid=${sid}` } })).text();
-  assert.ok(noto.includes('石川県'), '対象自治体が最も多い県が既定で開く');
-  assert.ok(noto.includes('輪島市'), '能登半島地震の対象自治体は出る');
+  const noto = await (await fetch(`${ISSUER}/apply/disaster?d=r6-noto-jishin&pref=${encodeURIComponent('石川県')}`,
+    { headers: { cookie: `sid=${sid}` } })).text();
+  assert.ok(noto.includes('輪島市') && noto.includes('珠洲市'), '能登半島地震の対象自治体は出る');
   assert.ok(!noto.includes('/apply/disaster/46213'), '対象外の西之表市は出ない');
   const bad = await fetch(`${ISSUER}/apply/disaster/46213?d=r6-noto-jishin`, {
     headers: { cookie: `sid=${sid}` }, redirect: 'manual' });
@@ -325,6 +325,37 @@ test('apply: 審査が終わると添付の原本は削除される（サムネ�
   assert.ok(mine.includes('<img src="data:image/jpeg;base64,'), 'サムネイルは残るので何を出したか分かる');
   assert.ok(mine.includes('審査終了により原本は削除済み'), '消えた理由を出す');
   assert.ok(!mine.includes(`href="/applications/${appId}/att/0"`), '開けないものをリンクにしない');
+});
+
+// 申請先の一覧は**都道府県を選ぶまで市区町村を出さない**（使われない候補を先読みしない）。
+// 3状態: 未選択＝選ぶよう促す／選択したが対象なし＝無いと言う／対象あり＝並べる。
+test('apply: 申請先は都道府県を選ぶまで市区町村を出さない（3状態）', async () => {
+  const sid = await login('u_002');
+  const get = async (q) => (await fetch(`${ISSUER}/apply/island${q}`, { headers: { cookie: `sid=${sid}` } })).text();
+
+  const none = await get('');
+  assert.equal((none.match(/class="mcard"/g) || []).length, 0, '未選択では1件も描かない');
+  assert.ok(none.includes('対象の都道府県を選択してください'), '選ぶよう促す');
+  assert.ok(none.includes('長崎県<i>7</i>'), 'どこに候補があるかは件数バッジで分かる（転送量は増えない）');
+
+  const one = await get(`?pref=${encodeURIComponent('長崎県')}`);
+  assert.equal((one.match(/class="mcard"/g) || []).length, 7, '選んだ県のぶんだけ描く');
+  assert.ok(one.includes('対馬市') && one.includes('壱岐市'));
+  assert.ok(!one.includes('西之表市'), '他県は含めない');
+
+  // タブには対象のある県しか出さないので通常は起きないが、URL を直接叩かれたとき
+  const miss = await get(`?pref=${encodeURIComponent('大阪府')}`);
+  assert.equal((miss.match(/class="mcard"/g) || []).length, 0);
+  assert.ok(miss.includes('市区町村は<b>ありません</b>'), '無いことを言う');
+  assert.ok(!miss.includes('対象の都道府県を選択してください'), '未選択の文言とは区別する');
+
+  // 罹災も同じ振る舞い
+  const d0 = await (await fetch(`${ISSUER}/apply/disaster?d=r8-kumamoto`, { headers: { cookie: `sid=${sid}` } })).text();
+  assert.equal((d0.match(/class="mcard"/g) || []).length, 0, '罹災も未選択では出さない');
+  assert.ok(d0.includes('熊本県<i>19</i>'));
+  const d1 = await (await fetch(`${ISSUER}/apply/disaster?d=r8-kumamoto&pref=${encodeURIComponent('熊本県')}`,
+    { headers: { cookie: `sid=${sid}` } })).text();
+  assert.equal((d1.match(/class="mcard"/g) || []).length, 19);
 });
 
 test('shell: ヘッダーのタイトルはそのサイトのルートへのリンク', () => {
