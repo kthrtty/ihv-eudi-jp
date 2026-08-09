@@ -106,6 +106,21 @@ await page.goto(`${ISSUER}/`);
 await settle(page);
 await page.screenshot({ path: out + 'ap-10-catalog-after.png', fullPage: true });
 
+// 住民票が申請先と同じ市区町村の例（鈴木一郎＝川崎市・令和元年東日本台風）。
+// 「住民票の住所と同じ」が出て、被災住家が初期値で埋まる
+const c2 = await browser.newContext({ viewport: { width: 1180, height: 900 }, deviceScaleFactor: 2 });
+const p2 = await c2.newPage();
+p2.on('pageerror', (e) => errs.push('[same] ' + String(e)));
+await p2.goto(`${ISSUER}/login?next=/`);
+await p2.waitForSelector('.login-card', { timeout: 8000 });
+for (const c of await p2.$$('.login-card')) {
+  if ((await c.textContent()).includes('鈴木')) { await c.click(); break; }
+}
+await p2.waitForURL((u) => new URL(u).pathname === '/', { timeout: 8000 });
+await p2.goto(`${ISSUER}/apply/disaster/14130?d=r1-higashinihon`);
+await settle(p2);
+await p2.screenshot({ path: out + 'ap-02d-form-same-address.png', fullPage: true });
+
 // スマホ（住民 / 職員）
 const mob = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
 await mob.addCookies(await ctx.cookies());

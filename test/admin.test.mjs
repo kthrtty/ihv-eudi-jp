@@ -458,8 +458,11 @@ test('apply: 住基にあるものは入力させず、無いもの・決まら�
   assert.ok(form.includes('<span class="adr-fix">熊本県熊本市</span>'), '市区町村は読み取り専用で前置');
   assert.ok(form.includes('町名以下'), '入力するのは町名以下だと書く');
   assert.ok(!form.includes('name="same_address"'), '「世帯主住所に同じ」チェックは廃止');
-  // 鈴木一郎の住民票は横浜市＝申請先（熊本市）と違うので、住所の初期値は入れない
-  assert.ok(!form.includes('value="神奈川県横浜市西区みなとみらい3-3"'), '他所の番地を初期値にしない');
+  // 鈴木一郎の住民票は川崎市＝申請先（熊本市）と違うので、初期値も近道も出さない。
+  // **なぜ出ないかは書く**（黙って消すと利用者が迷う）
+  assert.ok(!form.includes('value="川崎区宮本町1-1"'), '他所の番地を初期値にしない');
+  assert.ok(!form.includes('id="adrSame"'), '市区町村が違えば「住民票の住所と同じ」は出さない');
+  assert.ok(form.includes('申請先と市区町村が違うため'), 'なぜ使えないかを書く');
 
   // 町名以下だけを送ると、申請先の市区町村が前置された完全な住所になる
   const r = await fetch(`${ISSUER}/apply/disaster/43100?d=r8-kumamoto`, {
@@ -600,4 +603,29 @@ test('admin: 選択式の被害申告と同意が審査画面で読める形に�
   // 入力を助けるためだけのチェックは出さない（住所の隣に「いいえ」が並ぶ）
   assert.ok(!body.includes('>いいえ<'), 'same_address は審査画面に出さない');
   assert.equal((body.match(/被災住家の所在地/g) || []).length, 1, '住所の行は1つ');
+});
+
+// 住民票の住所が申請先と同じ市区町村なら、被災住家の入力を省ける。
+// **一致するときだけ**出るので、他所の番地が入る余地は無い（そこが以前の同名チェックとの違い）。
+test('apply: 住民票が申請先と同じ市区町村なら被災住家をプレフィルする', async () => {
+  const sid = await login('u_003');   // 鈴木一郎は川崎市＝令和元年東日本台風の対象
+  const form = await (await fetch(`${ISSUER}/apply/disaster/14130?d=r1-higashinihon`,
+    { headers: { cookie: `sid=${sid}` } })).text();
+
+  assert.ok(form.includes('<span class="adr-fix">神奈川県川崎市</span>'), '申請先が前置される');
+  assert.ok(form.includes('value="川崎区宮本町1-1"'), '町名以下が初期値に入る');
+  assert.ok(form.includes('id="adrSame"') && form.includes('住民票の住所と同じ'), '外す近道を出す');
+  assert.ok(form.includes('data-adr="川崎区宮本町1-1"'), 'チェックで戻せるよう値を持つ');
+  assert.ok(!form.includes('神奈川県川崎市神奈川県'), '前置を二重にしない');
+
+  // 何も直さず送れば、住民票の住所がそのまま被災住家になる
+  const r = await fetch(`${ISSUER}/apply/disaster/14130?d=r1-higashinihon`, {
+    method: 'POST', redirect: 'manual',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: `sid=${sid}` },
+    body: wireForm({ disaster_id: 'r1-higashinihon', contact_tel: '090-0000-0000',
+      damaged_address: '川崎区宮本町1-1', statement: '浸水', damage_cause: ['豪雨'],
+      property_type: '住家（持家）', consents: { info: true, support: true } }).toString() });
+  const id = r.headers.get('location').split('/')[2].split('?')[0];
+  const mine = await (await fetch(`${ISSUER}/applications/${id}`, { headers: { cookie: `sid=${sid}` } })).text();
+  assert.ok(mine.includes('神奈川県川崎市川崎区宮本町1-1'));
 });
