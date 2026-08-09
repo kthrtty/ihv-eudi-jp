@@ -54,6 +54,8 @@ export default {
         // Injected at deploy time (scripts/deploy.mjs) — repo carries placeholders.
         redirectAllowlist: env.REDIRECT_URI_ALLOWLIST || '',
         walletOrigin: env.WALLET_ORIGIN || 'https://web-wallet.example.test',
+        // 添付画像の再エンコード（無ければ sanitize 済みのバイト列をそのまま保存する）
+        images: env.IMAGES || null,
         statusPki: pki?.statusPki ?? null,
         verifierPki: pki?.verifierPki ?? null,
       });
