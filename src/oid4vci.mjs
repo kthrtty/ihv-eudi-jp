@@ -8,7 +8,7 @@ import { StatusListService } from './status.mjs';
 import { createUserStore } from './users.mjs';
 import { APPLICATION_TYPES as APP_TYPES, getApplicationType, canTransition, canIssueFrom,
   claimsFor, claimsFingerprint, requiresApplication, seedApplications, targetAuthority } from './applications.mjs';
-import { offersProcedure } from './municipalities.mjs';
+import { offersProcedure, getMunicipality } from './municipalities.mjs';
 import { coversMunicipality, getDisaster } from './disasters.mjs';
 import { sha256, b64url } from './cbor.mjs';
 
@@ -195,15 +195,20 @@ export class IssuerService {
       throw httpErr(400, 'invalid_request', `この自治体は${t.short}を取り扱っていません`);
     }
     await this._loadApps();
-    const missing = t.form.filter((x) => x.required && !String(form[x.key] ?? '').trim()).map((x) => x.label);
+    // 種別ごとの正規化（条件付きで無関係になる項目を落とす）→ 必須 → 条件付き検証 の順
+    const muni = getMunicipality(targetCode);
+    const clean = t.normalize ? t.normalize(form, muni) : form;
+    const missing = t.form.filter((x) => x.required && !String(clean[x.key] ?? '').trim()).map((x) => x.label);
     if (missing.length) throw httpErr(400, 'invalid_request', `未入力の必須項目: ${missing.join('・')}`);
+    const bad = t.validate ? t.validate(clean, muni) : null;
+    if (bad) throw httpErr(400, 'invalid_request', bad);
     this.applicationSeq += 1;
     const app = {
       id: `A-${String(this.applicationSeq).padStart(4, '0')}`,
       userId, kind, status: 'submitted',
       target_code: targetCode || null,   // 申請先自治体（交付者名と管轄判定の正本）
       disaster_id: disasterId || null,   // 罹災の対象災害（災害名・罹災日の正本）
-      form, attachments,
+      form: clean, attachments,
       decision: null, authority: null, certificateNumber: null,
       submitted_at: new Date().toISOString(), decided_at: null,
       // 交付済みVCとの突き合わせ用（再判定で内容が変わったかを見る）

@@ -275,8 +275,8 @@ test('apply: 添付は必須にせず、デモ都合であることを画面に�
   assert.ok(!form.includes('被害状況の写真・書類<b class="req">必須</b>'), '必須バッジを出さない');
   assert.ok(form.includes('本デモでは任意'), '任意であることをラベルに出す');
   assert.ok(form.includes('本デモでは添付なしでも申請できます'), 'デモ都合であることを明記する');
-  assert.ok(form.includes('写真は 8MB まで選べます'), '選べる上限を画面に出す');
-  assert.ok(form.includes('長辺 1600px へ縮小して保存'), '原寸で保管しないことを明示する');
+  assert.ok(form.includes('写真は 8MB'), '選べる上限を画面に出す');
+  assert.ok(form.includes('写真は縮小保存します'), '原寸で保管しないことは明示する');
 
   // 実際に添付ゼロで申請できる
   const r = await fetch(`${ISSUER}/apply/disaster/43100`, {
@@ -427,6 +427,56 @@ test('apply: 申請先は都道府県を選ぶまで市区町村を出さない�
 
 // 対象離島は**離島割引の属性**。罹災の申請先に出すと無関係な情報が混じる。
 // 輪島市・佐渡市のように両方の母集団に入る自治体があるので、素で出すと漏れる。
+// 申請先の自治体が決まれば対象離島は一意（多くは1島）か短い選択肢に定まる。
+// **自由入力にすると台帳に表記揺れと誤記が残る**（災害名で経験済み）。
+test('apply: 対象離島は自由入力ではなく申請先の自治体から決まる', async () => {
+  const sid = await login('u_002');
+  const get = async (u) => (await fetch(ISSUER + u, { headers: { cookie: `sid=${sid}` } })).text();
+
+  // 1島の自治体（西之表市＝種子島）は選ばせない
+  const one = await get('/apply/island/46213');
+  assert.ok(!one.includes('name="island_name" placeholder'), '自由入力の欄は無い');
+  assert.ok(one.includes('<input type="hidden" name="island_name" value="種子島">'), '一意なので固定して送る');
+  assert.ok(one.includes('選択の必要はありません'));
+
+  // 複数島の自治体（屋久島町＝屋久島・口永良部島）は選択肢
+  const two = await get('/apply/island/46505');
+  assert.ok(two.includes('<select name="island_name">'), '複数なら選択肢にする');
+  assert.ok(two.includes('<option>屋久島</option>') && two.includes('<option>口永良部島</option>'));
+  assert.ok(!two.includes('<option>種子島</option>'), '他の自治体の島は出さない');
+
+  // 画面の選択肢に頼らず、サーバ側でも対象外の島を弾く
+  const bad = await fetch(`${ISSUER}/apply/island/46505`, {
+    method: 'POST', redirect: 'manual',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: `sid=${sid}` },
+    body: new URLSearchParams({ applied_category: '島民', island_name: '種子島' }).toString() });
+  assert.match(decodeURIComponent(bad.headers.get('location')), /屋久島町が対象とする離島は/);
+});
+
+// 島民には「準島民の事由」は無関係。画面で隠すだけでなく、**申請レコードにも残さない**。
+test('apply: 島民の申請に準島民の事由を残さない', async () => {
+  const sid = await login('u_002');
+  const form = await (await fetch(`${ISSUER}/apply/island/46213`, { headers: { cookie: `sid=${sid}` } })).text();
+  assert.ok(form.includes('data-when-key="applied_category" data-when-value="準島民"'), '条件付き表示にする');
+
+  // JS を通さず直接送っても落ちる
+  const r = await fetch(`${ISSUER}/apply/island/46213`, {
+    method: 'POST', redirect: 'manual',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: `sid=${sid}` },
+    body: new URLSearchParams({ applied_category: '島民', island_name: '種子島', reason: '就学（離島出身・島外の学校に在学）' }).toString() });
+  assert.equal(r.status, 303);
+  const id = r.headers.get('location').split('/')[2].split('?')[0];
+  const mine = await (await fetch(`${ISSUER}/applications/${id}`, { headers: { cookie: `sid=${sid}` } })).text();
+  assert.ok(!mine.includes('就学（離島出身'), '島民の申請に事由は残らない');
+
+  // 準島民なのに事由が無ければ受けない
+  const miss = await fetch(`${ISSUER}/apply/island/46213`, {
+    method: 'POST', redirect: 'manual',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: `sid=${sid}` },
+    body: new URLSearchParams({ applied_category: '準島民', island_name: '種子島' }).toString() });
+  assert.match(decodeURIComponent(miss.headers.get('location')), /準島民の事由を選んでください/);
+});
+
 test('apply: 対象離島は離島割引の画面にだけ出す', async () => {
   const sid = await login('u_002');
   const q = `pref=${encodeURIComponent('石川県')}`;

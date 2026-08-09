@@ -147,8 +147,6 @@ export function createApp(opts = {}) {
       error: c.req.query('e') || '',
       disaster,
       pref: c.req.query('pref') || '',
-      // 対象離島は申請先から決まるので埋めておく（複数島の自治体もあるので入力は残す）
-      prefill: muni.islands.length === 1 ? { island_name: muni.islands[0] } : {},
     }));
   });
   app.post('/apply/:kind/:code', async (c) => {
