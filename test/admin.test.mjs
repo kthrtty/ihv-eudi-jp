@@ -190,9 +190,8 @@ test('admin: 扱っていない自治体あての申請 URL は選択画面へ�
   assert.equal(g.status, 302);
   assert.equal(g.headers.get('location'), '/apply/island');
   // 選択画面には取扱いのある自治体しか出ない
-  const pick = await (await fetch(`${ISSUER}/apply/island`, { headers: { cookie: `sid=${sid}` } })).text();
-  assert.ok(pick.includes('西之表市') && pick.includes('屋久島町') && pick.includes('対馬市'),
-    '既定は「すべて」＝全県ぶんを一度に描く');
+  const pick = await (await fetch(`${ISSUER}/apply/island?pref=${encodeURIComponent('鹿児島県')}`, { headers: { cookie: `sid=${sid}` } })).text();
+  assert.ok(pick.includes('西之表市') && pick.includes('屋久島町'), '種子島・屋久島の自治体は出る');
   assert.ok(!pick.includes('/apply/island/13101'), '千代田区へのリンクは出ない');
   assert.ok(!pick.includes('/apply/island/47207'), '沖縄は根拠法が違うので出ない');
 
@@ -203,8 +202,8 @@ test('admin: 扱っていない自治体あての申請 URL は選択画面へ�
   assert.ok(dpick.indexOf('令和8年熊本地震') < dpick.indexOf('平成28年熊本地震'), '発生日の降順で並ぶ');
   assert.ok(!dpick.includes('西之表市'), '災害を選ぶ前に自治体は出さない');
   const noto = await (await fetch(`${ISSUER}/apply/disaster?d=r6-noto-jishin`, { headers: { cookie: `sid=${sid}` } })).text();
-  assert.ok(noto.includes('輪島市') && noto.includes('佐渡市') && noto.includes('氷見市'),
-    '能登半島地震の対象は3県ぶんまとめて出る');
+  assert.ok(noto.includes('石川県'), '対象自治体が最も多い県が既定で開く');
+  assert.ok(noto.includes('輪島市'), '能登半島地震の対象自治体は出る');
   assert.ok(!noto.includes('/apply/disaster/46213'), '対象外の西之表市は出ない');
   const bad = await fetch(`${ISSUER}/apply/disaster/46213?d=r6-noto-jishin`, {
     headers: { cookie: `sid=${sid}` }, redirect: 'manual' });
@@ -326,26 +325,6 @@ test('apply: 審査が終わると添付の原本は削除される（サムネ�
   assert.ok(mine.includes('<img src="data:image/jpeg;base64,'), 'サムネイルは残るので何を出したか分かる');
   assert.ok(mine.includes('審査終了により原本は削除済み'), '消えた理由を出す');
   assert.ok(!mine.includes(`href="/applications/${appId}/att/0"`), '開けないものをリンクにしない');
-});
-
-// 都道府県の絞り込みは**全件を描いて JS で出し分ける**（往復させない）。
-// JS 無効でも壊れないよう、`?pref=` を付ければサーバ側でも絞った状態を返す。
-test('apply: 申請先は既定「すべて」で全件を描き、都道府県は JS で絞る', async () => {
-  const sid = await login('u_002');
-  const all = await (await fetch(`${ISSUER}/apply/island`, { headers: { cookie: `sid=${sid}` } })).text();
-  const cards = all.match(/class="mcard" data-pref=/g) || [];
-  assert.equal(cards.length, 29, '特定有人国境離島地域の29市町村を一度に描く');
-  assert.ok(/data-pref=""[^>]*class="on"|class="on"[^>]*data-pref=""/.test(all)
-    || all.includes('data-pref="" class="on"'), '「すべて」が既定で選択されている');
-  assert.ok(!/class="mcard"[^>]*style="display:none"/.test(all), '既定では何も隠さない');
-  assert.ok(all.includes('すべて<i>29</i>'), 'タブに件数を出す');
-  assert.ok(all.includes("addEventListener('click'"), '切替はクライアント側');
-
-  // JS 無効時のフォールバック: ?pref= を付けるとサーバ側で絞った状態が返る
-  const one = await (await fetch(`${ISSUER}/apply/island?pref=${encodeURIComponent('長崎県')}`,
-    { headers: { cookie: `sid=${sid}` } })).text();
-  assert.ok(/data-pref="鹿児島県"[^>]*style="display:none"/.test(one), '他県は隠して返す');
-  assert.ok(one.includes('長崎県 の対象市区町村（7件）'), '見出しに選択中の県と件数');
 });
 
 test('shell: ヘッダーのタイトルはそのサイトのルートへのリンク', () => {

@@ -222,23 +222,18 @@ export function renderDisasterPicker(user, t) {
  *  **その手続きを扱う自治体だけ**を出す。自治体を先に選ばせると「取扱いなし」という
  *  行き止まりを見せることになるので、絞り込みの向きはこちらが正しい。 */
 export function renderMunicipalityPicker(user, t, { pref = '', suggested = null, disaster = null } = {}) {
-  // 罹災は災害の対象自治体だけ、離島は取扱いのある自治体だけ
+  // 罹達は災害の対象自治体だけ、離島は取扱いのある自治体だけ
   const codes = disaster ? disaster.codes : null;
   const proc = disaster ? null : t.id;
   const prefs = prefecturesFor(proc, codes);
-  const cur = prefs.includes(pref) ? pref : '';          // 既定は「すべて」
+  // 既定は、住民票からの提案 → 対象自治体が最も多い県（＝被害の中心）→ 先頭 の順
+  const most = prefs.slice().sort((a, b) => municipalitiesIn(b, proc, codes).length - municipalitiesIn(a, proc, codes).length)[0];
+  const cur = prefs.includes(pref) ? pref : (suggested && prefs.includes(suggested.pref) ? suggested.pref : (most || prefs[0]));
+  const list = municipalitiesIn(cur, proc, codes);
   const q = disaster ? `?d=${encodeURIComponent(disaster.id)}` : '';
-  // **全件を一度に描き、都道府県の絞り込みは JS でやる**（件数が多くないので往復させない）。
-  // JS 無効でも壊れないよう、サーバ側でも style で絞った状態を返す。
-  const all = prefs.flatMap((p) => municipalitiesIn(p, proc, codes));
-  const shown = (x) => !cur || x.pref === cur;
-  const card = (x) => `<a class="mcard" data-pref="${esc(x.pref)}"${shown(x) ? '' : ' style="display:none"'}
-    href="/apply/${esc(t.id)}/${esc(x.code)}${q}">
-    <b>${esc(x.name)}</b><small>${esc(x.pref)}　${esc(x.code)}</small>
+  const card = (x) => `<a class="mcard" href="/apply/${esc(t.id)}/${esc(x.code)}${q}">
+    <b>${esc(x.name)}</b><small>${esc(x.code)}</small>
     ${x.islands.length ? `<span class="isl">対象離島: ${esc(x.islands.join('・'))}</span>` : ''}</a>`;
-  const tab = (p, label, n) => `<a href="/apply/${esc(t.id)}?${disaster ? `d=${encodeURIComponent(disaster.id)}&` : ''}${p ? `pref=${encodeURIComponent(p)}` : ''}"
-    data-pref="${esc(p)}" class="${p === cur ? 'on' : ''}">${esc(label)}<i>${n}</i></a>`;
-  const headText = `${cur || 'すべての都道府県'} の対象市区町村（${all.filter(shown).length}件）`;
   return appShell(`${t.short} — 申請先を選ぶ`, `
     <div style="margin-top:22px">
       <div class="crumb"><a href="/" style="color:inherit">発行カタログ</a> › 申請できる手続き › ${esc(t.short)}</div>
@@ -252,52 +247,18 @@ export function renderMunicipalityPicker(user, t, { pref = '', suggested = null,
       <p class="lead">${esc(t.applyToLead)}<br>
         <b>この手続きを扱う自治体だけ</b>を出しています。住所からは推定しません——申請先はご自身で選びます。</p>
       ${suggested ? `<div class="recent"><span>住民票の住所から</span>
-        <a href="/apply/${esc(t.id)}/${esc(suggested.code)}${q}">${esc(suggested.pref)} ${esc(suggested.name)}</a></div>` : ''}
+        <a href="/apply/${esc(t.id)}/${esc(suggested.code)}">${esc(suggested.pref)} ${esc(suggested.name)}</a></div>` : ''}
       <div class="pick">
-        <div class="pcol" id="prefcol"><b class="h">都道府県${t.id === 'island' ? '（取扱いのある県のみ）' : ''}</b>
-          ${tab('', 'すべて', all.length)}
-          ${prefs.map((p) => tab(p, p, municipalitiesIn(p, proc, codes).length)).join('')}
+        <div class="pcol"><b class="h">都道府県${t.id === 'island' ? '（取扱いのある県のみ）' : ''}</b>
+          ${prefs.map((p) => `<a href="/apply/${esc(t.id)}?${disaster ? `d=${encodeURIComponent(disaster.id)}&` : ''}pref=${encodeURIComponent(p)}" class="${p === cur ? 'on' : ''}">${esc(p)}</a>`).join('')}
         </div>
-        <div class="mcol"><b class="h" id="mhead">${esc(headText)}</b>
-          <div class="mgrid" id="municol">${all.map(card).join('')}</div>
+        <div class="mcol"><b class="h">${esc(cur)} の${disaster ? '対象' : `${esc(t.short)}を交付する`}市区町村（${list.length}件）</b>
+          <div class="mgrid">${list.map(card).join('')}</div>
           <p class="fhint" style="margin-top:12px">正本は総務省「全国地方公共団体コード」。名称・団体コード・<b>長の呼称</b>（区長／市長／町長／村長）を持ちます。
             本デモは一部のみ収録しています。</p>
         </div>
       </div>
     </div>
-    <script>
-    (function () {
-      var col = document.getElementById('prefcol'), grid = document.getElementById('municol'),
-          head = document.getElementById('mhead');
-      if (!col || !grid) return;
-      var cards = grid.querySelectorAll('.mcard'), tabs = col.querySelectorAll('a[data-pref]');
-      // 全件は描画済み。都道府県の切替は表示の出し分けだけ＝サーバへ往復しない
-      function apply(p) {
-        var n = 0;
-        for (var i = 0; i < cards.length; i++) {
-          var ok = !p || cards[i].getAttribute('data-pref') === p;
-          cards[i].style.display = ok ? '' : 'none';
-          if (ok) n++;
-        }
-        for (var j = 0; j < tabs.length; j++) {
-          var on = (tabs[j].getAttribute('data-pref') || '') === p;
-          if (on) tabs[j].classList.add('on'); else tabs[j].classList.remove('on');
-        }
-        if (head) head.textContent = (p || 'すべての都道府県') + ' の対象市区町村（' + n + '件）';
-        try {
-          var u = new URL(location.href);
-          if (p) u.searchParams.set('pref', p); else u.searchParams.delete('pref');
-          history.replaceState(null, '', u);
-        } catch (e) { /* URL を保てなくても絞り込み自体は効く */ }
-      }
-      col.addEventListener('click', function (e) {
-        var a = e.target && e.target.closest ? e.target.closest('a[data-pref]') : null;
-        if (!a) return;
-        e.preventDefault();
-        apply(a.getAttribute('data-pref') || '');
-      });
-    })();
-    </script>
     <style>${CSS}${PICK_CSS}</style>`, user, { width: 'mid' });
 }
 
@@ -568,9 +529,6 @@ const PICK_CSS = `
 .pcol{border-right:1px solid var(--line);background:#FAFBFD}
 .pcol a{display:block;padding:9px 16px;font-size:13px;text-decoration:none;color:inherit}
 .pcol a.on{background:#fff;font-weight:700;color:var(--civic);box-shadow:inset 3px 0 0 var(--civic)}
-.pcol a i{float:right;font-style:normal;font-size:11px;color:var(--muted);background:#EDF1F7;border-radius:999px;padding:1px 7px}
-.pcol a.on i{background:#E3EAF7;color:var(--civic)}
-.mcard small{display:block}
 .mcol{padding:16px 18px}
 .pick b.h{display:block;font-size:10.5px;color:var(--muted);padding:11px 16px 7px;letter-spacing:.03em}
 .mcol b.h{padding:0 0 10px}
@@ -604,8 +562,6 @@ const PICK_CSS = `
   .pcol b.h{width:100%;padding:0 0 4px}
   .pcol a{padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:#fff;font-size:12.5px}
   .pcol a.on{box-shadow:none;background:var(--civic);color:#fff;border-color:var(--civic)}
-  .pcol a i{float:none;margin-left:5px}
-  .pcol a.on i{background:rgba(255,255,255,.25);color:#fff}
   .pin{flex-wrap:wrap}.pin .sub{margin-left:0;width:100%}
 }`;
 
