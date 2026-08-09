@@ -38,6 +38,7 @@ const staffLogin = async (staff_id) => (await (await fetch(`${ADMIN}/login`, {
 // 災害名・罹災日は災害マスタ由来（平成28年熊本地震＝熊本市 43100 が対象）
 const DISASTER_ID = 'h28-kumamoto';
 const DISASTER_FORM = {
+  contact_tel: '090-0000-0000',   // 住基に無いので必須の申告項目
   damaged_address: '熊本県熊本市中央区大江3-1-5', building_type: '木造2階建',
   statement: '1階の柱が傾き居住できません', disaster_id: DISASTER_ID,
 };
@@ -431,6 +432,42 @@ test('apply: 申請先は都道府県を選ぶまで市区町村を出さない�
 // 輪島市・佐渡市のように両方の母集団に入る自治体があるので、素で出すと漏れる。
 // 申請先の自治体が決まれば対象離島は一意（多くは1島）か短い選択肢に定まる。
 // **自由入力にすると台帳に表記揺れと誤記が残る**（災害名で経験済み）。
+// 入力が要る／要らないの線引きは制度どおりに。**どちらに入るかは1項目ずつ根拠がある**。
+test('apply: 住基にあるものは入力させず、無いもの・決まらないものだけ聞く', async () => {
+  const sid = await login('u_003');   // 鈴木一郎（世帯員2名）
+  const form = await (await fetch(`${ISSUER}/apply/disaster/43100?d=r8-kumamoto`, { headers: { cookie: `sid=${sid}` } })).text();
+
+  assert.ok(form.includes('市が保有している情報'), '保有ブロックがある');
+  assert.ok(form.includes('あなたにしか分からないこと'), '申告ブロックがある');
+  // 住基にあるもの＝読み取り専用（入力欄にしない）
+  assert.ok(form.includes('<span>氏名</span><div>鈴木 一郎</div>'));
+  assert.ok(!form.includes('name="family_name"'), '氏名を入力させない');
+  // **電話番号は住基に無い**ので申告させる
+  assert.ok(form.includes('電話番号は住民基本台帳に含まれません'), '聞く理由を書く');
+  assert.ok(form.includes('name="contact_tel"'), '電話番号は入力項目');
+  // 被災住家は住民票と一致しないことがある
+  assert.ok(form.includes('name="same_address"'), '「世帯主住所と同じ」チェック');
+  assert.ok(form.includes('data-when-key="same_address" data-when-checked="0"'), '外したときだけ住所欄を出す');
+
+  // 「同じ」なら住基の住所が被災住家になる（チェックの状態に頼らず値を確定させる）
+  const r = await fetch(`${ISSUER}/apply/disaster/43100?d=r8-kumamoto`, {
+    method: 'POST', redirect: 'manual',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: `sid=${sid}` },
+    body: new URLSearchParams({ disaster_id: 'r8-kumamoto', contact_tel: '090-0000-0000',
+      same_address: 'on', statement: '倒壊' }).toString() });
+  assert.equal(r.status, 303);
+  const id = r.headers.get('location').split('/')[2].split('?')[0];
+  const mine = await (await fetch(`${ISSUER}/applications/${id}`, { headers: { cookie: `sid=${sid}` } })).text();
+  assert.ok(mine.includes('神奈川県横浜市西区みなとみらい3-3'), '住基の住所が入る');
+
+  // チェックを外して未入力なら断る
+  const miss = await fetch(`${ISSUER}/apply/disaster/43100?d=r8-kumamoto`, {
+    method: 'POST', redirect: 'manual',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: `sid=${sid}` },
+    body: new URLSearchParams({ disaster_id: 'r8-kumamoto', contact_tel: '090-0000-0000', statement: '倒壊' }).toString() });
+  assert.match(decodeURIComponent(miss.headers.get('location')), /被災住家の所在地を入力してください/);
+});
+
 test('apply: 対象離島は自由入力ではなく申請先の自治体から決まる', async () => {
   const sid = await login('u_002');
   const get = async (u) => (await fetch(ISSUER + u, { headers: { cookie: `sid=${sid}` } })).text();

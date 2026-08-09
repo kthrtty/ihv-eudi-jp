@@ -81,6 +81,19 @@ ${swatchEmblemCss()}
 .abtn{font:inherit;font-size:13.5px;font-weight:700;padding:11px 22px;border-radius:9px;border:0;background:var(--civic);color:#fff;cursor:pointer;text-decoration:none;display:inline-block}
 .abtn.gh{background:#fff;border:1px solid var(--line);color:var(--civic)}
 .abtn.dn{background:var(--seal)}
+/* 入力元で分けるブロック（市が保有／あなたが申告） */
+.srcbox{border:1px solid var(--line);border-radius:13px;background:#fff;margin-bottom:12px;overflow:hidden}
+.srcbox>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;padding:13px 16px;background:#F2F5F9}
+.srcbox>summary::-webkit-details-marker{display:none}
+.srcbox .ic{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font-size:13px;background:#5B6B82;color:#fff;flex:none}
+.srcbox summary b{font-size:13.5px}
+.srcbox .cnt{margin-left:auto;font-size:11px;color:var(--muted);background:#fff;border:1px solid var(--line);border-radius:999px;padding:2px 9px;white-space:nowrap}
+.srcbox .in{padding:14px 16px 4px}
+.kv{display:grid;grid-template-columns:104px 1fr;gap:4px 12px;font-size:13px;margin-bottom:9px}
+.kv span{color:var(--muted);font-size:11.5px;padding-top:2px}
+.note{background:#F7F9FC;border-radius:9px;padding:10px 13px;font-size:11.5px;color:var(--muted);line-height:1.8;margin:6px 0 12px}
+.note b{color:var(--ink)}
+@media(max-width:640px){.kv{grid-template-columns:1fr;gap:0 0}.kv span{margin-top:6px}}
 /* 世帯構成員の行編集 */
 .hhlist{display:flex;flex-direction:column;gap:7px}
 .hhrow{display:grid;grid-template-columns:20px 1fr 1fr 104px 148px 26px;gap:6px;align-items:center}
@@ -186,8 +199,12 @@ a.upi:hover{border-color:var(--civic);box-shadow:0 2px 10px rgba(14,26,43,.12)}
 
 /** 条件付き表示の目印。**別の項目の値に依存する項目**（島民には無関係な「準島民の事由」など）に付ける。
  *  出し分けは JS だが、**サーバ側でも normalize/validate で担保する**（JS 無効でも壊れない）。 */
-const when = (x) => (x.showWhen
-  ? ` data-when-key="${esc(x.showWhen.key)}" data-when-value="${esc(x.showWhen.value)}"` : '');
+const when = (x) => {
+  if (!x.showWhen) return '';
+  const { key, value, checked } = x.showWhen;
+  return ` data-when-key="${esc(key)}"`
+    + (checked === undefined ? ` data-when-value="${esc(value)}"` : ` data-when-checked="${checked ? 1 : 0}"`);
+};
 
 export const field = (x, val = '', muni = null) => {
   const req = x.required ? '<b class="req">必須</b>' : '';
@@ -245,10 +262,10 @@ export const field = (x, val = '', muni = null) => {
   if (x.type === 'check') {
     return `<div class="fld"${when(x)}><label>${esc(x.label)}</label>
       <label style="font-size:12px;font-weight:500;color:#3d4d63">
-        <input type="checkbox" name="${esc(x.key)}"${x.default ? ' checked' : ''}> 記載する</label>${hint}</div>`;
+        <input type="checkbox" name="${esc(x.key)}"${x.default ? ' checked' : ''}> ${esc(x.checkLabel || '記載する')}</label>${hint}</div>`;
   }
   return `<div class="fld"${when(x)}><label>${esc(x.label)} ${req}</label>
-    <input type="${x.type === 'date' ? 'date' : 'text'}" name="${esc(x.key)}" value="${esc(val)}" placeholder="${esc(x.placeholder || '')}">${hint}</div>`;
+    <input type="${x.type === 'date' ? 'date' : x.type === 'tel' ? 'tel' : 'text'}" name="${esc(x.key)}" value="${esc(val)}" placeholder="${esc(x.placeholder || '')}">${hint}</div>`;
 };
 
 /** 手続きの進行表示。区切りの「›」もフレックス項目にして**チップと光学的に揃える**
@@ -393,16 +410,23 @@ export function renderApplyForm(user, t, muni, { error = '', prefill = {}, disas
         ${selChip('申請先', `${muni.pref} ${muni.name}`, bk(true))}
       </div>
       <p class="lead">${esc(t.lead)}<br><span style="font-size:11px">${esc(t.basis)}</span></p>
+      ${/* **入力が要る／要らないの線引きを制度どおりに**。住基にあるものは入力させず、
+            住基に無いもの（電話番号）と市の保有情報では決まらないもの（被災住家・そこに
+            住んでいた人・被害）だけを聞く。どちらに入るかは1項目ずつ根拠がある */''}
+      <details class="srcbox" open>
+        <summary><span class="ic">🏛</span><b>市が保有している情報</b><span class="cnt">入力不要 3 項目</span></summary>
+        <div class="in">
+          <div class="kv"><span>氏名</span><div>${esc(user.family)} ${esc(user.given)}</div>
+            <span>生年月日</span><div>${esc(user.birth)}</div>
+            <span>${t.id === 'disaster' ? '世帯主住所' : '住所'}</span><div>${esc(user.address)}</div></div>
+          <div class="note">住民基本台帳・課税の情報は<b>市が保有し、必要に応じて照会します</b>。
+            申請者が入力したり、書類として提出したりする必要はありません。${t.id === 'disaster'
+              ? '<br><b>電話番号は住民基本台帳に含まれません</b>ので、下の申告欄でお伺いします。' : ''}</div>
+        </div>
+      </details>
       <form class="acard" method="POST" action="/apply/${esc(t.id)}/${esc(muni.code)}${pref ? `?pref=${encodeURIComponent(pref)}` : ''}" enctype="multipart/form-data">
         ${disaster ? `<input type="hidden" name="disaster_id" value="${esc(disaster.id)}">` : ''}
-        <div class="sec">申請者<span class="tagro">住民基本台帳から自動入力</span></div>
-        <div class="g2">
-          <div class="fld"><label>氏名</label><div class="ro">${esc(user.family)} ${esc(user.given)}</div></div>
-          <div class="fld"><label>生年月日</label><div class="ro">${esc(user.birth)}</div></div>
-        </div>
-        <div class="fld"><label>${t.id === 'disaster' ? '世帯主住所' : '住所'}</label><div class="ro">${esc(user.address)}</div></div>
-
-        <div class="sec">申請内容</div>
+        <div class="sec">あなたにしか分からないこと<span class="tagro">市の保有情報では決まりません</span></div>
         ${t.form.map((x) => field(x, prefill[x.key] ?? '', muni)).join('')}
 
         <div class="sec">${esc(t.attachmentLabel)}${t.attachmentRequired ? '<b class="req">必須</b>' : '<span class="tagro">原則任意</span>'}</div>
@@ -428,9 +452,15 @@ export function renderApplyForm(user, t, muni, { error = '', prefill = {}, disas
           if (!flds.length) return;
           function sync() {
             for (var i = 0; i < flds.length; i++) {
-              var f = flds[i], k = f.getAttribute('data-when-key'), v = f.getAttribute('data-when-value');
-              var src = document.querySelector('[name="' + k + '"]:checked') || document.querySelector('[name="' + k + '"]');
-              var on = !!src && src.value === v;
+              var f = flds[i], k = f.getAttribute('data-when-key'), on;
+              if (f.hasAttribute('data-when-checked')) {
+                var box = document.querySelector('[name="' + k + '"]');
+                on = !!box && box.checked === (f.getAttribute('data-when-checked') === '1');
+              } else {
+                var v = f.getAttribute('data-when-value');
+                var src = document.querySelector('[name="' + k + '"]:checked') || document.querySelector('[name="' + k + '"]');
+                on = !!src && src.value === v;
+              }
               f.style.display = on ? '' : 'none';
               var ins = f.querySelectorAll('input,select,textarea');
               for (var j = 0; j < ins.length; j++) ins[j].disabled = !on;

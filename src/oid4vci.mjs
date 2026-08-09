@@ -197,10 +197,12 @@ export class IssuerService {
     await this._loadApps();
     // 種別ごとの正規化（条件付きで無関係になる項目を落とす）→ 必須 → 条件付き検証 の順
     const muni = getMunicipality(targetCode);
-    const clean = t.normalize ? t.normalize(form, muni) : form;
+    await this._loadUsers();                       // 住基の値（住所）を正規化で使う
+    const persona = this.users.get(userId);
+    const clean = t.normalize ? t.normalize(form, muni, persona) : form;
     const missing = t.form.filter((x) => x.required && !String(clean[x.key] ?? '').trim()).map((x) => x.label);
     if (missing.length) throw httpErr(400, 'invalid_request', `未入力の必須項目: ${missing.join('・')}`);
-    const bad = t.validate ? t.validate(clean, muni) : null;
+    const bad = t.validate ? t.validate(clean, muni, persona) : null;
     if (bad) throw httpErr(400, 'invalid_request', bad);
     this.applicationSeq += 1;
     const app = {
