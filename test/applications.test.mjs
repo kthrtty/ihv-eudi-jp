@@ -10,6 +10,7 @@ import { createAdminApp } from '../src/admin-app.mjs';
 import { createWallet } from '../src/wallet.mjs';
 import { IssuerService, memoryStore } from '../src/oid4vci.mjs';
 import { canTransition, claimsFingerprint, claimsFor, getApplicationType } from '../src/applications.mjs';
+import { mint } from '../src/issuer.mjs';
 import { renderApplyForm } from '../src/apply-demo.mjs';
 import { getDisaster } from '../src/disasters.mjs';
 import { getMunicipality } from '../src/municipalities.mjs';
@@ -369,4 +370,31 @@ test('applications: 罹災 VC は紙の統一様式の必須記載事項をす�
   // 交付年月日＝認定日。SAMPLE の固定日（2026-06-01）に落ちてはならない
   assert.equal(c.issuance_date, application.decided_at.slice(0, 10));
   assert.notEqual(c.issuance_date, '2026-06-01');
+});
+
+// SAMPLE は「未指定を埋めるデモ用の既定値」なので、**明示的に「載せない」と決めた項目まで
+// 埋めてはならない**。審査で「世帯構成員を証明書に記載しない」を外したのに、SAMPLE の
+// 山田家（山田 太郎・莉子）が実在の人の VC に載っていた（2026-08-09 本番で実測）。
+test('applications: 「記載しない」と判定した項目に SAMPLE が漏れない', async () => {
+  const svc = new IssuerService();
+  const holderJwk = { kty: 'EC', crv: 'P-256', x: 'A'.repeat(43), y: 'B'.repeat(43) };
+  const issue = async (include_household) => {
+    const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', ...DISASTER, form: DISASTER_FORM });
+    const { application } = await svc.decideApplication(app.id,
+      { status: 'approved', decision: { damage_level: '半壊', include_household }, authority: '熊本市長' });
+    const claims = claimsFor(application, { family: '佐藤', given: '花子', birth: '1988-07-03' });
+    const m = await mint('disaster_sdjwt', { holderJwk, claims });
+    const disc = String(m.credential).split('~').slice(1).filter(Boolean)
+      .map((d) => { try { return JSON.parse(Buffer.from(d, 'base64url').toString()); } catch { return null; } })
+      .filter((a) => Array.isArray(a) && a.length === 3);
+    return Object.fromEntries(disc.map((a) => [a[1], a[2]]));
+  };
+
+  const off = await issue(false);
+  assert.equal(off.household_members, undefined, '記載しないなら claim ごと落ちる');
+  assert.ok(!JSON.stringify(off).includes('山田'), 'SAMPLE の世帯構成員が漏れない');
+  assert.equal(off.family_name, '佐藤', '他のクレームは通常どおり載る');
+
+  const on = await issue(true);
+  assert.equal(on.household_members[0].family_name, '佐藤', '記載するなら申請者の世帯');
 });

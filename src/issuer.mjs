@@ -159,6 +159,10 @@ export async function mint(configId, { holderJwk, claims, status } = {}) {
   const { credId } = splitConfig(configId);
   const schema = schemas[credId];
   const data = { ...SAMPLE[credId], ...(claims || {}) };
+  // 呼び出し側の **null は「このクレームは載せない」** の意味。SAMPLE は「未指定を埋める
+  // デモ用の既定値」なので、ここで消さないと SAMPLE の値が実在の人の VC に載る
+  // （審査で「世帯構成員を記載しない」と決めたのに山田家が載った＝2026-08-09 本番で実測）。
+  for (const k of Object.keys(data)) if (data[k] === null) delete data[k];
   // age_over_NN claims (ISO 18013-5 allows any NN; 18 and 20 coexist like on a
   // real mDL) are DERIVED from birth_date at issuance so persona birth-date edits
   // can never contradict a hardcoded flag.
