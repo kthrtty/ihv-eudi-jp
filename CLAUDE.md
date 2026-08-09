@@ -77,7 +77,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   **教訓: 適合を名乗る面は自己ループでなく仕様構造の golden/外部実装との適合テストで pin。簡略化は名乗りに明示。**
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（348, node:test）／
+`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（349, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
@@ -122,7 +122,9 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   誤記しかけた。正は 43432/43433）。`https://www.soumu.go.jp/denshijiti/code.html` の xlsx を zip 展開して照合
 - **申請先の自治体は申請者が選ぶ**（2026-08-08・`src/municipalities.mjs`）。動線は
   **カタログ → 手続き →（罹災は災害 →）申請先 → フォーム**（`/apply/:kind` = 選択・`?d=<災害>` で対象自治体・
-  `/apply/:kind/:code` = フォーム）。
+  `/apply/:kind/:code` = フォーム）。**申請先の一覧は既定「すべて」で全件を描き、都道府県の絞り込みは
+  クライアント側**（件数が少ないので往復させない・`data-pref` の出し分け＋`history.replaceState`）。
+  JS 無効でも壊れないよう `?pref=` はサーバ側でも絞った状態を返す
   マイナポータルぴったりサービスは自治体が先だが、あれは手続きを探す総合窓口。こちらは書類を決めて来るので
   逆順にし、**その手続きを扱う自治体だけ**に絞る（自治体を先に選ばせると「取扱いなし」の行き止まりを見せる）。
   - **住所からは推定しない**。罹災の申請先は被災住家の自治体、離島は島の自治体で、どちらも住民票とは限らない
