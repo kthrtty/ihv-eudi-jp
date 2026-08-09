@@ -197,6 +197,11 @@ export const field = (x, val = '') => {
 const NUM = ['①', '②', '③', '④', '⑤', '⑥'];
 // クラス名は sb- で始める。**`.todo` は注記ボックスに既にある名前**で、そちらの
 // margin-bottom:12px を拾って未通過チップだけ 6px 浮いていた（衝突事故）。
+/** 選択済みの条件を1行で。**ラベル: 値 ✕** だけに絞る（発生日や交付者名まで並べると
+ *  スマホで折り返して読めなくなる。詳細は各画面の本文側で出す）。✕ は選び直し。 */
+const selChip = (label, value, href) => `<span class="sel"><span class="k">${esc(label)}</span>
+  <b>${esc(value)}</b><a class="x" href="${esc(href)}" aria-label="${esc(label)}を選び直す" title="選び直す">✕</a></span>`;
+
 const stepbar = (steps, cur) => `<div class="stepbar">${steps
   .map((s, i) => `<span class="${i < cur ? 'sb-done' : i === cur ? 'sb-cur' : 'sb-next'}">${NUM[i]} ${esc(s)}</span>`)
   .join('<i>›</i>')}</div>`;
@@ -291,12 +296,10 @@ export function renderMunicipalityPicker(user, t, { pref = '', suggested = null,
       ${disaster
         ? stepbar(['手続き', '災害', '申請先', '申請', '審査'], 2)
         : stepbar(['手続き', '申請先', '申請', '審査', '交付'], 1)}
-      ${disaster ? `<div class="pin"><span class="pi">🌊</span>
-        <span>対象の災害　<b>${esc(disaster.name)}</b><span class="sub">発生 ${esc(disaster.occurred)}</span></span>
-        <a class="chg" href="/apply/${esc(t.id)}${cur ? `?pref=${encodeURIComponent(cur)}` : ''}">災害を変更</a></div>` : ''}
-      ${disaster && cur ? `<div class="pin"><span class="pi">📍</span>
-        <span>都道府県　<b>${esc(cur)}</b><span class="sub">前の画面での絞り込み</span></span>
-        <a class="chg" href="/apply/${esc(t.id)}?d=${encodeURIComponent(disaster.id)}">他県も見る（全${disaster.codes.length}件）</a></div>` : ''}
+      ${disaster || cur ? `<div class="sels">
+        ${disaster ? selChip('対象', disaster.name, `/apply/${esc(t.id)}${cur ? `?pref=${encodeURIComponent(cur)}` : ''}`) : ''}
+        ${cur ? selChip('都道府県', cur, `/apply/${esc(t.id)}${disaster ? `?d=${encodeURIComponent(disaster.id)}` : ''}`) : ''}
+      </div>` : ''}
       <p class="lead">${esc(t.applyToLead)}<br>
         <b>この手続きを扱う自治体だけ</b>を出しています。住所からは推定しません——申請先はご自身で選びます。</p>
       ${suggested ? `<div class="recent"><span>住民票の住所から</span>
@@ -326,13 +329,11 @@ export function renderApplyForm(user, t, muni, { error = '', prefill = {}, disas
       <div class="crumb"><a href="/" style="color:inherit">発行カタログ</a> › <a href="${bk(false)}" style="color:inherit">${esc(t.short)}</a> › ${esc(muni.pref)} ${esc(muni.name)}</div>
       <h1 style="font-size:20px;margin:0 0 12px">${esc(t.title)}</h1>
       ${error ? `<div class="warn err">⚠️ ${esc(error)}</div>` : ''}
-      ${disaster ? `<div class="pin"><span class="pi">🌊</span>
-        <span>対象の災害　<b>${esc(disaster.name)}</b><span class="sub">発生 ${esc(disaster.occurred)}</span></span>
-        <a class="chg" href="${bk(false)}">変更</a></div>` : ''}
-      <div class="pin"><span class="pi">🏛</span>
-        <span>申請先　<b>${esc(muni.pref)} ${esc(muni.name)}</b>
-          <span class="sub">交付者に「${esc(muni.head)}」が記載されます</span></span>
-        <a class="chg" href="${bk(true)}">変更</a></div>
+      <div class="sels">
+        ${disaster ? selChip('対象', disaster.name, bk(false)) : ''}
+        ${selChip('申請先', `${muni.pref} ${muni.name}`, bk(true))}
+      </div>
+      <p class="fhint" style="margin:-8px 0 12px">交付者には「${esc(muni.head)}」が記載されます。</p>
       <p class="lead">${esc(t.lead)}<br><span style="font-size:11px">${esc(t.basis)}</span></p>
       <form class="acard" method="POST" action="/apply/${esc(t.id)}/${esc(muni.code)}${pref ? `?pref=${encodeURIComponent(pref)}` : ''}" enctype="multipart/form-data">
         ${disaster ? `<input type="hidden" name="disaster_id" value="${esc(disaster.id)}">` : ''}
@@ -495,7 +496,7 @@ export function renderApplyForm(user, t, muni, { error = '', prefill = {}, disas
           <a class="abtn gh" href="${bk(true)}">申請先を選び直す</a></div>
       </form>
     </div>
-    <style>${CSS}</style>`, user, { width: 'mid' });
+    <style>${CSS}${PICK_CSS}</style>`, user, { width: 'mid' });
 }
 
 /** 申請状況（メニュー › 申請状況）。**自分の申請だけ**。審査はここではできない。 */
@@ -607,12 +608,15 @@ const PICK_CSS = `
 .mcard b{font-size:13.5px}
 .mcard small{font-size:10.5px;color:var(--muted);font-family:ui-monospace,monospace}
 .mcard .isl{font-size:11px;color:var(--civic);font-weight:700;margin-top:3px}
-.pin{display:flex;align-items:center;gap:10px;background:#EAF0FA;border:1px solid #D4DEF5;border-radius:12px;
-  padding:11px 15px;margin-bottom:14px;font-size:13px}
-.pin .pi{font-size:17px}
-.pin b{font-size:14px}
-.pin .sub{font-size:11.5px;color:var(--muted);margin-left:8px}
-.pin .chg{margin-left:auto;font-size:12px;font-weight:700;color:var(--civic);text-decoration:none;white-space:nowrap}
+/* 選択済みの条件。**ラベル: 値 ✕** の1行だけ。長い値は省略記号で切る */
+.sels{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.sel{display:inline-flex;align-items:center;gap:8px;max-width:100%;background:#EAF0FA;border:1px solid #D4DEF5;
+  border-radius:999px;padding:5px 6px 5px 13px}
+.sel .k{flex:none;font-size:11px;color:var(--muted)}
+.sel b{font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sel .x{flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:11px;
+  line-height:1;text-decoration:none;color:#5B6B82;background:rgba(14,26,43,.07)}
+.sel .x:hover{background:var(--civic);color:#fff}
 .dlist{display:flex;flex-direction:column;gap:10px;margin-bottom:14px}
 .dcard{display:block;position:relative;background:#fff;border:1px solid var(--line);border-radius:13px;
   padding:15px 17px;text-decoration:none;color:inherit}
@@ -641,7 +645,7 @@ const PICK_CSS = `
   .pcol a.on{box-shadow:none;background:var(--civic);color:#fff;border-color:var(--civic)}
   .pcol a i{float:none;margin-left:5px}
   .pcol a.on i{background:rgba(255,255,255,.25);color:#fff}
-  .pin{flex-wrap:wrap}.pin .sub{margin-left:0;width:100%}
+  .sels{flex-direction:column;align-items:flex-start}.sel{width:100%}
 }`;
 
 // 住民向け一覧は申請者列が無い（全部自分の申請）ので、その1列ぶんを詰める
