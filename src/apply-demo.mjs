@@ -244,7 +244,9 @@ export function renderMunicipalityPicker(user, t, { pref = '', suggested = null,
   const q = disaster ? `?d=${encodeURIComponent(disaster.id)}` : '';
   const card = (x) => `<a class="mcard" href="/apply/${esc(t.id)}/${esc(x.code)}${q}">
     <b>${esc(x.name)}</b><small>${esc(x.code)}</small>
-    ${x.islands.length ? `<span class="isl">対象離島: ${esc(x.islands.join('・'))}</span>` : ''}</a>`;
+    ${/* 対象離島は**離島割引の属性**。罹災の申請先には関係ないので出さない
+         （輪島市・佐渡市のように両方の母集団に入る自治体があるため素で出すと漏れる） */''}
+    ${proc === 'island' && x.islands.length ? `<span class="isl">対象離島: ${esc(x.islands.join('・'))}</span>` : ''}</a>`;
   const href = (p) => `/apply/${esc(t.id)}?${disaster ? `d=${encodeURIComponent(disaster.id)}&` : ''}pref=${encodeURIComponent(p)}`;
   const noneMsg = (p) => `<b class="h">${esc(p)}</b>
     <div class="mnone">${esc(p)}に、${disaster ? `<b>${esc(disaster.name)}</b>の対象となる` : `${esc(t.short)}を交付する`}市区町村は<b>ありません</b>。<br>

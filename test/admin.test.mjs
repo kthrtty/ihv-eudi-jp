@@ -358,6 +358,19 @@ test('apply: 申請先は都道府県を選ぶまで市区町村を出さない�
   assert.equal((d1.match(/class="mcard"/g) || []).length, 19);
 });
 
+// 対象離島は**離島割引の属性**。罹災の申請先に出すと無関係な情報が混じる。
+// 輪島市・佐渡市のように両方の母集団に入る自治体があるので、素で出すと漏れる。
+test('apply: 対象離島は離島割引の画面にだけ出す', async () => {
+  const sid = await login('u_002');
+  const q = `pref=${encodeURIComponent('石川県')}`;
+  const isl = await (await fetch(`${ISSUER}/apply/island?${q}`, { headers: { cookie: `sid=${sid}` } })).text();
+  assert.ok(isl.includes('輪島市') && isl.includes('対象離島: 舳倉島'), '離島割引では出す');
+
+  const dis = await (await fetch(`${ISSUER}/apply/disaster?d=r6-noto-jishin&${q}`, { headers: { cookie: `sid=${sid}` } })).text();
+  assert.ok(dis.includes('輪島市'), '同じ輪島市が罹災の対象にも出る');
+  assert.ok(!dis.includes('対象離島'), '罹災の申請先には対象離島を出さない');
+});
+
 test('shell: ヘッダーのタイトルはそのサイトのルートへのリンク', () => {
   // クラスの並び順は画面ごとに違う（ah-brand と併用する面がある）ので構造で見る
   const link = /<a[^>]*class="[^"]*brandlink[^"]*"[^>]*href="\/"/;
