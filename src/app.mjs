@@ -16,7 +16,7 @@ import { captureInbound, getLog, pushLog, buildEntry, createLogRing } from './de
 import { securityHeaders, csrfGuard } from './security.mjs';
 import { createWallet } from './wallet.mjs';
 import { allConfigIds, configInfo, jwks as issuerJwks, accountCatalog } from './issuer.mjs';
-import { getApplicationType, labelOf, subOf } from './applications.mjs';
+import { getApplicationType, labelOf, subOf, parseHousehold } from './applications.mjs';
 import { validateAttachment, displayName, safeStoredName, validateThumb, ATT_MIME, MAX_FILES, MAX_TOTAL_BYTES } from './upload.mjs';
 import { renderApplyForm, renderMunicipalityPicker, renderDisasterPicker, renderMyApplications, renderMyApplication } from './apply-demo.mjs';
 import { getMunicipality, suggestFromAddress } from './municipalities.mjs';
@@ -125,6 +125,11 @@ export function createApp(opts = {}) {
     if (t.byDisaster && !disaster) return c.html(renderDisasterPicker(user, t, { pref: c.req.query('pref') || '' }));
     return c.html(renderMunicipalityPicker(user, t, {
       pref: c.req.query('pref') || '',
+      // 世帯構成員の初期値は住基（本人＝世帯主＋登録済みの世帯員）。申請者が加除できる
+      prefill: t.form.some((x) => x.type === 'household')
+        ? { household_members: [{ family: user.family, given: user.given, rel: '世帯主', birth: user.birth },
+          ...(user.household || []).map((m) => ({ family: m.family, given: m.given, rel: m.rel || 'その他', birth: m.birth }))] }
+        : {},
       suggested: suggestFromAddress(user.address, disaster ? null : t.id, disaster?.codes ?? null),
       disaster,
     }));
@@ -147,6 +152,11 @@ export function createApp(opts = {}) {
       error: c.req.query('e') || '',
       disaster,
       pref: c.req.query('pref') || '',
+      // 世帯構成員の初期値は住基（本人＝世帯主＋登録済みの世帯員）。申請者が加除できる
+      prefill: t.form.some((x) => x.type === 'household')
+        ? { household_members: [{ family: user.family, given: user.given, rel: '世帯主', birth: user.birth },
+          ...(user.household || []).map((m) => ({ family: m.family, given: m.given, rel: m.rel || 'その他', birth: m.birth }))] }
+        : {},
     }));
   });
   app.post('/apply/:kind/:code', async (c) => {
@@ -162,7 +172,9 @@ export function createApp(opts = {}) {
     try {
       const f = await c.req.parseBody({ all: true });
       disasterId = String(f.disaster_id ?? '') || null;
-      const form = Object.fromEntries(t.form.map((x) => [x.key, String(f[x.key] ?? '').trim()]));
+      // 世帯構成員は hh_<i>_* の行で来るので、型に応じて畳む
+      const form = Object.fromEntries(t.form.map((x) => [x.key,
+        x.type === 'household' ? parseHousehold(f, x.max) : String(f[x.key] ?? '').trim()]));
       // 添付は multipart で来る。種別は**中身のバイト列**から判定する（申告は信用しない）。
       // 未選択でもブラウザは空の File を送ってくるので、中身のあるものだけを添付とみなす
       const files = [].concat(f.attachments ?? [])

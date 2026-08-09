@@ -3,7 +3,7 @@
 // 一覧は **PC=表組み / SP=カード** を1マークアップで両立（列数だけ切り替える）。
 import { appShell } from './authcode-demo.mjs';
 import { WALLET_CARD_THEME, swatchEmblemHtml, swatchEmblemCss } from './authcode-demo.mjs';
-import { STATUS, statusView, labelOf, subOf, getApplicationType, applicationTypeList, targetName, disasterName, disasterDate } from './applications.mjs';
+import { STATUS, statusView, labelOf, subOf, getApplicationType, applicationTypeList, targetName, disasterName, disasterDate, HOUSEHOLD_RELS } from './applications.mjs';
 import { listDisasters } from './disasters.mjs';
 import { prefecturesFor, municipalitiesIn } from './municipalities.mjs';
 import { ACCEPT_ATTR, MAX_FILES, MAX_FILE_BYTES, MAX_TOTAL_BYTES, MAX_PICK_BYTES, STORE_EDGE, THUMB_EDGE, thumbDataUri } from './upload.mjs';
@@ -81,6 +81,24 @@ ${swatchEmblemCss()}
 .abtn{font:inherit;font-size:13.5px;font-weight:700;padding:11px 22px;border-radius:9px;border:0;background:var(--civic);color:#fff;cursor:pointer;text-decoration:none;display:inline-block}
 .abtn.gh{background:#fff;border:1px solid var(--line);color:var(--civic)}
 .abtn.dn{background:var(--seal)}
+/* 世帯構成員の行編集 */
+.hhlist{display:flex;flex-direction:column;gap:7px}
+.hhrow{display:grid;grid-template-columns:20px 1fr 1fr 104px 148px 26px;gap:6px;align-items:center}
+.hhrow.opt{display:none}
+.hhrow .no{font-size:11px;color:var(--muted);text-align:center}
+.hhrow input,.hhrow select{width:100%;font:inherit;font-size:13px;padding:8px 10px;border:1px solid var(--line);
+  border-radius:8px;background:#fff;box-sizing:border-box}
+.hhdel{border:0;background:none;color:#b6bec9;font-size:13px;cursor:pointer;padding:4px;line-height:1}
+.hhdel:hover{color:var(--seal)}
+.hhadd{margin-top:8px;font:inherit;font-size:12.5px;font-weight:700;color:var(--civic);background:#fff;
+  border:1px solid var(--line);border-radius:9px;padding:8px 14px;cursor:pointer}
+.hhadd:hover{border-color:var(--civic)}
+@media(max-width:640px){
+  .hhrow{grid-template-columns:18px 1fr 1fr 24px;gap:5px}
+  .hhrow select{grid-column:2/3;grid-row:2}
+  .hhrow input[type=date]{grid-column:3/5;grid-row:2}
+  .hhdel{grid-column:4;grid-row:1}
+}
 /* 添付 */
 /* 添付は**サムネイルの格子**。＋は写真1枚と同じ寸法のタイルで、末尾に並ぶ
    （横一列のドロップ帯だと、何を何枚入れたのかが見えない） */
@@ -191,6 +209,30 @@ export const field = (x, val = '', muni = null) => {
       ${(x.options || []).map(([v, d]) => `<label><input type="radio" name="${esc(x.key)}" value="${esc(v)}"${val === v ? ' checked' : ''}>
         <b>${esc(v)}</b>${d ? `<small>${esc(d)}</small>` : ''}</label>`).join('')}
     </div>${hint}</div>`;
+  }
+  // 世帯構成員の行編集。**住基は初期値**で、被災住家に住んでいた人へ加除できる。
+  // JS 無し でも全行が出るだけ（実物の様式も①〜⑨を並べている）
+  if (x.type === 'household') {
+    const rows = Array.isArray(val) ? val : [];
+    const max = x.max || 9;
+    const row = (i) => {
+      const m = rows[i] || {};
+      const filled = !!(m.family || m.given);
+      return `<div class="hhrow${filled || i === rows.length ? '' : ' opt'}" data-hh="${i}">
+        <span class="no">${i + 1}</span>
+        <input name="hh_${i}_family" value="${esc(m.family || '')}" placeholder="氏" aria-label="世帯構成員${i + 1} 氏">
+        <input name="hh_${i}_given" value="${esc(m.given || '')}" placeholder="名" aria-label="世帯構成員${i + 1} 名">
+        <select name="hh_${i}_rel" aria-label="世帯構成員${i + 1} 続柄">
+          ${HOUSEHOLD_RELS.map((r) => `<option${(m.rel || (i === 0 ? '世帯主' : '')) === r ? ' selected' : ''}>${esc(r)}</option>`).join('')}
+        </select>
+        <input type="date" name="hh_${i}_birth" value="${esc(m.birth || '')}" aria-label="世帯構成員${i + 1} 生年月日">
+        <button type="button" class="hhdel" aria-label="この行を削除">✕</button>
+      </div>`;
+    };
+    return `<div class="fld"><label>${esc(x.label)} ${req}</label>
+      <div class="hhlist" id="hhlist">${Array.from({ length: max }, (_, i) => row(i)).join('')}</div>
+      <button type="button" class="hhadd" id="hhadd">＋ 世帯構成員を追加</button>
+      ${x.hint ? `<span class="fhint">${x.hint}</span>` : ''}</div>`;
   }
   if (x.type === 'select') {
     return `<div class="fld"${when(x)}><label>${esc(x.label)} ${req}</label>
@@ -398,6 +440,32 @@ export function renderApplyForm(user, t, muni, { error = '', prefill = {}, disas
             if (e.target && e.target.name) sync();
           });
           sync();
+        })();
+        (function () {
+          // 世帯構成員の行: 空行は隠しておき、＋で1行ずつ出す。✕ は値を消して隠す
+          var list = document.getElementById('hhlist'), add = document.getElementById('hhadd');
+          if (list && add) {
+            var rows = list.querySelectorAll('.hhrow');
+            var next = function () {
+              for (var i = 0; i < rows.length; i++) if (rows[i].classList.contains('opt')) return rows[i];
+              return null;
+            };
+            var sync = function () { add.style.display = next() ? '' : 'none'; };
+            add.addEventListener('click', function () {
+              var r = next(); if (r) { r.classList.remove('opt'); var f = r.querySelector('input'); if (f) f.focus(); }
+              sync();
+            });
+            list.addEventListener('click', function (e) {
+              var btn = e.target && e.target.closest ? e.target.closest('.hhdel') : null;
+              if (!btn) return;
+              var r = btn.closest('.hhrow');
+              var ins = r.querySelectorAll('input');
+              for (var i = 0; i < ins.length; i++) ins[i].value = '';
+              r.classList.add('opt');
+              sync();
+            });
+            sync();
+          }
         })();
         (function () {
           var inp = document.getElementById('upfile'), grid = document.getElementById('upgrid'),

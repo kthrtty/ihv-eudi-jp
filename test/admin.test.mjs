@@ -274,8 +274,8 @@ test('apply: 添付は必須にせず、デモ都合であることを画面に�
   const form = await (await fetch(`${ISSUER}/apply/disaster/43100?d=${DISASTER_ID}`, { headers: { cookie: `sid=${sid}` } })).text();
   // 実制度でも原則任意（自己判定調査を希望する場合だけ必須）。「必須だがデモでは任意」は誤りだった
   assert.ok(!form.includes('<b class="req">必須</b></div>'), '添付に必須バッジを出さない');
-  assert.ok(form.includes('原則任意'), '実制度どおり原則任意と出す');
-  assert.ok(form.includes('自己判定調査'), '必須になる条件（自己判定調査）を書く');
+  assert.ok(form.includes('要否は自治体によって異なります'), '1自治体の表記で一般化しない');
+  assert.ok(form.includes('自己判定調査'), '必須になる条件（自己判定調査）にも触れる');
   assert.ok(!form.includes('本デモでは添付なしでも'), 'デモ都合という誤った説明はしない');
   assert.ok(form.includes('写真は 8MB'), '選べる上限を画面に出す');
   assert.ok(form.includes('写真は縮小保存します'), '原寸で保管しないことは明示する');
