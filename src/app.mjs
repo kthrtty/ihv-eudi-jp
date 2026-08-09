@@ -280,7 +280,8 @@ export function createApp(opts = {}) {
   app.get('/account', async (c) => {
     const user = await svc.sessionUser(sid(c));
     if (!user) return c.redirect('/login?next=/account', 302);
-    return c.html(renderAccount(user, accountCatalog(user)));
+    // 交付申請ベースの書類は「認定済みの申請ごとに1枚」なので、実物の一覧を渡す
+    return c.html(renderAccount(user, accountCatalog(user, await svc.issuableApplications(user.id))));
   });
   app.post('/account', async (c) => {
     const user = await svc.sessionUser(sid(c));

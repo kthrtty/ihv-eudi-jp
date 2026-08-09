@@ -83,7 +83,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   **教訓: 適合を名乗る面は自己ループでなく仕様構造の golden/外部実装との適合テストで pin。簡略化は名乗りに明示。**
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（366, node:test）／
+`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（367, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
@@ -144,6 +144,13 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
     （以前は職員の所属を既定値にしていて、千代田区の職員が熊本の申請を認定すると「千代田区長」が VC に載った）
   - 離島の `issuing_municipality` も自由文でなくディレクトリの正式名称。回帰=test/municipalities.test.mjs
   - **後方互換**: `target_code` が無い旧レコード（本番 KV にある）は管轄判定せず、交付者名は手入力欄に落ちる
+- **`/account` は申請ベースの書類の属性表を出さない**（2026-08-10・案B）: `accountCatalog(persona, applications)`
+  が `requiresApplication` の型では**姓・名だけ**を claims に残し、`byApplication` に認定済み申請を並べて
+  控え（`/applications/:id`）へ送る。以前は `{...SAMPLE, ...personaOverrides}` の1件を出していたため、
+  **実際に交付される VC と全項目が食い違っていた**（山田太郎の罹災は「千代田区長・令和7年台風第10号」と
+  表示されるが実物は A-0002 の「世田谷区長・令和元年東日本台風」）。しかも `address` に「編集反映」・
+  `household_members` に「自動導出」と出ており、**どちらも申請の申告値なので嘘**だった。
+  申請1件＝VC1枚なので複数行になる。回帰=test/applications.test.mjs
 - 発行ゲートは `oid4vci.credential()`。persona 無し（SAMPLE・シナリオ selftest）は従来どおり通す
 - 画面は案D（3セクション: いつでも発行 / 認定済み（申請ごとに1行）/ 申請できる手続き）。一覧は
   **PC=表組み・SP=3列グリッド**を1マークアップで両立。住民向け=`src/apply-demo.mjs`（申請フォーム＋
@@ -421,7 +428,11 @@ devlog は `portrait|portrait_b64` をマスク。テスト `test/portrait.test.
 - **Web ウォレット**(別オリジン): pre-auth と authorization_code をブラウザ・リダイレクトで発行（`scripts/capture-webwallet.mjs` ww-01..05）
 
 ## UI
-**利用者向けの語は「デジタル資格証」に統一**（2026-08-10）。カタカナの「クレデンシャル」は一般利用者に
+**カタログを列挙する見出しだけ「デジタル資格証・証明書」と併記**（2026-08-10）——中身は資格証
+（国家資格・離島割引）と証明書（住民票・課税・罹災・戸籍・独身・ワクチン）が混ざるため。見出しは
+1画面に1回なので長さが許容でき、そこで範囲を宣言すれば以降の短い呼び方が誤解を招かない
+（PID は身分証で厳密にはどちらでもないが、3語並べると読めなくなるので入れない）。
+**それ以外の利用者向けの語は「デジタル資格証」に統一**（2026-08-10）。カタカナの「クレデンシャル」は一般利用者に
 通じないため、発行ポータル／ウォレット／検証ポータル／自治体窓口の**画面文言はすべて「デジタル資格証」**
 （発行ポータルのブランドが元から `デジタル資格証発行ポータル` だったので、それに寄せた。デモバンドの
 「デジタル資格証明」も1文字違いの別語だったので統一）。**仕様語をそのまま引く技術注記は「クレデンシャル」のまま**
