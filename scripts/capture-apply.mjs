@@ -54,7 +54,10 @@ await settle(page);
 await page.screenshot({ path: out + 'ap-02-form-disaster.png', fullPage: true });
 
 // 入力して申請 → 住民側の控え（読み取り専用・判定の操作は無い）
+// 被災住家の所在地は「世帯主住所に同じ」が既定。外して入力する（下宿・単身赴任の形）
+await page.uncheck('[name=same_address]');
 await page.fill('input[name=damaged_address]', '石川県輪島市河井町1-1');
+await page.fill('input[name=contact_tel]', '090-0000-0000');
 await page.fill('textarea[name=statement]', '地震により1階部分の柱が傾き、居住できない状態です。');
 await Promise.all([page.waitForNavigation({ timeout: 15000 }).catch(() => {}), page.click('form[action="/apply/disaster/17204"] button[type=submit]')]);
 await settle(page);
