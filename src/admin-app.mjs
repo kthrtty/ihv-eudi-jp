@@ -119,8 +119,10 @@ export function createAdminApp(opts = {}) {
       const t = getApplicationType(a0.kind);
       const raw = json ? await c.req.json() : await c.req.parseBody();
       const decision = Object.fromEntries(t.decision.map((x) => [x.key,
-        // チェックは JSON（真偽）が優先。無ければ HTML フォームの流儀（送られてこない＝未チェック）
-        x.type === 'check' ? (raw.decision?.[x.key] ?? (raw[x.key] === 'on'))
+        // チェックは JSON（真偽）が優先。HTML フォームは「送られてこない＝未チェック」だが、
+        // **JSON でキーごと無い場合は項目の既定値**に従う（審査画面は既定でチェック済みなので、
+        // API から判定したときだけ既定と逆になるのは事故のもと）
+        x.type === 'check' ? (raw.decision?.[x.key] ?? (json ? !!x.default : raw[x.key] === 'on'))
           : String(raw.decision?.[x.key] ?? raw[x.key] ?? '').trim()]));
       const out = await svc.decideApplication(c.req.param('id'), {
         status: raw.status || 'approved',
