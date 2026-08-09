@@ -81,7 +81,7 @@ ${swatchEmblemCss()}
 .abtn{font:inherit;font-size:13.5px;font-weight:700;padding:11px 22px;border-radius:9px;border:0;background:var(--civic);color:#fff;cursor:pointer;text-decoration:none;display:inline-block}
 .abtn.gh{background:#fff;border:1px solid var(--line);color:var(--civic)}
 .abtn.dn{background:var(--seal)}
-/* 入力元で分けるブロック（市が保有／あなたが申告） */
+/* 入力元で分けるブロック（住民票にあるもの／申告するもの） */
 .srcbox{border:1px solid var(--line);border-radius:13px;background:#fff;margin-bottom:12px;overflow:hidden}
 .srcbox>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;padding:13px 16px;background:#F2F5F9}
 .srcbox>summary::-webkit-details-marker{display:none}
@@ -410,23 +410,23 @@ export function renderApplyForm(user, t, muni, { error = '', prefill = {}, disas
         ${selChip('申請先', `${muni.pref} ${muni.name}`, bk(true))}
       </div>
       <p class="lead">${esc(t.lead)}<br><span style="font-size:11px">${esc(t.basis)}</span></p>
-      ${/* **入力が要る／要らないの線引きを制度どおりに**。住基にあるものは入力させず、
-            住基に無いもの（電話番号）と市の保有情報では決まらないもの（被災住家・そこに
-            住んでいた人・被害）だけを聞く。どちらに入るかは1項目ずつ根拠がある */''}
+      ${/* **入力が要る／要らないの線引きを制度どおりに**。ブロック名は**保有主体で呼ばない**——
+            住基情報を持つのは住民票のある自治体で、申請先とは限らない（下宿・単身赴任では違う）。
+            申請先も市とは限らない（町・村・特別区がある）。「何の情報か」で呼べば常に正しい */''}
       <details class="srcbox" open>
-        <summary><span class="ic">🏛</span><b>市が保有している情報</b><span class="cnt">入力不要 3 項目</span></summary>
+        <summary><span class="ic">📋</span><b>住民票に記載されている情報</b><span class="cnt">入力不要 3 項目</span></summary>
         <div class="in">
           <div class="kv"><span>氏名</span><div>${esc(user.family)} ${esc(user.given)}</div>
             <span>生年月日</span><div>${esc(user.birth)}</div>
             <span>${t.id === 'disaster' ? '世帯主住所' : '住所'}</span><div>${esc(user.address)}</div></div>
-          <div class="note">住民基本台帳・課税の情報は<b>市が保有し、必要に応じて照会します</b>。
-            申請者が入力したり、書類として提出したりする必要はありません。${t.id === 'disaster'
-              ? '<br><b>電話番号は住民基本台帳に含まれません</b>ので、下の申告欄でお伺いします。' : ''}</div>
+          <div class="note"><b>申請者が入力したり、書類として提出したりする必要はありません</b>
+            （${esc(muni.name)}が必要に応じて照会します）。${t.id === 'disaster'
+              ? '<br><b>電話番号は住民票に記載されません</b>ので、下の申告欄でお伺いします。' : ''}</div>
         </div>
       </details>
       <form class="acard" method="POST" action="/apply/${esc(t.id)}/${esc(muni.code)}${pref ? `?pref=${encodeURIComponent(pref)}` : ''}" enctype="multipart/form-data">
         ${disaster ? `<input type="hidden" name="disaster_id" value="${esc(disaster.id)}">` : ''}
-        <div class="sec">あなたにしか分からないこと<span class="tagro">市の保有情報では決まりません</span></div>
+        <div class="sec">あなたにしか分からないこと<span class="tagro">住民票では決まりません</span></div>
         ${t.form.map((x) => field(x, prefill[x.key] ?? '', muni)).join('')}
 
         <div class="sec">${esc(t.attachmentLabel)}${t.attachmentRequired ? '<b class="req">必須</b>' : '<span class="tagro">原則任意</span>'}</div>
