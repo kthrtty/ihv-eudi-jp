@@ -290,7 +290,9 @@ export function accountCatalog(persona, applications = []) {
         return {
           id: a.id, label: labelOf(a), sub: subOf(a), authority: targetAuthority(a) || a.authority || '',
           claims: schema.claims
-            .filter((c) => values[c.key] !== undefined)
+            // **null は「載せない」の明示**で mint がキーごと落とす（島民の quasi_reason など）。
+            // ここで行を出すと、VC に存在しない項目を表示することになる
+            .filter((c) => values[c.key] != null)
             .map((c) => ({
               key: c.key, label: c.display?.ja || c.key, value: values[c.key],
               // 分類表に無いキーは persona 由来（＝/account の編集欄から直せる）
