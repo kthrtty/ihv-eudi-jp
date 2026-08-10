@@ -83,7 +83,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   **教訓: 適合を名乗る面は自己ループでなく仕様構造の golden/外部実装との適合テストで pin。簡略化は名乗りに明示。**
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（367, node:test）／
+`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（368, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
@@ -144,13 +144,19 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
     （以前は職員の所属を既定値にしていて、千代田区の職員が熊本の申請を認定すると「千代田区長」が VC に載った）
   - 離島の `issuing_municipality` も自由文でなくディレクトリの正式名称。回帰=test/municipalities.test.mjs
   - **後方互換**: `target_code` が無い旧レコード（本番 KV にある）は管轄判定せず、交付者名は手入力欄に落ちる
-- **`/account` は申請ベースの書類の属性表を出さない**（2026-08-10・案B）: `accountCatalog(persona, applications)`
-  が `requiresApplication` の型では**姓・名だけ**を claims に残し、`byApplication` に認定済み申請を並べて
-  控え（`/applications/:id`）へ送る。以前は `{...SAMPLE, ...personaOverrides}` の1件を出していたため、
+- **`/account` は申請ベースの書類を「申請ごとに1枚」で出す**（2026-08-10・チップ切替）:
+  `accountCatalog(persona, applications)` が `requiresApplication` の型では `cards[]`（申請1件＝1枚・
+  値は `claimsFor` の実物）を返し、画面はチップで切り替える（**JS 無効なら全枚が縦に並ぶ**＝内容は全部見える）。
+  各枚に控え（`/applications/:id`）へのリンク。以前は `{...SAMPLE, ...personaOverrides}` の1件を出していたため、
   **実際に交付される VC と全項目が食い違っていた**（山田太郎の罹災は「千代田区長・令和7年台風第10号」と
   表示されるが実物は A-0002 の「世田谷区長・令和元年東日本台風」）。しかも `address` に「編集反映」・
   `household_members` に「自動導出」と出ており、**どちらも申請の申告値なので嘘**だった。
-  申請1件＝VC1枚なので複数行になる。回帰=test/applications.test.mjs
+  **由来は3分類**（`編集反映`=persona の編集欄／`申請から`=申告・選択／`認定で決まる`=自治体の審査）。
+  分類表 `claimSource` は **`toClaims` の隣**に置く（離すと必ず食い違う）。世帯主住所=編集反映と
+  被災住家の所在地=申請から が並ぶので、統一様式が2項目に分ける理由が画面で読める。発行者は
+  **申請から**（申請先の自治体を申請者が選ぶ／審査した職員の所属ではない）。
+  **全クレームが分類済みであることをテストで固定**（未分類は「編集反映」と誤表示される）。
+  回帰=test/applications.test.mjs
 - 発行ゲートは `oid4vci.credential()`。persona 無し（SAMPLE・シナリオ selftest）は従来どおり通す
 - 画面は案D（3セクション: いつでも発行 / 認定済み（申請ごとに1行）/ 申請できる手続き）。一覧は
   **PC=表組み・SP=3列グリッド**を1マークアップで両立。住民向け=`src/apply-demo.mjs`（申請フォーム＋

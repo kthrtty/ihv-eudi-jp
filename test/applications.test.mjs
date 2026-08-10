@@ -399,37 +399,60 @@ test('applications: 「記載しない」と判定した項目に SAMPLE が漏�
   assert.equal(on.household_members[0].family_name, '佐藤', '記載するなら申請者の世帯');
 });
 
-// /account は「編集した属性が VC にどう効くか」を見せる画面。**交付申請ベースの書類は
-// persona からほとんど流れず**（姓・名だけ）、中身は認定で決まり、しかも申請1件＝VC1枚
-// なので同じ種別を複数持てる。以前はここに SAMPLE 混じりの1件ぶんの表を出していて、
-// 実際に交付される VC と**全項目が食い違って**いた（山田太郎の罹災は「千代田区長・
-// 令和7年台風第10号」と表示されるが、実物は A-0002 の「世田谷区長・令和元年東日本台風」）。
-test('applications: /account は申請ベースの書類に SAMPLE の1件を並べない', async () => {
+// /account は「編集した属性が VC にどう効くか」を見せる画面。交付申請ベースの書類は
+// **申請1件＝VC1枚**なので、申請ごとに1枚ぶんの実値を出す（チップで切り替える）。
+// 以前は `{...SAMPLE, ...personaOverrides}` の1件を出していて、実際に交付される VC と
+// 全項目が食い違っていた（山田太郎の罹災は「千代田区長・令和7年台風第10号」と表示されるが、
+// 実物は A-0002 の「世田谷区長・令和元年東日本台風」）。
+test('applications: /account は申請ごとに実値を出す（SAMPLE を混ぜない）', async () => {
   const svc = new IssuerService();
   const persona = svc.users.get('u_001');
-  const cat = accountCatalog(persona, await svc.issuableApplications('u_001'));
-  const dis = cat.find((d) => d.type === 'disaster');
+  const dis = accountCatalog(persona, await svc.issuableApplications('u_001')).find((d) => d.type === 'disaster');
 
-  assert.deepEqual(dis.claims.map((c) => c.key), ['family_name', 'given_name'],
-    'persona の編集が効くのは氏名だけ');
-  // 申請の申告値・認定値をここに出さない（出すと「編集反映」「自動導出」が嘘になる）
-  for (const k of ['address', 'household_members', 'damage_level', 'disaster_name', 'issuing_authority']) {
-    assert.ok(!dis.claims.some((c) => c.key === k), `${k} は /account に出さない`);
-  }
-  // 代わりに**実物の申請**を並べる（複数持てることが見える）
-  assert.equal(dis.byApplication.length, 1);
-  assert.equal(dis.byApplication[0].id, 'A-0002');
-  assert.equal(dis.byApplication[0].authority, '世田谷区長', 'SAMPLE の千代田区長ではない');
-  assert.match(dis.byApplication[0].label, /令和元年東日本台風/);
+  assert.equal(dis.application, true);
+  assert.equal(dis.cards.length, 1);
+  const card = dis.cards[0];
+  assert.equal(card.id, 'A-0002');
+  assert.equal(card.authority, '世田谷区長', 'SAMPLE の千代田区長ではない');
+  const val = (k) => card.claims.find((c) => c.key === k)?.value;
+  const src = (k) => card.claims.find((c) => c.key === k)?.src;
+  assert.equal(val('address'), '東京都世田谷区玉川3-1-1');
+  assert.match(val('disaster_name'), /令和元年東日本台風/);
+  assert.equal(val('issuing_authority'), '世田谷区長');
+  assert.ok(!JSON.stringify(card.claims).includes('令和7年台風第10号'), 'SAMPLE が混ざらない');
 
-  // 2件目を認定すると2行になる（1申請＝1枚）
+  // 由来は3分類。**世帯主住所は編集欄から／被災住家は申請から**（統一様式が別項目にする理由）
+  assert.equal(src('head_of_household_address'), 'edit');
+  assert.equal(src('address'), 'app');
+  assert.equal(src('household_members'), 'app', '住基の世帯ではなく申告値');
+  assert.equal(src('damage_level'), 'dec', '被害程度は自治体の認定');
+  assert.equal(src('issuing_authority'), 'app', '申請先の自治体から（審査した職員の所属ではない）');
+
+  // 2件目を認定すると2枚になる（1申請＝1枚）
   const app = await svc.submitApplication({ userId: 'u_001', kind: 'disaster', ...DISASTER, form: DISASTER_FORM });
   await svc.decideApplication(app.id, { status: 'approved', decision: { damage_level: '全壊' } });
   const after = accountCatalog(persona, await svc.issuableApplications('u_001')).find((d) => d.type === 'disaster');
-  assert.equal(after.byApplication.length, 2);
-  assert.equal(after.byApplication[1].authority, '熊本市長');
+  assert.equal(after.cards.length, 2);
+  assert.equal(after.cards[1].authority, '熊本市長');
+  assert.equal(after.cards[1].claims.find((c) => c.key === 'damage_level').value, '全壊');
 
-  // 申請ベースでない書類は従来どおり全項目を出す
-  const pid = cat.find((d) => d.type === 'pid');
-  assert.ok(pid.claims.length > 5 && !pid.byApplication);
+  // 申請ベースでない書類は従来どおり全項目を1件で出す
+  const pid = accountCatalog(persona, []).find((d) => d.type === 'pid');
+  assert.ok(pid.claims.length > 5 && !pid.application);
+});
+
+// 由来の分類表（claimSource）は toClaims の隣にあるが、**別々に書いてある以上ズレうる**。
+// 分類漏れは「持ち主でもないのに編集反映と表示する」形で嘘になるので、全キーを固定する。
+test('applications: VC のクレームはすべて由来が分類されている', async () => {
+  const svc = new IssuerService();
+  const persona = svc.users.get('u_001');
+  const PERSONA_KEYS = new Set(['family_name', 'given_name', 'birth_date', 'head_of_household_address']);
+  for (const app of await svc.issuableApplications('u_001')) {
+    const t = getApplicationType(app.kind);
+    for (const k of Object.keys(claimsFor(app, persona))) {
+      const src = t.claimSource?.[k];
+      assert.ok(src === 'app' || src === 'dec' || PERSONA_KEYS.has(k),
+        `${app.kind}.${k} が未分類（claimSource に足すか、persona 由来なら PERSONA_KEYS へ）`);
+    }
+  }
 });

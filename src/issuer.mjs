@@ -9,7 +9,8 @@ import { issueSdJwtVc, verifySdJwtVc } from './sdjwt.mjs';
 import { personaOverrides } from './users.mjs';
 // accountCatalog が「この書類は交付申請で決まる」を判定するために使う（循環しない：
 // applications.mjs は issuer.mjs を import しない）
-import { requiresApplication, getApplicationType, labelOf, subOf, targetAuthority } from './applications.mjs';
+import { requiresApplication, getApplicationType, labelOf, subOf, targetAuthority,
+  claimsFor } from './applications.mjs';
 // schemas are bundled (no fs at import) so the module loads on Workers; PKI keys
 // are still read lazily inside mint()/verify() (to be injected via env — see docs).
 import catalog from '../schemas/credential-catalog.json' with { type: 'json' };
@@ -282,15 +283,22 @@ export function accountCatalog(persona, applications = []) {
     // 認定済みの申請を並べて控え（実物）へ送る。
     if (requiresApplication(credId)) {
       const mine = applications.filter((a) => getApplicationType(a.kind)?.credType === credId);
-      return {
-        type: credId,
-        byApplication: mine.map((a) => ({
+      // **申請1件＝VC1枚**。1件ぶんだけ出すと実際の VC と食い違ううえ複数持てることが見えない
+      const cards = mine.map((a) => {
+        const t = getApplicationType(a.kind);
+        const values = claimsFor(a, persona);
+        return {
           id: a.id, label: labelOf(a), sub: subOf(a), authority: targetAuthority(a) || a.authority || '',
-        })),
-        // persona の編集がそのまま効くのは氏名だけ（それ以外は申請の申告値・認定値）
-        claims: schema.claims.filter((c) => ['family_name', 'given_name'].includes(c.key))
-          .map((c) => ({ key: c.key, label: c.display?.ja || c.key, value: overrides[c.key], src: 'edit' })),
-      };
+          claims: schema.claims
+            .filter((c) => values[c.key] !== undefined)
+            .map((c) => ({
+              key: c.key, label: c.display?.ja || c.key, value: values[c.key],
+              // 分類表に無いキーは persona 由来（＝/account の編集欄から直せる）
+              src: t.claimSource?.[c.key] ?? 'edit',
+            })),
+        };
+      });
+      return { type: credId, application: true, cards };
     }
     const data = { ...SAMPLE[credId], ...overrides };
     if (data.birth_date) {
