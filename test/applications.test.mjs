@@ -456,3 +456,32 @@ test('applications: VC のクレームはすべて由来が分類されている
     }
   }
 });
+
+// 同じ書類を複数枚持てるので、**どの申請の VC なのかが混ざらない**ことが要。
+// /account の表示も、実際に発行される VC も、申請ごとに独立していなければならない。
+test('applications: 複数枚を持っても申請ごとの値が混ざらない', async () => {
+  const svc = new IssuerService();
+  const persona = svc.users.get('u_001');   // seed A-0002（世田谷・半壊）を持っている
+  const a = await svc.submitApplication({ userId: 'u_001', kind: 'disaster', ...DISASTER,
+    form: { ...DISASTER_FORM, building_type: '木造平屋' } });
+  await svc.decideApplication(a.id, { status: 'approved', decision: { damage_level: '全壊', extra_note: '床上浸水' } });
+
+  const cards = accountCatalog(persona, await svc.issuableApplications('u_001'))
+    .find((d) => d.type === 'disaster').cards;
+  assert.equal(cards.length, 2);
+  const v = (card, k) => card.claims.find((c) => c.key === k)?.value;
+  // 2枚で同じになってよいのは persona 由来だけ。申請由来・認定由来は全部違う
+  for (const k of ['address', 'damage_level', 'building_type', 'certificate_number',
+    'issuing_authority', 'disaster_name']) {
+    assert.notEqual(v(cards[0], k), v(cards[1], k), `${k} が2枚で同じ`);
+  }
+  assert.equal(v(cards[0], 'family_name'), v(cards[1], 'family_name'), '氏名は persona 由来なので同じ');
+
+  // 「載せない」項目（null）は行ごと出さない。mint がキーごと落とすので VC にも無い
+  const [isl] = await svc.issuableApplications('u_001', 'island');   // A-0001 は島民
+  const islCard = accountCatalog(persona, await svc.issuableApplications('u_001'))
+    .find((d) => d.type === 'island').cards[0];
+  assert.ok(!islCard.claims.some((c) => c.key === 'quasi_reason'),
+    '島民に準島民の事由の行は出さない（VC にも無いので表示だけ存在してはならない）');
+  assert.equal(claimsFor(isl, persona).quasi_reason, null);
+});

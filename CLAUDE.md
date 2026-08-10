@@ -83,7 +83,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   **教訓: 適合を名乗る面は自己ループでなく仕様構造の golden/外部実装との適合テストで pin。簡略化は名乗りに明示。**
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（368, node:test）／
+`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（369, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
@@ -156,7 +156,11 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   被災住家の所在地=申請から が並ぶので、統一様式が2項目に分ける理由が画面で読める。発行者は
   **申請から**（申請先の自治体を申請者が選ぶ／審査した職員の所属ではない）。
   **全クレームが分類済みであることをテストで固定**（未分類は「編集反映」と誤表示される）。
-  回帰=test/applications.test.mjs
+  **`null` の項目は行ごと出さない**（`mint` がキーごと落とすので VC に存在しない＝島民の `quasi_reason`。
+  表示だけあると「載る」と誤解させる）。**どの申請の VC かはオファーが運ぶ**——カタログのチップが
+  `data-app` で申請 ID を送り `/offer` → `at.applications[configId]` → `credential()` が該当申請を使う。
+  **指定が無ければ最新の認定**なので、古い1枚を出したいときは必ず指定する。
+  回帰=test/applications.test.mjs（申請ごとに値が混ざらないこと）
 - 発行ゲートは `oid4vci.credential()`。persona 無し（SAMPLE・シナリオ selftest）は従来どおり通す
 - 画面は案D（3セクション: いつでも発行 / 認定済み（申請ごとに1行）/ 申請できる手続き）。一覧は
   **PC=表組み・SP=3列グリッド**を1マークアップで両立。住民向け=`src/apply-demo.mjs`（申請フォーム＋
