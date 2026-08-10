@@ -271,6 +271,15 @@ const disaster = {
   // 見出し = 同じ書類の複数件を見分けるもの（災害名 ＋ 被災住家）
   label: (app) => [disasterName(app), app.form?.damaged_address].filter(Boolean).join('・') || '罹災証明',
   sub: (app) => app.decision?.damage_level ?? '',
+  // 各クレームの**由来**。/account でどこを直せば変わるかを示すために使う。
+  // ここに無いキーは persona 由来（＝/account の編集欄から）。**toClaims の隣に置く**——
+  // 離れた場所に対応表を作ると必ず食い違う（schemas を生成器経由にしたのと同じ理由）。
+  // 全キーが分類済みであることは test/applications.test.mjs が固定する。
+  claimSource: {
+    address: 'app', household_members: 'app', building_type: 'app',
+    disaster_name: 'app', disaster_date: 'app', issuing_authority: 'app',
+    damage_level: 'dec', additional_note: 'dec', certificate_number: 'dec', issuance_date: 'dec',
+  },
   // 認定内容から VC のクレームを組む。persona は住基側の情報（氏名・住所・世帯）。
   toClaims: (app, persona) => {
     const d = app.decision || {}; const w = app.form || {};
@@ -370,6 +379,11 @@ const island = {
   },
   label: (app) => [targetName(app), app.form?.island_name].filter(Boolean).join('・') || '離島割引',
   sub: (app) => app.decision?.resident_category ?? '',
+  claimSource: {
+    island_name: 'app', issuing_municipality: 'app', issuing_authority: 'app',
+    quasi_reason: 'app', eligible_routes: 'app', fare_scheme: 'app',
+    resident_category: 'dec', card_number: 'dec', expiry_date: 'dec', issuance_date: 'dec',
+  },
   toClaims: (app, persona) => {
     const d = app.decision || {}; const w = app.form || {};
     const quasi = d.resident_category === '準島民';

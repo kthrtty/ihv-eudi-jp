@@ -1279,7 +1279,8 @@ export function renderAccount(user, docs = []) {
     if (Array.isArray(v)) return v.map((m) => esc(`${m.family_name} ${m.given_name}（${m.relationship_to_head}）`)).join('<br>');
     return esc(String(v));
   };
-  const BADGE = { edit: ['編集反映', 'b-edit'], drv: ['自動導出', 'b-drv'], fix: ['固定', 'b-fix'] };
+  const BADGE = { edit: ['編集反映', 'b-edit'], drv: ['自動導出', 'b-drv'], fix: ['固定', 'b-fix'],
+    app: ['申請から', 'b-app'], dec: ['認定で決まる', 'b-dec'] };
   const srcB = (k) => `<span class="badge ${BADGE[k][1]}">${BADGE[k][0]}</span>`;
   const find = (t, k) => docs.find((d) => d.type === t)?.claims.find((c) => c.key === k);
   // derived summary (right-top): the concrete values this persona derives to
@@ -1294,26 +1295,38 @@ export function renderAccount(user, docs = []) {
   const derivedTable = `<table class="ro-table">${drows.map(([label, src, c]) =>
     `<tr><td>${esc(label)}<span class="src">${esc(src)}</span></td><td>${fmtVal(c.value)}</td></tr>`).join('')}</table>`;
   const legend = `<div class="ro-legend"><b>凡例:</b> ${srcB('edit')}左の編集欄から反映
-    ${srcB('drv')}他の属性から計算（直接編集不可） ${srcB('fix')}発行者付与・サンプル固定</div>`;
+    ${srcB('drv')}他の属性から計算（直接編集不可） ${srcB('fix')}発行者付与・サンプル固定
+    ${srcB('app')}交付申請で申告・選択 ${srcB('dec')}自治体の審査結果</div>`;
   const docSections = docs.map((d, i) => {
     const t = TYPE_META[d.type] || {};
-    const rows = d.claims.map((c) =>
+    // 申請ベースの書類は claims を持たず cards（申請ごとに1枚）を持つ
+    const rows = (d.claims || []).map((c) =>
       `<tr><td>${esc(c.label)}<span class="src mono">${esc(c.key)}</span></td><td>${fmtVal(c.value)} ${srcB(c.src)}</td></tr>`).join('');
     // **交付申請ベースの書類はここに属性表を出さない**。中身は申請の認定で決まり、
     // 申請1件＝VC1枚なので同じ種別を複数持てる。1件ぶんの表を出すと、実際に交付される
     // VC と食い違ううえ「1枚しか持てない」ように見える。実物は控え（/applications/:id）にある。
-    if (d.byApplication) {
-      const list = d.byApplication.length
-        ? `<div class="appq">${d.byApplication.map((a) => `<a class="appq-row" href="/applications/${esc(a.id)}">
-             <span class="appq-no">${esc(a.id)}</span>
-             <span class="appq-lb"><b>${esc(a.label)}</b><small>${[a.authority, a.sub].filter(Boolean).map(esc).join('　／　')}</small></span>
-             <span class="appq-go">控えを見る ›</span></a>`).join('')}</div>`
-        : `<div class="appq-none">交付できる申請がありません。<a href="/">発行カタログ</a>から申請します。</div>`;
-      return `<details class="doc"${i < 2 ? ' open' : ''}><summary><span class="sw" style="background:${t.c1 || '#607D8B'}"></span>${esc(t.name || d.type)}<span class="n">申請ごと</span></summary>
-        <table class="ro-table">${rows}</table>
-        <div class="appq-note">これ以外の項目は<b>交付申請の認定</b>で決まります（被災住家の所在地・世帯構成員・被害程度など）。
-          ここでは編集できません。<b>申請1件につき1枚</b>交付されます。</div>
-        ${list}</details>`;
+    if (d.application) {
+      if (!d.cards.length) {
+        return `<details class="doc"${i < 2 ? ' open' : ''}><summary><span class="sw" style="background:${t.c1 || '#607D8B'}"></span>${esc(t.name || d.type)}<span class="n">申請なし</span></summary>
+          <div class="appq-note">この資格証は<b>交付申請の認定</b>で内容が決まります。いま交付できる申請がありません。<br>
+            <a href="/" class="appq-link">発行カタログから申請する ›</a></div></details>`;
+      }
+      // **申請ごとに1枚**。チップで切り替える（押す前にどれが何か分かる）。
+      // JS 無効なら全枚が縦に並ぶだけ＝内容は全部見える（.on を付けない側も表示される）
+      const tabs = d.cards.length > 1
+        ? `<div class="apptabs" data-doc="${esc(d.type)}">${d.cards.map((a, k) =>
+            `<button type="button" class="${k === 0 ? 'on' : ''}" data-k="${k}">${esc(a.id)} ${esc([a.authority, a.sub].filter(Boolean).join('・'))}</button>`).join('')}</div>`
+        : '';
+      const panels = d.cards.map((a, k) => `<div class="apppanel" data-doc="${esc(d.type)}" data-k="${k}">
+        <div class="apphd"><span class="no">${esc(a.id)}</span><b>${esc(a.label)}</b>
+          <a href="/applications/${esc(a.id)}">控えを見る ›</a></div>
+        <table class="ro-table">${a.claims.map((c) =>
+          `<tr><td>${esc(c.label)}<span class="src mono">${esc(c.key)}</span></td><td>${fmtVal(c.value)} ${srcB(c.src)}</td></tr>`).join('')}</table>
+      </div>`).join('');
+      return `<details class="doc"${i < 2 ? ' open' : ''}><summary><span class="sw" style="background:${t.c1 || '#607D8B'}"></span>${esc(t.name || d.type)}<span class="n">${d.cards.length}件・申請ごと</span></summary>
+        ${tabs}${panels}
+        <div class="appq-note"><b>申請1件につき1枚</b>交付されます。内容は交付申請の申告と自治体の認定で決まるので、ここでは編集できません。</div>
+      </details>`;
     }
     return `<details class="doc"${i < 2 ? ' open' : ''}><summary><span class="sw" style="background:${t.c1 || '#607D8B'}"></span>${esc(t.name || d.type)}<span class="n">${d.claims.length}項目</span></summary>
       <table class="ro-table">${rows}</table></details>`;
@@ -1427,22 +1440,21 @@ export function renderAccount(user, docs = []) {
       .src{font-size:10px;color:#8A97AB;display:block;margin-top:1px}
       .badge{display:inline-block;font-size:10px;font-weight:700;border-radius:999px;padding:2px 8px;vertical-align:1px;white-space:nowrap}
       .b-edit{background:#E7F3EE;color:#0E8A6B}.b-drv{background:#EAF0FA;color:#1C3F94}.b-fix{background:#F1F3F7;color:#5B6B82}
+      .b-app{background:#EAF0FC;color:#1C3F94}.b-dec{background:#F3ECFA;color:#5B3E86}
+      /* 交付申請ベースの書類: 申請ごとに1枚。チップで切り替える */
+      .apptabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 14px 0}
+      .apptabs button{font:inherit;font-size:11.5px;font-weight:700;border-radius:999px;padding:6px 13px;
+        border:1px solid var(--line);background:#fff;color:var(--muted);cursor:pointer}
+      .apptabs button.on{background:var(--civic);border-color:var(--civic);color:#fff}
+      .apphd{display:flex;align-items:center;gap:10px;margin:10px 14px 0;padding:9px 12px;background:#F7F9FC;border-radius:9px;font-size:11.5px}
+      .apphd .no{font-family:ui-monospace,monospace;color:var(--muted);flex:none}
+      .apphd b{font-weight:600;min-width:0}
+      .apphd a{margin-left:auto;color:var(--civic);text-decoration:none;font-weight:700;white-space:nowrap;flex:none}
+      .appq-note{margin:10px 14px 12px;background:#F7F9FC;border-radius:9px;padding:10px 12px;font-size:11.5px;color:var(--muted);line-height:1.75}
+      .appq-note b{color:var(--ink)}
+      .appq-link{color:var(--civic);font-weight:700;text-decoration:none}
       .ro-legend{display:flex;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin:0 0 12px;align-items:center}
       details.doc{border:1px solid var(--line);border-radius:11px;margin-bottom:9px;background:#fff}
-      /* 交付申請ベースの書類: 属性表の代わりに認定済み申請を並べ、控え（実物）へ送る */
-      .appq-note{margin:0 14px 10px;background:#F7F9FC;border-radius:9px;padding:10px 12px;font-size:11.5px;color:var(--muted);line-height:1.75}
-      .appq-note b{color:var(--ink)}
-      .appq{display:flex;flex-direction:column;margin:0 14px 12px;border:1px solid var(--line);border-radius:10px;overflow:hidden}
-      .appq-row{display:grid;grid-template-columns:76px minmax(0,1fr) 92px;gap:10px;align-items:center;padding:10px 12px;
-        text-decoration:none;color:inherit;border-bottom:1px solid #eef1f6;background:#fff}
-      .appq-row:last-child{border-bottom:0}
-      .appq-row:hover{background:#FAFBFD}
-      .appq-no{font-family:ui-monospace,monospace;font-size:11.5px;color:var(--muted)}
-      .appq-lb{display:flex;flex-direction:column;min-width:0;line-height:1.45}
-      .appq-lb b{font-size:12.5px;font-weight:500}
-      .appq-lb small{font-size:10.5px;color:var(--muted)}
-      .appq-go{font-size:11.5px;font-weight:700;color:var(--civic);text-align:right;white-space:nowrap}
-      .appq-none{margin:0 14px 12px;font-size:12px;color:var(--muted)}
       details.doc>summary{cursor:pointer;padding:11px 14px;font-size:13.5px;font-weight:700;list-style:none;display:flex;align-items:center;gap:9px}
       details.doc>summary::-webkit-details-marker{display:none}
       details.doc>summary .sw{width:13px;height:13px;border-radius:4px;flex:none}
@@ -1454,7 +1466,25 @@ export function renderAccount(user, docs = []) {
       .pf-ctl input[type=file]{font:inherit;font-size:12.5px;max-width:100%}
     </style>
     <script>
-      // 顔写真: クライアント側 canvas で 240x320 に cover 縮小 → JPEG(base64url) を
+
+        // 交付申請ベースの書類: チップで申請を切り替える。**JS 無効なら全枚が縦に並ぶ**
+        // （切替が効かないだけで内容は全部見える）ので、既定は「全部表示」から絞る形にする。
+        (function () {
+          var tabs = document.querySelectorAll('.apptabs');
+          for (var i = 0; i < tabs.length; i++) (function (bar) {
+            var doc = bar.getAttribute('data-doc');
+            var panels = document.querySelectorAll('.apppanel[data-doc="' + doc + '"]');
+            var show = function (k) {
+              for (var j = 0; j < panels.length; j++) panels[j].style.display = (j === k ? '' : 'none');
+              var bs = bar.querySelectorAll('button');
+              for (var j = 0; j < bs.length; j++) bs[j].className = (j === k ? 'on' : '');
+            };
+            bar.addEventListener('click', function (e) {
+              var b = e.target.closest('button'); if (b) show(Number(b.getAttribute('data-k')));
+            });
+            show(0);
+          })(tabs[i]);
+        })();      // 顔写真: クライアント側 canvas で 240x320 に cover 縮小 → JPEG(base64url) を
       // hidden に格納（サーバへは縮小済みの小さなバイト列だけが届く）
       (function () {
         var file = document.getElementById('pfile');
