@@ -26,7 +26,9 @@ export function renderAdminList(staff, apps, { issuedBy = {}, applicants = {}, s
   const tab = (key, label) => `<a href="/${key ? `?status=${key}` : ''}" class="${status === key ? 'on' : ''}">${esc(label)} <b>${key ? count(key) : apps.length}</b></a>`;
   const row = (a) => {
     const t = getApplicationType(a.kind);
-    const act = a.status === 'submitted' ? `${t.reviewTitle}へ` : a.status === 'approved' ? '再判定' : '詳細';
+    // **一覧の行動ラベルは短く**。長いラベル1つのために列が広がると、他の行で
+    // 状態チップとの間が大きく空いて間延びする。正式名称は遷移先の見出しに出る
+    const act = a.status === 'submitted' ? '審査へ' : a.status === 'approved' ? '再判定' : '詳細';
     return `<a class="arow" href="/a/${esc(a.id)}">
       <span class="a-no">${esc(a.id)}</span>
       <span class="a-ty">${sw(t.credType)}<b>${esc(t.short)}</b></span>
