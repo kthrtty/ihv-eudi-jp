@@ -14,7 +14,9 @@ function parseVerifierPki(json) {
   const b64ToDer = (s) => new X509Certificate(Buffer.from(s, 'base64')).raw;
   return {
     encKey: raw.verifier?.encKey ?? null,
-    iacaCert: raw.mdoc?.iaca ? b64ToDer(raw.mdoc.iaca) : null,
+    // 複数トラストアンカー（issue #27）。古いバンドル（iacas 無し）でも動く
+    iacaCert: raw.mdoc?.iacas?.length ? raw.mdoc.iacas.map(b64ToDer)
+      : (raw.mdoc?.iaca ? b64ToDer(raw.mdoc.iaca) : null),
     sdjwtCaCert: raw.sdjwt?.caCert ? b64ToDer(raw.sdjwt.caCert) : null,
     // Annex C readerAuth 署名鍵（issue #20）。旧シークレット（フィールド無し）でも null で動く
     readerKey: raw.verifier?.readerKey ?? null,

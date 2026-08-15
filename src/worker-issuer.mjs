@@ -27,7 +27,9 @@ function parsePki(json) {
   sdjwt.caCert = raw.sdjwt?.caCert ? b64ToDer(raw.sdjwt.caCert) : null;
   const verifierPki = raw.verifier ? {
     encKey: raw.verifier.encKey,
-    iacaCert: raw.mdoc?.iaca ? b64ToDer(raw.mdoc.iaca) : null,
+    // 複数トラストアンカー（issue #27）。古いバンドル（iacas 無し）でも動く
+    iacaCert: raw.mdoc?.iacas?.length ? raw.mdoc.iacas.map(b64ToDer)
+      : (raw.mdoc?.iaca ? b64ToDer(raw.mdoc.iaca) : null),
     sdjwtCaCert: raw.sdjwt?.caCert ? b64ToDer(raw.sdjwt.caCert) : null,
   } : null;
   const statusPki = raw.status ? {
