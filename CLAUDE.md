@@ -62,6 +62,12 @@ OID4VCI 1.0 で発行し、OID4VP 1.0 + HAIP で提示する EUDI/ARF 流クレ�
   ref 一覧は **schemas/*.json の issuer_ref から生成**／`pkiRef()` が **未知の ref を pid の署名材料へフォールバック**
   （DSC は IACA 配下の文書署名者で、mdoc 検証は IACA 経路と docType しか見ない。SD-JWT も x5c を CA まで辿るだけで
   iss と証明書を突き合わせないため代替 DSC で検証は通る）。回帰=test/pki-fallback.test.mjs
+- **KV は自前で世代管理する**（2026-08-16・`scripts/kv-versioned.mjs`）: Cloudflare KV に PITR は
+  無いが、**任意のキーを置けるので世代管理は自前でできる**——「提供されない」と「できない」は別。
+  `<key>` = 現行（既存コードはここを読む・形は変えない）／`<key>:v<n>` = 世代（**消さない**）／
+  `<key>:versions` = 目録。`put` は**書く前に必ず現行を退避**し、`snapshot` は**上書きせず退避だけ**。
+  `npm run deploy:pki` もこの経路（`npm run kv -- list _pki:config` で世代を見る）。
+  費用はほぼゼロ（20KB × 世代 vs 無料枠 1GB／1更新3書き込み vs 1日1000回）＝**保全しない理由が無い**
 - **永続データに TTL を付けない**（2026-08-09 実測で発覚）: `_persist:apps`/`_persist:state`/`_persist:users`/`vcfg:*` は
   `store.set(k, v, null)` で**無期限**。TTL は書き込みのたびに延びるので動かしている間は消えないが、
   **デモが30日空くと消える**——しかも書き込み頻度が低いキーから順に消えるので不揃いに壊れる

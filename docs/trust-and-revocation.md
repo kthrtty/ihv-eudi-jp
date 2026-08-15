@@ -258,6 +258,40 @@ LoTE のスキーマは EU 参照実装（`eudi-lib-kmp-etsi-1196x2`）の公式
 - **Cloudflare KV に PITR / スナップショット機能は無い**
 - git に無い（`pki/` は gitignore）
 
+### KV の世代管理（2026-08-16 導入）
+
+**「プラットフォームが PITR を提供しない」ことと「世代管理できない」ことは別。** KV は任意のキーを
+置けるので自前でできる。**1世代しか持たない運用は杜撰**だったので、`scripts/kv-versioned.mjs` を入れた。
+
+```
+<key>            現行（実体）。既存コードはここを読む＝形は変えない
+<key>:v<n>       世代 n の実体（**消さない**）
+<key>:versions   目録 { current, generations:[{ n, at, bytes, sha256, note }] }
+```
+
+```bash
+npm run kv -- list     _pki:config              # 世代の一覧
+npm run kv -- snapshot _pki:config "メモ"        # **上書きせず退避するだけ**
+npm run kv -- put      _pki:config /tmp/pki.json # 退避してから書く
+npm run kv -- get      _pki:config 1             # 世代 1 を取り出す
+npm run kv -- restore  _pki:config 1             # 世代 1 を現行へ戻す
+```
+
+`put` は**書く前に必ず現行を退避する**（目録に無い＝世代管理前の現行も拾う）。
+`npm run deploy:pki` もこの経路に変えたので、**PKI の投入で過去世代を失わない**。
+
+費用はほぼゼロ。`_pki:config` は 20KB で無料枠は 1GB、書き込みは1更新あたり3回（実体・世代・目録）で
+無料枠は1日1000回。**保全しない理由が無い。**
+
+導入時に本番の永続キーを全部退避した。
+
+| キー | 大きさ | 内容 |
+|---|---|---|
+| `_pki:config` | 20.6 KB | PKI バンドル（**IACA 48253FFD… 稼働中・秘密鍵は紛失**） |
+| `_persist:state` | 85.4 KB | 失効ビット + 発行台帳 |
+| `_persist:apps` | 16.6 KB | 申請台帳 |
+| `_persist:users` | 1.1 KB | persona の編集 |
+
 ### IACA link certificate は使えない
 
 ISO 18013-5 には再鍵の仕組みが**ある**が、
