@@ -489,6 +489,14 @@ devlog は `portrait|portrait_b64` をマスク。テスト `test/portrait.test.
   `max_path_length: 0` としている。ARF も「trust anchors（複数形）」＝複数アンカー前提
 - **DSC は docType と紐づかない**（検査は countryName / EKU / issuing_country の3つだけ）。
   9枚は設計判断であって仕様要件ではない。Status List 署名証明書も **IACA 直下の end-entity 1枚**で足りる
+- **同じ役割に2つの器がある**（issue #28）: ISO 系＝**VICAL/RICAL**（COSE+CBOR）／
+  EUDI 系＝**LoTE**（ETSI TS 119602・**XML と JSON**・v1.1.1 2025-11）と TL（119612）。
+  **ARF は ETSI 側を OIA_15b で SHALL 指定し、VICAL/RICAL には一切言及しない**（全文で `VICAL` 0件・
+  `IACA` 0件）。ARF は 18013-5 を「部品」として採り（属性スキーム／proof mechanism／device binding／
+  近接提示）、**トラストアンカーの配布は採っていない**。mdoc と SD-JWT の両方を規定する以上、
+  形式ごとに器が分かれるのは不便なので上位1つに寄せたと読める（LoTE の `ServiceDigitalIdentity` は
+  証明書の中身を問わないので IACA も SD-JWT CA も同じ形で載る）。
+  **方針: Multipaz 向け=VICAL/RICAL／Web の3アプリ向け=LoTE。同じ中身を2つの器で配る**
 - **VICAL=Issuer(IACA) の TL で Reader が読む／RICAL=Reader(Verifier) の CA の TL で Wallet が読む**。
   「◯◯の TL」は載る側と読む側で主語が入れ替わるので注意（**RICAL の "I" は「リーダー証明書の発行者」**で
   mdoc の Issuer ではない）。本リポジトリは Verifier がリーダーを兼ねるので両側に出てくる

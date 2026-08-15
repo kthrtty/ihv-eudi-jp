@@ -66,6 +66,45 @@ docType が使われるのは `The DocType in the MSO matches the relevant DocTy
 
 ## 2. トラストリスト
 
+### まず: 同じ役割に**2つの器**がある
+
+トラストアンカーの配布には、**役割が重なるが形式も出自も違う2系統**が存在する。
+
+| | ISO 18013-5 系 | EUDI / ARF 系 |
+|---|---|---|
+| 発行者のアンカー | **VICAL**（COSE_Sign1 + CBOR） | **LoTE**（ETSI TS 119602・**XML と JSON**） |
+| 検証者のアンカー | **RICAL**（同上） | Trusted List ほか（ETSI TS 119612・XML） |
+| 出自 | ISO / mDL エコシステム | eIDAS2 / ETSI |
+
+**ARF は ETSI 側を SHALL で要求し、VICAL/RICAL には一切言及しない。**
+
+```
+OIA_15b SHALL
+  … SHALL support both Trusted Lists complying with ETSI TS 119612
+    and LoTEs complying with ETSI TS 119602.
+  Note: TL(119612) → QEAA Provider ／ LoTE(119602) → PID Provider / PuB-EAA / Access CA …
+```
+
+ARF 全文（936,267 文字）で **`VICAL` 0件・`IACA` 0件**を確認済み。
+
+**なぜ ARF は ISO の配布機構を採らなかったか。** ARF は 18013-5 を「部品」として扱うと明記している。
+
+> the mDL attestation scheme … is the **only aspect of ISO/IEC 18013-5 that is specific for mDLs**.
+> All other aspects are **generic and can be used for any other attestation type, including PIDs**.
+
+`ISO/IEC 18013-5 specifies:` の列挙は4項目（属性スキーム／proof mechanism／device binding／
+近接提示に必要なその他）で、**トラストアンカーの配布は入っていない**。ARF は mdoc **と**
+SD-JWT VC の両方を規定するので、形式ごとに配布機構が分かれるのは不便——上位の1つに寄せたと読める。
+実際 LoTE の `ServiceDigitalIdentity` は証明書の中身を問わないので、**IACA も SD-JWT の CA も
+同じ形で載る**。
+
+**我々の方針**（issue #28）: エコシステムごとに器を出し分ける。**同じ中身を2つの器で配る。**
+
+```
+Multipaz Wallet（ネイティブ・ISO 系）      → VICAL / RICAL   … #27 実装済み
+Web の issuer / wallet / verifier（ARF 系） → LoTE（JSON）    … #28 未実装
+```
+
 ### 3つの層を混同しない
 
 | | 正体 | **載るもの** | **読む側** | 問い |
@@ -119,8 +158,9 @@ RICAL : protected   header に x5chain
 （protected は署名対象＝改竄できない、unprotected は中継者が差し替えられる）と、
 RFC 9360 が「x5chain を unprotected に置くならリーフ証明書を `x5t` などで別途保護せよ」と
 要求していることから「新しい RICAL のほうが厳密側に寄せた」と**推測はできるが、条文の裏付けは無い**。
-ARF v3.0.0 には **VICAL / RICAL / COSE の記載が一切無く**（トラストリストは ETSI TS 119 612 /
-119 602 に委ねるのみ）、ここから導くこともできない。
+ARF v3.0.0 には **VICAL / RICAL / COSE の記載が無い**——ただしこれは「トラストリストに無関心」
+という意味ではなく、**同じ役割を ETSI 形式（TS 119612 / 119602）で SHALL 指定している**ため
+（前節参照）。いずれにせよ ARF から header 配置の意図は導けない。
 
 **さらに RICAL の根拠は未発行の draft**——第2版は DIS 段階で**発行予定 2026-11-30**、
 Annex 番号も資料により F / G と食い違う。**発行時に変わりうる**。
@@ -163,7 +203,8 @@ RICAL  protected = 1067 バイト（alg + x5chain）   x5chain は署名の中
   方向に動いているのは構造から読め、x5chain を署名対象に入れるのはその一貫と見るのが自然
 - **推測に留まる**: RFC 9360 との時系列は符合するが、**ISO の議論を追える資料は入手していない**。
   「RFC 9360 を受けて直した」と言い切る根拠は無い
-- **言えない**: ARF は VICAL / RICAL / COSE に一切触れていないので、ここから意図は導けない
+- **言えない**: ARF は VICAL / RICAL / COSE に触れていない（同じ役割を ETSI 形式で SHALL 指定して
+  いるため）。したがって ARF から header 配置の意図は導けない
 
 → 我々の方針: **VICAL は 2021 版に従う**（安定）／**RICAL は draft 追従と明示**し、
 第2版の発行時に再確認する。拠り所は `interop/multipaz-jvm/` の適合テストで、
