@@ -523,8 +523,17 @@ export function createApp(opts = {}) {
   app.get('/status-lists/:id/:format', async (c) => {
     const format = c.req.param('format');
     if (format !== 'mdoc' && format !== 'sdjwt') return c.notFound();
-    c.header('content-type', 'application/statuslist+jwt');
-    return c.body(await svc.statusListToken(format));
+    try {
+      const jwt = await svc.statusListToken(format);
+      c.header('content-type', 'application/statuslist+jwt');
+      return c.body(jwt);
+    } catch (e) {
+      // 署名材料が無いときは**素の 500 でなく理由を返す**。mdoc は IACA 配下の証明書が要り、
+      // PKI バンドル（KV `_pki:config`）に signers を入れないと出せない（issue #25/#27）
+      return c.json({ error: 'signer_unavailable',
+        error_description: `${format} の Status List 署名鍵がありません（PKI バンドルの signers を確認）`,
+      }, 503);
+    }
   });
   app.get('/status-lists/:id', async (c) => {
     const jwt = await svc.statusListToken();
