@@ -346,6 +346,9 @@ export class IssuerService {
   async _saveUsers() {
     await this.store.set('_persist:users', this.users.dump(), null);
   }
+  // 注意: 保存は**新形式（statusLists）だけ**を書く。分割前のコードへロールバックすると
+  // `saved.statusBits` が無く失効が全部消える（有効に戻る）。戻す必要が出たら、先に
+  // statusLists.legacy を statusBits/Next/Reasons へ書き戻すこと（issue #25）。
   async _saveState() {
     await this.store.set('_persist:state', {
       issuanceLog: this.issuanceLog,

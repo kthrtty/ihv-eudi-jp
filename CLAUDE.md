@@ -91,8 +91,19 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   実機 Multipaz で通っている提示は `openid4vp-v1-unsigned`+DCQL（正しい組合せ）。
   **教訓: 適合を名乗る面は自己ループでなく仕様構造の golden/外部実装との適合テストで pin。簡略化は名乗りに明示。**
 
+**ウォレット上の券面は OID4VCI の `display` が決める**（2026-08-16・実機で判明）: Multipaz は
+**name / description / logo / background_color / text_color / background_image の6つ**を読む
+（`JsonParsing.kt`）。**`name` しか出していなかったため、大きい文字と小さい文字の両方に `name` が
+描かれて重なっていた**うえ、9書類が全部同じ既定グラデーションだった。形式表記は `name` に詰めず
+`description` へ回す。券面は `scripts/gen-cardart.mjs`（和色テーマ＋シルエットを SVG→画像化）で生成し
+`assets/cardart.json` に置く（`gen-schemas.mjs` が `data:` URI で埋める＝**メタデータのサイズに直接効く**）。
+**グラデーションは PNG と相性が悪い**——428×270 の PNG は1枚 20KB・9枚で 1.5MB になり載せられない。
+**JPEG（214×135・quality 82）で 2〜3KB／18構成で計 57KB** に収めた。
+なお顔写真と券面はどちらも JPEG なので**先頭 200〜260 文字が ICC の共通ヘッダで一致する**——
+マスク漏れのテストで断片を取るときは**末尾から**取る（先頭だと誤検知する）。
+
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（371, node:test）／
+`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（372, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
