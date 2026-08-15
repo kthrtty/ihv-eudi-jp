@@ -33,6 +33,9 @@ function parsePki(json) {
   const statusPki = raw.status ? {
     key: raw.status.key,
     cert: Buffer.from(raw.status.cert, 'base64'),
+    // 形式ごとの署名鍵（無い古いバンドルでも動くよう任意扱い）
+    signers: raw.status.signers ? Object.fromEntries(Object.entries(raw.status.signers)
+      .map(([k, v]) => [k, { key: v.key, cert: Buffer.from(v.cert, 'base64') }])) : null,
   } : null;
   return { issuer: { mdoc, sdjwt }, verifierPki, statusPki };
 }

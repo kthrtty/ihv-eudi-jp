@@ -5,6 +5,7 @@
 //   - readerAuth は COSE_Sign1（x5chain）で、署名・チェーン・改竄を検証できる
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { statusResolverFor } from './status-resolver.mjs';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { X509Certificate, createHash } from 'node:crypto';
@@ -100,7 +101,7 @@ test('E2E: 仕様準拠 wire で発行→提示→HPKE open→検証、wallet �
   })).json();
   await wallet.receive({ request: app.request.bind(app), offer: offer.credential_offer, credentialIssuer: ISSUER });
 
-  const v = new VerifierService({ statusResolver: async () => (await app.request('/status-lists/1')).text() });
+  const v = new VerifierService({ statusResolver: statusResolverFor(app) });
   const { transactionId, request, origin } = await v.createRequest({
     specs: [{ id: 'q1', configId: 'pid_mdoc', claims: ['family_name', 'age_over_18'] }], protocol: 'annex-c',
   });

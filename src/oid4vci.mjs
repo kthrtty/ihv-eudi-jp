@@ -126,6 +126,8 @@ export class IssuerService {
       uri: `${credentialIssuer}/status-lists/1`,
       issuerKeyPem: statusPki?.key ?? null,
       issuerCertDer: statusPki?.cert ?? null,
+      // 形式ごとの署名鍵（ウォレットは資格証の**信頼根**で Status List のチェーンを検証する）
+      signers: statusPki?.signers ?? null,
     });
     this.issuanceLog = []; // issuer's own ledger (NOT presentation tracking)
     this.users = userStore;
@@ -312,8 +314,9 @@ export class IssuerService {
   /** ある申請から発行された未失効のVCを全て失効させる（形式ごとに複数枚ある）。 */
   async #revokeForApplication(applicationId, reason) {
     await this._loadState();
-    const hit = this.issuanceLog.filter((e) => e.applicationId === applicationId && !this.statusList.isRevoked(e.idx));
-    for (const e of hit) this.statusList.revoke(e.idx, reason);
+    const hit = this.issuanceLog.filter((e) => e.applicationId === applicationId
+      && !this.statusList.isRevoked(e.idx, e.statusFormat));
+    for (const e of hit) this.statusList.revoke(e.idx, reason, e.statusFormat);
     if (hit.length) await this._saveState();
     return hit;
   }
@@ -325,9 +328,12 @@ export class IssuerService {
     const saved = await this.store.get('_persist:state');
     if (!saved) return;
     if (saved.issuanceLog) this.issuanceLog = saved.issuanceLog;
-    if (saved.statusBits) this.statusList.bits = saved.statusBits;
-    if (saved.statusNext != null) this.statusList.next = saved.statusNext;
-    if (saved.statusReasons) this.statusList.reasons = new Map(saved.statusReasons);
+    // 形式ごとのリスト（issue #25）。分割前に保存された statusBits/Next/Reasons は legacy へ載せる
+    if (saved.statusLists) this.statusList.restore(saved.statusLists);
+    else if (saved.statusBits) {
+      this.statusList.restore({ legacy: { bits: saved.statusBits, next: saved.statusNext,
+        reasons: saved.statusReasons } });
+    }
   }
 
   // User-persona edits live in their own KV key and are re-read on EVERY access
@@ -343,9 +349,7 @@ export class IssuerService {
   async _saveState() {
     await this.store.set('_persist:state', {
       issuanceLog: this.issuanceLog,
-      statusBits: Array.from(this.statusList.bits),
-      statusNext: this.statusList.next,
-      statusReasons: [...this.statusList.reasons],
+      statusLists: this.statusList.snapshot(),
     }, null); // **無期限**。TTL を付けると書き込みが途切れた期間で失効ビットが消え、
               // 失効させたクレデンシャルが有効に戻る
   }
@@ -570,7 +574,9 @@ export class IssuerService {
     // single-credential issuance (batch = multiple proofs -> multiple creds, future)
     await this._loadState();
     const holderJwk = await this.#verifyProof(jwtProofs[0]);
-    const status = this.statusList.allocate();
+    // 形式で配布 URI が変わる（mdoc は IACA 配下、SD-JWT は SD-JWT CA 配下の鍵で署名する）
+    const statusFormat = catalog.credential_configurations_supported[configId]?.format === 'mso_mdoc' ? 'mdoc' : 'sdjwt';
+    const status = { ...this.statusList.allocate(statusFormat), format: statusFormat };
     if (at.userId) await this._loadUsers(); // persona edits must survive isolate switches
     const persona = at.userId ? this.users.get(at.userId) : null; // session-bound data switch
 
@@ -597,7 +603,9 @@ export class IssuerService {
       ?? (application ? claimsFor(application, persona) : personaClaims(configId, persona));
     const minted = await mint(configId, { holderJwk, status, claims });
     this.issuanceLog.push({
-      idx: status.idx, configId, format: minted.format,
+      // **idx は形式ごとに独立した索引空間**（issue #25）。台帳に形式を残さないと
+      // 後から失効させるときにどのリストの idx か分からなくなる
+      idx: status.idx, statusFormat: status.format, configId, format: minted.format,
       docType: minted.docType, vct: minted.vct,
       user: at.userId || null,
       // どの申請から出たVCかを残す。これが無いと「熊本の罹災証明だけ失効」が撃てず、
@@ -622,11 +630,27 @@ export class IssuerService {
 
   // ---- Status List (revocation) ----
   // 配布前に必ず永続状態を読み直す — 別 isolate で行われた失効を反映するため
-  async statusListToken() { await this._loadState(); return this.statusList.token(); }
-  async revoke(idx, reason) {
+  async statusListToken(format = null) { await this._loadState(); return this.statusList.token(format); }
+  /**
+   * 失効させる。**idx は形式ごとに独立した索引空間**（issue #25）なので、形式の指定が無ければ
+   * 発行台帳から引く（台帳が正本で、呼び出し側に形式を知る義務を負わせない）。
+   * 同じ idx が複数形式に存在して曖昧なときだけ、明示を求める。
+   */
+  async revoke(idx, reason, format = null) {
     await this._loadState();
-    this.statusList.revoke(idx, reason);
+    let f = format;
+    if (!f) {
+      const hits = [...new Set(this.issuanceLog.filter((e) => e.idx === idx)
+        .map((e) => e.statusFormat || 'legacy'))];
+      if (hits.length > 1) {
+        throw httpErr(400, 'invalid_request',
+          `idx ${idx} は複数の形式に存在します（${hits.join(' / ')}）。format を指定してください`);
+      }
+      f = hits[0] ?? null;   // 台帳に無ければ legacy（分割前の資格証）
+    }
+    this.statusList.revoke(idx, reason, f);
     await this._saveState();
+    return { idx, format: StatusListService.fmt(f) };
   }
 
   /** Issuer's own issuance ledger (history). Never includes presentation data. */
@@ -634,7 +658,8 @@ export class IssuerService {
     await this._loadState();
     // newest first — the ledger is appended chronologically, so sort by issued_at desc
     return this.issuanceLog
-      .map((e) => ({ ...e, revoked: this.statusList.isRevoked(e.idx), revocation: this.statusList.reasonFor(e.idx) }))
+      .map((e) => ({ ...e, revoked: this.statusList.isRevoked(e.idx, e.statusFormat),
+        revocation: this.statusList.reasonFor(e.idx, e.statusFormat) }))
       .sort((a, b) => (a.issued_at < b.issued_at ? 1 : a.issued_at > b.issued_at ? -1 : 0));
   }
 

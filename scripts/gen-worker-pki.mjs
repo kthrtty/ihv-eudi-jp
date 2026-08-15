@@ -48,8 +48,15 @@ const bundle = {
     readerCa: derB64('pki/reader/reader-ca.crt'),
   },
   status: {
+    // 後方互換（/status-lists/1 は従来どおり SD-JWT 系の鍵で署名）
     key: pem('pki/sdjwt/pid.key'),
     cert: derB64('pki/sdjwt/pid.crt'),
+    // **形式ごとの署名鍵**。ウォレットは Status List の x5c を「その資格証の信頼根」で
+    // 検証するので、mdoc には IACA 配下の DSC が要る（2026-08-15 Multipaz 実機で発覚）
+    signers: {
+      mdoc: { key: pem('pki/mdoc/dsc/pid.key'), cert: derB64('pki/mdoc/dsc/pid.crt') },
+      sdjwt: { key: pem('pki/sdjwt/pid.key'), cert: derB64('pki/sdjwt/pid.crt') },
+    },
   },
 };
 

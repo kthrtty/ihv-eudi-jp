@@ -518,6 +518,14 @@ export function createApp(opts = {}) {
   });
 
   // Token Status List (revocation): verifiers fetch the WHOLE list (unlinkable)
+  // `/status-lists/1` は後方互換（既に発行済みの資格証がこの URI を指している）。
+  // `/status-lists/1/{mdoc,sdjwt}` は**その形式の信頼根で検証できる署名**で返す。
+  app.get('/status-lists/:id/:format', async (c) => {
+    const format = c.req.param('format');
+    if (format !== 'mdoc' && format !== 'sdjwt') return c.notFound();
+    c.header('content-type', 'application/statuslist+jwt');
+    return c.body(await svc.statusListToken(format));
+  });
   app.get('/status-lists/:id', async (c) => {
     const jwt = await svc.statusListToken();
     c.header('content-type', 'application/statuslist+jwt');
@@ -529,7 +537,10 @@ export function createApp(opts = {}) {
 
   // revoke one issued credential by its status index
   app.post('/revoke', async (c) => {
-    try { const { index, reason } = await c.req.json(); await svc.revoke(index, reason); return c.json({ revoked: index, reason: reason ?? null }); }
+    // idx は形式ごとに独立した索引空間（issue #25）。format 省略時は legacy（分割前の資格証）
+    // idx は形式ごとに独立した索引空間（issue #25）。format 省略時は発行台帳から引く
+    try { const { index, reason, format } = await c.req.json(); const r = await svc.revoke(index, reason, format);
+      return c.json({ revoked: index, format: r.format, reason: reason ?? null }); }
     catch (e) { return fail(c, e); }
   });
 
@@ -555,8 +566,15 @@ export function createVerifierApp(opts = {}) {
     readerKeyPem: rest.readerKeyPem ?? verifierPki?.readerKey ?? null,
     readerCertDer: rest.readerCertDer ?? verifierPki?.readerCert ?? null,
     readerCaDer: rest.readerCaDer ?? verifierPki?.readerCa ?? null,
-    // resolve revocation against the issuer's Token Status List
-    statusResolver: rest.statusResolver ?? (async () => (await issuerFetch('/status-lists/0')).text()),
+    // 失効は発行者の Token Status List で判定する。**資格証が指した URI をそのまま辿る**——
+    // idx は形式ごとに独立した索引空間で、リストも形式ごとに別（issue #25）。ここを決め打ちすると
+    // mdoc の資格証を SD-JWT のリストで判定して取り違える。
+    // 経路は issuerFetch（Workers ではサービスバインディング）なのでパスだけ取り出す。
+    statusResolver: rest.statusResolver ?? (async (uri) => {
+      let path = '/status-lists/1';
+      try { path = new URL(uri).pathname; } catch { /* 相対や空は既定へ */ }
+      return (await issuerFetch(path)).text();
+    }),
   });
   // Status List はリスト単位でキャッシュし、判定は常に手元のリストで局所実行。
   // キャッシュ時間は /verifier/settings で変更可能（既定 5 分・0=毎回取得）。

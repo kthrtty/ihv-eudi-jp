@@ -49,28 +49,102 @@ export async function verifyStatus(statusRef, resolve) {
 
 /** Issuer-side status list: allocate indices, revoke, publish the token. */
 export class StatusListService {
-  // issuerKeyPem / issuerCertDer: explicit in Workers (from env secrets);
-  // null triggers lazy disk load in Node.js dev (pki/sdjwt/pid.key/.crt).
-  constructor({ uri, issuerKeyPem = null, issuerCertDer = null, size = 256 } = {}) {
-    this.uri = uri;
-    this.issuerKeyPem = issuerKeyPem;
+  // **形式ごとに独立したリストを持つ**（2026-08-15・issue #25。Multipaz 実機で発覚）。
+  //
+  // なぜ分けるか: ウォレットは Status List の x5c チェーンを「その資格証の**信頼根**」で検証する
+  // （Multipaz: `trustResult.trustChain.certificates.last()`＝ルート CA）。我々の PKI は
+  // mdoc=IACA Root / SD-JWT=SD-JWT CA の**独立した2ルート**で、ISO 18013-5 は IACA を
+  // 自己署名必須（`Subject: Same exact binary value as Issuer`）としているため**共通の上位ルートを
+  // 置けない**。1本の鍵で署名すると、もう一方の形式では必ずチェーン検証に失敗する。
+  //
+  // なぜ索引空間まで分けるか: Token Status List の `{uri, idx}` は「**その URI のリストの中の idx**」。
+  // ビット列を共有したまま2つの URI で配ると、どちらのリストにも**参照されない索引が歯抜けで混ざる**。
+  //
+  // 失効の形式横断性は失われない——それを担保しているのは索引の共有ではなく**発行台帳**で、
+  // 「同じ申請から出た VC を全部失効させる」処理は台帳を引いて revoke() を呼ぶため。
+  // 匿名集合も各リストを size に事前確保するので変わらない（発行数を漏らさないための固定長）。
+  //
+  // signers: { mdoc: {key, cert}, sdjwt: {key, cert} } — Workers は env secret から注入、
+  // null なら Node.js 開発時に pki/ から遅延読込。
+  constructor({ uri, issuerKeyPem = null, issuerCertDer = null, signers = null, size = 256 } = {}) {
+    this.uri = uri;                      // 既定（後方互換: 発行済みの資格証が指す /status-lists/1）
+    this.issuerKeyPem = issuerKeyPem;    // 同上（SD-JWT 系の鍵）
     this.issuerCertDer = issuerCertDer;
-    this.bits = new Array(size).fill(0); // pre-sized so the list size doesn't leak issuance count
-    this.next = 0;
-    this.reasons = new Map();
+    this.signers = signers;
+    this.size = size;
+    // 形式ごとの独立したリスト。`legacy` は分割前に発行した資格証のためのもの
+    this.lists = {
+      legacy: { bits: new Array(size).fill(0), next: 0, reasons: new Map() },
+      mdoc: { bits: new Array(size).fill(0), next: 0, reasons: new Map() },
+      sdjwt: { bits: new Array(size).fill(0), next: 0, reasons: new Map() },
+    };
   }
-  allocate() { const idx = this.next++; return { idx, uri: this.uri }; }
-  revoke(idx, reason = 'unspecified') { this.bits[idx] = 1; this.reasons.set(idx, { reason, date: new Date().toISOString() }); }
-  isRevoked(idx) { return this.bits[idx] === 1; }
-  reasonFor(idx) { return this.reasons.get(idx) || null; }
-  async token() {
-    if (!this.issuerKeyPem) {
-      // Node.js fallback — never reached in Workers (PKI injected via constructor)
-      const { readFileSync } = await import('node:fs');
-      const root = (rel) => fileURLToPath(new URL('../' + rel, import.meta.url));
-      this.issuerKeyPem = readFileSync(root('pki/sdjwt/pid.key'));
-      this.issuerCertDer = new X509Certificate(readFileSync(root('pki/sdjwt/pid.crt'))).raw;
+  /** 形式名を正規化する。未知は legacy（後方互換）。 */
+  static fmt(format) { return (format === 'mdoc' || format === 'sdjwt') ? format : 'legacy'; }
+  /** 形式ごとの配布 URI。 */
+  uriFor(format) {
+    const f = StatusListService.fmt(format);
+    return f === 'legacy' ? this.uri : `${this.uri}/${f}`;
+  }
+  /** URI から形式を逆引きする（旧レコードの失効に使う）。 */
+  formatForUri(uri) {
+    for (const f of ['mdoc', 'sdjwt']) if (uri === this.uriFor(f)) return f;
+    return 'legacy';
+  }
+  #list(format) { return this.lists[StatusListService.fmt(format)]; }
+
+  /** 資格証1件ぶんの枠を取る。**形式ごとに独立した索引空間**。 */
+  allocate(format = null) {
+    const l = this.#list(format);
+    return { idx: l.next++, uri: this.uriFor(format) };
+  }
+  revoke(idx, reason = 'unspecified', format = null) {
+    const l = this.#list(format);
+    l.bits[idx] = 1;
+    l.reasons.set(idx, { reason, date: new Date().toISOString() });
+  }
+  isRevoked(idx, format = null) { return this.#list(format).bits[idx] === 1; }
+  reasonFor(idx, format = null) { return this.#list(format).reasons.get(idx) || null; }
+
+  /** 永続化する形。形式ごとに持つ（旧形式のスナップショットも読める）。 */
+  snapshot() {
+    return Object.fromEntries(Object.entries(this.lists).map(([f, l]) =>
+      [f, { bits: Array.from(l.bits), next: l.next, reasons: [...l.reasons] }]));
+  }
+  restore(saved) {
+    if (!saved) return;
+    for (const [f, v] of Object.entries(saved)) {
+      if (!this.lists[f] || !v) continue;
+      if (v.bits) this.lists[f].bits = v.bits;
+      if (v.next != null) this.lists[f].next = v.next;
+      if (v.reasons) this.lists[f].reasons = new Map(v.reasons);
     }
-    return buildStatusListToken({ bits: this.bits, issuerKeyPem: this.issuerKeyPem, issuerCertDer: this.issuerCertDer, sub: this.uri });
+  }
+
+  /** 形式ごとの署名材料。無ければ Node.js 開発時に pki/ から読む（Workers では注入済み）。 */
+  async #signer(format) {
+    const f = StatusListService.fmt(format);
+    if (this.signers?.[f]) return this.signers[f];
+    const { readFileSync } = await import('node:fs');
+    const root = (rel) => fileURLToPath(new URL('../' + rel, import.meta.url));
+    // mdoc は IACA 直下の Status List 署名証明書（DSC は MSO 署名用 EKU なので流用しない）。
+    // SD-JWT と legacy は SD-JWT CA 配下。
+    const p = f === 'mdoc' ? 'pki/mdoc/status/status' : 'pki/sdjwt/pid';
+    const s = { key: readFileSync(root(`${p}.key`)),
+      cert: new X509Certificate(readFileSync(root(`${p}.crt`))).raw };
+    this.signers = { ...(this.signers || {}), [f]: s };
+    return s;
+  }
+  /** 配布するトークン。形式ごとに署名鍵・sub・ビット列が変わる。 */
+  async token(format = null) {
+    const f = StatusListService.fmt(format);
+    // 後方互換: 明示注入された鍵は legacy にだけ使う（旧デプロイと同じ署名者を保つ）
+    if (f === 'legacy' && this.issuerKeyPem) {
+      return buildStatusListToken({ bits: this.lists.legacy.bits, issuerKeyPem: this.issuerKeyPem,
+        issuerCertDer: this.issuerCertDer, sub: this.uri });
+    }
+    const s = await this.#signer(f);
+    return buildStatusListToken({ bits: this.#list(f).bits, issuerKeyPem: s.key,
+      issuerCertDer: s.cert, sub: this.uriFor(f) });
   }
 }

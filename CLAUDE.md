@@ -24,7 +24,16 @@ OID4VCI 1.0 で発行し、OID4VP 1.0 + HAIP で提示する EUDI/ARF 流クレ�
 - **mdoc と SD-JWT で露見条件が違う**: mdoc の deviceAuth は SessionTranscript(origin/nonce/鍵拇印)で束ねるので
   `aud` を使わない。よって aud の取り違えは **SD-JWT だけで発現**し「同じ実機・同じ DC API なのに mdoc は通る」
   という切り分けにくい形で出る。**プロトコル×形式の総当たりで面を張る**（test/dcapi-matrix.test.mjs）
-- 失効 = **Token Status List**（形式横断）。Verifier はリスト全体取得で局所判定＝issuer–verifier unlinkability
+- 失効 = **Token Status List**。**リストは形式ごとに別**（`/status-lists/1/{mdoc,sdjwt}`・issue #25）:
+  ウォレットは x5c を「その資格証の**信頼根**」で検証し（Multipaz は `trustChain.certificates.last()`）、
+  我々は mdoc=IACA Root / SD-JWT=SD-JWT CA の**独立2ルート**。ISO 18013-5 は IACA を自己署名必須
+  （`Subject: Same exact binary value as Issuer`）+ `Sub-CA's shall not be used` + `max_path_length: 0`
+  としているので**共通の上位ルートは置けない**。mdoc 用の署名鍵は **IACA 直下の end-entity**
+  （`pki/mdoc/status/` — DSC は MSO 署名用 EKU なので流用しない。**docType 非依存で1枚**）。
+  **索引空間も形式ごとに独立**（`{uri, idx}` は「その URI のリストの中の idx」。共有すると歯抜けになる）。
+  失効の形式横断性は**発行台帳**が担保する（`statusFormat` を残す）。`/revoke` は format 省略時に
+  台帳から引き、両形式に同じ idx があれば**黙って片方を消さず 400**。
+  Verifier はリスト全体取得で局所判定＝issuer–verifier unlinkability
 - Issuer は**提示を追跡しない**（`/issuances` は発行台帳のみ）
 
 ## 落とし穴（テストが捕まえた。回帰させない）
@@ -83,7 +92,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
   **教訓: 適合を名乗る面は自己ループでなく仕様構造の golden/外部実装との適合テストで pin。簡略化は名乗りに明示。**
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（369, node:test）／
+`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（371, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
