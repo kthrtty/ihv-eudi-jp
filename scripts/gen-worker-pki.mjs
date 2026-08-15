@@ -5,7 +5,7 @@
 // Usage:
 //   node scripts/gen-worker-pki.mjs            # full PKI JSON (for KV storage)
 //   node scripts/gen-worker-pki.mjs --wallet   # trust anchors only (for TRUST_ANCHORS_JSON secret)
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { X509Certificate } from 'node:crypto';
 
@@ -35,6 +35,13 @@ const bundle = {
   mdoc: {
     dsc: mdocDsc,
     iaca: derB64('pki/mdoc/iaca/iaca.crt'),
+    // **トラストアンカーは複数あり得る**（issue #27）。retired（秘密鍵を失った旧 IACA）も
+    // 配ることで、**その IACA 配下で発行済みの資格証を無効にせずに新しい鍵へ移行できる**。
+    // ISO 18013-5 の IACA link certificate は旧 IACA の秘密鍵で新 IACA に署名するので、
+    // 失った後では使えない。`iaca`（単数）は古いコードとの後方互換で残す。
+    iacas: [derB64('pki/mdoc/iaca/iaca.crt'),
+      ...['trust/retired/iaca-48253ffd.crt', 'trust/retired/iaca-c5e7a36d.crt']
+        .filter((p) => existsSync(root(p))).map(derB64)],
   },
   sdjwt: {
     issuers: sdjwtIssuers,
@@ -54,7 +61,9 @@ const bundle = {
     // **形式ごとの署名鍵**。ウォレットは Status List の x5c を「その資格証の信頼根」で
     // 検証するので、mdoc には IACA 配下の DSC が要る（2026-08-15 Multipaz 実機で発覚）
     signers: {
-      mdoc: { key: pem('pki/mdoc/dsc/pid.key'), cert: derB64('pki/mdoc/dsc/pid.crt') },
+      // **DSC を流用しない**——DSC は MSO 署名用の EKU(1.0.18013.5.1.2) を持つ専用証明書。
+      // IACA 直下に置いた Status List 署名専用の end-entity を使う（docType 非依存で1枚）
+      mdoc: { key: pem('pki/mdoc/status/status.key'), cert: derB64('pki/mdoc/status/status.crt') },
       sdjwt: { key: pem('pki/sdjwt/pid.key'), cert: derB64('pki/sdjwt/pid.crt') },
     },
   },
