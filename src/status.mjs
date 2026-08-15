@@ -125,6 +125,13 @@ export class StatusListService {
   async #signer(format) {
     const f = StatusListService.fmt(format);
     if (this.signers?.[f]) return this.signers[f];
+    // **注入済みの鍵は SD-JWT 系**（従来 /status-lists/1 を署名していたもの）。
+    // signers を持たない古い PKI バンドルでも sdjwt は賄える。mdoc は IACA 配下の
+    // 証明書が要るので賄えず、下の fs 読みが Workers で失敗する＝**明示的に失敗させる**
+    // （黙って SD-JWT 系の鍵で署名すると、mdoc の資格証から検証できない list を配ってしまう）。
+    if ((f === 'sdjwt' || f === 'legacy') && this.issuerKeyPem) {
+      return { key: this.issuerKeyPem, cert: this.issuerCertDer };
+    }
     const { readFileSync } = await import('node:fs');
     const root = (rel) => fileURLToPath(new URL('../' + rel, import.meta.url));
     // mdoc は IACA 直下の Status List 署名証明書（DSC は MSO 署名用 EKU なので流用しない）。

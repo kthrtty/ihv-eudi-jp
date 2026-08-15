@@ -33,6 +33,10 @@ OID4VCI 1.0 で発行し、OID4VP 1.0 + HAIP で提示する EUDI/ARF 流クレ�
   **索引空間も形式ごとに独立**（`{uri, idx}` は「その URI のリストの中の idx」。共有すると歯抜けになる）。
   失効の形式横断性は**発行台帳**が担保する（`statusFormat` を残す）。`/revoke` は format 省略時に
   台帳から引き、両形式に同じ idx があれば**黙って片方を消さず 400**。
+  **署名鍵が無いときは素の 500 でなく 503 + 理由**（mdoc は IACA 配下の証明書が要り、PKI バンドルの
+  `signers` が無いと出せない）。`sdjwt`/`legacy` は注入済みの鍵（従来 `/status-lists/1` を署名して
+  いたもの）で賄うが、**mdoc は賄わない**——黙って SD-JWT 系の鍵で署名すると mdoc の資格証から
+  検証できない list を配ってしまうため
   Verifier はリスト全体取得で局所判定＝issuer–verifier unlinkability
 - Issuer は**提示を追跡しない**（`/issuances` は発行台帳のみ）
 
