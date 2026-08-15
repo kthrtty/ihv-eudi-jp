@@ -6,7 +6,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 node scripts/export-multipaz-fixture.mjs
-node scripts/gen-vical.mjs interop/multipaz-jvm/src/test/resources/vical.cbor
+node scripts/gen-vical.mjs interop/multipaz-jvm/src/test/resources/vical.cbor interop/multipaz-jvm/src/test/resources/rical.cbor
 cp interop/multipaz-jvm/fixture.json interop/multipaz-jvm/fixture-tampered.json interop/multipaz-jvm/src/test/resources/
 cd interop/multipaz-jvm
 export JAVA_HOME="${JAVA_HOME:-/opt/homebrew/opt/openjdk}"

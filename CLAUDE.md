@@ -103,7 +103,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
 マスク漏れのテストで断片を取るときは**末尾から**取る（先頭だと誤検知する）。
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（372, node:test）／
+`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（373, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
@@ -482,6 +482,20 @@ devlog は `portrait|portrait_b64` をマスク。テスト `test/portrait.test.
 申請の動線が「カタログ → 手続き → 申請先 → フォーム」と深くなり戻り方が分からない面が出たため。見た目は変えず hover のみ。
 役割ヘッダ: Issuer=青`#1C3F94`「Issuer」／Verifier=煉瓦`#9E3A3A`「Verifier」／Wallet=ティール`#2E7D6B`「Wallet」／自治体窓口=**江戸紫**`#745399`（住民向けでないことを色で示す・`role-admin`。青/煉瓦/ティールのどれとも色相が被らない唯一の空き域を選んだ。着せ替えは `body.role-admin` の `--civic/--role-soft/--role-line` だけ＝ヘッダもログインも追従）（和名+英名の重複表記は冗長のため廃止、2026-07-04）。
 実印朱色`#C8453C`は署名要素として温存（別系統）。`shell(title,body,{role})` で切替。
+
+## 鍵・信頼・失効（詳細は `docs/trust-and-revocation.md`）
+- **ルートは形式ごとに2本で、共通の上位は置けない**——ISO 18013-5 Annex B が IACA を
+  `Subject: Same exact binary value as Issuer`（自己署名必須）+ `Sub-CA's shall not be used` +
+  `max_path_length: 0` としている。ARF も「trust anchors（複数形）」＝複数アンカー前提
+- **DSC は docType と紐づかない**（検査は countryName / EKU / issuing_country の3つだけ）。
+  9枚は設計判断であって仕様要件ではない。Status List 署名証明書も **IACA 直下の end-entity 1枚**で足りる
+- **VICAL/RICAL は TL であって LoTL ではない**。Multipaz は PEM 1枚／VICAL／RICAL の3口。
+  **x5chain の置き場所が違う**——VICAL=unprotected（2021 Annex C）／RICAL=**protected**（第2版 Annex F）。
+  取り違えると `x5chain not set in protected header` で落ちる（`coseSign1` と `coseSign1ProtectedChain`）
+- **鍵を失ったら VICAL に新アンカーを足す**（作り直さない）。IACA link certificate は旧 IACA の
+  秘密鍵で新 IACA に署名するので失った後は使えない。旧アンカーを残せば**発行済みは検証できる**
+  （失効確認だけは救えない）。`gen-pki.sh` に既存鍵ガード（`--force` が無ければ上書きしない）
+- 生成 `npm run gen-trustlists` ／ 外部適合 `npm run interop:multipaz`（VICAL/RICAL とも正例・負例を pin）
 
 ## 対面提示（M8・調査済み・未着手）
 方向性は `docs/proximity-wallet.md`（2026-08-15・モバイル/VC の2専門家レビュー反映）。要点のみ:

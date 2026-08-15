@@ -9,13 +9,18 @@
 // Multipaz Wallet の Settings → Trust manager → Import VICAL がこの形式を読む
 // （`SignedVical.parse` が署名を必ず検証する。生の JSON は受けない）。
 //
-// 実行: node scripts/gen-vical.mjs [出力先]   既定 trust/vical.cbor
+// **RICAL も同じ仕組みで出す**（ISO 18013-5 第2版 Annex F）。VICAL が「発行者(IACA)の集合」を
+// リーダーへ配るのに対し、RICAL は「**リーダー CA の集合**」をウォレットへ配る＝信頼の向きが逆。
+// 構造も違う（`provider`/`type`/`isTrustAnchor` を持ち、`docType` は無い）ので取り違えない。
+//
+// 実行: node scripts/gen-vical.mjs [vical 出力先] [rical 出力先]
+//       既定 trust/vical.cbor / trust/rical.cbor
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { X509Certificate } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { Tag } from 'cbor-x';
 import { cborEncode } from '../src/cbor.mjs';
-import { coseSign1 } from '../src/cose.mjs';
+import { coseSign1, coseSign1ProtectedChain } from '../src/cose.mjs';
 
 const root = (rel) => fileURLToPath(new URL('../' + rel, import.meta.url));
 const der = (rel) => new X509Certificate(readFileSync(root(rel))).raw;
@@ -90,3 +95,40 @@ const signed = coseSign1({
 const out = process.argv[2] || root('trust/vical.cbor');
 writeFileSync(out, Buffer.from(cborEncode(signed)));
 console.log(`\nwrote ${out} (${Buffer.from(cborEncode(signed)).length} bytes, IACA ${certificateInfos.length} 件)`);
+
+// ---- RICAL（リーダー CA の集合。ウォレットが「このリーダーは本物か」を判断するため）--------
+// VICAL とは**信頼の向きが逆**。type は ISO 18013-5 第2版 Annex F の
+// `org.iso.18013.5.1.reader_authentication`。certificateInfos は docType を持たず、
+// 代わりに isTrustAnchor / name を持つ。
+const readerCas = [{ path: 'pki/reader/reader-ca.crt', name: 'IVH-Demo Reader CA' }];
+const ricalInfos = readerCas.map(({ path, name }) => {
+  const c = new X509Certificate(readFileSync(root(path)));
+  console.log(`  reader CA                  ${c.fingerprint256.replace(/:/g, '').slice(0, 24)}  ${path}`);
+  return new Map([
+    ['certificate', new Uint8Array(c.raw)],
+    ['isTrustAnchor', true],
+    ['serialNumber', new Tag(new Uint8Array(Buffer.from(c.serialNumber, 'hex')), 2)],
+    ['ski', ski(c.raw)],
+    ['name', name],
+  ]);
+});
+const rical = new Map([
+  ['version', '1.0'],
+  ['provider', 'IHV Demo RICAL Provider'],
+  ['date', new Tag(now.toISOString().replace(/\.\d{3}Z$/, 'Z'), 0)],
+  ['type', 'org.iso.18013.5.1.reader_authentication'],
+  ['nextUpdate', new Tag(new Date(now.getTime() + 90 * 864e5).toISOString().replace(/\.\d{3}Z$/, 'Z'), 0)],
+  ['certificateInfos', ricalInfos],
+  ['id', Math.floor(now.getTime() / 1000)],
+]);
+// **RICAL は x5chain を protected header に置く**（VICAL は unprotected）。
+// 第2版 Annex F は署名対象に証明書チェーンを含める。取り違えると相手が
+// 「x5chain not set in protected header」で落ちる
+const signedRical = coseSign1ProtectedChain({
+  payloadContent: cborEncode(rical),
+  privateKeyPem: readFileSync(providerKey),
+  x5chain: [der('pki/vical/provider.crt'), der('pki/vical/vical-ca.crt')],
+});
+const outR = process.argv[3] || root('trust/rical.cbor');
+writeFileSync(outR, Buffer.from(cborEncode(signedRical)));
+console.log(`wrote ${outR} (${Buffer.from(cborEncode(signedRical)).length} bytes, reader CA ${ricalInfos.length} 件)`);

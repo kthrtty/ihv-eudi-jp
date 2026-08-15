@@ -32,6 +32,24 @@ export function coseSign1({ payloadContent, privateKeyPem, x5chain }) {
   return [protectedContent, unprotected, payloadContent, signature];
 }
 
+/**
+ * x5chain を **protected header** に入れる COSE_Sign1。RICAL（ISO 18013-5 第2版 Annex F）は
+ * こちらを要求する（署名対象に証明書チェーンを含める＝差し替えを防ぐ、より厳密な形）。
+ * VICAL（同 2021 Annex C）は unprotected 側なので、**取り違えると相手のパーサが
+ * 「x5chain not set in protected header」で落ちる**（2026-08-16 に Multipaz で実測）。
+ */
+export function coseSign1ProtectedChain({ payloadContent, privateKeyPem, x5chain }) {
+  const protectedContent = cborEncode(new Map([
+    [HDR_ALG, ALG_ES256],
+    [HDR_X5CHAIN, x5chain.map((d) => new Uint8Array(d))],
+  ]));
+  const toSign = sigStructure(protectedContent, payloadContent);
+  const signature = new Uint8Array(
+    nodeSign('sha256', Buffer.from(toSign), { key: toKeyStr(privateKeyPem), dsaEncoding: 'ieee-p1363' }),
+  );
+  return [protectedContent, new Map(), payloadContent, signature];
+}
+
 /** Verify a COSE_Sign1 against the public key in its embedded leaf x5chain cert. */
 export function coseVerify(coseSign1Arr) {
   const [protectedContent, unprotected, payloadContent, signature] = coseSign1Arr;
