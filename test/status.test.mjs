@@ -213,3 +213,65 @@ test('#25 索引空間は形式ごとに独立し、失効が互いに漏れな�
     headers: { 'content-type': 'application/json' }, body: JSON.stringify({ index: 0, reason: 'x' }) });
   assert.equal(amb.status, 400, '曖昧なら黙って片方を消さずに断る');
 });
+
+// #25: **既に発行済みの資格証を壊さないこと**。本番 KV には分割前の形
+// （statusBits / statusNext / statusReasons）で状態が入っており、配布済みの資格証は
+// `/status-lists/1`（形式なし）と、分割前の共有カウンタで採番された idx を指している。
+test('#25 発行済み分との互換: 旧 KV 状態を引き継ぎ、旧 URI と旧 idx がそのまま効く', async () => {
+  // 分割前のデプロイが書いたであろう状態を再現する（idx 3 が失効済み）
+  const bits = new Array(256).fill(0); bits[3] = 1;
+  const legacyState = {
+    issuanceLog: [
+      // 旧レコードは statusFormat を持たない
+      { idx: 3, configId: 'pid_mdoc', format: 'mso_mdoc', user: 'u_001', issued_at: '2026-01-01T00:00:00.000Z' },
+      { idx: 4, configId: 'pid_sdjwt', format: 'dc+sd-jwt', user: 'u_001', issued_at: '2026-01-02T00:00:00.000Z' },
+    ],
+    statusBits: bits, statusNext: 5, statusReasons: [[3, { reason: 'lost_device', date: '2026-01-03' }]],
+  };
+  const kv = new Map([['_persist:state', JSON.stringify(legacyState)]]);
+  const store = {
+    get: async (k) => (kv.has(k) ? JSON.parse(kv.get(k)) : null),
+    set: async (k, v) => { kv.set(k, JSON.stringify(v)); },
+    del: async (k) => { kv.delete(k); },
+  };
+  const app = createApp({ credentialIssuer: ISSUER, store });
+  const resolve = statusResolverFor(app);
+
+  // 旧 URI（形式なし）がそのまま配れて、旧 idx の失効が保たれている
+  assert.equal((await app.request('/status-lists/1')).status, 200);
+  assert.equal((await verifyStatus({ idx: 3, uri: `${ISSUER}/status-lists/1` }, resolve)).revoked, true,
+    '発行済み資格証の失効が引き継がれる');
+  assert.equal((await verifyStatus({ idx: 4, uri: `${ISSUER}/status-lists/1` }, resolve)).revoked, false);
+
+  // 発行台帳の表示も壊れない（statusFormat 無し＝legacy として引く）
+  const { issuances } = await (await app.request('/issuances')).json();
+  assert.equal(issuances.find((e) => e.idx === 3).revoked, true);
+  assert.equal(issuances.find((e) => e.idx === 3).revocation.reason, 'lost_device');
+  assert.equal(issuances.find((e) => e.idx === 4).revoked, false);
+
+  // 旧レコードの失効も format 省略で通る（台帳から legacy と分かる）
+  const rv = await (await app.request('/revoke', { method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ index: 4, reason: 'superseded' }) })).json();
+  assert.equal(rv.format, 'legacy');
+  assert.equal((await verifyStatus({ idx: 4, uri: `${ISSUER}/status-lists/1` }, resolve)).revoked, true);
+
+  // 新規発行は形式ごとのリストへ行き、旧 idx とぶつからない
+  const offer = await (await app.request('/offer', { method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'] }) })).json();
+  const w = createWallet();
+  await w.receive({ request: app.request.bind(app), offer: offer.credential_offer, credentialIssuer: ISSUER });
+  const after = await (await app.request('/issuances')).json();
+  const fresh = after.issuances.find((e) => e.statusFormat === 'mdoc');
+  assert.equal(fresh.idx, 0, '新しい索引空間は 0 から');
+  assert.equal((await verifyStatus({ idx: 3, uri: `${ISSUER}/status-lists/1` }, resolve)).revoked, true,
+    '新規発行後も旧リストの失効は保たれる');
+  assert.equal((await verifyStatus({ idx: 0, uri: `${ISSUER}/status-lists/1/mdoc` }, resolve)).revoked, false);
+
+  // 保存し直した KV は新形式（statusLists）で、legacy が入っている
+  const saved = JSON.parse(kv.get('_persist:state'));
+  assert.ok(saved.statusLists.legacy, '旧状態は legacy として保持される');
+  assert.equal(saved.statusLists.legacy.bits[3], 1);
+  assert.equal(saved.statusLists.legacy.next, 5, '旧カウンタも保つ');
+});

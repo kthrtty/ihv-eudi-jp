@@ -250,7 +250,9 @@ test('ログ: devlog は portrait/portrait_b64/credential をマスクし、生�
   const { entries: log } = await (await fetch(`${ISSUER}/dev/log`)).json();
   const dump = JSON.stringify(log);
   assert.ok(log.length > 0, 'devlog captured the protocol exchanges');
-  for (const frag of [portraits.u_001, portraits.u_002, portraits.u_003].map((p) => p.slice(200, 260))) {
+  // **断片は画像データ本体から取る**（先頭は JPEG/ICC の共通ヘッダで、券面画像とも一致してしまう。
+  // 2026-08-16 に background_image を足したとき、ここが誤検知した）
+  for (const frag of [portraits.u_001, portraits.u_002, portraits.u_003].map((p) => p.slice(-260, -200))) {
     assert.ok(!dump.includes(frag), 'no raw portrait fragment in the devlog');
   }
   // /credential 応答の credential はマスク済み文字列

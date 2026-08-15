@@ -1,6 +1,8 @@
 // Build credential schemas (mdoc + SD-JWT VC) and an OID4VCI catalog that lets
 // issuance select credential x format. Run: node scripts/gen-schemas.mjs
 import { writeFileSync, mkdirSync } from 'node:fs';
+import { WALLET_CARD_THEME } from '../src/authcode-demo.mjs';
+import CARD_ART from '../assets/cardart.json' with { type: 'json' };
 const out = (p, o) => writeFileSync(new URL(`../${p}`, import.meta.url), JSON.stringify(o, null, 2));
 mkdirSync(new URL('../schemas', import.meta.url), { recursive: true });
 
@@ -185,6 +187,29 @@ const single = {
 };
 
 // ---- 罹災証明書 EAA --------------------------------------------------------
+
+// OID4VCI の display。**ウォレットは name / description / logo / background_color /
+// text_color / background_image の6つを読む**（Multipaz: JsonParsing.kt）。
+// `name` しか出していなかったため、Multipaz が大きい文字と小さい文字の**両方に name を描いて
+// 重なっていた**（2026-08-16 実機で判明）。形式は name に詰めず description へ回す。
+//
+// background_image は書類ごとの券面（和色＋シルエット）。**data: URI で載せるので
+// メタデータのサイズに直接効く**——グラデーションは PNG と相性が悪く1枚 20KB になるため
+// JPEG（214×135・quality 82）で 2〜3KB に収めている（18構成で計 57KB）。
+const displayFor = (schema, fmtLabel) => {
+  const t = WALLET_CARD_THEME[schema.id] || WALLET_CARD_THEME.pid;
+  const art = CARD_ART[schema.id];
+  const common = {
+    background_color: t.c2,
+    text_color: '#FFFFFF',
+    ...(art ? { background_image: { uri: `data:${art.mime};base64,${art.b64}` } } : {}),
+  };
+  return [
+    { name: schema.display.ja, description: `${fmtLabel} ／ IHV デモ発行者`, locale: 'ja-JP', ...common },
+    { name: schema.display.en, description: `${fmtLabel} / IHV Demo Issuer`, locale: 'en-US', ...common },
+  ];
+};
+
 const DS_NS = 'jp.go.disaster.1';
 const disaster = {
   id: 'disaster', category: 'EAA',
@@ -298,8 +323,7 @@ for (const schema of Object.values(creds)) {
     doctype: schema.formats.mso_mdoc.doctype,
     scope: `${schema.id}_mdoc`,
     ...HAIP,
-    display: [{ name: `${schema.display.ja} (mdoc)`, locale: 'ja-JP' },
-              { name: `${schema.display.en} (mdoc)`, locale: 'en-US' }],
+    display: displayFor(schema, 'mdoc'),
     claims: schema.claims.map((cl) => ({
       path: [schema.formats.mso_mdoc.namespace, cl.mdoc.element],
       mandatory: !cl.optional,
@@ -312,8 +336,7 @@ for (const schema of Object.values(creds)) {
     vct: schema.formats['dc+sd-jwt'].vct,
     scope: `${schema.id}_sdjwt`,
     ...HAIP,
-    display: [{ name: `${schema.display.ja} (SD-JWT VC)`, locale: 'ja-JP' },
-              { name: `${schema.display.en} (SD-JWT VC)`, locale: 'en-US' }],
+    display: displayFor(schema, 'SD-JWT VC'),
     claims: schema.claims.map((cl) => ({
       path: cl.sdjwt.path,
       mandatory: !cl.optional,
