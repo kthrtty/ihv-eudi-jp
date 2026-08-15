@@ -79,6 +79,7 @@ schemas/    8 クレデンシャル定義 + credential-catalog.json（16 構成 
 pki/        dev PKI（gitignore・npm run setup で生成）   trust/  trust-list.json（LOTL モック）
 test/       単体テスト（I→H→V 往復・golden・否定経路）   scripts/ 生成・interop・UIキャプチャ
 docs/       architecture / verifier-scenarios / mdoc-handover / web-wallet / testing / interop / deploy
+            trust-and-revocation（鍵の階層・VICAL/RICAL・失効） / proximity-wallet（対面提示の方向性）
 worker.mjs  Cloudflare Workers 入口     wrangler.toml
 ```
 
