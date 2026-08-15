@@ -60,13 +60,19 @@ export function coseVerify(coseSign1Arr) {
   const [protectedContent, unprotected, payloadContent, signature] = coseSign1Arr;
   const alg = cborDecodeMap(protectedContent).get(HDR_ALG);
   if (alg !== ALG_ES256) return { valid: false, error: `unsupported alg ${alg}` };
-  const chain = unprotected.get(HDR_X5CHAIN);
+  // x5chain は **protected / unprotected のどちらにも置かれうる**（RFC 9360 はどちらも許す）。
+  // 我々の面では mdoc の issuerAuth と VICAL が unprotected、RICAL が protected。
+  // 片方しか見ないと**自分で出した RICAL を自分で検証できない**（2026-08-16 実測）。
+  // どちらに入っていたかは呼び出し側の判断材料になるので chainProtected で返す。
+  const protMap = cborDecodeMap(protectedContent);
+  const chainProtected = protMap.has(HDR_X5CHAIN);
+  const chain = chainProtected ? protMap.get(HDR_X5CHAIN) : unprotected.get(HDR_X5CHAIN);
   if (!chain || !chain.length) return { valid: false, error: 'missing x5chain' };
   const leaf = new X509Certificate(Buffer.from(chain[0]));
   const toVerify = sigStructure(protectedContent, payloadContent);
   const valid = nodeVerify('sha256', Buffer.from(toVerify),
     { key: toPubPem(leaf.publicKey), dsaEncoding: 'ieee-p1363' }, Buffer.from(signature));
-  return { valid, leaf, chain, payloadContent };
+  return { valid, leaf, chain, chainProtected, payloadContent };
 }
 
 /** Extract the payload of an issuerAuth that wraps #6.24(bstr .cbor X). */

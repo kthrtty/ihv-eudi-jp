@@ -68,11 +68,26 @@ docType が使われるのは `The DocType in the MSO matches the relevant DocTy
 
 ### 3つの層を混同しない
 
-| | 正体 | 配るもの | 向き |
-|---|---|---|---|
-| **VICAL** | Verified Issuer CA List（18013-5:2021 Annex C） | **IACA 証明書**の集合 | リーダー →「この発行者は本物か」 |
-| **RICAL** | Reader Issuer CA List（**第2版** Annex F） | **リーダー CA 証明書**の集合 | ウォレット →「このリーダーは本物か」 |
-| **LoTL** | List of Trusted Lists（EU） | 各国 TL への**ポインタ** | — |
+| | 正体 | **載るもの** | **読む側** | 問い |
+|---|---|---|---|---|
+| **VICAL** | **V**erified **I**ssuer **CA** **L**ist（18013-5:2021 Annex C） | **Issuer** の IACA 証明書 | **Reader / Verifier** | この発行者は本物か |
+| **RICAL** | **R**eader **I**ssuer **CA** **L**ist（第2版 Annex F） | **Reader / Verifier** の CA 証明書 | **Wallet** | このリーダーは本物か |
+| **LoTL** | List of Trusted Lists（EU） | 各国 TL への**ポインタ** | — | — |
+
+**「◯◯の TL」は主語が入れ替わるので注意。** VICAL は「issuer の TL」であり、同時に
+「reader が読む TL」。RICAL はその鏡像で「verifier の TL」であり「wallet が読む TL」。
+
+**RICAL の "I" は Issuer だが、これは「リーダー証明書の発行者」の意味**で、mdoc の Issuer ではない。
+
+我々の構成に当てはめると:
+
+```
+VICAL  → Verifier（検証ポータル）が読む    載る: IVH-Demo IACA Root（＋ trust/retired/ の旧 IACA）
+RICAL  → Wallet（Multipaz / Web）が読む     載る: IVH-Demo Reader CA
+```
+
+**このリポジトリでは Verifier がリーダーを兼ねる**ので、「Verifier が VICAL を読み、Verifier の CA が
+RICAL に載る」という形になる。同じ Verifier が両側に出てくるのが一番混乱しやすい点。
 
 **Multipaz Wallet が受けるのは TL であって LoTL ではない。** Settings → Trust manager の3つの口:
 
@@ -110,6 +125,46 @@ ARF v3.0.0 には **VICAL / RICAL / COSE の記載が一切無く**（トラス�
 **さらに RICAL の根拠は未発行の draft**——第2版は DIS 段階で**発行予定 2026-11-30**、
 Annex 番号も資料により F / G と食い違う。**発行時に変わりうる**。
 
+### 保護の差が実際に何を許すか（自分たちの生成物で実測）
+
+署名は `Sig_structure = ["Signature1", protected（バイト列）, external_aad, payload]` に対して計算され、
+**unprotected は入らない**。自分たちの VICAL/RICAL で測るとこうなる。
+
+```
+VICAL  protected =    3 バイト（alg のみ）        x5chain は署名の外
+RICAL  protected = 1067 バイト（alg + x5chain）   x5chain は署名の中
+```
+
+同じ署名を保ったままチェーンだけ差し替えた結果:
+
+| 操作 | VICAL（unprotected） | RICAL（protected） |
+|---|---|---|
+| そのまま | 有効 | 有効 |
+| **中間 CA を抜く** | **有効のまま** | 署名が壊れる |
+| **無関係の証明書を足す** | **有効のまま** | 署名が壊れる |
+
+**署名の偽造はできない**（検証はリーフ鍵で行うので、別の鍵のチェーンに置き換えれば落ちる）。
+危険なのは**チェーンの解釈**のほう。
+
+- **中間 CA の除去 → 可用性**: 検証側がアンカーまで辿れなくなる。VICAL は
+  **トラストアンカーの配布そのもの**なので、止まると mdoc の検証全体が止まる。攻撃として安価
+- **証明書の追加 → 到達するアンカーの操作**: 同じリーフ鍵に複数の経路がある状況（クロス署名など）で、
+  検証側が意図しないアンカーに辿り着きうる。RFC 5280 のパス構築は「妥当な経路を1つ見つける」ので、
+  候補が増えれば結論が変わり得る
+- **RFC 9360 の MUST を満たさない形**: 同 RFC は「リーフ証明書は COSE で完全性保護されること。
+  protected に置くか、unprotected の `x5chain` を protected の `x5t` と併用するか、`external_aad` に含める」
+  と要求するが、**VICAL は `x5t` を併用していない**（実測：protected には `alg` のみ）。
+  ただし RFC 9360 は 2023-02、VICAL は 2021 なので、**後から出た要求に遡って違反と言うのは筋が違う**
+
+### 意図（推測。根拠の強さを分けて書く）
+
+- **構造から読める**: RICAL は `isTrustAnchor` / `trustConstraints` / `type` という
+  **信頼の粒度を細かく制御する項目**を持つ（VICAL には無い）。「トラストリストの中身をより厳密に扱う」
+  方向に動いているのは構造から読め、x5chain を署名対象に入れるのはその一貫と見るのが自然
+- **推測に留まる**: RFC 9360 との時系列は符合するが、**ISO の議論を追える資料は入手していない**。
+  「RFC 9360 を受けて直した」と言い切る根拠は無い
+- **言えない**: ARF は VICAL / RICAL / COSE に一切触れていないので、ここから意図は導けない
+
 → 我々の方針: **VICAL は 2021 版に従う**（安定）／**RICAL は draft 追従と明示**し、
 第2版の発行時に再確認する。拠り所は `interop/multipaz-jvm/` の適合テストで、
 **仕様が動けばここが落ちるので気づける**。
@@ -123,6 +178,11 @@ npm run interop:multipaz            # Multipaz 本家のパーサでクロス検
 
 正例（構造を読めること）と負例（1バイト改竄で `SignatureVerificationException`）の両方を
 `interop/multipaz-jvm/` で pin している。**自己ループでない適合確認**。
+
+**ただし外部適合テストは相手のパーサを使うので、こちらの検証側の穴は素通りする。**
+実際、`coseVerify` が **unprotected 側しか見ておらず、自分で出した RICAL を自分で検証できなかった**
+（2026-08-16・header 保護の差を実験していて発覚）。RFC 9360 は**どちらの置き場所も許す**ので、
+片方だけを見る実装は不完全。両対応にし、どちらに入っていたかを `chainProtected` で返している。
 
 ---
 

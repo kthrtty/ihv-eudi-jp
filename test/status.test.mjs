@@ -302,3 +302,38 @@ test('#27 mdoc の検証は複数のトラストアンカーを受ける', async
   assert.ok(verifyMdoc(m.credential, { trustedIacaDer: [] }).errors.some((e) => /trusted IACA/.test(e)),
     '空の集合は「誰も信頼しない」＝通さない');
 });
+
+// #27: x5chain は **protected / unprotected のどちらにも置かれうる**（RFC 9360 はどちらも許す）。
+// 我々の面では mdoc の issuerAuth と VICAL が unprotected、RICAL が protected。
+// 片方しか見ない実装だと**自分で出した RICAL を自分で検証できない**（2026-08-16 実測）。
+test('#27 coseVerify は x5chain がどちらのヘッダにあっても検証できる', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { X509Certificate } = await import('node:crypto');
+  const { cborEncode, cborDecodeMap } = await import('../src/cbor.mjs');
+  const { coseSign1, coseSign1ProtectedChain, coseVerify } = await import('../src/cose.mjs');
+  const r = (p) => new URL('../' + p, import.meta.url);
+  const key = readFileSync(r('pki/vical/provider.key'));
+  const chain = [new X509Certificate(readFileSync(r('pki/vical/provider.crt'))).raw,
+    new X509Certificate(readFileSync(r('pki/vical/vical-ca.crt'))).raw];
+  const payload = cborEncode(new Map([['hello', 'world']]));
+
+  const un = coseVerify(coseSign1({ payloadContent: payload, privateKeyPem: key, x5chain: chain }));
+  assert.equal(un.valid, true);
+  assert.equal(un.chainProtected, false, 'VICAL 流（unprotected）');
+
+  const pr = coseVerify(coseSign1ProtectedChain({ payloadContent: payload, privateKeyPem: key, x5chain: chain }));
+  assert.equal(pr.valid, true, 'RICAL 流（protected）も検証できる');
+  assert.equal(pr.chainProtected, true);
+
+  // **保護の差が実際に何を許すか**: unprotected はチェーンを組み替えても署名が通る
+  const u = coseSign1({ payloadContent: payload, privateKeyPem: key, x5chain: chain });
+  const stripped = [u[0], new Map([[33, [chain[0]].map((d) => new Uint8Array(d))]]), u[2], u[3]];
+  assert.equal(coseVerify(stripped).valid, true,
+    'unprotected: 中間 CA を抜いても署名は有効のまま（＝経路上で組み替えられる）');
+
+  const p = coseSign1ProtectedChain({ payloadContent: payload, privateKeyPem: key, x5chain: chain });
+  const pm = cborDecodeMap(p[0]);
+  const tampered = [cborEncode(new Map([[1, pm.get(1)], [33, [new Uint8Array(chain[0])]]])), p[1], p[2], p[3]];
+  assert.equal(coseVerify(tampered).valid, false,
+    'protected: チェーンを触ると署名が壊れる');
+});

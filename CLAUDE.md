@@ -103,7 +103,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
 マスク漏れのテストで断片を取るときは**末尾から**取る（先頭だと誤検知する）。
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（373, node:test）／
+`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（374, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
@@ -489,11 +489,18 @@ devlog は `portrait|portrait_b64` をマスク。テスト `test/portrait.test.
   `max_path_length: 0` としている。ARF も「trust anchors（複数形）」＝複数アンカー前提
 - **DSC は docType と紐づかない**（検査は countryName / EKU / issuing_country の3つだけ）。
   9枚は設計判断であって仕様要件ではない。Status List 署名証明書も **IACA 直下の end-entity 1枚**で足りる
+- **VICAL=Issuer(IACA) の TL で Reader が読む／RICAL=Reader(Verifier) の CA の TL で Wallet が読む**。
+  「◯◯の TL」は載る側と読む側で主語が入れ替わるので注意（**RICAL の "I" は「リーダー証明書の発行者」**で
+  mdoc の Issuer ではない）。本リポジトリは Verifier がリーダーを兼ねるので両側に出てくる
 - **VICAL/RICAL は TL であって LoTL ではない**。Multipaz は PEM 1枚／VICAL／RICAL の3口。
   **x5chain の置き場所が違う**——VICAL=unprotected／RICAL=**protected**。取り違えると
   `x5chain not set in protected header` で落ちる（`coseSign1` と `coseSign1ProtectedChain`）。
   **理由は未確認**（実装事実のみ。ARF に VICAL/RICAL の記載は無い）。**RICAL の根拠は未発行の
-  第2版 draft**（DIS・発行予定 2026-11-30・Annex 番号も F/G で揺れる）＝**発行時に変わりうる**
+  第2版 draft**（DIS・発行予定 2026-11-30・Annex 番号も F/G で揺れる）＝**発行時に変わりうる**。
+  保護の差は実測済み——**unprotected は中間 CA の除去・証明書の追加をしても署名が通る**
+  （署名対象に入らないため）。偽造はできない（リーフ鍵で検証するため）が、可用性と
+  「到達するアンカーの操作」が論点。**`coseVerify` は両方のヘッダを見る**（片方だけだと
+  自分で出した RICAL を自分で検証できない＝2026-08-16 実測）
 - **鍵を失ったら VICAL に新アンカーを足す**（作り直さない）。IACA link certificate は旧 IACA の
   秘密鍵で新 IACA に署名するので失った後は使えない。旧アンカーを残せば**発行済みは検証できる**
   （失効確認だけは救えない）。`gen-pki.sh` に既存鍵ガード（`--force` が無ければ上書きしない）
