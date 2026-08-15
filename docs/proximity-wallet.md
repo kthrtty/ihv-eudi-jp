@@ -492,6 +492,35 @@ Verification response 画面で、タイトルをタップ
 **ここが我々にとって一番価値がある。** `SessionTranscript` と CBOR を実機の画面で読めるので、
 自前実装のバイト列と突き合わせられる。
 
+### 実機で踏んだ落とし穴（2026-08-15 実測）
+
+**(1) Issuer URL に `.well-known` も末尾スラッシュも付けない。**
+アプリが `.well-known/openid-credential-issuer` を自分で足すので、二重になって落ちる。
+
+```
+E/ProvisioningRoute: Invalid issuer, no
+  https://…/.well-known/openid-credential-issuer/.well-known/openid-credential-issuer
+```
+
+末尾スラッシュも同様で、我々の Worker は `//.well-known/…` を **404** で返す。
+入れるのは**発行者のベース URL だけ**（`https://issuer.…workers.dev`）。
+
+**(2) `redirect_uri` の許可リストに Multipaz のバックエンドを足す。**
+「Enter Issuer URL」からの発行は**認可コードフロー**になり、`redirect_uri` は
+
+```kotlin
+// multipaz-wallet: shared/…/client/WalletClient.kt
+redirectUrl = "${BuildConfig.BACKEND_URL}/redirect"
+```
+
+＝ **`<バックエンド>/redirect`**。配布 APK は `https://wallet.multipaz.org`、
+ソース既定は `https://dev.wallet.multipaz.org`（`build.gradle.kts`）。
+現在値はウォレット画面に `@ <URL>` で出る（開発者モードの **Set wallet backend** で変えられる）。
+
+**`redirect_uri` は PAR のボディで送られるので、`/authorize` の URL にもログにも出ない。**
+`redirect_uri not allowed` で止まったらここを疑う。`.deploy.env` の
+`REDIRECT_URI_ALLOWLIST` に足して再デプロイする（**既定を上書きするので自前の2つを必ず残す**）。
+
 ### 注意点
 
 - **`User defined` は「定型メニューに無い docType」を通すための口**であって、
