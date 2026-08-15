@@ -275,3 +275,30 @@ test('#25 発行済み分との互換: 旧 KV 状態を引き継ぎ、旧 URI �
   assert.equal(saved.statusLists.legacy.bits[3], 1);
   assert.equal(saved.statusLists.legacy.next, 5, '旧カウンタも保つ');
 });
+
+// #27: **トラストアンカーは複数あり得る**。VICAL/トラストリストは IACA の集合を配るのが本来の姿で、
+// 鍵を失っても「新しいアンカーを足す」ことで発行済みを無効にせずに済む
+// （ISO 18013-5 の IACA link certificate は旧 IACA の秘密鍵で新 IACA に署名するので、失った後は使えない）。
+test('#27 mdoc の検証は複数のトラストアンカーを受ける', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { X509Certificate, generateKeyPairSync } = await import('node:crypto');
+  const { verifyMdoc } = await import('../src/mdoc.mjs');
+  const { mint } = await import('../src/issuer.mjs');
+  const jwk = { kty: 'EC', crv: 'P-256', x: 'A'.repeat(43), y: 'B'.repeat(43) };
+  const m = await mint('pid_mdoc', { holderJwk: jwk });
+  const ours = new X509Certificate(readFileSync(new URL('../pki/mdoc/iaca/iaca.crt', import.meta.url))).raw;
+  // 無関係の CA（別のトラストアンカー）を1枚でっち上げる
+  const other = new X509Certificate(readFileSync(new URL('../pki/reader/reader-ca.crt', import.meta.url))).raw;
+
+  // 単数（従来どおり）
+  assert.equal(verifyMdoc(m.credential, { trustedIacaDer: ours }).errors.length, 0);
+  // 配列で複数。**順序に関わらず**、含まれていれば通る
+  assert.equal(verifyMdoc(m.credential, { trustedIacaDer: [ours, other] }).errors.length, 0);
+  assert.equal(verifyMdoc(m.credential, { trustedIacaDer: [other, ours] }).errors.length, 0,
+    '新しいアンカーを先に並べても旧アンカーの資格証が通る（＝発行済みを無効にしない）');
+  // 含まれていなければ落ちる（fail-closed のまま）
+  const no = verifyMdoc(m.credential, { trustedIacaDer: [other] });
+  assert.ok(no.errors.some((e) => /trusted IACA/.test(e)), no.errors.join(';'));
+  assert.ok(verifyMdoc(m.credential, { trustedIacaDer: [] }).errors.some((e) => /trusted IACA/.test(e)),
+    '空の集合は「誰も信頼しない」＝通さない');
+});
