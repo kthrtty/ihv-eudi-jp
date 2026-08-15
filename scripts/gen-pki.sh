@@ -9,6 +9,7 @@
 # Produces:
 #   pki/mdoc/iaca/iaca.{key,crt}                IACA root (mdoc trust anchor, C=JP)
 #   pki/mdoc/dsc/{pid,juminhyo,qualification}.* Document Signer Certs (sign MSO)
+#   pki/mdoc/status/status.*                  Status List signer (IACA 直下・docType 非依存)
 #   pki/reader/reader-ca.* , reader.*           mdoc reader auth (verifier side)
 #   pki/sdjwt/issuer-ca.* , {pid,...}.*         SD-JWT VC issuer chain (x5c)
 #   pki/verifier/rp-ca.* , rp.*                 RP auth (x509_san_dns, JAR signing)
@@ -21,7 +22,7 @@ CURVE="P-256"          # ES256 / ECDH-ES P-256 everywhere (HAIP default)
 CA_DAYS=3650
 LEAF_DAYS=825
 
-mkdir -p pki/mdoc/iaca pki/mdoc/dsc pki/reader pki/sdjwt pki/verifier
+mkdir -p pki/mdoc/iaca pki/mdoc/dsc pki/mdoc/status pki/reader pki/sdjwt pki/verifier
 
 genkey() { openssl genpkey -algorithm EC -pkeyopt "ec_paramgen_curve:${CURVE}" -out "$1" 2>/dev/null; }
 
@@ -61,6 +62,18 @@ for who in pid juminhyo qualification koseki tax single disaster vaccine island;
     "keyUsage=critical,digitalSignature" \
     "extendedKeyUsage=1.0.18013.5.1.2"
 done
+
+# Status List（失効）の署名鍵。**DSC を流用しない**——DSC は MSO 署名用の EKU を持つ専用証明書。
+# ISO 18013-5 Annex B は IACA 直下の end-entity として document signer 以外も想定している
+# （"document signer certificates, JWS certificates, TLS server certificate and OCSP signer"）。
+# **docType には依存しないので1枚でよい**（DSC 検証は国コードと EKU だけで docType を見ない）。
+# ウォレットは Status List の x5c を「その資格証の信頼根」で検証するので、mdoc 用は
+# IACA 配下でなければならない（SD-JWT 用は SD-JWT CA 配下＝別途）。
+echo "==> mdoc: Status List signer (IACA 直下の end-entity・docType 非依存)"
+mkleaf pki/mdoc/status/status.key pki/mdoc/status/status.crt \
+  "/C=JP/O=IHV Demo Issuing Authority/CN=IVH-Demo Status List Signer" \
+  pki/mdoc/iaca/iaca.key pki/mdoc/iaca/iaca.crt \
+  "keyUsage=critical,digitalSignature"
 
 echo "==> reader: mdoc reader-auth CA + leaf (verifier)"
 mkca pki/reader/reader-ca.key pki/reader/reader-ca.crt \

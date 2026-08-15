@@ -2,6 +2,7 @@
 // verify. Covers the three presentation scenarios + JWE + session linking.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { statusResolverFor } from './status-resolver.mjs';
 import { createApp } from '../src/app.mjs';
 import { createWallet } from '../src/wallet.mjs';
 import { VerifierService } from '../src/verifier.mjs';
@@ -288,7 +289,7 @@ test('Verifier scenario C: PID -> EAA sequential, session-linked (same holder)',
 test('Verifier HTTP app: /vp/request -> wallet -> /vp/verify, and serves DC API page', async () => {
   const { createVerifierApp } = await import('../src/app.mjs');
   const wallet = await walletWith(['pid_mdoc']);
-  const vapp = createVerifierApp({ statusResolver: async () => (await wallet.issuerApp.request('/status-lists/0')).text() });
+  const vapp = createVerifierApp({ statusResolver: statusResolverFor(wallet.issuerApp) });
 
   const { transactionId, request } = await (await vapp.request('/vp/request', {
     method: 'POST', headers: { 'content-type': 'application/json' },
@@ -316,7 +317,7 @@ test('Verifier HTTP app: /vp/request -> wallet -> /vp/verify, and serves DC API 
 });
 test('Verifier: native DC API /vp/verify records to global history (newest-first) and returns claims under results[]', async () => {
   const { createVerifierApp } = await import('../src/app.mjs');
-  const vapp = createVerifierApp({ statusResolver: async () => (await w1.issuerApp.request('/status-lists/0')).text() });
+  const vapp = createVerifierApp({ statusResolver: statusResolverFor(() => w1.issuerApp) });
 
   // history starts empty
   assert.match(await (await vapp.request('/verifier/history')).text(), /まだ提示を受け取っていません/);
@@ -356,7 +357,7 @@ test('Verifier: native DC API /vp/verify records to global history (newest-first
 test('履歴: 形式代替（credential_sets）要求でも「提示されたデジタル資格証」は実際に提示された1形式のみ', async () => {
   const { createVerifierApp } = await import('../src/app.mjs');
   const w = await walletWith(['tax_mdoc']); // mdoc しか持たないウォレット
-  const vapp = createVerifierApp({ statusResolver: async () => (await w.issuerApp.request('/status-lists/0')).text() });
+  const vapp = createVerifierApp({ statusResolver: statusResolverFor(w.issuerApp) });
   // シナリオ mortgage step2 相当: 課税証明を mdoc/SD-JWT の代替候補で要求
   // （形式代替 specs はシナリオ/createRequest 経路。/vp/build の specs[] は単一 configId 仕様）
   const b = await (await vapp.request('/vp/request', {
@@ -379,7 +380,7 @@ test('履歴: 形式代替（credential_sets）要求でも「提示されたデ
 
 test('Verifier: /vp/build accepts multi-credential specs[] and the full present->verify round-trip succeeds', async () => {
   const { createVerifierApp } = await import('../src/app.mjs');
-  const vapp = createVerifierApp({ statusResolver: async () => (await wallet.issuerApp.request('/status-lists/0')).text() });
+  const vapp = createVerifierApp({ statusResolver: statusResolverFor(() => wallet.issuerApp) });
   const wallet = await walletWith(['pid_mdoc', 'vaccine_mdoc']); // one holder, two credentials
 
   const b = await (await vapp.request('/vp/build', {
@@ -441,7 +442,7 @@ test('Verifier scenario C negative: linked presentation from a DIFFERENT holder 
 test('Annex C/D dispatch: same mdoc verifies over both org-iso-mdoc (HPKE) and OID4VP (JWE)', async () => {
   const wallet = await walletWith(['pid_mdoc']);
   const app = createApp({ credentialIssuer: ISSUER });
-  const v = new VerifierService({ statusResolver: async () => (await app.request('/status-lists/1')).text() });
+  const v = new VerifierService({ statusResolver: statusResolverFor(app) });
   const specs = [{ id: 'pid', configId: 'pid_mdoc', claims: ['family_name', 'age_over_18'] }];
 
   // Annex D: OID4VP over DC API, JWE-encrypted response (object is a JWE string)
@@ -479,7 +480,7 @@ test('Annex C rejects sd-jwt (mdoc-only)', async () => {
 
 test('redirect transport (web wallet): mdoc & sd-jwt verify over direct_post.jwt', async () => {
   const app = createApp({ credentialIssuer: ISSUER });
-  const v = new VerifierService({ statusResolver: async () => (await app.request('/status-lists/1')).text() });
+  const v = new VerifierService({ statusResolver: statusResolverFor(app) });
   for (const cfg of ['pid_mdoc', 'pid_sdjwt']) {
     const wallet = await walletWith([cfg]);
     const { transactionId, request } = await v.createRequest({

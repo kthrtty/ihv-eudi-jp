@@ -2,6 +2,7 @@
 // revoke -> verifier rejects. Verifier fetches the WHOLE list (unlinkable).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { statusResolverFor } from './status-resolver.mjs';
 import { generateKeyPairSync } from 'node:crypto';
 import { createApp } from '../src/app.mjs';
 import { createWallet } from '../src/wallet.mjs';
@@ -57,7 +58,7 @@ test('end-to-end revocation: issue -> valid -> revoke -> verifier rejects', asyn
   const app = createApp({ credentialIssuer: ISSUER });
   const wallet = createWallet();
   // wire a verifier whose status resolver fetches the issuer's published list
-  const resolve = async () => (await app.request('/status-lists/1')).text();
+  const resolve = statusResolverFor(app);
   const v = new VerifierService({ statusResolver: resolve });
 
   // issue PID mdoc into the wallet
@@ -127,9 +128,12 @@ test('isolate 跨ぎの失効伝播: 失効を書いた isolate と別のイン�
   const { issuances } = await (await A.request('/issuances')).json();
   const idx = issuances[0].idx;
 
+  // pid_mdoc なので mdoc のリストを指す（idx は形式ごとに独立した索引空間・issue #25）
+  const uri = `${ISSUER}/status-lists/1/mdoc`;
+  assert.equal(issuances[0].statusFormat, 'mdoc');
   // A が一度リストを配ってメモリを温める（旧実装はここで固まる）→ この時点では有効
-  const resolveA = async () => (await A.request('/status-lists/1')).text();
-  assert.equal((await verifyStatus({ idx, uri: `${ISSUER}/status-lists/1` }, resolveA)).revoked, false);
+  const resolveA = statusResolverFor(A);
+  assert.equal((await verifyStatus({ idx, uri }, resolveA)).revoked, false);
 
   // isolate B で失効
   const rv = await B.request('/revoke', {
@@ -139,9 +143,73 @@ test('isolate 跨ぎの失効伝播: 失効を書いた isolate と別のイン�
   assert.equal(rv.status, 200);
 
   // A が配るリストにも失効が反映される（KV 再読込）
-  assert.equal((await verifyStatus({ idx, uri: `${ISSUER}/status-lists/1` }, resolveA)).revoked, true,
+  assert.equal((await verifyStatus({ idx, uri }, resolveA)).revoked, true,
     'the OTHER isolate must serve the updated list');
   // 発行履歴（A 経由）にも失効が見える
   const after = await (await A.request('/issuances')).json();
   assert.equal(after.issuances.find((e) => e.idx === idx).revoked, true);
+});
+
+// #25: Status List は**形式ごとに別のリスト**。ウォレットは x5c チェーンを「その資格証の
+// 信頼根」で検証する（Multipaz: trustChain.certificates.last()＝ルート CA）ので、
+// mdoc は IACA Root へ、SD-JWT は SD-JWT CA へチェーンしなければならない。
+// 1本の鍵で署名していたため、mdoc の資格証から検証できず実機で `Failed to parse status list`。
+test('#25 Status List は形式ごとの信頼根へチェーンする', async () => {
+  const { X509Certificate } = await import('node:crypto');
+  const app = createApp({ credentialIssuer: ISSUER });
+  const issuerOf = async (path) => {
+    const jwt = await (await app.request(path)).text();
+    const h = JSON.parse(Buffer.from(jwt.split('.')[0], 'base64url').toString());
+    return { cert: new X509Certificate(Buffer.from(h.x5c[0], 'base64')), sub: JSON.parse(
+      Buffer.from(jwt.split('.')[1], 'base64url').toString()).sub };
+  };
+  const m = await issuerOf('/status-lists/1/mdoc');
+  const s = await issuerOf('/status-lists/1/sdjwt');
+  assert.match(m.cert.issuer, /IACA Root/, 'mdoc は IACA 配下');
+  assert.match(s.cert.issuer, /SD-JWT Issuer CA/, 'SD-JWT は SD-JWT CA 配下');
+  // DSC を流用しない（DSC は MSO 署名用 EKU を持つ専用証明書）
+  assert.match(m.cert.subject, /Status List Signer/);
+  // sub は配布 URI と一致する
+  assert.equal(m.sub, `${ISSUER}/status-lists/1/mdoc`);
+  assert.equal(s.sub, `${ISSUER}/status-lists/1/sdjwt`);
+  // 後方互換: 分割前の資格証が指す /status-lists/1 も配れる
+  assert.equal((await app.request('/status-lists/1')).status, 200);
+});
+
+// 索引空間は形式ごとに独立。共有したまま2つの URI で配ると、どちらのリストにも
+// 参照されない索引が歯抜けで混ざる（Token Status List の {uri, idx} は「その URI のリストの中の idx」）。
+test('#25 索引空間は形式ごとに独立し、失効が互いに漏れない', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+  const take = async (configId) => {
+    const offer = await (await app.request('/offer', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ credential_configuration_ids: [configId] }),
+    })).json();
+    const w = createWallet();
+    await w.receive({ request: app.request.bind(app), offer: offer.credential_offer, credentialIssuer: ISSUER });
+    return w;
+  };
+  await take('pid_mdoc');
+  await take('pid_sdjwt');
+  const { issuances } = await (await app.request('/issuances')).json();
+  const md = issuances.find((e) => e.statusFormat === 'mdoc');
+  const sd = issuances.find((e) => e.statusFormat === 'sdjwt');
+  assert.equal(md.idx, 0);
+  assert.equal(sd.idx, 0, '別の索引空間なのでどちらも 0 から始まる');
+  assert.match(md.uri ?? `${ISSUER}/status-lists/1/mdoc`, /mdoc$/);
+
+  // mdoc#0 を失効させても sdjwt#0 は無事（format は発行台帳から引かれる）
+  const rv = await (await app.request('/revoke', { method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ index: 0, reason: 'test', format: 'mdoc' }) })).json();
+  assert.equal(rv.format, 'mdoc');
+  const resolve = statusResolverFor(app);
+  assert.equal((await verifyStatus({ idx: 0, uri: `${ISSUER}/status-lists/1/mdoc` }, resolve)).revoked, true);
+  assert.equal((await verifyStatus({ idx: 0, uri: `${ISSUER}/status-lists/1/sdjwt` }, resolve)).revoked, false,
+    '別形式の同じ索引に漏れない');
+
+  // format 省略時は台帳から引く。両形式に同じ idx があるので曖昧＝断る
+  const amb = await app.request('/revoke', { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ index: 0, reason: 'x' }) });
+  assert.equal(amb.status, 400, '曖昧なら黙って片方を消さずに断る');
 });
