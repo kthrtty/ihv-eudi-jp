@@ -312,6 +312,52 @@ Play Developer（$25）は Play Store での公開にのみ必要。
 ADB 経由や開発者モードの advanced flow は当面残る見込みだが、日本の適用時期は未確認。
 本デモの開発期間内は影響しない見込みだが、フォローが要る。
 
+### 自動化のしやすさ（Android が圧勝。ただし BLE だけは別）
+
+**まず Android から進める。** 開発機が MacBook で Android SDK 導入済みなら、差は決定的。
+
+| | Android | iOS |
+|---|---|---|
+| ビルド | `./gradlew assembleDebug`（CLI 完結） | `xcodebuild`（CLI 可） |
+| 署名 | **debug keystore が自動生成**。アカウント不要 | Personal Team でも Xcode の署名設定が要る・**7日で失効** |
+| インストール | `adb install -r`（無人・無制限） | 実機は Xcode 経由。**TestFlight/Ad-Hoc 不可** |
+| 起動・操作 | `adb shell am start` / `input` / `uiautomator` | `xcrun simctl` はシミュレータのみ |
+| 画面確認 | `adb exec-out screencap`（既存のキャプチャ運用に載る） | `simctl io screenshot`（シミュレータのみ） |
+| **BLE** | **エミュレータでは不可の見込み** | **シミュレータでは不可（確定）** |
+
+→ **CI 的に回せるのは Android だけ**。iOS は「人が Xcode で押す」工程が7日ごとに必ず入る。
+
+### だが BLE の自動化は「エミュレータ」ではなく「JVM」でやる
+
+**Android Emulator の Extended controls に Bluetooth の項目は無い**（公式ドキュメントを確認）。
+BLE の実リンクをエミュレータで再現するのは当てにしない方がよい。
+
+代わりに、**バイト一致の検証は Mac 上でヘッドレスに完全自動化できる**。
+SDK のプロトコル層が `commonMain` にあり、**JVM ターゲットでそのまま動く**ためである。
+
+```
+multipaz/src/commonMain/.../mdoc/engagement/DeviceEngagement.kt          ← JVM で動く
+multipaz/src/commonMain/.../mdoc/engagement/EngagementGenerator.kt        ← JVM で動く
+multipaz/src/commonMain/.../mdoc/sessionencryption/SessionEncryption.kt   ← JVM で動く
+multipaz/src/jvmMain/.../mdoc/transport/MdocTransportFactory.jvm.kt       ← throw（BLE のみ不可）
+```
+
+**BLE トランスポートだけが JVM で `NotImplementedError` を投げ、その上のプロトコル層は全部動く。**
+既にある `interop/multipaz-jvm/`（DeviceRequest を Multipaz 本家の parser でクロス検証している）を
+そのまま拡張すれば、**DeviceEngagement の CBOR・QR 版 SessionTranscript・セッション暗号の
+バイト一致を、実機もエミュレータもアカウントも無しで pin できる**。
+
+### 3層に分ける
+
+| 層 | 何を検証するか | 必要なもの | 自動化 |
+|---|---|---|---|
+| **1. JVM ヘッドレス** | DeviceEngagement / SessionTranscript / セッション暗号のバイト一致 | **Mac だけ** | **完全**（`npm run interop:multipaz` の延長） |
+| **2. Android エミュレータ** | ビルド・インストール・画面遷移・発行フロー（HTTPS） | Mac + SDK（**導入済み**） | 完全（adb/gradle） |
+| **3. Android 実機2台** | **BLE の実リンク**（advertise/GATT/MTU 分割/切断） | 実機2台 | 手動 |
+
+**1 と 2 は今日から着手でき、3 だけが実機待ち。** 手元に Pixel 10 が1台あるので、
+**対面提示には2台目の Android 実機が要る**（サイドロードなので機種・費用の制約は緩い）。
+
 ### 検証の順序
 
 **iOS 実機の可用性がボトルネックなので、iOS を使う回数を最小化する順で潰す。**
