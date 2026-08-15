@@ -71,14 +71,25 @@ export function verifyMdoc(issuerSignedBytes, { trustedIacaDer, expectedDocType 
   const cose = coseVerify(issuerAuth);
   if (!cose.valid) errors.push('issuerAuth signature invalid');
 
-  // DSC -> IACA chain
+  // DSC -> IACA chain。**トラストアンカーは複数あり得る**（issue #27）——VICAL/トラストリストは
+  // IACA の**集合**を配るのが本来の姿で、鍵を失ったときも「新しいアンカーを足す」ことで
+  // 発行済みを無効にせずに済む。ISO 18013-5 の IACA link certificate は旧 IACA の秘密鍵で
+  // 新 IACA に署名する仕組みなので、鍵を失った後では使えない。
   try {
     const dsc = cose.leaf;
-    const iaca = new X509Certificate(Buffer.from(trustedIacaDer ?? cose.chain[1]));
-    if (!dsc.verify(iaca.publicKey)) errors.push('DSC not issued by trusted IACA');
-    if (trustedIacaDer) {
+    const anchors = trustedIacaDer == null ? null
+      : (Array.isArray(trustedIacaDer) ? trustedIacaDer : [trustedIacaDer])
+        .map((d) => new X509Certificate(Buffer.from(d)));
+    if (!anchors) {
+      // アンカー未指定（開発・テスト）: 埋め込みチェーンで自己完結の整合だけ見る
+      const iaca = new X509Certificate(Buffer.from(cose.chain[1]));
+      if (!dsc.verify(iaca.publicKey)) errors.push('DSC not issued by trusted IACA');
+    } else {
       const embedded = new X509Certificate(Buffer.from(cose.chain[1]));
-      if (embedded.fingerprint256 !== iaca.fingerprint256) errors.push('embedded IACA != trusted IACA');
+      // 埋め込み IACA が信頼集合に含まれ、かつ DSC がその IACA で署名されていること
+      const match = anchors.find((a) => a.fingerprint256 === embedded.fingerprint256);
+      if (!match) errors.push('embedded IACA != trusted IACA');
+      else if (!dsc.verify(match.publicKey)) errors.push('DSC not issued by trusted IACA');
     }
   } catch (e) { errors.push('chain check failed: ' + e.message); }
 

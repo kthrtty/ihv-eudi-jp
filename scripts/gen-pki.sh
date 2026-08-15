@@ -22,7 +22,18 @@ CURVE="P-256"          # ES256 / ECDH-ES P-256 everywhere (HAIP default)
 CA_DAYS=3650
 LEAF_DAYS=825
 
-mkdir -p pki/mdoc/iaca pki/mdoc/dsc pki/mdoc/status pki/reader pki/sdjwt pki/verifier
+mkdir -p pki/mdoc/iaca pki/mdoc/dsc pki/mdoc/status pki/reader pki/sdjwt pki/verifier pki/vical
+
+# **既存鍵ガード**（issue #27・再発防止）: 鍵があれば黙って上書きしない。
+# 2026-07-27 に本番 IACA の秘密鍵をこれで失った（pki/ は gitignore で、どこにも複製が無い）。
+# 意図的に作り直すときだけ --force を付ける。
+if [ -f pki/mdoc/iaca/iaca.key ] && [ "${1:-}" != "--force" ]; then
+  echo "!! pki/ に既存の鍵があります。上書きすると**その鍵で署名した発行済み資格証が検証できなくなります**。"
+  echo "   現在の IACA: $(openssl x509 -in pki/mdoc/iaca/iaca.crt -noout -fingerprint -sha256 2>/dev/null | cut -d= -f2 | tr -d ':' | cut -c1-24)"
+  echo "   作り直すなら: bash scripts/gen-pki.sh --force"
+  echo "   （その前に pki/ を退避すること。VICAL に旧 IACA を残せば発行済みを守れる＝issue #27）"
+  exit 1
+fi
 
 genkey() { openssl genpkey -algorithm EC -pkeyopt "ec_paramgen_curve:${CURVE}" -out "$1" 2>/dev/null; }
 
@@ -73,6 +84,16 @@ echo "==> mdoc: Status List signer (IACA 直下の end-entity・docType 非依�
 mkleaf pki/mdoc/status/status.key pki/mdoc/status/status.crt \
   "/C=JP/O=IHV Demo Issuing Authority/CN=IVH-Demo Status List Signer" \
   pki/mdoc/iaca/iaca.key pki/mdoc/iaca/iaca.crt \
+  "keyUsage=critical,digitalSignature"
+
+# VICAL provider の署名鍵。**IACA とは独立**（VICAL は IACA の集合を配るものなので、
+# 署名者が IACA である必要はない）。IACA 秘密鍵を失っても VICAL は出せる。
+echo "==> vical: VICAL provider CA + leaf"
+mkca pki/vical/vical-ca.key pki/vical/vical-ca.crt \
+  "/C=JP/O=IHV Demo VICAL Provider/CN=IVH-Demo VICAL Provider CA"
+mkleaf pki/vical/provider.key pki/vical/provider.crt \
+  "/C=JP/O=IHV Demo VICAL Provider/CN=IVH-Demo VICAL Provider" \
+  pki/vical/vical-ca.key pki/vical/vical-ca.crt \
   "keyUsage=critical,digitalSignature"
 
 echo "==> reader: mdoc reader-auth CA + leaf (verifier)"
