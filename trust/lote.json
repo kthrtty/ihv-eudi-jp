@@ -1,0 +1,238 @@
+{
+  "lote": {
+    "LoTE": {
+      "ListAndSchemeInformation": {
+        "LoTEVersionIdentifier": 1,
+        "LoTESequenceNumber": 1786817132,
+        "LoTEType": "http://uri.etsi.org/TrstSvc/TrustedList/LoTEType/EUDIW",
+        "SchemeOperatorName": [
+          {
+            "lang": "ja",
+            "value": "IHV デモ スキームオペレーター"
+          },
+          {
+            "lang": "en",
+            "value": "IHV Demo Scheme Operator"
+          }
+        ],
+        "SchemeName": [
+          {
+            "lang": "ja",
+            "value": "IHV デモ 信頼エンティティ一覧"
+          },
+          {
+            "lang": "en",
+            "value": "IHV Demo List of Trusted Entities"
+          }
+        ],
+        "SchemeInformationURI": [
+          {
+            "lang": "en",
+            "uriValue": "https://issuer.ihv.example/trust"
+          }
+        ],
+        "SchemeTerritory": "JP",
+        "ListIssueDateTime": "2026-08-15T18:05:32.013Z",
+        "NextUpdate": "2026-11-13T18:05:32.013Z",
+        "DistributionPoints": [
+          "https://issuer.ihv.example/trust/lote.json"
+        ]
+      },
+      "TrustedEntitiesList": [
+        {
+          "TrustedEntityInformation": {
+            "TEName": [
+              {
+                "lang": "ja",
+                "value": "IHV デモ発行者"
+              },
+              {
+                "lang": "en",
+                "value": "IHV Demo Issuer"
+              }
+            ],
+            "TEAddress": {
+              "TEPostalAddress": [
+                {
+                  "lang": "en",
+                  "StreetAddress": "1-1-1 Demo",
+                  "Locality": "Chiyoda-ku",
+                  "StateOrProvince": "Tokyo",
+                  "PostalCode": "100-0001",
+                  "Country": "JP"
+                }
+              ],
+              "TEElectronicAddress": [
+                {
+                  "lang": "en",
+                  "uriValue": "https://issuer.ihv.example/"
+                }
+              ]
+            },
+            "TEInformationURI": [
+              {
+                "lang": "en",
+                "uriValue": "https://issuer.ihv.example/about"
+              }
+            ]
+          },
+          "TrustedEntityServices": [
+            {
+              "ServiceInformation": {
+                "ServiceName": [
+                  {
+                    "lang": "ja",
+                    "value": "PID 発行者（mdoc・IACA）"
+                  },
+                  {
+                    "lang": "en",
+                    "value": "PID Provider (mdoc IACA)"
+                  }
+                ],
+                "ServiceDigitalIdentity": {
+                  "X509Certificates": [
+                    {
+                      "encoding": "base64",
+                      "val": "MIICBzCCAaygAwIBAgIUJSyI0d5Nno9dDrWKwcn+KYccpCswCgYIKoZIzj0EAwIwTzELMAkGA1UEBhMCSlAxIzAhBgNVBAoMGklIViBEZW1vIElzc3VpbmcgQXV0aG9yaXR5MRswGQYDVQQDDBJJVkgtRGVtbyBJQUNBIFJvb3QwHhcNMjYwODE1MTIyNTU4WhcNMzYwODEyMTIyNTU4WjBPMQswCQYDVQQGEwJKUDEjMCEGA1UECgwaSUhWIERlbW8gSXNzdWluZyBBdXRob3JpdHkxGzAZBgNVBAMMEklWSC1EZW1vIElBQ0EgUm9vdDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABIVrFH0th3EZogg87yuy1h3L4PFK/Fv3Jxf93iIwX8FeQAGCeKnKQjwOqxb7UoCjWovIMB6qXfEsJAPjWc4xnvmjZjBkMB0GA1UdDgQWBBT+2zKVP7WTF9UYj8bUcKTmBbFQ3zAfBgNVHSMEGDAWgBT+2zKVP7WTF9UYj8bUcKTmBbFQ3zASBgNVHRMBAf8ECDAGAQH/AgEAMA4GA1UdDwEB/wQEAwIBBjAKBggqhkjOPQQDAgNJADBGAiEAuV6CwHoIoYXALGfe8efuSGf7LzPlmvVtsf+zw3fwiRwCIQCz5v5jnIbN/Ar9/phNg5kB9cAGvuz0DB7tDxGFvvufBw=="
+                    }
+                  ],
+                  "X509SubjectNames": [
+                    "C=JP,O=IHV Demo Issuing Authority,CN=IVH-Demo IACA Root"
+                  ]
+                },
+                "ServiceTypeIdentifier": "http://uri.etsi.org/TrstSvc/Svctype/PID",
+                "ServiceStatus": "http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted",
+                "StatusStartingTime": "2026-01-01T00:00:00.000Z"
+              }
+            },
+            {
+              "ServiceInformation": {
+                "ServiceName": [
+                  {
+                    "lang": "ja",
+                    "value": "PID 発行者（SD-JWT VC）"
+                  },
+                  {
+                    "lang": "en",
+                    "value": "PID Provider (SD-JWT VC)"
+                  }
+                ],
+                "ServiceDigitalIdentity": {
+                  "X509Certificates": [
+                    {
+                      "encoding": "base64",
+                      "val": "MIICETCCAbigAwIBAgIUacaz/UEmCcfyUs1bhu5X+NL+NmQwCgYIKoZIzj0EAwIwVTELMAkGA1UEBhMCSlAxIjAgBgNVBAoMGUlIViBEZW1vIFNELUpXVCBJc3N1ZXIgQ0ExIjAgBgNVBAMMGUlWSC1EZW1vIFNELUpXVCBJc3N1ZXIgQ0EwHhcNMjYwODE1MTIyNTU4WhcNMzYwODEyMTIyNTU4WjBVMQswCQYDVQQGEwJKUDEiMCAGA1UECgwZSUhWIERlbW8gU0QtSldUIElzc3VlciBDQTEiMCAGA1UEAwwZSVZILURlbW8gU0QtSldUIElzc3VlciBDQTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABHBOy0g6vhpTu10iIIlO3svZfF9TqTwN5PdnJ4WT8q47WOFC0u5eWrwQnuNJchvr+CT8gpBVo2mf+bsojN9WJ6ejZjBkMB0GA1UdDgQWBBTVty3w5m2mGd/LLZ2NM6I94qd1ezAfBgNVHSMEGDAWgBTVty3w5m2mGd/LLZ2NM6I94qd1ezASBgNVHRMBAf8ECDAGAQH/AgEAMA4GA1UdDwEB/wQEAwIBBjAKBggqhkjOPQQDAgNHADBEAiBhPWI8ulRfTWrpeBH6w+RoqtV0pw8GYtTxvUHatp9yVQIgbPbpTlWUWOAYnnTQRoVDB/8SHH+ghJnB0IO/Pd01oD8="
+                    }
+                  ],
+                  "X509SubjectNames": [
+                    "C=JP,O=IHV Demo SD-JWT Issuer CA,CN=IVH-Demo SD-JWT Issuer CA"
+                  ]
+                },
+                "ServiceTypeIdentifier": "http://uri.etsi.org/TrstSvc/Svctype/PID",
+                "ServiceStatus": "http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted",
+                "StatusStartingTime": "2026-01-01T00:00:00.000Z"
+              }
+            },
+            {
+              "ServiceInformation": {
+                "ServiceName": [
+                  {
+                    "lang": "ja",
+                    "value": "PID 発行者（mdoc・旧 IACA／秘密鍵は失効）"
+                  },
+                  {
+                    "lang": "en",
+                    "value": "PID Provider (mdoc, retired IACA)"
+                  }
+                ],
+                "ServiceDigitalIdentity": {
+                  "X509Certificates": [
+                    {
+                      "encoding": "base64",
+                      "val": "MIICBjCCAaygAwIBAgIUAuVqUqXmnteQftFZGxD6Rb5lPVswCgYIKoZIzj0EAwIwTzELMAkGA1UEBhMCSlAxIzAhBgNVBAoMGklIViBEZW1vIElzc3VpbmcgQXV0aG9yaXR5MRswGQYDVQQDDBJJVkgtRGVtbyBJQUNBIFJvb3QwHhcNMjYwNjI3MDEwMjI0WhcNMzYwNjI0MDEwMjI0WjBPMQswCQYDVQQGEwJKUDEjMCEGA1UECgwaSUhWIERlbW8gSXNzdWluZyBBdXRob3JpdHkxGzAZBgNVBAMMEklWSC1EZW1vIElBQ0EgUm9vdDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABPgWxxa4G8MmGYZniEM/nnI69j2KZfKUXlKsokI3ILwIwz+RdzNiL49tkjr2ZAf8rgP3GkZZqazHj52+q4Z3lgKjZjBkMB0GA1UdDgQWBBRGAoJeKMLt1SY3NwRU9e+IiS72RTAfBgNVHSMEGDAWgBRGAoJeKMLt1SY3NwRU9e+IiS72RTASBgNVHRMBAf8ECDAGAQH/AgEAMA4GA1UdDwEB/wQEAwIBBjAKBggqhkjOPQQDAgNIADBFAiAShpUjuV1XAz4t4smISe/OwhXJ4540/yx0tNz3n9FmgwIhAKwOXrCqevz/Q2stoa23dWirvRaVOOzClKCWYzHVaCtH"
+                    }
+                  ],
+                  "X509SubjectNames": [
+                    "C=JP,O=IHV Demo Issuing Authority,CN=IVH-Demo IACA Root"
+                  ]
+                },
+                "ServiceTypeIdentifier": "http://uri.etsi.org/TrstSvc/Svctype/PID",
+                "ServiceStatus": "http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted",
+                "StatusStartingTime": "2026-01-01T00:00:00.000Z"
+              }
+            }
+          ]
+        },
+        {
+          "TrustedEntityInformation": {
+            "TEName": [
+              {
+                "lang": "ja",
+                "value": "IHV デモ検証者"
+              },
+              {
+                "lang": "en",
+                "value": "IHV Demo Relying Party"
+              }
+            ],
+            "TEAddress": {
+              "TEPostalAddress": [
+                {
+                  "lang": "en",
+                  "StreetAddress": "1-1-1 Demo",
+                  "Locality": "Chiyoda-ku",
+                  "StateOrProvince": "Tokyo",
+                  "PostalCode": "100-0001",
+                  "Country": "JP"
+                }
+              ],
+              "TEElectronicAddress": [
+                {
+                  "lang": "en",
+                  "uriValue": "https://issuer.ihv.example/"
+                }
+              ]
+            },
+            "TEInformationURI": [
+              {
+                "lang": "en",
+                "uriValue": "https://issuer.ihv.example/about"
+              }
+            ]
+          },
+          "TrustedEntityServices": [
+            {
+              "ServiceInformation": {
+                "ServiceName": [
+                  {
+                    "lang": "ja",
+                    "value": "検証者アクセス CA"
+                  },
+                  {
+                    "lang": "en",
+                    "value": "Relying Party Access CA"
+                  }
+                ],
+                "ServiceDigitalIdentity": {
+                  "X509Certificates": [
+                    {
+                      "encoding": "base64",
+                      "val": "MIIB/jCCAaSgAwIBAgIUEMe/ShCd6oqx+12nmGEyvcFRGRswCgYIKoZIzj0EAwIwSzELMAkGA1UEBhMCSlAxHzAdBgNVBAoMFklIViBEZW1vIFJlbHlpbmcgUGFydHkxGzAZBgNVBAMMEklWSC1EZW1vIFJlYWRlciBDQTAeFw0yNjA4MTUxMjI1NThaFw0zNjA4MTIxMjI1NThaMEsxCzAJBgNVBAYTAkpQMR8wHQYDVQQKDBZJSFYgRGVtbyBSZWx5aW5nIFBhcnR5MRswGQYDVQQDDBJJVkgtRGVtbyBSZWFkZXIgQ0EwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAASL+i230HPQdVLpVqJeBclMMqG7H9FBwFeyiTK/Ht2QHyTwDDAifhSMTj35HzD0c8jbjEB9WsAxknH4gaiVh4i1o2YwZDAdBgNVHQ4EFgQUyf0MX1X4q+S4Uy3duFVbY+hcqgMwHwYDVR0jBBgwFoAUyf0MX1X4q+S4Uy3duFVbY+hcqgMwEgYDVR0TAQH/BAgwBgEB/wIBADAOBgNVHQ8BAf8EBAMCAQYwCgYIKoZIzj0EAwIDSAAwRQIgG3nrbn7vHqAX0+daY9J5COu13DOeVuQc95S6yAlHfMECIQDtPADDSNUIsEXbxhIf+4ACw44bvMzkLh4M9PIimzprXQ=="
+                    }
+                  ],
+                  "X509SubjectNames": [
+                    "C=JP,O=IHV Demo Relying Party,CN=IVH-Demo Reader CA"
+                  ]
+                },
+                "ServiceTypeIdentifier": "http://uri.etsi.org/TrstSvc/Svctype/RPAccessCA",
+                "ServiceStatus": "http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted",
+                "StatusStartingTime": "2026-01-01T00:00:00.000Z"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "jws": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImxvdGUrand0IiwieDVjIjpbIk1JSUNCekNDQWEyZ0F3SUJBZ0lVTXp2RWhMTUdKVFdhK0pjdFBsRlJUcVY5RHFBd0NnWUlLb1pJemowRUF3SXdWREVMTUFrR0ExVUVCaE1DU2xBeElEQWVCZ05WQkFvTUYwbElWaUJFWlcxdklGWkpRMEZNSUZCeWIzWnBaR1Z5TVNNd0lRWURWUVFEREJwSlZrZ3RSR1Z0YnlCV1NVTkJUQ0JRY205MmFXUmxjaUJEUVRBZUZ3MHlOakE0TVRVeE5qRTBNalJhRncweU9UQTRNVFF4TmpFME1qUmFNRkV4Q3pBSkJnTlZCQVlUQWtwUU1TQXdIZ1lEVlFRS0RCZEpTRllnUkdWdGJ5QldTVU5CVENCUWNtOTJhV1JsY2pFZ01CNEdBMVVFQXd3WFNWWklMVVJsYlc4Z1ZrbERRVXdnVUhKdmRtbGtaWEl3V1RBVEJnY3Foa2pPUFFJQkJnZ3Foa2pPUFFNQkJ3TkNBQVFNYnNjTzBudVRDWDRWdEZCV0toMmhvKzhXNmFpR2V3Z1VvY3hXT2ttMXlybnpDOFphZTJXSkJDWDdUOVM2WG5BbDkzR1laYzVnQlAvQ21abXMwRCt5bzJBd1hqQU1CZ05WSFJNQkFmOEVBakFBTUE0R0ExVWREd0VCL3dRRUF3SUhnREFkQmdOVkhRNEVGZ1FVemp5R1RoZE9Gc3Z1WFRsNFNGMUZSWC9zZytjd0h3WURWUjBqQkJnd0ZvQVU0bWZzNVNqOGQ1eDdubmJqN2N1YVpsWUZaeUV3Q2dZSUtvWkl6ajBFQXdJRFNBQXdSUUlnTERRRTNJMG10emlmVmpCbGFzM3JSYnhRMVBmS3laOTlxaVFpQ1U2V2FvQUNJUUNNdnhDa2pRU2c2SVdsd081d3Z2QWRUaFNlY2NEdy8ycjRMektDeS9NSW53PT0iLCJNSUlDRURDQ0FiYWdBd0lCQWdJVVNVL1ZJZHFQRzJKOVVyTVZBWG5hK0g0TGw2UXdDZ1lJS29aSXpqMEVBd0l3VkRFTE1Ba0dBMVVFQmhNQ1NsQXhJREFlQmdOVkJBb01GMGxJVmlCRVpXMXZJRlpKUTBGTUlGQnliM1pwWkdWeU1TTXdJUVlEVlFRRERCcEpWa2d0UkdWdGJ5QldTVU5CVENCUWNtOTJhV1JsY2lCRFFUQWVGdzB5TmpBNE1UVXhOakUwTWpSYUZ3MHpOakE0TVRJeE5qRTBNalJhTUZReEN6QUpCZ05WQkFZVEFrcFFNU0F3SGdZRFZRUUtEQmRKU0ZZZ1JHVnRieUJXU1VOQlRDQlFjbTkyYVdSbGNqRWpNQ0VHQTFVRUF3d2FTVlpJTFVSbGJXOGdWa2xEUVV3Z1VISnZkbWxrWlhJZ1EwRXdXVEFUQmdjcWhrak9QUUlCQmdncWhrak9QUU1CQndOQ0FBVFFrc1pGd1RBWEJZTGw5Mkx2SUp0Yjh5RXNUNmI4cWU0aFF5WGhWSWxENGJkanVNa0hPQ2U2bTFOS3AraFBiUmNmalBMbHFJaDlSVzd0dkdqVGRET3FvMll3WkRBZEJnTlZIUTRFRmdRVTRtZnM1U2o4ZDV4N25uYmo3Y3VhWmxZRlp5RXdId1lEVlIwakJCZ3dGb0FVNG1mczVTajhkNXg3bm5iajdjdWFabFlGWnlFd0VnWURWUjBUQVFIL0JBZ3dCZ0VCL3dJQkFEQU9CZ05WSFE4QkFmOEVCQU1DQVFZd0NnWUlLb1pJemowRUF3SURTQUF3UlFJaEFQVkQwdSszazJzUFh1STFxRmh3amIrMTJFRXc2YjF6d2hMR0d1U2JLcmJWQWlBQlhzY1YvaTdNUnptekJ0b1c3cnVwTFBKckFQbEx5cFU1TTA0bHlsUC9WUT09Il19.eyJMb1RFIjp7Ikxpc3RBbmRTY2hlbWVJbmZvcm1hdGlvbiI6eyJMb1RFVmVyc2lvbklkZW50aWZpZXIiOjEsIkxvVEVTZXF1ZW5jZU51bWJlciI6MTc4NjgxNzEzMiwiTG9URVR5cGUiOiJodHRwOi8vdXJpLmV0c2kub3JnL1Ryc3RTdmMvVHJ1c3RlZExpc3QvTG9URVR5cGUvRVVESVciLCJTY2hlbWVPcGVyYXRvck5hbWUiOlt7ImxhbmciOiJqYSIsInZhbHVlIjoiSUhWIOODh-ODoiDjgrnjgq3jg7zjg6Djgqrjg5rjg6zjg7zjgr_jg7wifSx7ImxhbmciOiJlbiIsInZhbHVlIjoiSUhWIERlbW8gU2NoZW1lIE9wZXJhdG9yIn1dLCJTY2hlbWVOYW1lIjpbeyJsYW5nIjoiamEiLCJ2YWx1ZSI6IklIViDjg4fjg6Ig5L-h6aC844Ko44Oz44OG44Kj44OG44Kj5LiA6KanIn0seyJsYW5nIjoiZW4iLCJ2YWx1ZSI6IklIViBEZW1vIExpc3Qgb2YgVHJ1c3RlZCBFbnRpdGllcyJ9XSwiU2NoZW1lSW5mb3JtYXRpb25VUkkiOlt7ImxhbmciOiJlbiIsInVyaVZhbHVlIjoiaHR0cHM6Ly9pc3N1ZXIuaWh2LmV4YW1wbGUvdHJ1c3QifV0sIlNjaGVtZVRlcnJpdG9yeSI6IkpQIiwiTGlzdElzc3VlRGF0ZVRpbWUiOiIyMDI2LTA4LTE1VDE4OjA1OjMyLjAxM1oiLCJOZXh0VXBkYXRlIjoiMjAyNi0xMS0xM1QxODowNTozMi4wMTNaIiwiRGlzdHJpYnV0aW9uUG9pbnRzIjpbImh0dHBzOi8vaXNzdWVyLmlodi5leGFtcGxlL3RydXN0L2xvdGUuanNvbiJdfSwiVHJ1c3RlZEVudGl0aWVzTGlzdCI6W3siVHJ1c3RlZEVudGl0eUluZm9ybWF0aW9uIjp7IlRFTmFtZSI6W3sibGFuZyI6ImphIiwidmFsdWUiOiJJSFYg44OH44Oi55m66KGM6ICFIn0seyJsYW5nIjoiZW4iLCJ2YWx1ZSI6IklIViBEZW1vIElzc3VlciJ9XSwiVEVBZGRyZXNzIjp7IlRFUG9zdGFsQWRkcmVzcyI6W3sibGFuZyI6ImVuIiwiU3RyZWV0QWRkcmVzcyI6IjEtMS0xIERlbW8iLCJMb2NhbGl0eSI6IkNoaXlvZGEta3UiLCJTdGF0ZU9yUHJvdmluY2UiOiJUb2t5byIsIlBvc3RhbENvZGUiOiIxMDAtMDAwMSIsIkNvdW50cnkiOiJKUCJ9XSwiVEVFbGVjdHJvbmljQWRkcmVzcyI6W3sibGFuZyI6ImVuIiwidXJpVmFsdWUiOiJodHRwczovL2lzc3Vlci5paHYuZXhhbXBsZS8ifV19LCJURUluZm9ybWF0aW9uVVJJIjpbeyJsYW5nIjoiZW4iLCJ1cmlWYWx1ZSI6Imh0dHBzOi8vaXNzdWVyLmlodi5leGFtcGxlL2Fib3V0In1dfSwiVHJ1c3RlZEVudGl0eVNlcnZpY2VzIjpbeyJTZXJ2aWNlSW5mb3JtYXRpb24iOnsiU2VydmljZU5hbWUiOlt7ImxhbmciOiJqYSIsInZhbHVlIjoiUElEIOeZuuihjOiAhe-8iG1kb2Pjg7tJQUNB77yJIn0seyJsYW5nIjoiZW4iLCJ2YWx1ZSI6IlBJRCBQcm92aWRlciAobWRvYyBJQUNBKSJ9XSwiU2VydmljZURpZ2l0YWxJZGVudGl0eSI6eyJYNTA5Q2VydGlmaWNhdGVzIjpbeyJlbmNvZGluZyI6ImJhc2U2NCIsInZhbCI6Ik1JSUNCekNDQWF5Z0F3SUJBZ0lVSlN5STBkNU5ubzlkRHJXS3djbitLWWNjcENzd0NnWUlLb1pJemowRUF3SXdUekVMTUFrR0ExVUVCaE1DU2xBeEl6QWhCZ05WQkFvTUdrbElWaUJFWlcxdklFbHpjM1ZwYm1jZ1FYVjBhRzl5YVhSNU1Sc3dHUVlEVlFRRERCSkpWa2d0UkdWdGJ5QkpRVU5CSUZKdmIzUXdIaGNOTWpZd09ERTFNVEl5TlRVNFdoY05Nell3T0RFeU1USXlOVFU0V2pCUE1Rc3dDUVlEVlFRR0V3SktVREVqTUNFR0ExVUVDZ3dhU1VoV0lFUmxiVzhnU1hOemRXbHVaeUJCZFhSb2IzSnBkSGt4R3pBWkJnTlZCQU1NRWtsV1NDMUVaVzF2SUVsQlEwRWdVbTl2ZERCWk1CTUdCeXFHU000OUFnRUdDQ3FHU000OUF3RUhBMElBQklWckZIMHRoM0Vab2dnODd5dXkxaDNMNFBGSy9GdjNKeGY5M2lJd1g4RmVRQUdDZUtuS1Fqd09xeGI3VW9DaldvdklNQjZxWGZFc0pBUGpXYzR4bnZtalpqQmtNQjBHQTFVZERnUVdCQlQrMnpLVlA3V1RGOVVZajhiVWNLVG1CYkZRM3pBZkJnTlZIU01FR0RBV2dCVCsyektWUDdXVEY5VVlqOGJVY0tUbUJiRlEzekFTQmdOVkhSTUJBZjhFQ0RBR0FRSC9BZ0VBTUE0R0ExVWREd0VCL3dRRUF3SUJCakFLQmdncWhrak9QUVFEQWdOSkFEQkdBaUVBdVY2Q3dIb0lvWVhBTEdmZThlZnVTR2Y3THpQbG12VnRzZit6dzNmd2lSd0NJUUN6NXY1am5JYk4vQXI5L3BoTmc1a0I5Y0FHdnV6MERCN3REeEdGdnZ1ZkJ3PT0ifV0sIlg1MDlTdWJqZWN0TmFtZXMiOlsiQz1KUCxPPUlIViBEZW1vIElzc3VpbmcgQXV0aG9yaXR5LENOPUlWSC1EZW1vIElBQ0EgUm9vdCJdfSwiU2VydmljZVR5cGVJZGVudGlmaWVyIjoiaHR0cDovL3VyaS5ldHNpLm9yZy9UcnN0U3ZjL1N2Y3R5cGUvUElEIiwiU2VydmljZVN0YXR1cyI6Imh0dHA6Ly91cmkuZXRzaS5vcmcvVHJzdFN2Yy9UcnVzdGVkTGlzdC9TdmNzdGF0dXMvZ3JhbnRlZCIsIlN0YXR1c1N0YXJ0aW5nVGltZSI6IjIwMjYtMDEtMDFUMDA6MDA6MDAuMDAwWiJ9fSx7IlNlcnZpY2VJbmZvcm1hdGlvbiI6eyJTZXJ2aWNlTmFtZSI6W3sibGFuZyI6ImphIiwidmFsdWUiOiJQSUQg55m66KGM6ICF77yIU0QtSldUIFZD77yJIn0seyJsYW5nIjoiZW4iLCJ2YWx1ZSI6IlBJRCBQcm92aWRlciAoU0QtSldUIFZDKSJ9XSwiU2VydmljZURpZ2l0YWxJZGVudGl0eSI6eyJYNTA5Q2VydGlmaWNhdGVzIjpbeyJlbmNvZGluZyI6ImJhc2U2NCIsInZhbCI6Ik1JSUNFVENDQWJpZ0F3SUJBZ0lVYWNhei9VRW1DY2Z5VXMxYmh1NVgrTkwrTm1Rd0NnWUlLb1pJemowRUF3SXdWVEVMTUFrR0ExVUVCaE1DU2xBeElqQWdCZ05WQkFvTUdVbElWaUJFWlcxdklGTkVMVXBYVkNCSmMzTjFaWElnUTBFeElqQWdCZ05WQkFNTUdVbFdTQzFFWlcxdklGTkVMVXBYVkNCSmMzTjFaWElnUTBFd0hoY05Nall3T0RFMU1USXlOVFU0V2hjTk16WXdPREV5TVRJeU5UVTRXakJWTVFzd0NRWURWUVFHRXdKS1VERWlNQ0FHQTFVRUNnd1pTVWhXSUVSbGJXOGdVMFF0U2xkVUlFbHpjM1ZsY2lCRFFURWlNQ0FHQTFVRUF3d1pTVlpJTFVSbGJXOGdVMFF0U2xkVUlFbHpjM1ZsY2lCRFFUQlpNQk1HQnlxR1NNNDlBZ0VHQ0NxR1NNNDlBd0VIQTBJQUJIQk95MGc2dmhwVHUxMGlJSWxPM3N2WmZGOVRxVHdONVBkbko0V1Q4cTQ3V09GQzB1NWVXcndRbnVOSmNodnIrQ1Q4Z3BCVm8ybWYrYnNvak45V0o2ZWpaakJrTUIwR0ExVWREZ1FXQkJUVnR5M3c1bTJtR2QvTExaMk5NNkk5NHFkMWV6QWZCZ05WSFNNRUdEQVdnQlRWdHkzdzVtMm1HZC9MTFoyTk02STk0cWQxZXpBU0JnTlZIUk1CQWY4RUNEQUdBUUgvQWdFQU1BNEdBMVVkRHdFQi93UUVBd0lCQmpBS0JnZ3Foa2pPUFFRREFnTkhBREJFQWlCaFBXSTh1bFJmVFdycGVCSDZ3K1JvcXRWMHB3OEdZdFR4dlVIYXRwOXlWUUlnYlBicFRsV1VXT0FZbm5UUVJvVkRCLzhTSEgrZ2hKbkIwSU8vUGQwMW9EOD0ifV0sIlg1MDlTdWJqZWN0TmFtZXMiOlsiQz1KUCxPPUlIViBEZW1vIFNELUpXVCBJc3N1ZXIgQ0EsQ049SVZILURlbW8gU0QtSldUIElzc3VlciBDQSJdfSwiU2VydmljZVR5cGVJZGVudGlmaWVyIjoiaHR0cDovL3VyaS5ldHNpLm9yZy9UcnN0U3ZjL1N2Y3R5cGUvUElEIiwiU2VydmljZVN0YXR1cyI6Imh0dHA6Ly91cmkuZXRzaS5vcmcvVHJzdFN2Yy9UcnVzdGVkTGlzdC9TdmNzdGF0dXMvZ3JhbnRlZCIsIlN0YXR1c1N0YXJ0aW5nVGltZSI6IjIwMjYtMDEtMDFUMDA6MDA6MDAuMDAwWiJ9fSx7IlNlcnZpY2VJbmZvcm1hdGlvbiI6eyJTZXJ2aWNlTmFtZSI6W3sibGFuZyI6ImphIiwidmFsdWUiOiJQSUQg55m66KGM6ICF77yIbWRvY-ODu-aXpyBJQUNB77yP56eY5a-G6Y2144Gv5aSx5Yq577yJIn0seyJsYW5nIjoiZW4iLCJ2YWx1ZSI6IlBJRCBQcm92aWRlciAobWRvYywgcmV0aXJlZCBJQUNBKSJ9XSwiU2VydmljZURpZ2l0YWxJZGVudGl0eSI6eyJYNTA5Q2VydGlmaWNhdGVzIjpbeyJlbmNvZGluZyI6ImJhc2U2NCIsInZhbCI6Ik1JSUNCakNDQWF5Z0F3SUJBZ0lVQXVWcVVxWG1udGVRZnRGWkd4RDZSYjVsUFZzd0NnWUlLb1pJemowRUF3SXdUekVMTUFrR0ExVUVCaE1DU2xBeEl6QWhCZ05WQkFvTUdrbElWaUJFWlcxdklFbHpjM1ZwYm1jZ1FYVjBhRzl5YVhSNU1Sc3dHUVlEVlFRRERCSkpWa2d0UkdWdGJ5QkpRVU5CSUZKdmIzUXdIaGNOTWpZd05qSTNNREV3TWpJMFdoY05Nell3TmpJME1ERXdNakkwV2pCUE1Rc3dDUVlEVlFRR0V3SktVREVqTUNFR0ExVUVDZ3dhU1VoV0lFUmxiVzhnU1hOemRXbHVaeUJCZFhSb2IzSnBkSGt4R3pBWkJnTlZCQU1NRWtsV1NDMUVaVzF2SUVsQlEwRWdVbTl2ZERCWk1CTUdCeXFHU000OUFnRUdDQ3FHU000OUF3RUhBMElBQlBnV3h4YTRHOE1tR1labmlFTS9ubkk2OWoyS1pmS1VYbEtzb2tJM0lMd0l3eitSZHpOaUw0OXRranIyWkFmOHJnUDNHa1pacWF6SGo1MitxNFozbGdLalpqQmtNQjBHQTFVZERnUVdCQlJHQW9KZUtNTHQxU1kzTndSVTllK0lpUzcyUlRBZkJnTlZIU01FR0RBV2dCUkdBb0plS01MdDFTWTNOd1JVOWUrSWlTNzJSVEFTQmdOVkhSTUJBZjhFQ0RBR0FRSC9BZ0VBTUE0R0ExVWREd0VCL3dRRUF3SUJCakFLQmdncWhrak9QUVFEQWdOSUFEQkZBaUFTaHBVanVWMVhBejR0NHNtSVNlL093aFhKNDU0MC95eDB0TnozbjlGbWd3SWhBS3dPWHJDcWV2ei9RMnN0b2EyM2RXaXJ2UmFWT096Q2xLQ1dZekhWYUN0SCJ9XSwiWDUwOVN1YmplY3ROYW1lcyI6WyJDPUpQLE89SUhWIERlbW8gSXNzdWluZyBBdXRob3JpdHksQ049SVZILURlbW8gSUFDQSBSb290Il19LCJTZXJ2aWNlVHlwZUlkZW50aWZpZXIiOiJodHRwOi8vdXJpLmV0c2kub3JnL1Ryc3RTdmMvU3ZjdHlwZS9QSUQiLCJTZXJ2aWNlU3RhdHVzIjoiaHR0cDovL3VyaS5ldHNpLm9yZy9UcnN0U3ZjL1RydXN0ZWRMaXN0L1N2Y3N0YXR1cy9ncmFudGVkIiwiU3RhdHVzU3RhcnRpbmdUaW1lIjoiMjAyNi0wMS0wMVQwMDowMDowMC4wMDBaIn19XX0seyJUcnVzdGVkRW50aXR5SW5mb3JtYXRpb24iOnsiVEVOYW1lIjpbeyJsYW5nIjoiamEiLCJ2YWx1ZSI6IklIViDjg4fjg6LmpJzoqLzogIUifSx7ImxhbmciOiJlbiIsInZhbHVlIjoiSUhWIERlbW8gUmVseWluZyBQYXJ0eSJ9XSwiVEVBZGRyZXNzIjp7IlRFUG9zdGFsQWRkcmVzcyI6W3sibGFuZyI6ImVuIiwiU3RyZWV0QWRkcmVzcyI6IjEtMS0xIERlbW8iLCJMb2NhbGl0eSI6IkNoaXlvZGEta3UiLCJTdGF0ZU9yUHJvdmluY2UiOiJUb2t5byIsIlBvc3RhbENvZGUiOiIxMDAtMDAwMSIsIkNvdW50cnkiOiJKUCJ9XSwiVEVFbGVjdHJvbmljQWRkcmVzcyI6W3sibGFuZyI6ImVuIiwidXJpVmFsdWUiOiJodHRwczovL2lzc3Vlci5paHYuZXhhbXBsZS8ifV19LCJURUluZm9ybWF0aW9uVVJJIjpbeyJsYW5nIjoiZW4iLCJ1cmlWYWx1ZSI6Imh0dHBzOi8vaXNzdWVyLmlodi5leGFtcGxlL2Fib3V0In1dfSwiVHJ1c3RlZEVudGl0eVNlcnZpY2VzIjpbeyJTZXJ2aWNlSW5mb3JtYXRpb24iOnsiU2VydmljZU5hbWUiOlt7ImxhbmciOiJqYSIsInZhbHVlIjoi5qSc6Ki86ICF44Ki44Kv44K744K5IENBIn0seyJsYW5nIjoiZW4iLCJ2YWx1ZSI6IlJlbHlpbmcgUGFydHkgQWNjZXNzIENBIn1dLCJTZXJ2aWNlRGlnaXRhbElkZW50aXR5Ijp7Ilg1MDlDZXJ0aWZpY2F0ZXMiOlt7ImVuY29kaW5nIjoiYmFzZTY0IiwidmFsIjoiTUlJQi9qQ0NBYVNnQXdJQkFnSVVFTWUvU2hDZDZvcXgrMTJubUdFeXZjRlJHUnN3Q2dZSUtvWkl6ajBFQXdJd1N6RUxNQWtHQTFVRUJoTUNTbEF4SHpBZEJnTlZCQW9NRmtsSVZpQkVaVzF2SUZKbGJIbHBibWNnVUdGeWRIa3hHekFaQmdOVkJBTU1Fa2xXU0MxRVpXMXZJRkpsWVdSbGNpQkRRVEFlRncweU5qQTRNVFV4TWpJMU5UaGFGdzB6TmpBNE1USXhNakkxTlRoYU1Fc3hDekFKQmdOVkJBWVRBa3BRTVI4d0hRWURWUVFLREJaSlNGWWdSR1Z0YnlCU1pXeDVhVzVuSUZCaGNuUjVNUnN3R1FZRFZRUUREQkpKVmtndFJHVnRieUJTWldGa1pYSWdRMEV3V1RBVEJnY3Foa2pPUFFJQkJnZ3Foa2pPUFFNQkJ3TkNBQVNMK2kyMzBIUFFkVkxwVnFKZUJjbE1NcUc3SDlGQndGZXlpVEsvSHQyUUh5VHdEREFpZmhTTVRqMzVIekQwYzhqYmpFQjlXc0F4a25INGdhaVZoNGkxbzJZd1pEQWRCZ05WSFE0RUZnUVV5ZjBNWDFYNHErUzRVeTNkdUZWYlkraGNxZ013SHdZRFZSMGpCQmd3Rm9BVXlmME1YMVg0cStTNFV5M2R1RlZiWStoY3FnTXdFZ1lEVlIwVEFRSC9CQWd3QmdFQi93SUJBREFPQmdOVkhROEJBZjhFQkFNQ0FRWXdDZ1lJS29aSXpqMEVBd0lEU0FBd1JRSWdHM25yYm43dkhxQVgwK2RhWTlKNUNPdTEzRE9lVnVRYzk1UzZ5QWxIZk1FQ0lRRHRQQUREU05VSXNFWGJ4aElmKzRBQ3c0NGJ2TXprTGg0TTlQSWltenByWFE9PSJ9XSwiWDUwOVN1YmplY3ROYW1lcyI6WyJDPUpQLE89SUhWIERlbW8gUmVseWluZyBQYXJ0eSxDTj1JVkgtRGVtbyBSZWFkZXIgQ0EiXX0sIlNlcnZpY2VUeXBlSWRlbnRpZmllciI6Imh0dHA6Ly91cmkuZXRzaS5vcmcvVHJzdFN2Yy9TdmN0eXBlL1JQQWNjZXNzQ0EiLCJTZXJ2aWNlU3RhdHVzIjoiaHR0cDovL3VyaS5ldHNpLm9yZy9UcnN0U3ZjL1RydXN0ZWRMaXN0L1N2Y3N0YXR1cy9ncmFudGVkIiwiU3RhdHVzU3RhcnRpbmdUaW1lIjoiMjAyNi0wMS0wMVQwMDowMDowMC4wMDBaIn19XX1dfSwiaWF0IjoxNzg2ODE3MTMyfQ.-Dqx5QNgds-NzjPRkk0pyEuagdCVuWpOjdvZgCKwZI89N6JIFKWgQmLuPqu9gcXXNBUNXrgcSIbCbYQJIctD5w"
+}

@@ -213,9 +213,20 @@ RICAL  protected = 1067 バイト（alg + x5chain）   x5chain は署名の中
 ### 生成と外部適合
 
 ```bash
-node scripts/gen-vical.mjs          # trust/vical.cbor と trust/rical.cbor
-npm run interop:multipaz            # Multipaz 本家のパーサでクロス検証
+npm run gen-trustlists     # trust/{vical.cbor, rical.cbor, lote.json}
+npm run interop:multipaz   # VICAL/RICAL を Multipaz 本家のパーサでクロス検証
+npm test                   # LoTE を公式 JSON Schema（必須項目）で検証
 ```
+
+| 器 | ファイル | 形式 | 署名 | 検証手段 |
+|---|---|---|---|---|
+| VICAL | `trust/vical.cbor` | CBOR | COSE_Sign1（x5chain=**unprotected**） | Multipaz `SignedVical.parse` |
+| RICAL | `trust/rical.cbor` | CBOR | COSE_Sign1（x5chain=**protected**） | Multipaz `SignedRical.parse` |
+| **LoTE** | `trust/lote.json` | **JSON** | **JWS**（`typ: lote+jwt` + `x5c`） | **公式 JSON Schema**（`schemas/etsi/`） |
+
+LoTE のスキーマは EU 参照実装（`eudi-lib-kmp-etsi-1196x2`）の公式 JSON Schema を
+リポジトリに取り込んである（ネットワークに依存させない）。依存を増やさないため、
+**`required` と `$ref` だけを辿る最小の検証器**を `test/lote.test.mjs` に持つ。
 
 正例（構造を読めること）と負例（1バイト改竄で `SignatureVerificationException`）の両方を
 `interop/multipaz-jvm/` で pin している。**自己ループでない適合確認**。
