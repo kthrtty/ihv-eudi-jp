@@ -463,6 +463,26 @@ devlog は `portrait|portrait_b64` をマスク。テスト `test/portrait.test.
 役割ヘッダ: Issuer=青`#1C3F94`「Issuer」／Verifier=煉瓦`#9E3A3A`「Verifier」／Wallet=ティール`#2E7D6B`「Wallet」／自治体窓口=**江戸紫**`#745399`（住民向けでないことを色で示す・`role-admin`。青/煉瓦/ティールのどれとも色相が被らない唯一の空き域を選んだ。着せ替えは `body.role-admin` の `--civic/--role-soft/--role-line` だけ＝ヘッダもログインも追従）（和名+英名の重複表記は冗長のため廃止、2026-07-04）。
 実印朱色`#C8453C`は署名要素として温存（別系統）。`shell(title,body,{role})` で切替。
 
+## 対面提示（M8・調査済み・未着手）
+方向性は `docs/proximity-wallet.md`（2026-08-15・モバイル/VC の2専門家レビュー反映）。要点のみ:
+- **Multipaz はフォーク不要**——`DocumentTypeRepository.addDocumentType()` と
+  `addExtraSingleDocumentCannedRequest()` が公開 API で、コア層（mdoc/request・response・transport）に
+  `org.iso.18013.5.1` の**コード分岐は1つも無い**（KDoc の «例えば» のみ）。ライブラリ依存で足りる
+- **ブラウザは不可**（原理的）: `MdocTransportFactory.web.kt` は `NotImplementedError` を投げるのみ／
+  Web Bluetooth は Central 役しか無く（18013-5 はどちらのモードでも片方がペリフェラル）／iOS Safari は未実装
+- **対面は mdoc 限定**。`openid4vp_ble` は draft-00 のまま 2023-05-17 で凍結、**HAIP 1.0 が §3.4 で
+  BLE オフライン提示を明示的にスコープ外**にしている。SD-JWT VC の対面提示は独自拡張になるので名乗らない
+- **新規に要るのは4つ**: DeviceEngagement／QR シリアライズ（`mdoc:`+base64url）／BLE GATT 状態機械／
+  **セッション暗号**（ECDH→HKDF で SKDevice/SKReader、AES-256-GCM、カウンタ付き＝**ステートフル**。
+  既存の JWE・HPKE とは別物）。readerAuth/deviceAuth の署名検証は**入力の SessionTranscript が変わるだけ**
+- **SessionTranscript は DC API と鏡写し**: QR+BLE=`[DEBytes, EReaderKeyBytes, null]`／
+  DC API=`[null, null, Handover]`。`handover.mjs` に4本目として集約する
+- **readerAuth に直列制約**: `ReaderAuthentication` が SessionTranscript を含む＝**QR を読むまで要求に署名できない**。
+  「先に要求を作ってチャネルに載せる」既存の `createRequest` とは非対称になる
+- **無課金で開発できる**（iOS=Personal Team・3台・7日で失効・TestFlight/Ad-Hoc 不可・**シミュレータは BLE 不可**／
+  Android=サイドロード無制限）。**外部配布が要る段階で $99/年が必須**
+- BLE モードは**仕様（8.2.2.1.1「リーダーが Central」）と Multipaz 既定に従い mdoc=Peripheral Server** から始める
+
 ## ロードマップ
 - [x] M1–M5（土台/発行/wallet-core/Verifier/相互運用 golden）
 - [x] POST-M5: Offer配送・失効・16構成・auth-code/セッション/persona・役割ヘッダ・Annex C/D ディスパッチ・検証者コンソール
