@@ -431,7 +431,80 @@ nonce 再利用で AES-GCM が破綻する。
 
 ---
 
-## 11. 進め方
+## 11. 操作手順（素のビルドで疎通確認するとき）
+
+参照ウォレットの画面を実際に追って確定させた手順。**要となる機能はすべて開発者モードの裏にある。**
+
+### 0. 開発者モードを有効にする（両方の端末で）
+
+> ウォレットのメイン画面で、タイトルバー **「Multipaz Wallet」を5回連打**
+> → 「Developer mode is now enabled」。以降 **Settings → Developer Settings** が出る
+
+これをやらないと、次の2つが**画面に出てこない**。
+
+| 機能 | どこに出るか |
+|---|---|
+| **Enter Issuer URL…** | Add to wallet 画面（＝我々の issuer を指す口） |
+| **User defined**（任意 docType の要求） | Select verification type 画面（＝`jp.go.*` を要求する口） |
+
+### 1. ホルダー側：我々の issuer から受領する
+
+```
+Add to wallet（＋ボタン）
+  └ Enter Issuer URL…            ← 開発者モード限定
+      └ Issuer server URL に我々の issuer を入力 → Connect
+```
+
+### 2. ホルダー側：QR を出す
+
+```
+ウォレット画面で書類カードを選ぶ
+  └ カード上の QR アイコン        ← DocumentQrPresentmentDialog
+      └ 「Show code to verifier」
+```
+
+QR アイコンは `isProximityPresentable` が真のときだけ出る。判定は
+**「mdoc 資格証、または鍵バインドされた SD-JWT VC を持っているか」**で、docType には依存しない
+（→ `jp.go.*` でも出る）。NFC でやるならカードに「Hold to reader」も出る。
+
+### 3. リーダー側：`jp.go.*` を要求する
+
+```
+ウォレット画面の「Verify」ボタン
+  └ Request verification
+      ├ In-person を選ぶ          ← Send link は遠隔用なので選ばない
+      ├ What to request
+      │   └ Select verification type
+      │       └ User defined      ← 開発者モード限定
+      │           └ docType（例 jp.go.pid.1）と namespace / data element を手入力
+      └ Scan QR                   ← ホルダーの QR を読む
+          └ Waiting for response → Verification response
+```
+
+### 4. 中身を見る（デバッグ）
+
+```
+Verification response 画面で、タイトルをタップ
+  └ Detailed response            ← 開発者モード限定
+      生の presentment record / CBOR の request・response / SessionTranscript / trust 情報
+```
+
+**ここが我々にとって一番価値がある。** `SessionTranscript` と CBOR を実機の画面で読めるので、
+自前実装のバイト列と突き合わせられる。
+
+### 注意点
+
+- **`User defined` は「定型メニューに無い docType」を通すための口**であって、
+  ハードコードの `enum DocumentType`（mDL/PhotoID/EU_PID/Aadhaar/IDPass）は定型メニュー用にすぎない
+- **`isProximityPresentable` が SD-JWT でも真を返す**点は要検証。
+  SDK 側の API は `MdocProximityQrPresentment` / `MdocRole` / `MdocTransport` と**すべて mdoc 前提**なので、
+  「ボタンは出るが 18013-5 の交換は mdoc で行われる」だけの可能性が高い。
+  SD-JWT のみを持つ書類で何が起きるかは実機で確かめる（→ §2.3 の結論を覆すものではない、と現時点では見ている）
+- リーダー側は**カメラ権限**、両側とも **Bluetooth 権限**の許可が要る
+
+---
+
+## 12. 進め方
 
 **コードを書く前に確かめるべきことが1つある。**
 
