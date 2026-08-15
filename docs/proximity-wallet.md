@@ -3,7 +3,20 @@
 QR + BLE による対面提示（ISO/IEC 18013-5 device retrieval）を、Android/iOS の両方で実現するための
 選択肢比較と進め方。2026-08-15 時点の調査。
 
-調査は Multipaz のソース直参照（`gh api`）、Apple/Google の一次情報、ARF v3.0.0（eudi.dev/latest、
+### 参照するリポジトリ（ピン留め）
+
+**2つある。混同しないこと。**
+
+| | 用途 | 我々の使い方 |
+|---|---|---|
+| **[openwallet-foundation/**multipaz-wallet**](https://github.com/openwallet-foundation/multipaz-wallet/)** | **参照ウォレット実装（アプリ）**。`androidApp` / `iosApp`(SwiftUI) / `webApp` / `shared` / `backend` | **ベースにする本体**。ここをフォークする |
+| [openwallet-foundation/multipaz](https://github.com/openwallet-foundation/multipaz) | SDK（ライブラリ）。18013-5 プロトコル・BLE トランスポート・CBOR/COSE | Maven 依存として取り込むだけ。**フォークしない** |
+
+wallet 側は SDK を **Maven 座標で依存**している（`org.multipaz:multipaz` ほか計9モジュール、
+`multipaz = "0.101.0-SNAPSHOT"`）。**参照実装自身がライブラリ依存の形を取っている**ことが、
+本レポートの構成案の裏付けになる。
+
+調査は上記2リポジトリのソース直参照（`gh api`）、Apple/Google の一次情報、ARF v3.0.0（eudi.dev/latest、
 2026-07-21 リリース）、ISO/IEC DIS 18013-5:2020 ドラフト PDF による。**ISO 18013-5:2021 の最終版は
 有料規格のため未入手**で、ドラフトと最終版で確実に変わっている箇所が最低2つあることも把握している
 （後述の「未確認事項」）。
@@ -12,9 +25,13 @@ QR + BLE による対面提示（ISO/IEC 18013-5 device retrieval）を、Androi
 
 ## 1. 結論
 
-**Multipaz を「ライブラリとして依存」し、ウォレットとリーダーの2アプリを Kotlin Multiplatform で作る。**
-フォークは不要。UI をどこまで共有するかは選択でき、KMP をロジック層に置いて UI をネイティブで書く構成が
-Multipaz 自身のサンプル（`samples/SwiftTestApp`）で実証されている。
+**`multipaz-wallet` をフォークし、SDK（`multipaz`）は Maven 依存のまま使う。**
+参照ウォレットは既に **Android / iOS(SwiftUI) の両方で対面提示を実装済み**で、
+しかも**ホルダーとリーダーの両方の役**を1つのアプリに持っている（`shared/…/client/verification/`）。
+ゼロから作るのではなく、**動いているものに我々の書類型を足す**話になる。
+
+さらに**リーダー側は任意の docType を要求できる口を最初から持っている**（`UserDefinedQuery`）。
+`jp.go.pid.1` の対面提示は、**コードを1行も変えずに素のビルドで試せる**可能性が高い。
 
 主要な判断が3つある。
 
@@ -24,12 +41,28 @@ Multipaz 自身のサンプル（`samples/SwiftTestApp`）で実証されてい�
 
 ---
 
-## 2. 前提の訂正（当初の想定が2つ間違っていた）
+## 2. 参照ウォレットに既にあるもの
 
-### 2.1 Multipaz のフォークは不要
+**ゼロから作る話ではない。** `multipaz-wallet` を調べた結果、必要なものの大半が既にある。
 
-当初「独自 docType（`jp.go.*`）を追加するにはフォークが要る」と見ていたが、**誤り**だった。
-必要な口はどちらも公開 API である。
+| | 実装 | 場所 |
+|---|---|---|
+| **対面提示（ホルダー役）** | Android / **iOS(SwiftUI) とも実装済み** | `iosApp/iosApp/ProximityPresentmentScreen.swift`／`androidApp/…/DocumentQrPresentmentDialog.kt` |
+| **対面検証（リーダー役）** | **同じアプリが両方の役を持つ** | `shared/…/client/verification/ProximityReaderModel.kt`／`androidApp/…/ui/verification/VerificationProximityTransferScreen.kt` |
+| 任意 docType の要求 | **UI から自由入力できる** | `SelectUserDefinedQueryScreen.kt` + `UserDefinedQuery` |
+| DC API プロバイダ（iOS） | Extension として実装済み | `iosApp/IdentityDocumentProviderExtension/` |
+
+**ホルダーとリーダーが1つのアプリに同居している**のが大きい。ご要望の
+「カスタマイズ版同士で対面提示」は、**同じアプリを2台に入れて役を変えるだけ**で成立する。
+
+### 2.1 フォークの範囲（当初の想定を訂正）
+
+当初「独自 docType（`jp.go.*`）を追加するには SDK のフォークが要る」と見ていたが、**誤り**だった。
+
+- **SDK（`multipaz`）はフォーク不要**。必要な口はどちらも公開 API である
+- **ウォレットアプリ（`multipaz-wallet`）はフォークする**——ベースにするのだから当然だが、
+  参照実装自身が SDK を **Maven 依存**（`org.multipaz:multipaz` ほか9モジュール）で使っているので、
+  **フォークするのはアプリ層だけ**で SDK の追随コストは発生しない
 
 ```kotlin
 class DocumentTypeRepository {                       // multipaz/src/commonMain/.../DocumentTypeRepository.kt
@@ -41,15 +74,32 @@ class DocumentTypeRepository {                       // multipaz/src/commonMain/
 後者はリーダー画面が実際に読んでいるもので、アプリ側から自分の要求を足せる。
 `addKnownTypes()`（mDL/EUPersonalID 等を登録する関数）は**便宜関数にすぎず**、それを使わない選択ができる。
 
-さらにコア層（`mdoc/request`・`mdoc/response`・`mdoc/transport`）を全走査したところ、
+さらに SDK のコア層（`mdoc/request`・`mdoc/response`・`mdoc/transport`）を全走査したところ、
 `org.iso.18013.5.1` の出現は**すべて KDoc の «例えば» で、コードの分岐は1つも無い**。
 docType は最後までデータとして扱われている。
 
-→ **フォークの保守という一番重いコストが消える。** Multipaz は依存として取り込み、
-我々のアプリに9種を登録する。定義は `schemas/*.json`（9種・計119クレーム、`namespace`/`element`/型/
-日英表示名を保持）から Kotlin を生成すれば二重管理にならない。
+### 2.2 素のビルドで `jp.go.*` を要求できる（重要）
 
-### 2.2 SD-JWT VC は対面で運べない
+ウォレットアプリのリーダー側には**任意の docType を自由入力する画面**がある。
+
+```kotlin
+data class UserDefinedQuery(
+    val docType: String,                       // ← 自由文字列
+    val namespaces: Map<String, List<String>>, // ← 名前空間と要素も自由
+)
+// SelectUserDefinedQueryScreen.kt: var docType by remember { mutableStateOf(初期値は PhotoID) }
+```
+
+ハードコードの `enum class DocumentType { MOBILE_DRIVING_LICENSE, PHOTO_ID, EU_PID, AADHAAR,
+GOOGLE_WALLET_IDPASS }` は**定型メニュー用**にすぎず、要求そのものはこの enum に縛られない。
+
+→ **`jp.go.pid.1` の対面提示は、コードを1行も変えずに素のビルドで検証できる可能性が高い。**
+書類型の登録（`addDocumentType()`）と生成器は、**その検証が通ってから** UX を整えるために入れる。
+定義は `schemas/*.json`（9種・計119クレーム、`namespace`/`element`/型/日英表示名を保持）から
+Kotlin を生成すれば二重管理にならない。
+
+### 2.3 SD-JWT VC は対面で運べない
+
 
 「mdoc と SD-JWT の両形式を対面提示する」という当初の想定は成立しない。
 
@@ -177,8 +227,8 @@ QR 読取 → EReaderKey 生成 → SessionTranscript 確定 → ItemsRequest �
 
 | | 構成 | 評価 |
 |---|---|---|
-| **(a)** | Multipaz を**ライブラリ依存**。ウォレット・リーダーとも KMP。UI は Compose Multiplatform で共有 | **推奨**。実装量が最小。Compose for iOS の成熟度がリスク |
-| **(a'')** | 同上だが **UI は SwiftUI / Jetpack Compose で別々**に書く | 保険。`samples/SwiftTestApp` が実証済みのパターン。UI が重複する代わりに KMP 境界のデバッグ対象が BLE/暗号に限定される |
+| **(a)** | **`multipaz-wallet` をフォーク**し、SDK は Maven 依存のまま。書類型を足す。UI は参照実装の構成をそのまま使う（`shared`=Kotlin／`androidApp`=Compose／`iosApp`=SwiftUI） | **推奨**。対面提示もリーダーも動いているものを引き継げる |
+| (a') | SDK だけ使い、アプリは自作 | 参照実装が持っている対面・リーダー・鍵管理・バックアップを作り直すことになる。**採らない** |
 | **(b)** | 薄いネイティブ BLE ブリッジ + 18013-5 ロジックは既存 JS を WebView で | **非推奨** |
 | **(c)** | ネイティブの中で Web Wallet を WebView 実行、BLE だけネイティブ | **非推奨** |
 
@@ -207,7 +257,8 @@ JS の非同期処理のタイミングがずれてプロトコルのタイム�
 | 根拠 | 内容 |
 |---|---|
 | ISO 18013-5 ドラフト 8.2.2.1.1 | 両モード対応時は**リーダー側が Central を担うのが推奨** |
-| Multipaz 公式サンプルの既定 | `supportsPeripheralServerMode: true, supportsCentralClientMode: false` |
+| SDK のサンプル既定 | `supportsPeripheralServerMode: true, supportsCentralClientMode: false` |
+| **参照ウォレットの iOS 実装** | 同じ設定（`ProximityPresentmentScreen.swift`）。**アプリ側でも既定が一致** |
 
 モバイル側の専門家は「リーダーは据置き端末なのでペリフェラルの責務をリーダーに寄せ、
 ホルダーは枯れた Central 役に専念させる」という逆の仮説を出した。**筋は通っているが**、
@@ -336,20 +387,25 @@ nonce 再利用で AES-GCM が破綻する。
 
 ## 11. 進め方
 
-**先に潰すべき分岐点が1つある。**
+**コードを書く前に確かめるべきことが1つある。**
 
-0. **`jp.go.pid.1` を1つ登録して、フォーク無しで Multipaz が通るか**を最短で確認する。
-   ここが崩れると見積もりが変わる（コア層に mDL 固有の分岐が無いことはソース走査で確認済みなので、
-   通る見込みは高い）
+0. **素のビルドで `jp.go.pid.1` の対面提示が通るか。**
+   `multipaz-wallet` を Android 2台にサイドロードし、片方に我々の issuer から mdoc を受領させ、
+   もう片方の `SelectUserDefinedQueryScreen` に `jp.go.pid.1` と名前空間・要素を手入力して
+   QR + BLE で提示させる。**フォークも改造もせずに済む**ので最短で真偽が分かり、
+   ここが通れば以降は「UX を整える」作業に落ちる。通らなければ設計から見直す
 
 そのうえで、
 
-1. `scripts/gen-doctypes-kotlin.mjs` — `schemas/*.json` から Kotlin の `DocumentType` を生成
-2. `interop/multipaz-jvm/` に一致テストを追加（element identifier が schemas と一致すること）
-3. Android 2台で BLE proximity を安定させる（GATT 特性のみ・L2CAP 無効）
-4. 本番 IACA をリーダーのトラストリストに登録
+1. `multipaz-wallet` をフォーク（アプリ層のみ。SDK は Maven 依存のまま）
+2. `scripts/gen-doctypes-kotlin.mjs` — `schemas/*.json` から Kotlin の `DocumentType` を生成し、
+   `addDocumentType()` で登録。定型メニューに9種が並ぶようにする
+3. `interop/multipaz-jvm/` に一致テストを追加（element identifier が schemas と一致すること）
+4. Android 2台で安定させる（GATT 特性のみ・L2CAP 無効）
+5. 本番 IACA をリーダーのトラストリストに登録
    → ここで**本番 PKI とローカル `pki/` の世代ずれ**（未解決）が効く。先に決着させる
-5. Android ↔ iOS、iOS 2台へ広げる
-6. 有料アカウントの要否は「複数人でのテストが必要になった時点」で再判断
+6. Android ↔ iOS、iOS 2台へ広げる
+7. 有料アカウントの要否は「複数人でのテストが必要になった時点」で再判断
 
-1〜2 は我々のリポジトリで完結し、**Apple/Google の判断を待たずに着手できる**。
+**0 は今日からできる**（Android のサイドロードに課金は不要）。2〜3 は我々のリポジトリで完結し、
+**Apple/Google の判断を待たずに着手できる**。

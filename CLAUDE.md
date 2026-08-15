@@ -465,6 +465,17 @@ devlog は `portrait|portrait_b64` をマスク。テスト `test/portrait.test.
 
 ## 対面提示（M8・調査済み・未着手）
 方向性は `docs/proximity-wallet.md`（2026-08-15・モバイル/VC の2専門家レビュー反映）。要点のみ:
+- **参照するリポジトリは2つ。混同しない**——
+  **[openwallet-foundation/multipaz-wallet](https://github.com/openwallet-foundation/multipaz-wallet/)**
+  ＝参照ウォレット実装（`androidApp`/`iosApp`(SwiftUI)/`webApp`/`shared`/`backend`）で**ここをベースにフォーク**／
+  [openwallet-foundation/multipaz](https://github.com/openwallet-foundation/multipaz) ＝ SDK で
+  **Maven 依存**のまま使う（wallet 自身が `org.multipaz:multipaz` ほか9モジュールを座標参照している）
+- **参照ウォレットは対面提示を Android/iOS 両方で実装済み、しかもホルダーとリーダーの両役を1つのアプリに持つ**
+  （`iosApp/…/ProximityPresentmentScreen.swift`／`shared/…/client/verification/ProximityReaderModel.kt`）。
+  「カスタマイズ版同士で対面提示」は同じアプリを2台に入れて役を変えるだけ
+- **素のビルドで `jp.go.*` を要求できる**（`UserDefinedQuery` は docType/namespace/element が自由文字列。
+  `SelectUserDefinedQueryScreen` から手入力できる）。ハードコードの `enum DocumentType` 5種は定型メニュー用にすぎない。
+  **最初にやるべきは改造ではなく、素のビルド2台での疎通確認**
 - **Multipaz はフォーク不要**——`DocumentTypeRepository.addDocumentType()` と
   `addExtraSingleDocumentCannedRequest()` が公開 API で、コア層（mdoc/request・response・transport）に
   `org.iso.18013.5.1` の**コード分岐は1つも無い**（KDoc の «例えば» のみ）。ライブラリ依存で足りる
