@@ -33,10 +33,15 @@ export function coseSign1({ payloadContent, privateKeyPem, x5chain }) {
 }
 
 /**
- * x5chain を **protected header** に入れる COSE_Sign1。RICAL（ISO 18013-5 第2版 Annex F）は
- * こちらを要求する（署名対象に証明書チェーンを含める＝差し替えを防ぐ、より厳密な形）。
- * VICAL（同 2021 Annex C）は unprotected 側なので、**取り違えると相手のパーサが
+ * x5chain を **protected header** に入れる COSE_Sign1。RICAL がこちらを要求する。
+ * VICAL（18013-5:2021 Annex C）は unprotected 側なので、**取り違えると相手のパーサが
  * 「x5chain not set in protected header」で落ちる**（2026-08-16 に Multipaz で実測）。
+ *
+ * **なぜ違うのかは未確認。** 確認できたのは「Multipaz の SignedVical は unprotected のみ、
+ * SignedRical は protected を見る」という実装事実だけで、ARF には VICAL/RICAL の記載が無い。
+ * **RICAL の根拠は未発行の第2版 draft**（DIS・発行予定 2026-11-30・Annex 番号も F/G で揺れる）
+ * なので発行時に変わりうる。判断の拠り所は interop/multipaz-jvm の適合テスト。
+ * 詳細は docs/trust-and-revocation.md。
  */
 export function coseSign1ProtectedChain({ payloadContent, privateKeyPem, x5chain }) {
   const protectedContent = cborEncode(new Map([

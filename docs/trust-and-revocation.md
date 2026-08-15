@@ -83,13 +83,36 @@ docType が使われるのは `The DocType in the MSO matches the relevant DocTy
 ### x5chain の置き場所が VICAL と RICAL で違う（実測で判明）
 
 ```
-VICAL : unprotected header に x5chain     ← 2021 Annex C
-RICAL : protected   header に x5chain     ← 第2版 Annex F（署名対象に含む＝より厳密）
+VICAL : unprotected header に x5chain
+RICAL : protected   header に x5chain
 ```
 
 取り違えると相手のパーサが **`x5chain not set in protected header`** で落ちる。
 `src/cose.mjs` に `coseSign1`（unprotected）と `coseSign1ProtectedChain`（protected）の
 2本を用意してある。
+
+**確認できたのはここまで**（2026-08-16）:
+
+| | 事実 | 出典 |
+|---|---|---|
+| VICAL=unprotected | `SignedVical.parse` は `unprotectedHeaders` **のみ**を見る（フォールバック無し） | Multipaz ソース |
+| RICAL=protected | `SignedRical.parse` は `protectedHeaders` を見る | 同上 |
+| VICAL の準拠先 | `A signed VICAL according to ISO/IEC 18013-5:2021` / `section C.1.7.1` | 同 KDoc |
+| RICAL の準拠先 | `according to ISO/IEC 18013-5 Second Edition Annex F` | 同 KDoc |
+
+**なぜ違うのかは分かっていない。** COSE の protected/unprotected の意味
+（protected は署名対象＝改竄できない、unprotected は中継者が差し替えられる）と、
+RFC 9360 が「x5chain を unprotected に置くならリーフ証明書を `x5t` などで別途保護せよ」と
+要求していることから「新しい RICAL のほうが厳密側に寄せた」と**推測はできるが、条文の裏付けは無い**。
+ARF v3.0.0 には **VICAL / RICAL / COSE の記載が一切無く**（トラストリストは ETSI TS 119 612 /
+119 602 に委ねるのみ）、ここから導くこともできない。
+
+**さらに RICAL の根拠は未発行の draft**——第2版は DIS 段階で**発行予定 2026-11-30**、
+Annex 番号も資料により F / G と食い違う。**発行時に変わりうる**。
+
+→ 我々の方針: **VICAL は 2021 版に従う**（安定）／**RICAL は draft 追従と明示**し、
+第2版の発行時に再確認する。拠り所は `interop/multipaz-jvm/` の適合テストで、
+**仕様が動けばここが落ちるので気づける**。
 
 ### 生成と外部適合
 

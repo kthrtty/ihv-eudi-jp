@@ -490,8 +490,10 @@ devlog は `portrait|portrait_b64` をマスク。テスト `test/portrait.test.
 - **DSC は docType と紐づかない**（検査は countryName / EKU / issuing_country の3つだけ）。
   9枚は設計判断であって仕様要件ではない。Status List 署名証明書も **IACA 直下の end-entity 1枚**で足りる
 - **VICAL/RICAL は TL であって LoTL ではない**。Multipaz は PEM 1枚／VICAL／RICAL の3口。
-  **x5chain の置き場所が違う**——VICAL=unprotected（2021 Annex C）／RICAL=**protected**（第2版 Annex F）。
-  取り違えると `x5chain not set in protected header` で落ちる（`coseSign1` と `coseSign1ProtectedChain`）
+  **x5chain の置き場所が違う**——VICAL=unprotected／RICAL=**protected**。取り違えると
+  `x5chain not set in protected header` で落ちる（`coseSign1` と `coseSign1ProtectedChain`）。
+  **理由は未確認**（実装事実のみ。ARF に VICAL/RICAL の記載は無い）。**RICAL の根拠は未発行の
+  第2版 draft**（DIS・発行予定 2026-11-30・Annex 番号も F/G で揺れる）＝**発行時に変わりうる**
 - **鍵を失ったら VICAL に新アンカーを足す**（作り直さない）。IACA link certificate は旧 IACA の
   秘密鍵で新 IACA に署名するので失った後は使えない。旧アンカーを残せば**発行済みは検証できる**
   （失効確認だけは救えない）。`gen-pki.sh` に既存鍵ガード（`--force` が無ければ上書きしない）
