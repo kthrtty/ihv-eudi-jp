@@ -52,8 +52,14 @@ export default {
         boundFetch,
         // **発行者アンカーはトラストリストから引く**（issue #26/#28）。既定は issuer が
         // 配る LoTE。器を替えたいときは env で VICAL を足せる（同じ解決層が両方読む）
-        trustListUris: (env.TRUST_LIST_URIS || `${issuerUrl}/trust/lote.json`)
-          .split(/[\s,]+/).filter(Boolean),
+        // **スキーム CA が無ければトラストリストを使わない**——リストの署名者を検証できない
+        // ので `parseLoTE` は valid を立てず、アンカー0件＝fail-closed で検証が全滅する。
+        // 「リストを設定していない」と「リストが引けない」は別物で、前者は
+        // バンドルのアンカーで従来どおり動くのが正しい（デプロイ順序の事故を防ぐ）
+        trustListUris: verifierPki?.trustSchemeCa
+          ? (env.TRUST_LIST_URIS || `${issuerUrl}/trust/lote.json`)
+            .split(/[\s,]+/).filter(Boolean)
+          : null,
         trustSchemeCaDer: verifierPki?.trustSchemeCa ?? null,
       });
     }
