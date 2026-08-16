@@ -342,3 +342,69 @@ test('#26 偽の Status List（自前の CA で署名した「全部有効」）
     () => verifyStatus({ idx: issuances[0].idx, uri }, fakeResolve, { trustedCas: [iaca] }),
     /does not chain to a trusted anchor/);
 });
+
+// 開発者コンソールの「エンドポイント」タブ（案B・2026-08-17）。
+// 信頼と失効は**どのリストがどの形式に対応するか**が読めないと意味がないので、
+// 節の先頭に対応表を置く。生の JWS/CBOR は「現在の値」に出しても読めないため集計を出す。
+test('#28 /dev/endpoints が「信頼と失効」節と対応表を返す', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+  const d = await (await app.request('/dev/endpoints')).json();
+
+  const sec = d.sections?.find((x) => x.grp === '信頼と失効');
+  assert.ok(sec, '節がある');
+  assert.deepEqual(sec.table.head, ['形式', '信頼根（アンカー）', '失効リスト']);
+  assert.equal(sec.table.rows.length, 3, 'mdoc / SD-JWT / 旧共通');
+  // **VICAL に SD-JWT が無いことが表で見える**のがこの画面の要点
+  assert.match(JSON.stringify(sec.table.rows[0]), /VICAL・LoTE/);
+  assert.match(JSON.stringify(sec.table.rows[1]), /LoTE のみ/);
+
+  const eps = d.endpoints.filter((e) => e.grp === '信頼と失効');
+  assert.deepEqual(eps.map((e) => e.path), [
+    '/trust/lote.json', '/trust/vical.cbor', '/trust/rical.cbor',
+    '/status-lists/1/mdoc', '/status-lists/1/sdjwt', '/status-lists/1',
+  ]);
+  for (const e of eps) assert.ok(e.sub, `${e.path} に一行要約がある`);
+  // 集計は**自分のパーサを通す**ので、表示件数＝読む側が実際に採るアンカー数（自己適合）。
+  // **証明書の種類**を数える——LoTE は1つの CA が複数サービスを担うのでエントリ数だと水増しになる
+  const lote = eps.find((e) => e.path === '/trust/lote.json');
+  assert.match(lote.sub, /発行者 3／リーダー 1/, `実測: ${lote.sub}`);
+  assert.match(eps.find((e) => e.path === '/trust/vical.cbor').sub, /発行者 2／リーダー 0/);
+  assert.match(eps.find((e) => e.path === '/trust/rical.cbor').sub, /発行者 0／リーダー 1/);
+  // 日付は ISO へ正規化する（cbor-x は tag 0 を Date に復号するので素だと "Sat Nov 14 …"）
+  assert.match(lote.sub, /次回更新 \d{4}-\d{2}-\d{2}$/);
+  assert.match(eps.find((e) => e.path === '/trust/vical.cbor').sub, /次回更新 \d{4}-\d{2}-\d{2}$/);
+});
+
+// 失効の集計は**署名しない**（3形式ぶん ES256 を走らせると Workers の 10ms を食う）。
+test('#30 statusSummary は署名せずに枠・払い出し・失効を返す', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+  const offer = await (await app.request('/offer', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'] }),
+  })).json();
+  const w = createWallet();
+  await w.receive({ request: app.request.bind(app), offer: offer.credential_offer, credentialIssuer: ISSUER });
+  const { issuances } = await (await app.request('/issuances')).json();
+  await app.request('/revoke', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ index: issuances[0].idx, reason: 'test' }) });
+
+  const s = await app.svc.statusSummary();
+  assert.equal(s.mdoc.issued, 1);
+  assert.equal(s.mdoc.revoked, 1);
+  assert.equal(s.mdoc.size, 65536, '枠は発行数で変わらない（#30）');
+  assert.equal(s.sdjwt.issued, 0);
+  assert.match(s.mdoc.uri, /\/status-lists\/1\/mdoc$/);
+  assert.match(s.legacy.uri, /\/status-lists\/1$/);
+});
+
+// 過去に inline JS の構文エラーで検証ビルダーが全停止した前例があるので、
+// コンソールのスクリプトは**構文が通ることをテストで固定**する。
+test('開発者コンソールの inline JS が構文エラーにならない（節見出し・対応表の追加後）', async () => {
+  const { devWidgetHtml } = await import('../src/devlog.mjs');
+  const html = devWidgetHtml(ISSUER, { endpoints: true });
+  const scripts = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+  assert.equal(scripts.length, 1);
+  // new Function は構文を解析するだけで実行しない（DOM が無くても検査できる）
+  assert.doesNotThrow(() => new Function(scripts[0]));
+  for (const k of ['dev-ep-h', 'dev-sect-t', 'dev-ep-sub']) assert.ok(html.includes(k), k);
+});

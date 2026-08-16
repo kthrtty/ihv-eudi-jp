@@ -142,8 +142,13 @@ function openCose(bytes, { schemeCaDer, at, label }) {
   return { map: p instanceof Map ? p : cborDecodeMap(r.payloadContent), chainProtected: r.chainProtected };
 }
 
-/** tdate（tag 0）でも素の文字列でも受ける。 */
-const tdate = (v) => (v && typeof v === 'object' && 'value' in v ? v.value : v) ?? null;
+/** tdate（tag 0）でも素の文字列でも受ける。**cbor-x は tag 0 を Date に復号する**ので
+ *  ISO 文字列へ正規化する（そのまま String() すると "Sat Nov 14 …" になる）。 */
+const tdate = (v) => {
+  const raw = (v && typeof v === 'object' && 'value' in v) ? v.value : v;
+  if (raw instanceof Date) return raw.toISOString();
+  return raw ?? null;
+};
 
 // **RICAL は `type` を持ち、VICAL は持たない**（代わりに vicalProvider を持つ）。
 // これが唯一の機械的な見分け方。取り違えると **VICAL の IACA が Reader アンカーに化ける**

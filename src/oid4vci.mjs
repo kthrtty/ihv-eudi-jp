@@ -635,6 +635,25 @@ export class IssuerService {
   // 配布前に必ず永続状態を読み直す — 別 isolate で行われた失効を反映するため
   async statusListToken(format = null) { await this._loadState(); return this.statusList.token(format); }
   /**
+   * 形式ごとの失効の要約（開発者コンソールの表示用）。**署名しない**——
+   * `statusListToken()` を3回呼ぶと ES256 が3回走る（Workers の CPU 上限は 1リクエスト 10ms）。
+   * 見せたいのは「枠・失効件数・払い出し済み」だけなのでビット列を数えるだけにする。
+   */
+  async statusSummary() {
+    await this._loadState();
+    const out = {};
+    for (const f of ['legacy', 'mdoc', 'sdjwt']) {
+      const l = this.statusList.lists[f];
+      out[f] = {
+        uri: this.statusList.uriFor(f === 'legacy' ? null : f),
+        size: this.statusList.size,
+        issued: l.next,                                   // 払い出し済みの索引数
+        revoked: l.bits.reduce((n, b) => n + (b ? 1 : 0), 0),
+      };
+    }
+    return out;
+  }
+  /**
    * 失効させる。**idx は形式ごとに独立した索引空間**（issue #25）なので、形式の指定が無ければ
    * 発行台帳から引く（台帳が正本で、呼び出し側に形式を知る義務を負わせない）。
    * 同じ idx が複数形式に存在して曖昧なときだけ、明示を求める。
