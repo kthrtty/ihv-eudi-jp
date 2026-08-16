@@ -17,7 +17,7 @@
     "wrangler": "^4.105.0"
   },
   "scripts": {
-    "setup": "bash scripts/gen-pki.sh && node scripts/gen-trust.mjs && node scripts/gen-schemas.mjs",
+    "setup": "bash scripts/gen-pki.sh && node scripts/gen-trust.mjs && node scripts/gen-schemas.mjs && npm run gen-trustlists",
     "test": "node --test \"test/*.test.mjs\"",
     "coverage": "c8 --include 'src/**' --reporter=text --reporter=lcov node --test",
     "demo:handover": "node scripts/handover.mjs",
@@ -31,7 +31,7 @@
     "gen-pki-json:wallet": "node scripts/gen-worker-pki.mjs --wallet",
     "deploy:pki": "node scripts/gen-worker-pki.mjs > /tmp/pki.json && node scripts/kv-versioned.mjs put _pki:config /tmp/pki.json",
     "interop:multipaz": "bash interop/multipaz-jvm/run.sh",
-    "gen-trustlists": "node scripts/gen-vical.mjs && node scripts/gen-lote.mjs",
+    "gen-trustlists": "node scripts/gen-vical.mjs && node scripts/gen-lote.mjs && node scripts/gen-trust-bundle.mjs",
     "kv": "node scripts/kv-versioned.mjs"
   },
   "description": "eIDAS2/ARF IHV demo (OID4VCI/OID4VP/HAIP, mdoc+SD-JWT, DC API)",

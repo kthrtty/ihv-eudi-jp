@@ -216,14 +216,20 @@ export async function mint(configId, { holderJwk, claims, status } = {}) {
   return { configId, format: cfg.format, vct: cfg.vct, credential };
 }
 
-/** verify(configId, credential) -> { valid, claims, errors, ... } */
-export async function verify(configId, credential) {
+/**
+ * verify(configId, credential) -> { valid, claims, errors, ... }
+ *
+ * `anchors` を渡すと**トラストリスト由来のアンカーの束**で検証する（issue #26/#28）。
+ * 渡さなければ従来どおりバンドル／ディスクの1枚。**リストが引けたのに0件だった**ときは
+ * 空配列が渡ってきて検証が落ちる＝fail-closed（アンカーが引けないときに素通しさせない）。
+ */
+export async function verify(configId, credential, { anchors = null } = {}) {
   const cfg = catalog.credential_configurations_supported[configId];
   if (cfg.format === 'mso_mdoc') {
-    const trustedIacaDer = _pki?.mdoc?.iaca ?? await diskDer('pki/mdoc/iaca/iaca.crt');
+    const trustedIacaDer = anchors ?? _pki?.mdoc?.iaca ?? await diskDer('pki/mdoc/iaca/iaca.crt');
     return verifyMdoc(credential, { trustedIacaDer, expectedDocType: cfg.doctype });
   }
-  const trustedIssuerCaDer = _pki?.sdjwt?.caCert ?? await diskDer('pki/sdjwt/issuer-ca.crt');
+  const trustedIssuerCaDer = anchors ?? _pki?.sdjwt?.caCert ?? await diskDer('pki/sdjwt/issuer-ca.crt');
   return verifySdJwtVc(credential, { trustedIssuerCaDer });
 }
 

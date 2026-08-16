@@ -22,6 +22,8 @@ function parseVerifierPki(json) {
     readerKey: raw.verifier?.readerKey ?? null,
     readerCert: raw.verifier?.readerCert ? b64ToDer(raw.verifier.readerCert) : null,
     readerCa: raw.verifier?.readerCa ? b64ToDer(raw.verifier.readerCa) : null,
+    // トラストリスト自身の署名者アンカー（issue #26/#28）。旧バンドルには無いので null 許容
+    trustSchemeCa: raw.trust?.schemeCa ? b64ToDer(raw.trust.schemeCa) : null,
   };
 }
 
@@ -48,6 +50,11 @@ export default {
         verifierPki,
         issuerUrl,
         boundFetch,
+        // **発行者アンカーはトラストリストから引く**（issue #26/#28）。既定は issuer が
+        // 配る LoTE。器を替えたいときは env で VICAL を足せる（同じ解決層が両方読む）
+        trustListUris: (env.TRUST_LIST_URIS || `${issuerUrl}/trust/lote.json`)
+          .split(/[\s,]+/).filter(Boolean),
+        trustSchemeCaDer: verifierPki?.trustSchemeCa ?? null,
       });
     }
     return app.fetch(request, env, ctx);

@@ -64,8 +64,17 @@ export async function verifySdJwtVc(sdjwt, { trustedIssuerCaDer } = {}) {
     const leafPub = await importSPKI(der2spkiPem(header.x5c[0]), 'ES256');
     ({ payload } = await jwtVerify(jwt, leafPub));
     const leaf = new X509Certificate(Buffer.from(header.x5c[0], 'base64'));
-    const ca = new X509Certificate(Buffer.from(trustedIssuerCaDer ?? header.x5c[1]));
-    if (!leaf.verify(ca.publicKey)) errors.push('issuer cert not issued by trusted CA');
+    // **アンカーは複数あり得る**（トラストリスト由来・鍵を失った旧 CA も残す。#27/#28）。
+    // 1つでも通れば信頼できる。**注入が無いときの `header.x5c[1]` へのフォールバックは
+    // 「トークン自身が連れてきた CA を信じる」＝実質ノーチェック**なので、
+    // アンカーを渡さない呼び出しだけの後方互換として残す（本番経路は必ず渡す）
+    const anchors = trustedIssuerCaDer == null
+      ? [header.x5c[1]]
+      : (Array.isArray(trustedIssuerCaDer) ? trustedIssuerCaDer : [trustedIssuerCaDer]);
+    if (!anchors.length) errors.push('no trusted issuer CA anchor available');
+    else if (!anchors.some((d) => { try { return leaf.verify(new X509Certificate(Buffer.from(d)).publicKey); } catch { return false; } })) {
+      errors.push('issuer cert not issued by trusted CA');
+    }
   } catch (e) { errors.push('issuer JWT verify failed: ' + e.message); return { valid: false, errors }; }
 
   if (payload._sd_alg !== 'sha-256') errors.push(`unsupported _sd_alg ${payload._sd_alg}`);

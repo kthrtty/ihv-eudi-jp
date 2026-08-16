@@ -26,11 +26,15 @@ export class VerifierService {
     clientName = 'IHV デモ検証者（RP）',
     encPrivatePem = null, trustedIacaDer = null, trustedIssuerCaDer = null,
     readerKeyPem = null, readerCertDer = null, readerCaDer = null,
-    statusResolver = null } = {}) {
+    statusResolver = null, trustResolver = null } = {}) {
     this.store = store; this.clientId = clientId; this.origin = origin;
     this.clientName = clientName;
     this.readerKeyPem = readerKeyPem; this.readerCertDer = readerCertDer; this.readerCaDer = readerCaDer;
     this.statusResolver = statusResolver;
+    // トラストリスト由来のアンカー（issue #26/#28）。**有れば正本**——バンドルに焼いた
+    // `trustedIacaDer` / `trustedIssuerCaDer` は、リストが引けない環境（テスト・オフライン）
+    // のための土台として残す。差し替えたいときにリストだけ直せるのがこの層の目的
+    this.trustResolver = trustResolver;
     this._trustedIacaDer = trustedIacaDer;
     this._trustedIssuerCaDer = trustedIssuerCaDer;
     if (encPrivatePem) this._initKeys(encPrivatePem, trustedIacaDer, trustedIssuerCaDer);
@@ -58,6 +62,31 @@ export class VerifierService {
       authorization_encrypted_response_enc: 'A128GCM',
       vp_formats_supported: { 'dc+sd-jwt': { 'sd-jwt_alg_values': ['ES256'], 'kb-jwt_alg_values': ['ES256'] }, mso_mdoc: { alg: ['ES256'] } },
     };
+  }
+
+  /**
+   * この応答を検証するときのトラストアンカー。トラストリストが引ければ**その束**、
+   * 引けなければバンドルの1枚。**リストが引けたのに0件なら fail-closed**（空配列を返し、
+   * 検証側が「アンカーが無い」で落ちる）——引けないときに素通しさせないため。
+   */
+  async _anchors() {
+    const base = {
+      issuer: this.trustedIacaDer ? [this.trustedIacaDer] : [],
+      sdjwt: this.trustedIssuerCaDer ? [this.trustedIssuerCaDer] : [],
+    };
+    // `all` = 発行者側アンカーの総和。**Status List の署名者はこれで見る**——
+    // mdoc のリストは IACA 配下、SD-JWT のリストは SD-JWT CA 配下（独立2ルート・#25）で、
+    // どちらに繋がるかは配布 URI からしか分からない。束で見れば取り違えようがない
+    const withAll = (o) => ({ ...o, all: [...new Set([...o.issuer, ...o.sdjwt])] });
+    if (!this.trustResolver) return withAll({ ...base, fromList: false });
+    try {
+      const r = await this.trustResolver.resolve();
+      const ders = r.issuerCas.map((a) => a.der);
+      if (!ders.length) return { issuer: [], sdjwt: [], all: [], fromList: true, errors: r.errors };
+      // 形式のラベルは付けない——mdoc の資格証が SD-JWT CA へ繋がることはあり得ないので、
+      // 発行者アンカーの束を丸ごと試せば結果は同じ（リストの記述ミスに強い）
+      return withAll({ issuer: ders, sdjwt: ders, fromList: true, errors: r.errors });
+    } catch { return withAll({ ...base, fromList: false }); }
   }
 
   async _ensurePki() {
@@ -211,12 +240,13 @@ export class VerifierService {
         return { valid: false, errors: [`HPKE 復号に失敗（応答の構造は正常・受信鍵か SessionTranscript の不一致）: ${e.message}`] };
       }
       const q = session.dcql.credentials[0];
+      const anchors = await this._anchors();
       const r = verifyDeviceResponse(deviceResponse,
-        { trustedIacaDer: this.trustedIacaDer, sessionTranscript: session.transcript, expectedDocType: q.meta.doctype_value });
+        { trustedIacaDer: anchors.issuer, sessionTranscript: session.transcript, expectedDocType: q.meta.doctype_value });
       if (!r.valid) errors.push(`${q.id}: ${r.errors.join(';')}`);
       if (!satisfies(q, r.claims || {})) errors.push(`${q.id}: DCQL not satisfied`);
       if (this.statusResolver && r.status) {
-        try { const st = await verifyStatus(r.status, this.statusResolver); if (st.revoked) errors.push(`${q.id}: credential revoked`); }
+        try { const st = await verifyStatus(r.status, this.statusResolver, { trustedCas: anchors.all }); if (st.revoked) errors.push(`${q.id}: credential revoked`); }
         catch (e) { errors.push(`${q.id}: status check failed: ${e.message}`); }
       }
       const raw = rawVpRepr({ format: 'mso_mdoc', bytes: deviceResponse });
@@ -235,16 +265,17 @@ export class VerifierService {
     // per set (e.g. mdoc OR SD-JWT of the same document) — absent alternatives
     // are fine as long as each required set has one fully-presented option.
     errors.push(...missingPresentations(session.dcql, Object.keys(vpToken).filter((id) => vpToken[id]?.[0])));
+    const anchors = await this._anchors();
     for (const q of session.dcql.credentials) {
       const presented = vpToken[q.id]?.[0];
       if (!presented) continue; // required-but-missing already reported above
       let r;
       if (q.format === 'mso_mdoc') {
         r = verifyDeviceResponse(new Uint8Array(Buffer.from(presented, 'base64url')),
-          { trustedIacaDer: this.trustedIacaDer, sessionTranscript: session.transcript, expectedDocType: q.meta.doctype_value });
+          { trustedIacaDer: anchors.issuer, sessionTranscript: session.transcript, expectedDocType: q.meta.doctype_value });
       } else {
         r = await verifySdJwtPresentation(presented,
-          { trustedIssuerCaDer: this.trustedIssuerCaDer, nonce: session.nonce,
+          { trustedIssuerCaDer: anchors.sdjwt, nonce: session.nonce,
             // DC API は origin:<origin>（保存済み）／HTTPS リダイレクトは client_id
             aud: session.expectedAud || session.clientId || this.clientId });
         r.holder = r.cnf?.jwk;
@@ -253,7 +284,7 @@ export class VerifierService {
       if (!satisfies(q, r.claims || {})) errors.push(`${q.id}: DCQL not satisfied`);
       if (this.statusResolver && r.status) {
         try {
-          const st = await verifyStatus(r.status, this.statusResolver);
+          const st = await verifyStatus(r.status, this.statusResolver, { trustedCas: anchors.all });
           if (st.revoked) errors.push(`${q.id}: credential revoked`);
         } catch (e) { errors.push(`${q.id}: status check failed: ${e.message}`); }
       }

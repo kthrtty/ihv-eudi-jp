@@ -13,6 +13,7 @@ import { verify as verifyCredential } from './issuer.mjs';
 import { shell, pkce, typeIcon, typeName, typeNote, vcardHtml, walletCardCss, WALLET_CARD_THEME, swatchEmblemHtml, swatchEmblemCss } from './authcode-demo.mjs';
 import { catalog, configInfo } from './issuer.mjs';
 import { verifyStatus } from './status.mjs';
+import { createTrustResolver } from './trust.mjs';
 import { storedCredRepr } from './vpdebug.mjs';
 import { recordingFetch, getLog, createLogRing } from './devlog.mjs';
 import { securityHeaders, csrfGuard, makeSsrfSafeFetch } from './security.mjs';
@@ -100,7 +101,7 @@ const toImgUri = (v) => {
 const isImgVal = (v) => typeof v === 'string' && v.startsWith('data:image/');
 const dispVal = (v) => (isImgVal(v) ? `<img class="pimg" src="${esc(v)}" alt="顔写真">` : esc(v));
 
-export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer.example.test', verifierUrl = 'https://verifier.example.test', boundFetch = null, store = null, fetchAllowlist = '' } = {}) {
+export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer.example.test', verifierUrl = 'https://verifier.example.test', boundFetch = null, store = null, fetchAllowlist = '', trustListUris = null, trustSchemeCaDer = null } = {}) {
   const app = new Hono();
   // R3 security headers + R5 CSRF guard on every route (mutations only bite when a
   // cross-origin browser Origin arrives alongside our session cookie).
@@ -122,6 +123,31 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
   const baseFetch = makeSsrfSafeFetch(boundFetch ?? fetch, fetchAllowlist);
   const devlog = createLogRing();
   const doFetch = recordingFetch(baseFetch, devlog);
+
+  // ---- トラストアンカーの取得層（issue #26 / #28）------------------------------
+  // ウォレットは**2種類のアンカーを読む**:
+  //   発行者側（LoTE / VICAL）… 受領した資格証の検証・Status List 署名者の検証
+  //   リーダー側（LoTE / RICAL）… readerAuth（この検証者は本物か）
+  // **キャッシュ機構は Status List と同じ設計**——TTL 内は手元のリストで判定し、
+  // 同時取得は in-flight 相乗り（相乗りしないとホームでカード枚数ぶん取得が並走する）。
+  const trust = trustListUris?.length
+    ? createTrustResolver({
+      sources: trustListUris, schemeCaDer: trustSchemeCaDer,
+      store, fetchImpl: doFetch, keyPrefix: 'wtrust:',
+    })
+    : null;
+  // アンカーの束。**リストを設定していなければ null**＝従来どおりバンドルで検証する。
+  // 設定してあるのに0件しか引けなければ空配列を返す＝fail-closed（素通しさせない）
+  const issuerAnchors = async (s) => {
+    if (!trust) return null;
+    try { return (await trust.resolve({ ttl: trustTtlSec(s) })).issuerCas.map((a) => a.der); }
+    catch { return null; }
+  };
+  const readerAnchors = async (s) => {
+    if (!trust) return null;
+    try { return (await trust.resolve({ ttl: trustTtlSec(s) })).readerCas.map((a) => a.der); }
+    catch { return null; }
+  };
 
   // Persistent wallet cookie so the session (and its VCs) survives browser restarts.
   // SameSite=Lax (NOT None): the OID4VP redirect into /present is a cross-site
@@ -206,6 +232,13 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     const v = Number(s?.settings?.statusTtlSec);
     return Number.isFinite(v) && v >= 0 ? v : DEFAULT_STATUS_TTL_SEC;
   };
+  // トラストリストは失効リストより**桁で変化が遅い**（アンカーの追加は年単位、
+  // LoTE 自身の NextUpdate も 90 日先）。既定 1 時間・0=毎回取得。/settings で変更可能
+  const DEFAULT_TRUST_TTL_SEC = 3600;
+  const trustTtlSec = (s) => {
+    const v = Number(s?.settings?.trustTtlSec);
+    return Number.isFinite(v) && v >= 0 ? v : DEFAULT_TRUST_TTL_SEC;
+  };
   const memStl = new Map(); // store なしローカル実行時のフォールバック
   const stlInflight = new Map(); // uri -> 取得中 Promise。ホームは全カードの credStatus を
   // 並行実行するので、相乗りしないとキャッシュミス時にカード枚数ぶん fetch+KV write が走る
@@ -230,14 +263,17 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
       const c = s.creds.find((x) => x.id === credId);
       const stored = s.wallet.get(credId);
       if (!c || !stored) return { checked: false };
-      const v = await verifyCredential(c.configId, stored.credential);
+      const anchors = await issuerAnchors(s);
+      const v = await verifyCredential(c.configId, stored.credential, { anchors });
       if (!v.status) return { checked: false };
       let listAt = Date.now();
+      // **Status List の署名者もアンカーへ結び付ける**（#26）。渡さないとトークン自身が
+      // 連れてきた鍵を信じることになり、「全部有効」のリストに差し替えられる
       const st = await verifyStatus(v.status, async (uri) => {
         const rec = await fetchStatusList(uri, statusTtlSec(s), { force });
         listAt = rec.at;
         return rec.token;
-      });
+      }, { trustedCas: anchors });
       return { checked: true, revoked: !!st.revoked, at: listAt };
     } catch { return { checked: false }; }
   };
@@ -246,7 +282,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
   // 複数件受けるときは発行順を保ったまま、まとまり全体が先頭に来る）
   const record = async (s, rec, at = 0) => {
     let claims = {};
-    try { const v = await verifyCredential(rec.configId, s.wallet.get(rec.id).credential); claims = v.claims; } catch {}
+    try { const v = await verifyCredential(rec.configId, s.wallet.get(rec.id).credential, { anchors: await issuerAnchors(s) }); claims = v.claims; } catch {}
     s.creds.splice(at, 0, { ...rec, claims: Object.fromEntries(Object.entries(claims).map(([k, v]) => [k, k === 'portrait' ? toImgUri(v) : fmt(v)])) });
   };
 
@@ -318,14 +354,23 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
   // ウォレット設定: Status List のキャッシュ時間（既定 5 分・0 = 毎回サーバーから取得）
   app.get('/settings', async (c) => {
     const s = await loadSession(c);
-    return c.html(settingsPage(statusTtlSec(s), c.req.query('saved') === '1'));
+    // トラストリストの状況も見せる（どのリストから何件のアンカーを引いているか）
+    let trustInfo = null;
+    if (trust) { try { trustInfo = await trust.resolve({ ttl: trustTtlSec(s) }); } catch { /* 画面は出す */ } }
+    return c.html(settingsPage(statusTtlSec(s), c.req.query('saved') === '1',
+      { trustTtlSec: trustTtlSec(s), trustInfo }));
   });
   app.post('/settings', async (c) => {
     const s = await loadSession(c);
     const f = await c.req.parseBody();
     const min = Number(f.status_ttl_min);
-    if (Number.isFinite(min) && min >= 0 && min <= 1440) {
-      s.settings = { ...(s.settings || {}), statusTtlSec: Math.round(min * 60) };
+    const tmin = Number(f.trust_ttl_min);
+    const patch = {};
+    if (Number.isFinite(min) && min >= 0 && min <= 1440) patch.statusTtlSec = Math.round(min * 60);
+    // トラストリストは失効リストより桁で変化が遅いので上限も長く取る（最大7日）
+    if (Number.isFinite(tmin) && tmin >= 0 && tmin <= 10080) patch.trustTtlSec = Math.round(tmin * 60);
+    if (Object.keys(patch).length) {
+      s.settings = { ...(s.settings || {}), ...patch };
       await saveSession(s);
     }
     return c.redirect('/settings?saved=1', 302);
@@ -649,7 +694,10 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
         const credentialId = body[`cred:${q.dcqlId}`] ?? q.matches[0]?.id;
         selection[q.dcqlId] = { credentialId, disclose: arr(body[`disclose:${q.dcqlId}`]) };
       }
-      const jwe = await s.wallet.respond(request, selection);
+      // readerAuth のアンカーは**トラストリスト（RICAL / LoTE の RPAccessCA）が正本**。
+      // 設定していなければ従来どおり trust/trust-list.json（wallet.mjs 側の既定）
+      const jwe = await s.wallet.respond(request, selection,
+        { trustedReaderCaDers: await readerAnchors(s) });
       const resp = await doFetch(request.response_uri, {
         method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({ response: jwe }).toString(),
@@ -2040,8 +2088,21 @@ function receivingScreen(configIds, issuerBase) {
 // ウォレット設定画面: Status List キャッシュ時間（分）。キャッシュが有効な間は
 // 手元のリストで失効判定し、期限切れ/未取得/再確認時のみサーバーから取得する。
 // 末尾=ウォレットの管理（バインディング鍵の表示・初期化。ホームの⋯メニューから移設）
-function settingsPage(ttlSec, saved = false) {
+function settingsPage(ttlSec, saved = false, { trustTtlSec = 3600, trustInfo = null } = {}) {
   const min = Math.round(ttlSec / 60);
+  const tmin = Math.round(trustTtlSec / 60);
+  const esc = (x) => String(x ?? '').replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+  // アンカーが何件引けているかは**この画面でしか見えない**。0 件＝検証が全部落ちる状態なので目立たせる
+  const trustBlock = trustInfo === null ? `
+        <div class="hint" style="margin:10px 0 14px">トラストリストは設定されていません（バンドルに焼いたアンカーで検証します）。</div>`
+    : `
+        <div class="hint" style="margin:10px 0 6px">
+          発行者アンカー <b>${trustInfo.issuerCas.length}</b> 件 ／ リーダーアンカー <b>${trustInfo.readerCas.length}</b> 件
+          ${trustInfo.issuerCas.length === 0 ? '<b style="color:#C8453C">（0 件＝検証できません）</b>' : ''}
+        </div>
+        <div class="hint" style="margin:0 0 14px">
+          ${trustInfo.lists.map((l) => `<div>${l.stale ? '⚠ ' : ''}${esc(l.source ?? '取得失敗')} — ${esc(l.uri)}${l.error ? `<br><span style="color:#C8453C">${esc(l.error)}</span>` : ''}</div>`).join('')}
+        </div>`;
   return shell('設定', `
     <div class="card" style="max-width:480px;margin:24px auto">
       <div class="back" style="margin-bottom:8px"><a href="/">← ウォレット</a></div>
@@ -2058,6 +2119,16 @@ function settingsPage(ttlSec, saved = false) {
           キャッシュが有効な間は再取得せず手元のリストで判定し、<b>期限切れ・未取得</b>のときだけ
           サーバーから最新を自動取得します。<b>失効を早く反映したいときはこの時間を短く</b>してください（<b>0 = キャッシュしない＝毎回取得</b>）。既定は 5 分。
         </div>
+        <label style="display:block;margin-top:18px">
+          <div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:6px">トラストリストのキャッシュ時間（分）</div>
+          <input name="trust_ttl_min" type="number" min="0" max="10080" step="1" value="${tmin}"
+            style="font:inherit;width:120px;padding:9px 12px;border:1px solid var(--line);border-radius:8px">
+        </label>
+        <div class="hint" style="margin:10px 0 4px">
+          誰を信頼するか（発行者・検証者のルート証明書）はトラストリストから取得します。
+          <b>失効リストより桁で変化が遅い</b>ので既定は 60 分です（<b>0 = 毎回取得</b>）。
+        </div>
+        ${trustBlock}
         <button type="submit" class="btn">保存する</button>
       </form>
       <div style="margin-top:26px;border-top:1px solid var(--line);padding-top:16px">

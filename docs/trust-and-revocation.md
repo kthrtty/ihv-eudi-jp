@@ -384,18 +384,102 @@ const ref = statusRef.status_list || statusRef;
 const jwt = await resolve(ref.uri);      // 形式の分岐はコードに存在しない
 ```
 
-### 未解決（#26）
+### 解決（#26・2026-08-16）
 
-**Verifier は Status List の署名をトラストアンカーに結び付けていない。**
+かつては **Status List の署名をトラストアンカーに結び付けていなかった**。
 
 ```js
+// 旧: トークン自身が持ってきた鍵で自分の署名を検証しているだけ＝誰が署名しても通る
 const pubPem = new X509Certificate(Buffer.from(header.x5c[0], 'base64')).publicKey…
 const { payload } = await jwtVerify(jwt, pub, { typ: 'statuslist+jwt' });
 ```
 
-トークン自身が持ってきた鍵で自分の署名を検証しているだけなので、**誰が署名しても通る**。
-URI への経路を奪える攻撃者は「失効していません」というリストを返せる。
+URI への経路を奪える攻撃者は「失効していません」というリストを返せた。
 Multipaz はここを結び付けており、**我々が緩く、Multipaz が厳密だった**。
+
+`parseStatusListToken(jwt, { trustedCas })` / `verifyStatus(ref, resolve, { trustedCas })` で
+署名者をアンカーへ辿るようにした。**アンカーは束で渡す**——mdoc のリストは IACA 配下、
+SD-JWT のリストは SD-JWT CA 配下（独立2ルート）で、どちらに繋がるかは配布 URI からしか
+分からないため。**0 件は「誰も信頼しない」＝ fail-closed**（引けないときに素通しさせない）。
+
+---
+
+## 4.5 トラストアンカーをリストから引く（#26 / #28・2026-08-16）
+
+### なぜ
+
+これまで各アプリは信頼根を**バンドルに焼いていた**（`_pki.mdoc.iaca` /
+`pki/sdjwt/issuer-ca.crt`）。アンカーを差し替えるには全アプリの再デプロイが要る。
+7月末に IACA 秘密鍵を失ったとき、VICAL に新アンカーを**足す**ことで発行済みを1枚も
+無効にせず移行できた——**同じレバーを全ての面に付ける**のがこの層の目的。
+
+### 器は3つあり、載る役割が違う（実物を開いて確認）
+
+| 器 | 規格 | 署名 | 載るもの | 読む側 |
+|---|---|---|---|---|
+| **LoTE** | ETSI TS 119602（JSON バインディング） | JWS `typ: lote+jwt` | mdoc IACA・**SD-JWT Issuer CA**・Reader CA | Web の3アプリ |
+| **VICAL** | ISO 18013-5 Annex C | COSE_Sign1（x5chain=unprotected） | mdoc IACA **だけ** | 検証側・ウォレット |
+| **RICAL** | 第2版 Annex F | COSE_Sign1（x5chain=**protected**） | Reader CA だけ | ウォレット |
+
+**VICAL/RICAL だけでは面が埋まらない。** VICAL の `certificateInfos` は `docType` を持つ
+mdoc 前提のスキーマなので、**SD-JWT Issuer CA を載せる場所が構造的に無い**。我々の18構成の
+半分は SD-JWT で、`/status-lists/1/sdjwt` の署名者は SD-JWT CA 配下。よって Web の3アプリは
+**LoTE を正本**にし、VICAL/RICAL も同じ解決層から読めるようにした（Multipaz へ配っている
+実物を自分でも消費する＝自己適合が取れる）。
+
+### 役割はラベルし、形式はラベルしない
+
+- **役割（発行者／リーダー）は取り違えると実害がある**（Reader CA が資格証を保証できてしまう）。
+  LoTE の `ServiceTypeIdentifier`＝標準化された URI で分ける
+- **形式（mdoc／SD-JWT）はラベルしない**。mdoc の資格証が SD-JWT CA へ繋がることはあり得ない
+  （その CA は DSC を1枚も署名していない）ので、**発行者アンカーの束を丸ごと試せば結果は同じ**。
+  リストの記述ミスに強い側を採る
+
+### 器の見分け方（実装で踏んだ）
+
+**RICAL は payload に `type: org.iso.18013.5.1.reader_authentication` を持ち、VICAL は持たない。**
+これが唯一の機械的な見分け方で、取り違えると **VICAL の IACA がリーダーアンカーに化ける**。
+`parseVical` / `parseRical` は互いの中身を渡されたら**アンカーを1件も出さない**。
+
+もう1つ: COSE_Sign1 は **`cborDecodeMap` で読む**。既定の `cborDecode` は map を object に
+するので unprotected ヘッダから x5chain を引けず、**VICAL だけ検証不能**になる
+（RICAL は protected なので気づかない）。
+
+### 信頼の底
+
+リスト自身の署名者は**スキームオペレーターの CA**（`pki/vical/vical-ca.crt`）で検証する。
+**ここだけは各アプリに焼き込む**（`_pki.trust.schemeCa`）——差し替え可能だとリストごと
+入れ替えられて底が抜ける。`schemeCaDer` を渡さない呼び出しは `valid` を立てない。
+
+### キャッシュ（Status List と同じ設計）
+
+`createTrustResolver({ sources, schemeCaDer, store, fetchImpl, ttlSec })`
+
+- TTL 内は手元のリストで判定。既定 **60 分**（アンカーは失効リストより桁で変化が遅い。
+  LoTE の `NextUpdate` も 90 日先）。wallet=`/settings`／verifier=`/verifier/settings` で変更可能
+  （KV `vcfg:trust_ttl_sec`＝全 isolate 共有）
+- **同時取得は in-flight 相乗り**。ホームは全カードで `credStatus` を並行実行するので、
+  相乗りしないと枚数ぶん fetch + 同一キー KV write が並走する
+- **取得に失敗したら手元を使う**（一時的な不達で提示を全滅させない）。手元も無ければ
+  **アンカー0件＝ fail-closed**
+- 同じ証明書は **fp256 で1件に畳む**（LoTE と VICAL の両方を引くと IACA が重複する）
+- **有効期間外のアンカーは採らない**。判定はリゾルバの時計で行う
+
+### どの面に効いたか
+
+| 面 | アンカーの供給元 |
+|---|---|
+| Verifier が mdoc / SD-JWT の提示を検証 | LoTE（`VerifierService._anchors()`） |
+| Verifier が Status List の署名者を検証 | 同上（発行者アンカーの総和） |
+| wallet が受領した資格証を検証 | LoTE |
+| wallet が Status List の署名者を検証 | 同上 |
+| wallet が readerAuth を検証 | LoTE の `RPAccessCA` ／ RICAL |
+
+配信は issuer の `/trust/{lote.json,vical.cbor,rical.cbor}`（意味の上ではスキームオペレーターの
+役割だが、4 Worker で足りるデモの都合でここに置いている）。Workers に fs は無いので、
+配る側は `trust/bundle.json` を import する（`scripts/gen-trust-bundle.mjs`）。
+**読む側は HTTP で取ってキャッシュする**——読む側までバンドルに焼くと、アンカーの差し替えに
+再デプロイが要る＝この層を作った意味が無くなる。
 
 ---
 
