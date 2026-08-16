@@ -123,16 +123,24 @@ export class StatusListService {
   isRevoked(idx, format = null) { return this.#list(format).bits[idx] === 1; }
   reasonFor(idx, format = null) { return this.#list(format).reasons.get(idx) || null; }
 
-  /** 永続化する形。形式ごとに持つ（旧形式のスナップショットも読める）。 */
+  /** 永続化する形。形式ごとに持つ（旧形式のスナップショットも読める）。
+   *  ビット列は **base64url でパック**して持つ。0/1 の JSON 配列だと 1 ビットが 3 バイトになり、
+   *  枠 65536 × 3 本で 477KB＝**JSON の往復だけで 5ms**（Workers の CPU 上限は 1リクエスト 10ms）。
+   *  パックすれば 32KB。発行・失効のたびに読み書きする値なので効く（issue #30）。 */
   snapshot() {
     return Object.fromEntries(Object.entries(this.lists).map(([f, l]) =>
-      [f, { bits: Array.from(l.bits), next: l.next, reasons: [...l.reasons] }]));
+      [f, { packed: b64url(packBits(l.bits)), size: l.bits.length, next: l.next, reasons: [...l.reasons] }]));
   }
   restore(saved) {
     if (!saved) return;
     for (const [f, v] of Object.entries(saved)) {
       if (!this.lists[f] || !v) continue;
-      if (v.bits) this.lists[f].bits = v.bits;
+      // packed が正。bits（0/1 配列）は**旧スナップショットの読み取り互換**
+      if (v.packed) {
+        const bytes = Buffer.from(v.packed, 'base64url');
+        const n = v.size ?? bytes.length * 8;
+        this.lists[f].bits = Array.from({ length: n }, (_, i) => bitAt(bytes, i));
+      } else if (v.bits) { this.lists[f].bits = v.bits; }
       if (v.next != null) this.lists[f].next = v.next;
       if (v.reasons) this.lists[f].reasons = new Map(v.reasons);
     }

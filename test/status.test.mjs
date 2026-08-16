@@ -272,7 +272,8 @@ test('#25 発行済み分との互換: 旧 KV 状態を引き継ぎ、旧 URI �
   // 保存し直した KV は新形式（statusLists）で、legacy が入っている
   const saved = JSON.parse(kv.get('_persist:state'));
   assert.ok(saved.statusLists.legacy, '旧状態は legacy として保持される');
-  assert.equal(saved.statusLists.legacy.bits[3], 1);
+  // ビット列は packed（base64url）で保存する — 0/1 配列だと 1 ビットが 3 バイトになる（#30）
+  assert.equal(bitAt(Buffer.from(saved.statusLists.legacy.packed, 'base64url'), 3), 1);
   assert.equal(saved.statusLists.legacy.next, 5, '旧カウンタも保つ');
 });
 
@@ -400,4 +401,31 @@ test('#30 旧い保存状態を読み込んでも事前確保いっぱいまで�
   assert.equal(decompressList(p.status_list.lst).length * 8, 512, '配布の長さは事前確保どおり');
   const { getStatus } = await parseStatusListToken(jwt);
   assert.equal(getStatus(300), 1, '配布にも反映される');
+});
+
+// #30: 永続値の大きさは CPU に直接効く。0/1 の JSON 配列だと枠 65536×3本で 477KB＝
+// **JSON の往復だけで 5ms**（Workers の CPU 上限は 1リクエスト 10ms）。packed で 32KB。
+test('#30 スナップショットはビット列をパックし、旧形式も読める', async () => {
+  const { StatusListService } = await import('../src/status.mjs');
+  const s = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536 });
+  s.allocate('mdoc'); s.allocate('mdoc');
+  s.revoke(1, 'compromise', 'mdoc');
+  const snap = s.snapshot();
+  assert.ok(snap.mdoc.packed, 'packed で持つ');
+  assert.ok(!snap.mdoc.bits, '0/1 配列は持たない');
+  const size = JSON.stringify(snap).length;
+  assert.ok(size < 60_000, `永続値が小さい（実測 ${size}B）`);
+
+  const back = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536 });
+  back.restore(snap);
+  assert.equal(back.isRevoked(1, 'mdoc'), true);
+  assert.equal(back.isRevoked(0, 'mdoc'), false);
+  assert.equal(back.allocate('mdoc').idx, 2, 'next も戻る');
+
+  // 旧形式（0/1 配列）のスナップショットも読める
+  const old = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 512 });
+  const bits = new Array(256).fill(0); bits[7] = 1;
+  old.restore({ sdjwt: { bits, next: 256, reasons: [[7, { reason: 'x' }]] } });
+  assert.equal(old.isRevoked(7, 'sdjwt'), true, '旧形式の失効ビットが残る');
+  assert.equal(old.snapshot().sdjwt.size, 512, '読み込み時に事前確保へ揃う');
 });
