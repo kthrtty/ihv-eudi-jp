@@ -64,9 +64,15 @@ export default {
         store:         env.IHV_KV ? kvStore(env.IHV_KV) : null,
         // ウォレットは**発行者アンカーとリーダーアンカーの両方**を読む（issue #26/#28）。
         // LoTE に両方載っている。RICAL も足せる（同じ解決層が器を中身で見分ける）
-        trustListUris: (env.TRUST_LIST_URIS
-          || `${env.ISSUER_URL || 'https://issuer.example.test'}/trust/lote.json`)
-          .split(/[\s,]+/).filter(Boolean),
+        // **スキーム CA が無ければトラストリストを使わない**——リストの署名者を検証できない
+        // ので `parseLoTE` は valid を立てず、アンカー0件＝fail-closed で検証が全滅する。
+        // 「リストを設定していない」と「リストが引けない」は別物で、前者は
+        // バンドルのアンカーで従来どおり動くのが正しい（デプロイ順序の事故を防ぐ）
+        trustListUris: pki?.trust?.schemeCa
+          ? (env.TRUST_LIST_URIS
+            || `${env.ISSUER_URL || 'https://issuer.example.test'}/trust/lote.json`)
+            .split(/[\s,]+/).filter(Boolean)
+          : null,
         trustSchemeCaDer: pki?.trust?.schemeCa ?? null,
       });
     }
