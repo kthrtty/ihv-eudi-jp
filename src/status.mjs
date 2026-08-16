@@ -110,9 +110,12 @@ export class StatusListService {
   }
   revoke(idx, reason = 'unspecified', format = null) {
     const l = this.#list(format);
-    // 枠外の idx を書くと配列が伸びて発行数が漏れる。**範囲外は明示的に断る**
-    if (!(Number.isInteger(idx) && idx >= 0 && idx < l.bits.length)) {
-      throw new Error(`status list index out of range: ${idx}（枠 ${l.bits.length}）`);
+    // 枠外の idx を書くと配列が伸びて発行数が漏れる。**範囲外は明示的に断る**。
+    // 判定は `bits.length` ではなく **事前確保 `size`**——restore 直後の bits は
+    // 保存時の長さ（旧デプロイの 256）なので、bits を見ると idx≥256 の資格証を
+    // 失効できなくなる（本番で実測。issue #30）
+    if (!(Number.isInteger(idx) && idx >= 0 && idx < this.size)) {
+      throw new Error(`status list index out of range: ${idx}（枠 ${this.size}）`);
     }
     l.bits[idx] = 1;
     l.reasons.set(idx, { reason, date: new Date().toISOString() });
@@ -132,6 +135,15 @@ export class StatusListService {
       if (v.bits) this.lists[f].bits = v.bits;
       if (v.next != null) this.lists[f].next = v.next;
       if (v.reasons) this.lists[f].reasons = new Map(v.reasons);
+    }
+    // **読み込んだ瞬間に事前確保へ揃える**。ここで揃えないと、保存時の長さ（旧デプロイの 256）を
+    // 引きずったまま revoke / isRevoked / token が動き、面ごとに枠の解釈が食い違う（issue #30）
+    this.#pad();
+  }
+  /** 全リストを事前確保の長さに揃える（短いときだけ 0 で埋める）。 */
+  #pad() {
+    for (const l of Object.values(this.lists)) {
+      if (l.bits.length < this.size) l.bits = [...l.bits, ...new Array(this.size - l.bits.length).fill(0)];
     }
   }
 
@@ -159,10 +171,8 @@ export class StatusListService {
   /** 配布するトークン。形式ごとに署名鍵・sub・ビット列が変わる。 */
   async token(format = null) {
     // **配布するリストの長さは常に事前確保どおり**でなければならない（発行数を漏らさないため）。
-    // 旧データを restore した直後など、長さが食い違っていたら事前確保に揃える（issue #30）
-    for (const l of Object.values(this.lists)) {
-      if (l.bits.length < this.size) l.bits = [...l.bits, ...new Array(this.size - l.bits.length).fill(0)];
-    }
+    // 通常は restore が揃えているが、直接 bits を触られた場合の保険（issue #30）
+    this.#pad();
     const f = StatusListService.fmt(format);
     // 後方互換: 明示注入された鍵は legacy にだけ使う（旧デプロイと同じ署名者を保つ）
     if (f === 'legacy' && this.issuerKeyPem) {
