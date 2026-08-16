@@ -651,7 +651,9 @@ export class IssuerService {
       }
       f = hits[0] ?? null;   // 台帳に無ければ legacy（分割前の資格証）
     }
-    this.statusList.revoke(idx, reason, f);
+    // 範囲外は**利用者の指定が悪い**ので 400（素の throw だと app 層が 500 にする）
+    try { this.statusList.revoke(idx, reason, f); }
+    catch (e) { throw httpErr(400, 'invalid_request', e.message); }
     await this._saveState();
     return { idx, format: StatusListService.fmt(f) };
   }

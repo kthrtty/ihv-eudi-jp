@@ -384,3 +384,20 @@ test('#30 旧い保存状態を読み込んでも配布リストの長さは事�
   const { getStatus } = await parseStatusListToken(jwt);
   assert.equal(getStatus(276), 1, '旧データの失効ビットが残る');
 });
+
+// #30: **restore で揃えないと、保存時の長さが枠として効いてしまう**。本番で実測した形——
+// 事前確保を 65536 に上げたのに、KV から読んだ bits は 256 のままだったので
+// `revoke` の範囲判定が 256 で効き、**idx 256 以降に発行した資格証を失効させられなかった**。
+test('#30 旧い保存状態を読み込んでも事前確保いっぱいまで失効できる', async () => {
+  const { StatusListService, decompressList } = await import('../src/status.mjs');
+  const s = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 512 });
+  s.restore({ mdoc: { bits: new Array(256).fill(0), next: 300, reasons: [] } });
+  s.revoke(300, 'compromise', 'mdoc');      // 保存時の長さ（256）より後ろ
+  assert.equal(s.isRevoked(300, 'mdoc'), true, '256 以降も失効できる');
+  assert.throws(() => s.revoke(512, 'x', 'mdoc'), /out of range: 512（枠 512）/, '枠の外は断る');
+  const jwt = await s.token('mdoc');
+  const p = JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url').toString());
+  assert.equal(decompressList(p.status_list.lst).length * 8, 512, '配布の長さは事前確保どおり');
+  const { getStatus } = await parseStatusListToken(jwt);
+  assert.equal(getStatus(300), 1, '配布にも反映される');
+});
