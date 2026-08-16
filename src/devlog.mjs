@@ -249,6 +249,17 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
   .dev-ep-path{font-family:ui-monospace,monospace;font-size:12px;color:#0E1A2B}
   .dev-ep-desc{font-size:11px;color:var(--muted,#5B6B82);margin-top:5px}
   .dev-ep-go{margin-left:auto;font-size:11px;font-weight:700;color:#1C3F94;cursor:pointer;text-decoration:none}
+  .dev-ep-sub{font-family:ui-monospace,monospace;font-size:11px;color:#0E1A2B;margin-top:4px}
+  /* grp ごとの見出し。1本目の前だけ上余白を詰める */
+  .dev-ep-h{font-size:11px;font-weight:800;color:#0E1A2B;margin:16px 0 2px;letter-spacing:.02em}
+  #devEps>.dev-ep-h:first-child{margin-top:4px}
+  .dev-ep-note{font-size:10.5px;color:var(--muted,#5B6B82);line-height:1.7;margin:4px 0 2px}
+  /* 節の対応表。狭幅では横スクロール（縦に潰すと対応関係が読めなくなる） */
+  .dev-sect-tw{overflow-x:auto;margin:6px 0 2px}
+  .dev-sect-t{border-collapse:collapse;font-size:11px;width:100%;min-width:420px}
+  .dev-sect-t th{text-align:left;font-weight:700;color:var(--muted,#5B6B82);padding:4px 8px 4px 0;border-bottom:1px solid var(--line,#E3E8EF);white-space:nowrap}
+  .dev-sect-t td{padding:6px 8px 6px 0;border-bottom:1px solid #F2F5F9;vertical-align:top;color:#0E1A2B}
+  .dev-tsub{font-family:ui-monospace,monospace;font-size:10.5px;color:var(--muted,#5B6B82);margin-top:2px}
   .dev-ep-val{margin-top:8px;border-top:1px dashed #ECD9A0;padding-top:7px}
   .dev-ep-vh{font-size:10.5px;font-weight:700;color:#7a5b13;margin-bottom:4px}
   .dev-filters{display:flex;gap:5px;padding:8px 14px 2px;flex-wrap:wrap}
@@ -386,16 +397,41 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
     }).catch(function(){});
   }
   function load(){sync(render);}
+  function epCard(e){
+    var meta=e.value!==undefined&&e.value!==null;
+    var go=e.method==='GET'?'<a class="dev-ep-go" href="'+esc(e.path)+'" target="_blank" rel="noopener">開く ↗</a>':'';
+    var mp='<span class="dev-mp '+esc(e.method)+'">'+esc(e.method)+'</span>';
+    var val=meta?'<div class="dev-ep-val"><div class="dev-ep-vh">現在の値</div><pre class="dev-code">'+esc(typeof e.value==='string'?e.value:JSON.stringify(e.value,null,2))+'</pre></div>':'';
+    // sub = 集計した一行要約（件数・枠・次回更新）。生の JWS/CBOR は「現在の値」に出しても読めない
+    var sub=e.sub?'<div class="dev-ep-sub">'+esc(e.sub)+'</div>':'';
+    return '<div class="dev-ep'+(meta?' meta':'')+'"><div class="dev-ep-top">'+mp+'<span class="dev-ep-path">'+esc(e.path)+'</span>'+go+'</div><div class="dev-ep-desc">'+esc(e.desc||'')+'</div>'+sub+val+'</div>';
+  }
+  function sectTable(t){
+    if(!t||!t.rows||!t.rows.length)return '';
+    var head='<tr>'+(t.head||[]).map(function(h){return '<th>'+esc(h)+'</th>';}).join('')+'</tr>';
+    var body=t.rows.map(function(r){
+      return '<tr>'+r.map(function(cell){
+        // セルは文字列 or {main, sub}（2段組み。対応表は「経路」と「件数」を縦に積む）
+        if(cell&&typeof cell==='object')return '<td>'+esc(cell.main||'')+(cell.sub?'<div class="dev-tsub">'+esc(cell.sub)+'</div>':'')+'</td>';
+        return '<td>'+esc(cell==null?'':cell)+'</td>';
+      }).join('')+'</tr>';
+    }).join('');
+    return '<div class="dev-sect-tw"><table class="dev-sect-t">'+head+body+'</table></div>';
+  }
   function renderEps(d){
     var el=document.getElementById('devEps');if(!el)return;
     var eps=(d&&d.endpoints)||[];
-    el.innerHTML=eps.map(function(e){
-      var meta=e.value!==undefined&&e.value!==null;
-      var go=e.method==='GET'?'<a class="dev-ep-go" href="'+esc(e.path)+'" target="_blank" rel="noopener">開く ↗</a>':'';
-      var mp='<span class="dev-mp '+esc(e.method)+'">'+esc(e.method)+'</span>';
-      var gc='<span class="dev-grp">'+esc(e.grp||'')+'</span>';
-      var val=meta?'<div class="dev-ep-val"><div class="dev-ep-vh">現在の値</div><pre class="dev-code">'+esc(typeof e.value==='string'?e.value:JSON.stringify(e.value,null,2))+'</pre></div>':'';
-      return '<div class="dev-ep'+(meta?' meta':'')+'"><div class="dev-ep-top">'+mp+'<span class="dev-ep-path">'+esc(e.path)+'</span>'+gc+go+'</div><div class="dev-ep-desc">'+esc(e.desc||'')+'</div>'+val+'</div>';
+    var sections=(d&&d.sections)||[];
+    var secByGrp={};sections.forEach(function(x){secByGrp[x.grp]=x;});
+    // **grp ごとに見出しを立てる**（出現順を保つ）。節に表があれば行の前に置く
+    var order=[],byGrp={};
+    eps.forEach(function(e){var g=e.grp||'その他';if(!byGrp[g]){byGrp[g]=[];order.push(g);}byGrp[g].push(e);});
+    el.innerHTML=order.map(function(g){
+      var sec=secByGrp[g];
+      return '<div class="dev-ep-h">'+esc(g)+'</div>'
+        +(sec&&sec.note?'<div class="dev-ep-note">'+esc(sec.note)+'</div>':'')
+        +(sec?sectTable(sec.table):'')
+        +byGrp[g].map(epCard).join('');
     }).join('');
   }
   function loadEps(){

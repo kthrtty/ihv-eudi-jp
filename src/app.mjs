@@ -26,6 +26,34 @@ import { getDisaster, coversMunicipality } from './disasters.mjs';
 import trustBundle from '../trust/bundle.json' with { type: 'json' };
 import { createTrustResolver } from './trust.mjs';
 
+// 配っているトラストリストの中身を集計する（開発者コンソールの表示用）。
+// **バンドルは静的なので isolate 内で1回だけ**——LoTE は JWS 検証が要り、
+// エンドポイントタブを開くたびに3本ぶん走らせる意味がない。
+// 集計は**自分のパーサを通す**ので、表示された件数＝読む側が実際に採るアンカー数になる
+// （自己適合。ここが食い違ったら配っているものが壊れている）。
+let _trustSummary = null;
+async function trustSummary() {
+  if (_trustSummary) return _trustSummary;
+  const { parseTrustList } = await import('./trust.mjs');
+  const schemeCaDer = trustBundle.schemeCa ? Buffer.from(trustBundle.schemeCa, 'base64') : null;
+  const one = async (raw) => {
+    try {
+      const r = await parseTrustList(raw, { schemeCaDer });
+      if (!r.valid) return { error: r.errors[0] || '読めません' };
+      // **数えるのは証明書の種類**（fp256 で畳む）。LoTE は1つの CA が複数サービス
+      // （PID/PubEAA × 発行/失効）を担うのでエントリ数を数えると水増しになる
+      const uniq = (role) => new Set(r.anchors.filter((a) => a.role === role).map((a) => a.fp256)).size;
+      return { issuer: uniq('issuer'), reader: uniq('reader'), nextUpdate: r.nextUpdate ?? null };
+    } catch (e) { return { error: e.message }; }
+  };
+  _trustSummary = {
+    lote: await one(JSON.stringify(trustBundle.lote ?? {})),
+    vical: await one(Buffer.from(trustBundle.vical ?? '', 'base64')),
+    rical: await one(Buffer.from(trustBundle.rical ?? '', 'base64')),
+  };
+  return _trustSummary;
+}
+
 // Lazy HTML loader for Node.js — not called in Workers (html string passed explicitly).
 async function loadHtml(rel) {
   try {
@@ -63,17 +91,66 @@ export function createApp(opts = {}) {
   app.get('/dev/endpoints', async (c) => {
     const base = issuerBase(c);
     const jwksVal = await issuerJwks().catch(() => ({ keys: [] }));
-    return c.json({ endpoints: [
+    const [st, tr] = await Promise.all([
+      svc.statusSummary().catch(() => null),
+      trustSummary().catch(() => null),
+    ]);
+    const n = (v) => (v == null ? '—' : v.toLocaleString('en-US'));
+    const stLine = (f) => (st?.[f]
+      ? `枠 ${n(st[f].size)}／払い出し ${n(st[f].issued)}／失効 ${n(st[f].revoked)}`
+      : '（集計できませんでした）');
+    const trLine = (k) => (tr?.[k]
+      ? (tr[k].error ? `⚠ ${tr[k].error}`
+        : `発行者 ${n(tr[k].issuer)}／リーダー ${n(tr[k].reader)}`
+          + (tr[k].nextUpdate ? `／次回更新 ${String(tr[k].nextUpdate).slice(0, 10)}` : ''))
+      : '（集計できませんでした）');
+    // **信頼と失効は「どのリストがどの形式に対応するか」が読めないと意味がない**ので、
+    // 節の先頭に対応表を置く（案B）。VICAL に SD-JWT が無いことも表で見える
+    const sections = [{
+      grp: '信頼と失効',
+      note: 'アンカー（誰が発行した資格証を信じるか）と失効（その1枚がまだ有効か）。'
+        + '索引空間もリストも形式ごとに独立していて、資格証が指した URI をそのまま辿る。',
+      table: {
+        head: ['形式', '信頼根（アンカー）', '失効リスト'],
+        rows: [
+          ['mdoc', { main: 'IACA', sub: 'VICAL・LoTE' },
+            { main: '/status-lists/1/mdoc', sub: stLine('mdoc') }],
+          ['SD-JWT', { main: 'SD-JWT Issuer CA', sub: 'LoTE のみ ※' },
+            { main: '/status-lists/1/sdjwt', sub: stLine('sdjwt') }],
+          ['旧・共通', { main: 'SD-JWT Issuer CA', sub: '分割前に発行したぶん' },
+            { main: '/status-lists/1', sub: stLine('legacy') }],
+        ],
+      },
+    }];
+    return c.json({ sections, endpoints: [
       { method: 'GET', path: '/.well-known/openid-credential-issuer', grp: 'メタデータ', desc: 'Issuer Metadata（OID4VCI §12）', value: svc.metadata(base) },
       { method: 'GET', path: '/.well-known/oauth-authorization-server', grp: 'メタデータ', desc: 'AS Metadata（RFC 8414）', value: svc.asMetadata(base) },
       { method: 'GET', path: '/jwks', grp: 'メタデータ', desc: '署名鍵の JWK Set（trust は x5c）', value: jwksVal },
       { method: 'POST', path: '/par', grp: 'OAuth', desc: 'Pushed Authorization Request（RFC 9126）' },
+      { method: 'GET', path: '/authorize', grp: 'OAuth', desc: '認可 EP（PKCE / 同意）' },
       { method: 'POST', path: '/token', grp: 'OID4VCI', desc: 'Token EP — access_token 発行' },
       { method: 'POST', path: '/nonce', grp: 'OID4VCI', desc: 'Nonce EP — c_nonce 発行' },
       { method: 'POST', path: '/credential', grp: 'OID4VCI', desc: 'Credential EP — VC 発行' },
-      { method: 'GET', path: '/authorize', grp: 'OAuth', desc: '認可 EP（PKCE / 同意）' },
+      // 信頼（アンカーの配布）。**生の JWS/CBOR は「現在の値」に出しても読めない**ので集計を出す
+      { method: 'GET', path: '/trust/lote.json', grp: '信頼と失効',
+        desc: 'LoTE（ETSI TS 119602）— Web の3アプリが読む正本。mdoc・SD-JWT・検証者の信頼根を1本に載せる',
+        sub: trLine('lote') },
+      { method: 'GET', path: '/trust/vical.cbor', grp: '信頼と失効',
+        desc: 'VICAL（ISO 18013-5 Annex C）— Multipaz 向け。※ docType 必須の mdoc 専用構造なので SD-JWT の信頼根は載せられない',
+        sub: trLine('vical') },
+      { method: 'GET', path: '/trust/rical.cbor', grp: '信頼と失効',
+        desc: 'RICAL（第2版 Annex F）— ウォレットが「この検証者は本物か」を判断するリーダー CA',
+        sub: trLine('rical') },
+      // 失効（Token Status List）。リストは形式ごとに別で、署名鍵の信頼根も別
+      { method: 'GET', path: '/status-lists/1/mdoc', grp: '信頼と失効',
+        desc: 'Token Status List（mdoc）— IACA 直下の鍵で署名', sub: stLine('mdoc') },
+      { method: 'GET', path: '/status-lists/1/sdjwt', grp: '信頼と失効',
+        desc: 'Token Status List（SD-JWT）— SD-JWT CA 配下の鍵で署名', sub: stLine('sdjwt') },
+      { method: 'GET', path: '/status-lists/1', grp: '信頼と失効',
+        desc: 'Token Status List（旧・形式共通）— 分割前に発行したぶんが指している（issue #29 で削除予定）',
+        sub: stLine('legacy') },
       { method: 'POST', path: '/offer', grp: '管理', desc: 'Credential Offer 生成' },
-      { method: 'GET', path: '/status-lists/1', grp: 'メタデータ', desc: 'Token Status List（失効）' },
+      { method: 'POST', path: '/revoke', grp: '管理', desc: '発行済みを失効させる（idx は形式ごとに独立）' },
     ] });
   });
 
