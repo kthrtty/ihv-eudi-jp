@@ -21,6 +21,10 @@ import { validateAttachment, displayName, safeStoredName, validateThumb, ATT_MIM
 import { renderApplyForm, renderMunicipalityPicker, renderDisasterPicker, renderMyApplications, renderMyApplication } from './apply-demo.mjs';
 import { getMunicipality, suggestFromAddress } from './municipalities.mjs';
 import { getDisaster, coversMunicipality } from './disasters.mjs';
+// トラストリストは **import 時 fs ゼロ**の JSON バンドル（schemas と同じ手口）。
+// Workers に fs は無いので、配る側はここから配る（scripts/gen-trust-bundle.mjs で生成）
+import trustBundle from '../trust/bundle.json' with { type: 'json' };
+import { createTrustResolver } from './trust.mjs';
 
 // Lazy HTML loader for Node.js — not called in Workers (html string passed explicitly).
 async function loadHtml(rel) {
@@ -541,6 +545,28 @@ export function createApp(opts = {}) {
     return c.body(jwt);
   });
 
+  // ---- トラストリストの配信（issue #26 / #28）--------------------------------
+  // **配るのは issuer だが、意味の上ではスキームオペレーターの役割**。4 Worker で足りる
+  // デモの都合でここに置いている（本来は独立したオリジン）。読む側は verifier / web-wallet で、
+  // **HTTP で取ってキャッシュする**（バンドルに焼くとアンカーの差し替えに再デプロイが要る）。
+  // 同じ中身を2つの器で配る: LoTE=Web の3アプリ向け / VICAL・RICAL=Multipaz 向け。
+  app.get('/trust/lote.json', (c) => {
+    c.header('content-type', 'application/json');
+    c.header('cache-control', 'public, max-age=3600');
+    return c.body(JSON.stringify(trustBundle.lote ? { ...trustBundle.lote } : {}));
+  });
+  for (const [path, key, ct] of [
+    ['/trust/vical.cbor', 'vical', 'application/cbor'],
+    ['/trust/rical.cbor', 'rical', 'application/cbor'],
+  ]) {
+    app.get(path, (c) => {
+      if (!trustBundle[key]) return c.json({ error: 'not_configured' }, 503);
+      c.header('content-type', ct);
+      c.header('cache-control', 'public, max-age=3600');
+      return c.body(Buffer.from(trustBundle[key], 'base64'));
+    });
+  }
+
   // issuer's own issuance ledger (history). No presentation/tracking data.
   app.get('/issuances', async (c) => c.json({ issuances: await svc.issuances() }));
 
@@ -562,13 +588,25 @@ export function createApp(opts = {}) {
  */
 export function createVerifierApp(opts = {}) {
   const { verifierOrigin = '', walletOrigin = '', verifierPki = null, verifierHtml = null,
-    issuerUrl = 'https://issuer.example.test', boundFetch = null, ...rest } = opts;
+    issuerUrl = 'https://issuer.example.test', boundFetch = null,
+    trustListUris = null, trustSchemeCaDer = null, ...rest } = opts;
   // Cross-origin fetch to the issuer (Service Binding-aware on Workers); used by
   // the merged self-contained verify console to mint a test credential to verify.
   const doFetch = boundFetch ?? fetch;
   const issuerFetch = (path, init) => doFetch(issuerUrl + path, init);
+  // トラストアンカーの取得層（issue #26/#28）。**設定した URI があるときだけ有効**——
+  // 無ければ従来どおり PKI バンドルの1枚で検証する（テスト・オフライン互換）。
+  // TTL は KV（vcfg:trust_ttl_sec）で全 isolate 共有、既定 1 時間（アンカーは滅多に変わらない）
+  const trustResolver = trustListUris?.length
+    ? createTrustResolver({
+      sources: trustListUris,
+      schemeCaDer: trustSchemeCaDer ?? (verifierPki?.trustSchemeCa ?? null),
+      store: rest.store, fetchImpl: doFetch, keyPrefix: 'vtrust:', ttlSec: 3600,
+    })
+    : null;
   const v = new VerifierService({
     ...rest,
+    trustResolver: rest.trustResolver ?? trustResolver,
     encPrivatePem: rest.encPrivatePem ?? verifierPki?.encKey ?? null,
     trustedIacaDer: rest.trustedIacaDer ?? verifierPki?.iacaCert ?? null,
     trustedIssuerCaDer: rest.trustedIssuerCaDer ?? verifierPki?.sdjwtCaCert ?? null,
@@ -595,6 +633,19 @@ export function createVerifierApp(opts = {}) {
     return saved != null && Number.isFinite(n) && n >= 0 ? n : DEFAULT_STATUS_TTL_SEC;
   };
   const memStl = new Map(); // store が効かないローカル実行時のフォールバック
+  // トラストリストのキャッシュ時間も KV で全 isolate 共有（既定 60 分）。
+  // **解決層は app 層でラップして TTL を注入する**（statusResolver と同じ形）——
+  // VerifierService に KV の設定キーを知らせないため
+  const DEFAULT_TRUST_TTL_SEC = 3600;
+  const getTrustTtlSec = async () => {
+    const saved = await v.store.get('vcfg:trust_ttl_sec'); // Number(null)===0 なので null 判定を先に
+    const n = Number(saved);
+    return saved != null && Number.isFinite(n) && n >= 0 ? n : DEFAULT_TRUST_TTL_SEC;
+  };
+  if (v.trustResolver) {
+    const raw = v.trustResolver;
+    v.trustResolver = { resolve: async (o = {}) => raw.resolve({ ttl: await getTrustTtlSec(), ...o }) };
+  }
   const stlInflight = new Map(); // uri -> 取得中 Promise（同一応答内の複数クレデンシャルで1回に相乗り）
   const rawStatusResolver = v.statusResolver;
   if (rawStatusResolver) {
@@ -742,13 +793,24 @@ export function createVerifierApp(opts = {}) {
   app.get('/verifier/builder', (c) => c.html(renderVerifyConsole(groupCatalog(allConfigIds().map(configInfo)))));
   app.get('/verifier/history', async (c) => c.html(renderVerifyHistory(await getHistory(), { page: c.req.query('p') })));
   // Verifier 設定: Status List キャッシュ時間（KV 保存・全 isolate 共有）
-  app.get('/verifier/settings', async (c) =>
-    c.html(renderVerifierSettings(await getStatusTtlSec(), c.req.query('saved') === '1')));
+  app.get('/verifier/settings', async (c) => {
+    let trustInfo = null;
+    if (v.trustResolver) {
+      try { trustInfo = await v.trustResolver.resolve(); } catch { /* 画面は出す */ }
+    }
+    return c.html(renderVerifierSettings(await getStatusTtlSec(), c.req.query('saved') === '1',
+      { trustTtlSec: await getTrustTtlSec(), trustInfo }));
+  });
   app.post('/verifier/settings', async (c) => {
     const f = await c.req.parseBody();
     const min = Number(f.status_ttl_min);
+    const tmin = Number(f.trust_ttl_min);
     if (Number.isFinite(min) && min >= 0 && min <= 1440) {
       await v.store.set('vcfg:status_ttl_sec', Math.round(min * 60), null);   // 設定なので無期限
+    }
+    // トラストリストは失効リストより変化が遅いので上限も長く取る（最大7日）
+    if (Number.isFinite(tmin) && tmin >= 0 && tmin <= 10080) {
+      await v.store.set('vcfg:trust_ttl_sec', Math.round(tmin * 60), null);
     }
     return c.redirect('/verifier/settings?saved=1', 302);
   });

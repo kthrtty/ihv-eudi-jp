@@ -32,6 +32,10 @@ for (const ref of REFS) {
 }
 
 const bundle = {
+  // トラストリストの署名者を検証するアンカー（スキームオペレーターの CA）。
+  // リストそのものは HTTP で配って読む側がキャッシュするが、**その署名を確かめる根**は
+  // 各アプリに焼き込む必要がある（差し替え可能だと信頼の底が抜ける）
+  trust: { schemeCa: derB64('pki/vical/vical-ca.crt') },
   mdoc: {
     dsc: mdocDsc,
     iaca: derB64('pki/mdoc/iaca/iaca.crt'),
@@ -74,6 +78,9 @@ if (process.argv.includes('--wallet')) {
   process.stdout.write(JSON.stringify({
     mdoc:  { iaca:   bundle.mdoc.iaca },
     sdjwt: { caCert: bundle.sdjwt.caCert },
+    // トラストリスト**自身の署名者**を検証するアンカー（issue #26/#28）。
+    // ここだけは焼き込む——差し替え可能だとリストごと入れ替えられて信頼の底が抜ける
+    trust: { schemeCa: bundle.trust.schemeCa },
   }));
 } else {
   process.stdout.write(JSON.stringify(bundle));

@@ -24,6 +24,8 @@ function parseTrustAnchors(json) {
   return {
     mdoc:  { iaca:   raw.mdoc?.iaca    ? b64ToDer(raw.mdoc.iaca)    : null },
     sdjwt: { caCert: raw.sdjwt?.caCert ? b64ToDer(raw.sdjwt.caCert) : null },
+    // トラストリスト自身の署名者アンカー（issue #26/#28）。旧シークレットには無いので null 許容
+    trust: { schemeCa: raw.trust?.schemeCa ? b64ToDer(raw.trust.schemeCa) : null },
   };
 }
 
@@ -60,6 +62,12 @@ export default {
         fetchAllowlist: env.SSRF_ALLOWED_ORIGINS || '',
         // Durable session storage across isolates (holder key + stored VCs survive).
         store:         env.IHV_KV ? kvStore(env.IHV_KV) : null,
+        // ウォレットは**発行者アンカーとリーダーアンカーの両方**を読む（issue #26/#28）。
+        // LoTE に両方載っている。RICAL も足せる（同じ解決層が器を中身で見分ける）
+        trustListUris: (env.TRUST_LIST_URIS
+          || `${env.ISSUER_URL || 'https://issuer.example.test'}/trust/lote.json`)
+          .split(/[\s,]+/).filter(Boolean),
+        trustSchemeCaDer: pki?.trust?.schemeCa ?? null,
       });
     }
     return app.fetch(request, env, ctx);

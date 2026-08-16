@@ -418,8 +418,21 @@ export function renderWebVerifyResult(result) {
 /** Global presentation history — one shared log of every presentation this Verifier
  *  verified (no per-holder session). Newest first. */
 /** Verifier 設定画面: Status List のキャッシュ時間（分）。KV 保存・全 isolate 共有。 */
-export function renderVerifierSettings(ttlSec, saved = false) {
+export function renderVerifierSettings(ttlSec, saved = false, { trustTtlSec = 3600, trustInfo = null } = {}) {
   const min = Math.round(ttlSec / 60);
+  const tmin = Math.round(trustTtlSec / 60);
+  const e = (x) => String(x ?? '').replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+  // **アンカーが何件引けているかはこの画面でしか見えない**。0 件＝検証が全部落ちる状態
+  const trustBlock = trustInfo === null ? `
+        <div class="hint" style="margin:10px 0 14px">トラストリストは設定されていません（PKI バンドルのアンカーで検証します）。</div>`
+    : `
+        <div class="hint" style="margin:10px 0 6px">
+          発行者アンカー <b>${trustInfo.issuerCas.length}</b> 件
+          ${trustInfo.issuerCas.length === 0 ? '<b style="color:#C8453C">（0 件＝検証できません）</b>' : ''}
+        </div>
+        <div class="hint" style="margin:0 0 14px">
+          ${trustInfo.lists.map((l) => `<div>${l.stale ? '⚠ ' : ''}${e(l.source ?? '取得失敗')} — ${e(l.uri)}${l.error ? `<br><span style="color:#C8453C">${e(l.error)}</span>` : ''}</div>`).join('')}
+        </div>`;
   return shell('検証者設定', `
     <div class="card" style="max-width:480px;margin:24px auto">
       <div class="step">検証者設定</div>
@@ -436,6 +449,19 @@ export function renderVerifierSettings(ttlSec, saved = false) {
           キャッシュが有効な間は再取得せず手元のリストで判定し、<b>期限切れ・未取得</b>のときだけ最新を取得します。
           <b>0 = キャッシュしない（検証のたびに取得）</b>。既定は 5 分。
           <br>注: キャッシュ時間内は直近の失効が検証に反映されません（鮮度と負荷のトレードオフ）。
+        </div>
+        <div style="margin-top:22px;border-top:1px solid var(--line);padding-top:16px">
+          <div style="font-size:14px;font-weight:800;margin-bottom:10px">トラストリスト</div>
+          <label style="display:block">
+            <div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:6px">キャッシュ時間（分）</div>
+            <input name="trust_ttl_min" type="number" min="0" max="10080" step="1" value="${tmin}"
+              style="font:inherit;width:120px;padding:9px 12px;border:1px solid var(--line);border-radius:8px">
+          </label>
+          <div class="hint" style="margin:10px 0 4px">
+            誰が発行した資格証を信頼するか（発行者のルート証明書）はトラストリストから取得します。
+            <b>失効リストより桁で変化が遅い</b>ので既定は 60 分（<b>0 = 毎回取得</b>）。
+          </div>
+          ${trustBlock}
         </div>
         <button type="submit" class="btn">保存する</button>
       </form>

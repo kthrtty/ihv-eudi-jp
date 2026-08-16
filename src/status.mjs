@@ -27,22 +27,44 @@ export async function buildStatusListToken({ bits, issuerKeyPem, issuerCertDer, 
     .sign(await importPKCS8(typeof issuerKeyPem === 'string' ? issuerKeyPem : issuerKeyPem.toString('utf8'), 'ES256'));
 }
 
-/** Verify a Status List Token and return a bit accessor. */
-export async function parseStatusListToken(jwt) {
+/**
+ * Verify a Status List Token and return a bit accessor.
+ *
+ * `trustedCas` を渡すと、**署名者をトラストアンカーへ結び付ける**（issue #26）。
+ * 渡さないと `x5c[0]` の公開鍵でそのトークンを検証するだけ＝**トークン自身が連れてきた
+ * 鍵を信じる**ので、失効リストを丸ごと差し替えられる（「全部有効」のリストを配れる）。
+ * mdoc は IACA、SD-JWT は SD-JWT CA が信頼根で、我々は**独立2ルート**（#25）。
+ * どちらに繋がるかは形式で決まるので、**束を渡して1つでも通れば可**とする。
+ */
+export async function parseStatusListToken(jwt, { trustedCas = null } = {}) {
   const header = JSON.parse(Buffer.from(jwt.split('.')[0], 'base64url').toString('utf8'));
-  const pubPem = new X509Certificate(Buffer.from(header.x5c[0], 'base64')).publicKey.export({ format: 'pem', type: 'spki' });
-  const pub = await importSPKI(pubPem, 'ES256');
+  const leaf = new X509Certificate(Buffer.from(header.x5c[0], 'base64'));
+  const pub = await importSPKI(leaf.publicKey.export({ format: 'pem', type: 'spki' }), 'ES256');
   const { payload } = await jwtVerify(jwt, pub, { typ: 'statuslist+jwt' });
+  if (trustedCas != null) {
+    const anchors = Array.isArray(trustedCas) ? trustedCas : [trustedCas];
+    // **アンカー0件は「誰も信頼しない」＝ fail-closed**（引けないときに素通しさせない）
+    if (!anchors.some((d) => { try { return leaf.verify(new X509Certificate(Buffer.from(d)).publicKey); } catch { return false; } })) {
+      throw new Error('status list signer does not chain to a trusted anchor');
+    }
+    const now = new Date();
+    if (!(new Date(leaf.validFrom) <= now && now <= new Date(leaf.validTo))) {
+      throw new Error('status list signer certificate is outside its validity period');
+    }
+  }
   const bytes = decompressList(payload.status_list.lst);
   return { sub: payload.sub, getStatus: (idx) => bitAt(bytes, idx) };
 }
 
-/** Verifier helper: resolve a status reference and report revocation. */
-export async function verifyStatus(statusRef, resolve) {
+/**
+ * Verifier helper: resolve a status reference and report revocation.
+ * `trustedCas` は `parseStatusListToken` にそのまま渡す（署名者の信頼根確認・#26）。
+ */
+export async function verifyStatus(statusRef, resolve, { trustedCas = null } = {}) {
   if (!statusRef) return { checked: false };
   const ref = statusRef.status_list || statusRef; // accept {status_list:{idx,uri}} or {idx,uri}
   const jwt = await resolve(ref.uri);             // fetch the WHOLE list (unlinkable)
-  const { getStatus } = await parseStatusListToken(jwt);
+  const { getStatus } = await parseStatusListToken(jwt, { trustedCas });
   const status = getStatus(ref.idx);
   return { checked: true, revoked: status === 1, status };
 }

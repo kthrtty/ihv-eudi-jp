@@ -124,7 +124,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
 マスク漏れのテストで断片を取るときは**末尾から**取る（先頭だと誤検知する）。
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas、初回必須・pki/ は gitignore）／`npm test`（374, node:test）／
+`npm run setup`（dev PKI+trust+schemas+トラストリスト、初回必須・pki/ は gitignore）／`npm test`（388, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
@@ -534,6 +534,30 @@ devlog は `portrait|portrait_b64` をマスク。テスト `test/portrait.test.
   秘密鍵で新 IACA に署名するので失った後は使えない。旧アンカーを残せば**発行済みは検証できる**
   （失効確認だけは救えない）。`gen-pki.sh` に既存鍵ガード（`--force` が無ければ上書きしない）
 - 生成 `npm run gen-trustlists` ／ 外部適合 `npm run interop:multipaz`（VICAL/RICAL とも正例・負例を pin）
+- **アンカーはバンドルに焼かずリストから引く**（2026-08-16・#26/#28・`src/trust.mjs`）。
+  **Web の3アプリは LoTE が正本**——VICAL の `certificateInfos` は `docType` を持つ mdoc 前提の
+  スキーマで **SD-JWT Issuer CA を載せる場所が無い**が、18構成の半分は SD-JWT で
+  `/status-lists/1/sdjwt` の署名者は SD-JWT CA 配下。VICAL/RICAL も同じ解決層が読む
+  （Multipaz へ配っている実物を自分でも消費＝自己適合）。守るべき点:
+  (1) **役割（発行者／リーダー）はラベルし、形式（mdoc／SD-JWT）はラベルしない**——役割の
+  取り違えは実害（Reader CA が資格証を保証できる）ので LoTE の `ServiceTypeIdentifier` で分ける。
+  形式は「mdoc が SD-JWT CA へ繋がることはあり得ない」ので**束を丸ごと試せば結果は同じ**／
+  (2) **器は中身で見分ける**——**RICAL は payload に `type` を持ち VICAL は持たない**。これが唯一の
+  機械的な判別で、取り違えると **VICAL の IACA がリーダーアンカーに化ける**（実装中に踏んだ）／
+  (3) **COSE_Sign1 は `cborDecodeMap` で読む**。既定の `cborDecode` は map を object にするので
+  unprotected ヘッダから x5chain を引けず **VICAL だけ検証不能**（RICAL は protected なので気づかない）／
+  (4) **信頼の底＝スキームオペレーターの CA は各アプリに焼き込む**（`_pki.trust.schemeCa`）。
+  差し替え可能だとリストごと入れ替えられる。`schemeCaDer` 未指定は `valid` を立てない／
+  (5) **アンカー0件は fail-closed**（引けないときに素通しさせない）。取得失敗時は手元を使い、
+  手元も無ければ0件。同じ証明書は fp256 で畳む。有効期間はリゾルバの時計で見る
+- **Status List の署名者もアンカーへ辿る**（#26 解決）: `parseStatusListToken(jwt,{trustedCas})`。
+  **束で渡す**——mdoc のリストは IACA 配下・SD-JWT のリストは SD-JWT CA 配下で、どちらに繋がるかは
+  配布 URI からしか分からない。渡さないと「全部有効」のリストに差し替えられる（テストで実証済み）
+- キャッシュは Status List と同じ設計（TTL・in-flight 相乗り・手元フォールバック）。既定 **60分**
+  （アンカーは失効リストより桁で変化が遅い）。wallet=`/settings`／verifier=`/verifier/settings`
+  （KV `vcfg:trust_ttl_sec`）。**設定画面はアンカー件数を出す**——0件＝検証が全部落ちる状態が
+  ここでしか見えない。配信は issuer の `/trust/{lote.json,vical.cbor,rical.cbor}`
+  （`trust/bundle.json` を import。**読む側は HTTP で取る**——焼くと差し替えに再デプロイが要る）
 
 ## 対面提示（M8・調査済み・未着手）
 方向性は `docs/proximity-wallet.md`（2026-08-15・モバイル/VC の2専門家レビュー反映）。要点のみ:

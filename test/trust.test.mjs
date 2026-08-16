@@ -1,53 +1,279 @@
-// trust-list.json / JWKS structural assertions.
+// トラストアンカーの取得層（issue #26 / #28）。
+// 「アンカーはバンドルに焼くのではなくリストから引く」を成立させる面のテスト。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { X509Certificate } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { createApp, createVerifierApp } from '../src/app.mjs';
+import { createWallet } from '../src/wallet.mjs';
+import { parseLoTE, parseVical, parseRical, parseTrustList, createTrustResolver } from '../src/trust.mjs';
+import { parseStatusListToken, verifyStatus } from '../src/status.mjs';
+import { statusResolverFor } from './status-resolver.mjs';
 
-const load = (rel) => JSON.parse(readFileSync(fileURLToPath(new URL('../' + rel, import.meta.url)), 'utf8'));
-const tl = load('trust/trust-list.json');
+const root = (rel) => fileURLToPath(new URL('../' + rel, import.meta.url));
+const der = (rel) => new X509Certificate(readFileSync(root(rel))).raw;
+const ISSUER = 'https://issuer.ihv.example';
+const schemeCaDer = der('pki/vical/vical-ca.crt');
 
-test('mdoc: exactly one trusted IACA (JP) with a PEM cert', () => {
-  assert.equal(tl.mdoc.trusted_iaca.length, 1);
-  assert.equal(tl.mdoc.trusted_iaca[0].country, 'JP');
-  assert.match(tl.mdoc.trusted_iaca[0].certificate_pem, /BEGIN CERTIFICATE/);
+const lote = () => JSON.parse(readFileSync(root('trust/lote.json'), 'utf8'));
+const vical = () => readFileSync(root('trust/vical.cbor'));
+const rical = () => readFileSync(root('trust/rical.cbor'));
+
+// ---- パース: 何が載る器なのか -------------------------------------------------
+test('#28 LoTE は発行者アンカーとリーダーアンカーの両方を載せる', async () => {
+  const r = await parseLoTE(lote(), { schemeCaDer });
+  assert.equal(r.valid, true, r.errors.join(';'));
+  const issuers = r.anchors.filter((a) => a.role === 'issuer');
+  const readers = r.anchors.filter((a) => a.role === 'reader');
+  // **VICAL では賄えない SD-JWT の信頼根がここにある**——これが LoTE を正本にする理由
+  assert.ok(issuers.some((a) => /SD-JWT Issuer CA/.test(a.subject)), 'SD-JWT Issuer CA が載る');
+  assert.ok(issuers.some((a) => /IACA/.test(a.subject)), 'mdoc IACA も載る');
+  assert.equal(readers.length, 1, 'Reader CA も同じリストに載る');
+  assert.ok(r.nextUpdate, 'NextUpdate を持つ');
 });
 
-test('reader auth: trusted reader CA present', () => {
-  assert.ok(tl.reader_auth.trusted_reader_ca.length >= 1);
-  assert.match(tl.reader_auth.trusted_reader_ca[0].certificate_pem, /BEGIN CERTIFICATE/);
+test('#28 VICAL は IACA だけ・RICAL は Reader CA だけ', () => {
+  const v = parseVical(vical(), { schemeCaDer });
+  assert.equal(v.valid, true, v.errors.join(';'));
+  assert.ok(v.anchors.length >= 1);
+  assert.ok(v.anchors.every((a) => a.role === 'issuer'), 'VICAL は発行者側');
+  assert.ok(v.anchors.every((a) => /IACA/.test(a.subject)), 'IACA のみ');
+  // **SD-JWT の信頼根を載せる場所が無い**のが VICAL 単独では足りない理由
+  assert.ok(!v.anchors.some((a) => /SD-JWT/.test(a.subject)));
+
+  const r = parseRical(rical(), { schemeCaDer });
+  assert.equal(r.valid, true, r.errors.join(';'));
+  assert.ok(r.anchors.every((a) => a.role === 'reader'), 'RICAL はリーダー側');
 });
 
-test('sd-jwt: three trusted issuers, each with x5c + ES256 sig JWK', () => {
-  const issuers = tl.sd_jwt_vc.trusted_issuers;
-  assert.deepEqual(issuers.map((i) => i.id).sort(), ['juminhyo', 'pid', 'qualification']);
-  for (const it of issuers) {
-    const jwk = it.jwks.keys[0];
-    assert.equal(jwk.alg, 'ES256');
-    assert.equal(jwk.use, 'sig');
-    assert.equal(jwk.kty, 'EC');
-    assert.equal(jwk.crv, 'P-256');
-    assert.ok(jwk.kid && jwk.kid.length > 0);
-    assert.ok(Array.isArray(jwk.x5c) && jwk.x5c.length >= 1, 'x5c chain present');
+// **器の取り違えは「IACA がリーダーアンカーに化ける」＝リーダー証明書を発行者ルートで
+// 検証してしまう。RICAL は `type` を持ち VICAL は持たない、が唯一の機械的な見分け方。
+test('#28 器は中身で見分ける（VICAL を RICAL として読まない）', () => {
+  assert.equal(parseTrustList(vical(), { schemeCaDer }).source, 'vical');
+  assert.equal(parseTrustList(rical(), { schemeCaDer }).source, 'rical');
+  // 明示的に取り違えて呼んでも**アンカーを1件も出さない**
+  const wrong = parseRical(vical(), { schemeCaDer });
+  assert.equal(wrong.valid, false);
+  assert.equal(wrong.anchors.length, 0, 'IACA がリーダーアンカーに化けない');
+  assert.match(wrong.errors.join(';'), /type/);
+  const wrong2 = parseVical(rical(), { schemeCaDer });
+  assert.equal(wrong2.anchors.length, 0, 'Reader CA が発行者アンカーに化けない');
+});
+
+// ---- 信頼の底: リスト自身の署名 -----------------------------------------------
+test('#26 リストの署名者を検証しない呼び出しは fail-closed', async () => {
+  // schemeCaDer 無し = 「署名の形は見たが信頼はしていない」。valid を立てない
+  const r = await parseLoTE(lote(), {});
+  assert.equal(r.valid, false);
+  assert.match(r.errors.join(';'), /スキーム CA 未指定/);
+});
+
+test('#26 改竄されたリスト・別の CA で署名されたリストは採らない', async () => {
+  const bad = Buffer.from(vical()); bad[bad.length - 5] ^= 0xff;
+  assert.equal(parseTrustList(bad, { schemeCaDer }).valid, false, '署名改竄を検出');
+
+  // 署名者が我々のスキーム CA 配下でなければ拒否（＝勝手なリストを配れない）
+  const other = parseTrustList(vical(), { schemeCaDer: der('pki/mdoc/iaca/iaca.crt') });
+  assert.equal(other.valid, false);
+  assert.match(other.errors.join(';'), /スキーム CA 配下でない/);
+});
+
+// ---- 配信と自己適合 -----------------------------------------------------------
+test('#28 issuer が配るリストを、自分のパーサがそのまま読める（自己適合）', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+  for (const [path, want] of [['/trust/lote.json', 'lote'],
+    ['/trust/vical.cbor', 'vical'], ['/trust/rical.cbor', 'rical']]) {
+    const res = await app.request(path);
+    assert.equal(res.status, 200, path);
+    const raw = path.endsWith('.json') ? await res.text() : new Uint8Array(await res.arrayBuffer());
+    const t = await parseTrustList(raw, { schemeCaDer });
+    assert.equal(t.source, want, path);
+    assert.equal(t.valid, true, `${path}: ${t.errors.join(';')}`);
   }
 });
 
-test('verifier: response encryption JWK is enc/ECDH-ES P-256 public-only', () => {
-  const enc = tl.relying_party.verifier.response_encryption_jwk;
-  assert.equal(enc.use, 'enc');
-  assert.equal(enc.alg, 'ECDH-ES');
-  assert.equal(enc.crv, 'P-256');
-  assert.equal(enc.d, undefined, 'must be public only (no private d)');
-  assert.ok(enc.kid);
+// ---- 取得層とキャッシュ -------------------------------------------------------
+test('#26 解決層: 役割ごとに束ね、同じ証明書は畳み、TTL 内は取りに行かない', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+  let fetches = 0;
+  const fetchImpl = async (uri) => { fetches++; return app.request(new URL(uri).pathname); };
+  // **注入する時計は現実の時刻から動かす**——リストの署名証明書の有効期間もこの時計で
+  // 見るので、1970 から始めると「署名証明書が有効期間外」で全部落ちる（実際に踏んだ）
+  let clock = Date.now();
+  const trust = createTrustResolver({
+    // **LoTE と VICAL の両方**を引く。IACA は両方に載っているので畳まれるはず
+    sources: [`${ISSUER}/trust/lote.json`, `${ISSUER}/trust/vical.cbor`],
+    schemeCaDer, fetchImpl, ttlSec: 300, now: () => clock,
+  });
+
+  const a = await trust.resolve();
+  assert.equal(fetches, 2, '初回は2本とも取得');
+  assert.ok(a.issuerCas.length >= 2);
+  assert.ok(a.readerCas.length >= 1, 'LoTE 側からリーダーアンカーも出る');
+  const fps = a.issuerCas.map((x) => x.fp256);
+  assert.equal(new Set(fps).size, fps.length, '同じ証明書は fp256 で1件に畳む');
+
+  await trust.resolve();
+  assert.equal(fetches, 2, 'TTL 内は取りに行かない');
+  clock += 301_000;
+  await trust.resolve();
+  assert.equal(fetches, 4, 'TTL 切れで再取得');
+  await trust.resolve({ force: true });
+  assert.equal(fetches, 6, 'force は必ず取得');
 });
 
-test('verifier: JAR signing JWK is sig/ES256 with x5c', () => {
-  const sig = tl.relying_party.verifier.jar_signing_jwk;
-  assert.equal(sig.use, 'sig');
-  assert.equal(sig.alg, 'ES256');
-  assert.ok(Array.isArray(sig.x5c) && sig.x5c.length >= 1);
+test('#26 解決層: 同時取得は in-flight 相乗り（枚数ぶん並走させない）', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+  let fetches = 0;
+  const trust = createTrustResolver({
+    sources: [`${ISSUER}/trust/lote.json`], schemeCaDer,
+    fetchImpl: async (uri) => { fetches++; return app.request(new URL(uri).pathname); },
+  });
+  await Promise.all(Array.from({ length: 8 }, () => trust.resolve()));
+  assert.equal(fetches, 1, '8並列でも取得は1回');
 });
 
-test('verifier: client_id uses x509_san_dns prefix', () => {
-  assert.match(tl.relying_party.verifier.client_id, /^x509_san_dns:verifier\.ihv\.example$/);
+test('#26 解決層: 取得できないときは手元を使い、手元も無ければアンカー0件', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+  let mode = 'ok';
+  const trust = createTrustResolver({
+    sources: [`${ISSUER}/trust/lote.json`], schemeCaDer, ttlSec: 0,
+    fetchImpl: async (uri) => {
+      if (mode === 'down') throw new Error('network down');
+      return app.request(new URL(uri).pathname);
+    },
+  });
+  const ok = await trust.resolve();
+  assert.ok(ok.issuerCas.length > 0);
+  mode = 'down';
+  const stale = await trust.resolve();
+  assert.ok(stale.issuerCas.length > 0, '一時的な不達で提示を全滅させない');
+  assert.equal(stale.lists[0].stale, true, '古いことは伝える');
+
+  // 手元が無い状態で落ちたら **0件**（＝呼び出し側は fail-closed）
+  const cold = createTrustResolver({
+    sources: [`${ISSUER}/trust/lote.json`], schemeCaDer,
+    fetchImpl: async () => { throw new Error('network down'); },
+  });
+  const none = await cold.resolve();
+  assert.equal(none.issuerCas.length, 0);
+  assert.equal(none.readerCas.length, 0);
+});
+
+// ---- 実際の検証面に効いているか -----------------------------------------------
+test('#26 Verifier はトラストリスト由来のアンカーで検証し、別ルートのリストは拒む', async () => {
+  const issuer = createApp({ credentialIssuer: ISSUER });
+  const trust = createTrustResolver({
+    sources: [`${ISSUER}/trust/lote.json`], schemeCaDer,
+    fetchImpl: async (uri) => issuer.request(new URL(uri).pathname),
+  });
+  const v = createVerifierApp({
+    issuerUrl: ISSUER, boundFetch: (url, init) => issuer.request(new URL(url).pathname, init),
+    trustResolver: trust,
+  });
+  // 両形式が通ること（＝SD-JWT のアンカーもリストから引けている）
+  for (const configId of ['pid_mdoc', 'pid_sdjwt']) {
+    const offer = await (await issuer.request('/offer', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ credential_configuration_ids: [configId] }),
+    })).json();
+    const w = createWallet();
+    await w.receive({ request: issuer.request.bind(issuer), offer: offer.credential_offer, credentialIssuer: ISSUER });
+    const built = await (await v.request('/vp/build', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ specs: [{ id: 'q1', configId, claims: ['family_name'] }] }),
+    })).json();
+    const res = await (await v.request('/vp/verify', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ transactionId: built.transactionId, encryptedResponse: await w.respond(built.request) }),
+    })).json();
+    assert.equal(res.valid, true, `${configId}: ${(res.errors || []).join(';')}`);
+  }
+});
+
+test('#26 アンカーが1件も引けなければ検証を通さない（fail-closed）', async () => {
+  const issuer = createApp({ credentialIssuer: ISSUER });
+  const dead = createTrustResolver({
+    sources: [`${ISSUER}/trust/lote.json`], schemeCaDer,
+    fetchImpl: async () => { throw new Error('network down'); },
+  });
+  const v = createVerifierApp({
+    issuerUrl: ISSUER, boundFetch: (url, init) => issuer.request(new URL(url).pathname, init),
+    trustResolver: dead,
+  });
+  const offer = await (await issuer.request('/offer', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'] }),
+  })).json();
+  const w = createWallet();
+  await w.receive({ request: issuer.request.bind(issuer), offer: offer.credential_offer, credentialIssuer: ISSUER });
+  const built = await (await v.request('/vp/build', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ specs: [{ id: 'q1', configId: 'pid_mdoc', claims: ['family_name'] }] }),
+  })).json();
+  const res = await (await v.request('/vp/verify', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ transactionId: built.transactionId, encryptedResponse: await w.respond(built.request) }),
+  })).json();
+  assert.equal(res.valid, false, 'アンカーが引けないときに素通しさせない');
+});
+
+// ---- #26 の本体: Status List の署名者 -----------------------------------------
+test('#26 Status List の署名者をアンカーへ結び付ける（未指定だと自己申告を信じる）', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+  const resolve = statusResolverFor(app);
+  const iaca = der('pki/mdoc/iaca/iaca.crt');
+  const sdjwtCa = der('pki/sdjwt/issuer-ca.crt');
+
+  // mdoc のリストは IACA 配下、SD-JWT のリストは SD-JWT CA 配下（独立2ルート・#25）
+  const mdocJwt = await resolve(`${ISSUER}/status-lists/1/mdoc`);
+  await parseStatusListToken(mdocJwt, { trustedCas: [iaca] });      // 通る
+  await assert.rejects(() => parseStatusListToken(mdocJwt, { trustedCas: [sdjwtCa] }),
+    /does not chain to a trusted anchor/, 'もう一方のルートでは通らない');
+  await assert.rejects(() => parseStatusListToken(mdocJwt, { trustedCas: [] }),
+    /does not chain to a trusted anchor/, 'アンカー0件は fail-closed');
+
+  const sdJwt = await resolve(`${ISSUER}/status-lists/1/sdjwt`);
+  await parseStatusListToken(sdJwt, { trustedCas: [sdjwtCa] });
+  // **束で渡せば取り違えようがない**（どちらのリストも通る）
+  for (const j of [mdocJwt, sdJwt]) await parseStatusListToken(j, { trustedCas: [iaca, sdjwtCa] });
+
+  // verifyStatus 経由でも効く
+  await assert.rejects(
+    () => verifyStatus({ idx: 0, uri: `${ISSUER}/status-lists/1/mdoc` }, resolve, { trustedCas: [sdjwtCa] }),
+    /does not chain to a trusted anchor/);
+});
+
+test('#26 偽の Status List（自前の CA で署名した「全部有効」）は弾かれる', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+  // 発行して失効させる
+  const offer = await (await app.request('/offer', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'] }),
+  })).json();
+  const w = createWallet();
+  await w.receive({ request: app.request.bind(app), offer: offer.credential_offer, credentialIssuer: ISSUER });
+  const { issuances } = await (await app.request('/issuances')).json();
+  await app.request('/revoke', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ index: issuances[0].idx, reason: 'test' }) });
+
+  const uri = `${ISSUER}/status-lists/1/mdoc`;
+  const iaca = der('pki/mdoc/iaca/iaca.crt');
+  const real = statusResolverFor(app);
+  assert.equal((await verifyStatus({ idx: issuances[0].idx, uri }, real, { trustedCas: [iaca] })).revoked, true);
+
+  // 攻撃者が「全部有効」のリストを自分の鍵で署名して差し込む。
+  // **署名は自己完結して正しい**——アンカーへ結び付けて初めて弾ける
+  const { StatusListService } = await import('../src/status.mjs');
+  const fake = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 256,
+    signers: { mdoc: { key: readFileSync(root('pki/reader/reader.key')), cert: der('pki/reader/reader.crt') } } });
+  const fakeJwt = await fake.token('mdoc');
+  const fakeResolve = async () => fakeJwt;
+  // アンカー無し（旧実装と同じ）だと **失効していないと言われてしまう**
+  assert.equal((await verifyStatus({ idx: issuances[0].idx, uri }, fakeResolve)).revoked, false);
+  // アンカーを指定すれば弾ける
+  await assert.rejects(
+    () => verifyStatus({ idx: issuances[0].idx, uri }, fakeResolve, { trustedCas: [iaca] }),
+    /does not chain to a trusted anchor/);
 });
