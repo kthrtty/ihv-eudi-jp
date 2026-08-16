@@ -6,6 +6,14 @@ const b64url = (b) => Buffer.from(b).toString('base64url');
 const sha256b64 = (s) => b64url(createHash('sha256').update(Buffer.from(s, 'ascii')).digest());
 const der2spkiPem = (b64der) => new X509Certificate(Buffer.from(b64der, 'base64')).publicKey.export({ format: 'pem', type: 'spki' });
 
+/** 自己署名＝トラストアンカー。x5c から落とすため（HAIP §6.1.1）。 */
+function isSelfSigned(der) {
+  try {
+    const c = new X509Certificate(Buffer.from(der));
+    return c.subject === c.issuer && c.verify(c.publicKey);
+  } catch { return false; }
+}
+
 function makeDisclosure(key, value) {
   const salt = b64url(randomBytes(16));
   const disclosure = b64url(Buffer.from(JSON.stringify([salt, key, value]), 'utf8'));
@@ -35,7 +43,16 @@ export async function issueSdJwtVc({ vct, iss, claims, sdKeys, holderJwk, issuer
   const payload = { iss, iat, exp, vct, cnf: { jwk: holderJwk }, _sd, _sd_alg: 'sha-256', ...flat };
   if (status) payload.status = { status_list: { idx: status.idx, uri: status.uri } };
   const key = await importPKCS8(typeof issuerKeyPem === 'string' ? issuerKeyPem : issuerKeyPem.toString('utf8'), 'ES256');
-  const x5c = [Buffer.from(issuerCertDer).toString('base64'), Buffer.from(issuerCaDer).toString('base64')];
+  // x5c は **リーフ＋中間 CA まで。トラストアンカーは入れない**——
+  // HAIP §6.1.1「The X.509 certificate of the trust anchor MUST NOT be included in the
+  // `x5c` JOSE header of the SD-JWT VC.」（x5c 自体は SD-JWT VC §3.5 の正規の鍵解決方式で、
+  // HAIP では MUST。落とすのはアンカーだけ）。
+  // **禁止されている理由は「届いたチェーンだけで検証が完結してしまう」から**——実際に
+  // 旧 `verifySdJwtVc` は注入が無いと `x5c[1]` を CA として使っていた（issue #26 と同じ穴）。
+  // 自己署名＝アンカーなので落とす。将来 SD-JWT 側に中間 CA を挟んでも自動的に正しく載る
+  const x5c = [issuerCertDer, ...(Array.isArray(issuerCaDer) ? issuerCaDer : (issuerCaDer ? [issuerCaDer] : []))]
+    .filter((d, i) => i === 0 || !isSelfSigned(d))
+    .map((d) => Buffer.from(d).toString('base64'));
   const jwt = await new SignJWT(payload)
     .setProtectedHeader({ alg: 'ES256', typ: 'dc+sd-jwt', x5c })
     .sign(key);
@@ -65,11 +82,12 @@ export async function verifySdJwtVc(sdjwt, { trustedIssuerCaDer } = {}) {
     ({ payload } = await jwtVerify(jwt, leafPub));
     const leaf = new X509Certificate(Buffer.from(header.x5c[0], 'base64'));
     // **アンカーは複数あり得る**（トラストリスト由来・鍵を失った旧 CA も残す。#27/#28）。
-    // 1つでも通れば信頼できる。**注入が無いときの `header.x5c[1]` へのフォールバックは
-    // 「トークン自身が連れてきた CA を信じる」＝実質ノーチェック**なので、
-    // アンカーを渡さない呼び出しだけの後方互換として残す（本番経路は必ず渡す）
-    const anchors = trustedIssuerCaDer == null
-      ? [header.x5c[1]]
+    // 1つでも通れば信頼できる。
+    // **`x5c` の中の CA へフォールバックしない**——それは「トークン自身が連れてきた CA を
+    // 信じる」＝実質ノーチェックで、自己完結したチェーンなら誰でも通ってしまう（issue #26）。
+    // HAIP §6.1.1 が x5c にアンカーを入れることを禁じているのも同じ理由。**アンカーが無ければ
+    // 検証しない**（fail-closed）
+    const anchors = trustedIssuerCaDer == null ? []
       : (Array.isArray(trustedIssuerCaDer) ? trustedIssuerCaDer : [trustedIssuerCaDer]);
     if (!anchors.length) errors.push('no trusted issuer CA anchor available');
     else if (!anchors.some((d) => { try { return leaf.verify(new X509Certificate(Buffer.from(d)).publicKey); } catch { return false; } })) {
