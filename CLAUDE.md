@@ -534,6 +534,15 @@ devlog は `portrait|portrait_b64` をマスク。テスト `test/portrait.test.
   秘密鍵で新 IACA に署名するので失った後は使えない。旧アンカーを残せば**発行済みは検証できる**
   （失効確認だけは救えない）。`gen-pki.sh` に既存鍵ガード（`--force` が無ければ上書きしない）
 - 生成 `npm run gen-trustlists` ／ 外部適合 `npm run interop:multipaz`（VICAL/RICAL とも正例・負例を pin）
+- **EU 参照実装は Multipaz を使い、ETSI 層を別ライブラリで載せている**（2026-08-17 確認・#31）:
+  `eudi-lib-android-wallet-core` の依存に `org.multipaz:multipaz 0.99.0`（我々の interop と同じ版）＋
+  `eu.europa.ec.eudi:etsi-119602-consultation` ＋ `eudi-lib-kmp-statium`(Token Status List)。
+  **Multipaz 単体に LoTE/TL は無い**（全1,718クラスで `LoTE|TrustedList|119602|119612|LOTL` がゼロ。
+  持つのは `TrustEntryX509Cert`/`TrustEntryVical`/`TrustEntryRical` の ISO 側3種だけ）。
+  **LoTL は LoTE のためのものではない**——TL(119612)=QEAA 専用で加盟国が公開し LoTL が束ねる／
+  LoTE は**委員会が5本を署名・公開**（加盟国は届け出る側）＝**「各国の LoTE」は存在しない**。
+  EU 実装も `EtsiTrustConfig.loteLocations` で**URL を設定**（発見しない）・`cacheTtl` 20分／
+  ファイル24時間・**`PointerToOtherLoTE` は既定オフ**。LoTL/DSS 経路は別モジュールで Android の依存に無い
 - **LoTE のサービス型は TL(119612) と別体系**（2026-08-17・実装を突き合わせて修正）:
   `<ns>/19602/SvcType/{PID,PubEAA,WRPAC,WRPRC,WalletSolution}/{Issuance,Revocation}` ／
   `<ns>/19602/LoTEType/…ProvidersList` ／ `<ns>/19602/<list>/SvcStatus/{notified,withdrawn}`
