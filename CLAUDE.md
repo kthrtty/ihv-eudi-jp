@@ -124,7 +124,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
 マスク漏れのテストで断片を取るときは**末尾から**取る（先頭だと誤検知する）。
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas+トラストリスト、初回必須・pki/ は gitignore）／`npm test`（390, node:test）／
+`npm run setup`（dev PKI+trust+schemas+トラストリスト、初回必須・pki/ は gitignore）／`npm test`（393, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
@@ -534,6 +534,20 @@ devlog は `portrait|portrait_b64` をマスク。テスト `test/portrait.test.
   秘密鍵で新 IACA に署名するので失った後は使えない。旧アンカーを残せば**発行済みは検証できる**
   （失効確認だけは救えない）。`gen-pki.sh` に既存鍵ガード（`--force` が無ければ上書きしない）
 - 生成 `npm run gen-trustlists` ／ 外部適合 `npm run interop:multipaz`（VICAL/RICAL とも正例・負例を pin）
+- **LoTE のサービス型は TL(119612) と別体系**（2026-08-17・実装を突き合わせて修正）:
+  `<ns>/19602/SvcType/{PID,PubEAA,WRPAC,WRPRC,WalletSolution}/{Issuance,Revocation}` ／
+  `<ns>/19602/LoTEType/…ProvidersList` ／ `<ns>/19602/<list>/SvcStatus/{notified,withdrawn}`
+  （正本＝EU 参照実装 `eudi-lib-kmp-etsi-1196x2` の `ETSI19602.kt`。**ARF には URI が1つも無い**）。
+  以前ここに書いていた `TrstSvc/Svctype/PID` 等は**どれも実在しない値**だった。3点:
+  (1) **`uri.etsi.org` は名乗らない**——EU に届け出たスキームではないので自分の名前空間を使う
+  （EU–日本 PoC も `http://tl.eujp.ownd-project.com/19602/SvcType/EAA/Issuance` としている）。
+  読み取り側は**ホストでなくパスの形**で判定する／
+  (2) **PID と PuB-EAA を書き分ける**——9書類のうち PID は1つで、残り8つは自治体・国が原簿から
+  出す＝ARF の PuB-EAA。全部 PID にしていたので「この CA は PID しか出さない」と読めた／
+  (3) **発行(Issuance)と失効(Revocation)も別サービス**。失効は Status List 署名者を検証する
+  アンカーで用途が違う（#26）。1つの CA が複数サービスを担うので**同じ証明書が複数エントリに載る**
+  （解決層が fp256 で畳む）。回帰=test/trust.test.mjs。**`parseLoTE` は署名済み payload を読む**ので、
+  分類のテストは**署名し直して**行う（`lote` メンバーを触るだけでは空振りする）
 - **アンカーはバンドルに焼かずリストから引く**（2026-08-16・#26/#28・`src/trust.mjs`）。
   **Web の3アプリは LoTE が正本**——VICAL の `certificateInfos` は `docType` を持つ mdoc 前提の
   スキーマで **SD-JWT Issuer CA を載せる場所が無い**が、18構成の半分は SD-JWT で

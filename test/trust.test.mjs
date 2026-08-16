@@ -33,6 +33,71 @@ test('#28 LoTE は発行者アンカーとリーダーアンカーの両方を�
   assert.ok(r.nextUpdate, 'NextUpdate を持つ');
 });
 
+// LoTE の ServiceTypeIdentifier は **TL(119612) と別体系**（.../19602/SvcType/<種別>/<用途>）。
+// 以前は `http://uri.etsi.org/TrstSvc/Svctype/PID` という**実在しない値**を、しかも
+// 発行者側3件すべてに付けていた——9書類のうち PID は1つで、残り8つは自治体・国が
+// 原簿から出す PuB-EAA なのに「この CA は PID しか出さない」と読める状態だった。
+test('#28 LoTE のサービス型は 119602 の形で、PID と PuB-EAA・発行と失効を書き分ける', async () => {
+  const r = await parseLoTE(lote(), { schemeCaDer });
+  assert.equal(r.valid, true, r.errors.join(';'));
+  const types = new Set(r.anchors.map((a) => a.serviceType));
+  for (const t of types) {
+    assert.match(t, /\/19602\/SvcType\/(PID|PubEAA|WRPAC)\/(Issuance|Revocation)$/, t);
+    // **uri.etsi.org は名乗らない**——EU に届け出たスキームではない（EU–日本 PoC と同じ流儀）
+    assert.ok(!t.startsWith('http://uri.etsi.org/'), `EU の名前空間を騙らない: ${t}`);
+  }
+  const has = (frag) => [...types].some((t) => t.endsWith(frag));
+  assert.ok(has('/PID/Issuance') && has('/PID/Revocation'), 'PID の発行と失効');
+  assert.ok(has('/PubEAA/Issuance') && has('/PubEAA/Revocation'), '残り8書類は PuB-EAA');
+  assert.ok(has('/WRPAC/Issuance'), 'Reader CA は WRPAC');
+  // 失効サービスは Status List の署名者を検証するためのアンカー（issue #26）
+  const rev = r.anchors.filter((a) => /\/Revocation$/.test(a.serviceType));
+  assert.ok(rev.length >= 2 && rev.every((a) => a.role === 'issuer'));
+});
+
+// 役割の取り違えは実害（Reader CA が資格証を保証できてしまう）。許可リストで判定し、
+// **知らない型は発行者に寄せない**。ウォレット本体・登録証明書のアンカーも混ぜない。
+// **リストに書き足して署名し直した状態**で試す（`lote` メンバーを触るだけでは
+// parseLoTE が署名済み payload を読むので通り抜けてしまい、テストが空振りする）。
+test('#28 未知・別役割のサービス型はアンカーにしない', async () => {
+  const { SignJWT, importPKCS8 } = await import('jose');
+  const readerCa = Buffer.from(der('pki/reader/reader-ca.crt')).toString('base64');
+  const svc = (type) => ({
+    ServiceInformation: {
+      ServiceName: [{ lang: 'en', value: `svc ${type}` }],
+      ServiceDigitalIdentity: { X509Certificates: [{ encoding: 'base64', val: readerCa }] },
+      ServiceTypeIdentifier: type,
+      ServiceStatus: 'http://trust.ihv.example/19602/IHVDemoProvidersList/SvcStatus/notified',
+    },
+  });
+  const EXTRA = ['http://trust.ihv.example/19602/SvcType/WalletSolution/Issuance',
+    'http://trust.ihv.example/19602/SvcType/WRPRC/Issuance',
+    'http://trust.ihv.example/19602/SvcType/Register',
+    'https://evil.example/whatever'];
+  const doc = JSON.parse(JSON.stringify(lote()));
+  const payload = JSON.parse(Buffer.from(doc.jws.split('.')[1], 'base64url').toString('utf8'));
+  payload.LoTE.TrustedEntitiesList[0].TrustedEntityServices.push(...EXTRA.map(svc));
+  const key = await importPKCS8(readFileSync(root('pki/vical/provider.key'), 'utf8'), 'ES256');
+  const header = JSON.parse(Buffer.from(doc.jws.split('.')[0], 'base64url').toString('utf8'));
+  const jws = await new SignJWT(payload).setProtectedHeader(header).sign(key);
+
+  const r = await parseLoTE({ lote: payload, jws }, { schemeCaDer });
+  assert.equal(r.valid, true, r.errors.join(';'));
+  assert.ok(r.anchors.every((a) => /\/(PID|PubEAA|EAA|QEAA)\/|\/WRPAC\//.test(a.serviceType)),
+    '許可した型だけがアンカーになる');
+  assert.equal(r.warnings.length, EXTRA.length, '落とした型は warning に残す（黙って捨てない）');
+  // WalletSolution の証明書は Reader CA だが、**リーダーアンカーにも昇格しない**
+  assert.equal(r.readerCas ?? r.anchors.filter((a) => a.role === 'reader').length, 1);
+});
+
+// **署名済み payload が正**。`lote` メンバーだけ書き換えても効かない（署名を通らないため）。
+test('#28 署名し直さずにリストを書き換えても効かない', async () => {
+  const doc = JSON.parse(JSON.stringify(lote()));
+  doc.lote.LoTE.TrustedEntitiesList[0].TrustedEntityServices = [];   // 全部消したつもり
+  const r = await parseLoTE(doc, { schemeCaDer });
+  assert.ok(r.anchors.length > 1, '署名済みの中身が使われる');
+});
+
 test('#28 VICAL は IACA だけ・RICAL は Reader CA だけ', () => {
   const v = parseVical(vical(), { schemeCaDer });
   assert.equal(v.valid, true, v.errors.join(';'));

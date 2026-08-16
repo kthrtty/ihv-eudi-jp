@@ -27,7 +27,7 @@ const b = (v) => (v == null ? null : Buffer.from(v));
 const fp = (der) => new X509Certificate(b(der)).fingerprint256.replace(/:/g, '').toLowerCase();
 
 /** 1つのアンカー。DER と、画面・監査に出す最低限のメタを持つ。 */
-function anchorOf(der, { role, name = null, source, docTypes = null, status = null }) {
+function anchorOf(der, { role, name = null, source, docTypes = null, status = null, serviceType = null }) {
   const c = new X509Certificate(b(der));
   return {
     role,                                     // 'issuer' | 'reader'
@@ -36,6 +36,9 @@ function anchorOf(der, { role, name = null, source, docTypes = null, status = nu
     fp256: fp(der),
     notBefore: c.validFrom, notAfter: c.validTo,
     name, source, docTypes, status,
+    // 用途（.../SvcType/PID/Issuance など）。いまは role でしか絞らないが、
+    // 「失効データの検証にだけ使えるアンカー」を将来分けられるように残す
+    serviceType,
   };
 }
 
@@ -43,11 +46,19 @@ const inValidity = (a, at = new Date()) =>
   new Date(a.notBefore) <= at && at <= new Date(a.notAfter);
 
 // ---- LoTE（ETSI TS 119602・JSON バインディング / JWS）--------------------------
-// リーダー役の ServiceTypeIdentifier。それ以外（PID / EAA / QEAA / PuB-EAA …）は発行者役。
-// **未知の型は発行者に寄せない**——知らない役割を資格証の信頼根に混ぜるのは危険側。
-const READER_SVC = /\/Svctype\/(RPAccessCA|RPRegistrar)$/;
-const ISSUER_SVC = /\/Svctype\/(PID|EAA|QEAA|PubEAA|PuB-EAA)$/;
-const GRANTED = /\/Svcstatus\/(granted|recognisedatnationallevel)$/i;
+// **LoTE の ServiceTypeIdentifier は TL(119612) と別体系**（EU 参照実装 ETSI19602.kt）:
+//   .../19602/SvcType/{PID,PubEAA,WRPAC,WRPRC,WalletSolution}/{Issuance,Revocation}
+// ホストはスキームごとに変わる（EU=uri.etsi.org／EU–日本 PoC=tl.eujp.ownd-project.com／
+// 我々=trust.ihv.example）ので、**判定はホストでなくパスの形で行う**。
+// 旧 TL 形式（.../TrstSvc/Svctype/...）も受ける——外部のリストが 119612 で来ることがある。
+//
+// **役割の取り違えは実害**（Reader CA が資格証を保証できてしまう）なので許可リストで判定し、
+// **知らない型は発行者に寄せない**。WalletSolution / WRPRC / Register は
+// どちらの役でもないので落とす（ウォレット本体や登録証明書のアンカー）。
+const READER_SVC = /\/SvcType\/WRPAC\/(Issuance|Revocation)$|\/Svctype\/(RPAccessCA|RPRegistrar)$/;
+const ISSUER_SVC = /\/SvcType\/(PID|PubEAA|EAA|QEAA)\/(Issuance|Revocation)$|\/Svctype\/(PID|EAA|QEAA)(\/(Pub-EAA|Q))?$/;
+// 119602 は `<list>/SvcStatus/notified`、119612 は `Svcstatus/granted`。両方受ける
+const GRANTED = /\/Svcstatus\/(granted|recognisedatnationallevel)$|\/SvcStatus\/notified$/i;
 
 /**
  * LoTE を検証して正規化する。`schemeCaDer` を渡すと**リスト自身の署名者**を検証する
@@ -97,7 +108,7 @@ export async function parseLoTE(doc, { schemeCaDer = null, at = new Date() } = {
         if (!x?.val) continue;
         try {
           anchors.push(anchorOf(Buffer.from(x.val, 'base64'), {
-            role, source: 'lote', status: si.ServiceStatus ?? null,
+            role, source: 'lote', status: si.ServiceStatus ?? null, serviceType: type,
             name: si.ServiceName?.find((n) => n.lang === 'ja')?.value
               ?? si.ServiceName?.[0]?.value ?? teName,
           }));
