@@ -52,29 +52,58 @@ const entity = (name, services) => ({
   TrustedEntityServices: services,
 });
 
-/** 1つのサービス（＝1つのトラストアンカー）。 */
+// ---- サービス型の URI（2026-08-17 に実装を突き合わせて修正）------------------
+// **LoTE(119602) の URI は TL(119612) と別体系**。以前ここに書いていた
+// `http://uri.etsi.org/TrstSvc/Svctype/PID` や `.../TrustedList/LoTEType/EUDIW`、
+// `.../Svcstatus/granted` は**どれも実在しない値**だった（119612 風に見えるが 119612 にも無い）。
+// EU 参照実装 `eudi-lib-kmp-etsi-1196x2` の ETSI19602.kt が定める正しい形は:
+//   http://uri.etsi.org/19602/SvcType/{PID,PubEAA,WRPAC,WRPRC,WalletSolution}/{Issuance,Revocation}
+//   http://uri.etsi.org/19602/LoTEType/EU{PID,PubEAA,WRPAC,…}ProvidersList
+//   http://uri.etsi.org/19602/PubEAAProvidersList/SvcStatus/{notified,withdrawn}
+//
+// **我々は EU に届け出たスキームではないので、uri.etsi.org は名乗らず自分の名前空間を使う**
+// （`uri.etsi.org/19602/SvcType/PID/Issuance` を出すのは「EU の PID Provider だ」と
+// 主張することになる）。EU–日本 PoC が同じことをしている——
+// `http://tl.eujp.ownd-project.com/19602/SvcType/EAA/Issuance`
+// （eudi-lib-kmp-etsi-1196x2 の 119602-consultation/…/jp/JPPoC.kt）。形だけ借りる。
+const NS = 'http://trust.ihv.example/19602';
+const LIST_NAME = 'IHVDemoProvidersList';
+const SVC = (kind, op) => `${NS}/SvcType/${kind}/${op}`;
+const SVC_STATUS_NOTIFIED = `${NS}/${LIST_NAME}/SvcStatus/notified`;
+
+/** 1つのサービス（＝1つのアンカーの、1つの用途）。 */
 const service = (nameJa, nameEn, typeId, certRel) => ({
   ServiceInformation: {
     ServiceName: [ja(nameJa), en(nameEn)],
     ServiceDigitalIdentity: digitalIdentity(certRel),
     ServiceTypeIdentifier: typeId,
-    ServiceStatus: 'http://uri.etsi.org/TrstSvc/TrustedList/Svcstatus/granted',
+    ServiceStatus: SVC_STATUS_NOTIFIED,
     StatusStartingTime: new Date('2026-01-01T00:00:00Z').toISOString(),
   },
 });
 
+// **1つの CA が複数のサービスを担う**。9書類のうち PID は1つだけで、残り8つ
+// （住民票・国家資格・戸籍・課税・独身・罹災・ワクチン・離島）は**自治体や国が
+// 原簿から出す**＝ARF の PuB-EAA。以前は全部を PID として載せていたので
+// 「この CA は PID しか出さない」と読めていた。
+// **発行(Issuance)と失効(Revocation)も別サービス**——失効は Status List の署名者を
+// 検証するためのアンカーで、用途が違う（issue #26）。我々の Status List 署名鍵は
+// mdoc=IACA 直下 / SD-JWT=SD-JWT CA 配下なので、アンカーとしては同じ CA になる。
+const issuerServices = (labelJa, labelEn, certRel) => [
+  service(`PID 発行（${labelJa}）`, `PID issuance (${labelEn})`, SVC('PID', 'Issuance'), certRel),
+  service(`PID 失効（${labelJa}）`, `PID revocation (${labelEn})`, SVC('PID', 'Revocation'), certRel),
+  service(`公的機関 EAA 発行（${labelJa}）`, `PuB-EAA issuance (${labelEn})`, SVC('PubEAA', 'Issuance'), certRel),
+  service(`公的機関 EAA 失効（${labelJa}）`, `PuB-EAA revocation (${labelEn})`, SVC('PubEAA', 'Revocation'), certRel),
+];
+
 // 収録するアンカー。**retired（秘密鍵を失った旧 IACA）も残す**——消すと発行済みが検証できない
 const pidServices = [
-  service('PID 発行者（mdoc・IACA）', 'PID Provider (mdoc IACA)',
-    'http://uri.etsi.org/TrstSvc/Svctype/PID', 'pki/mdoc/iaca/iaca.crt'),
-  service('PID 発行者（SD-JWT VC）', 'PID Provider (SD-JWT VC)',
-    'http://uri.etsi.org/TrstSvc/Svctype/PID', 'pki/sdjwt/issuer-ca.crt'),
+  ...issuerServices('mdoc・IACA', 'mdoc IACA', 'pki/mdoc/iaca/iaca.crt'),
+  ...issuerServices('SD-JWT VC', 'SD-JWT VC', 'pki/sdjwt/issuer-ca.crt'),
 ];
 for (const p of ['trust/retired/iaca-48253ffd.crt']) {
   if (existsSync(root(p))) {
-    pidServices.push(service('PID 発行者（mdoc・旧 IACA／秘密鍵は失効）',
-      'PID Provider (mdoc, retired IACA)',
-      'http://uri.etsi.org/TrstSvc/Svctype/PID', p));
+    pidServices.push(...issuerServices('mdoc・旧 IACA／秘密鍵は失効', 'mdoc, retired IACA', p));
   }
 }
 
@@ -84,7 +113,7 @@ const lote = {
     ListAndSchemeInformation: {
       LoTEVersionIdentifier: 1,
       LoTESequenceNumber: Math.floor(now.getTime() / 1000),
-      LoTEType: 'http://uri.etsi.org/TrstSvc/TrustedList/LoTEType/EUDIW',
+      LoTEType: `${NS}/LoTEType/${LIST_NAME}`,
       SchemeOperatorName: [ja('IHV デモ スキームオペレーター'), en('IHV Demo Scheme Operator')],
       SchemeName: [ja('IHV デモ 信頼エンティティ一覧'), en('IHV Demo List of Trusted Entities')],
       SchemeInformationURI: [uri('https://issuer.ihv.example/trust')],
@@ -97,8 +126,10 @@ const lote = {
     TrustedEntitiesList: [
       entity({ ja: 'IHV デモ発行者', en: 'IHV Demo Issuer' }, pidServices),
       entity({ ja: 'IHV デモ検証者', en: 'IHV Demo Relying Party' }, [
-        service('検証者アクセス CA', 'Relying Party Access CA',
-          'http://uri.etsi.org/TrstSvc/Svctype/RPAccessCA', 'pki/reader/reader-ca.crt'),
+        // WRPAC = Wallet Relying Party Access Certificate。ARF も「Access Certificate
+        // Authorities」の LoTE を挙げており、我々の Reader CA はこれにあたる
+        service('検証者アクセス証明書 CA', 'WRP Access Certificate CA',
+          SVC('WRPAC', 'Issuance'), 'pki/reader/reader-ca.crt'),
       ]),
     ],
   },
