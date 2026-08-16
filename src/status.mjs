@@ -66,7 +66,11 @@ export class StatusListService {
   //
   // signers: { mdoc: {key, cert}, sdjwt: {key, cert} } — Workers は env secret から注入、
   // null なら Node.js 開発時に pki/ から遅延読込。
-  constructor({ uri, issuerKeyPem = null, issuerCertDer = null, signers = null, size = 256 } = {}) {
+  // size = 事前確保する枠。**発行数を漏らさないための固定長**なので、超えたら伸ばさず失敗させる
+  // （issue #30。以前は 256 で、超えると黙って伸びて「256〜280 件くらい発行した」と分かった）。
+  // 65536 にしても配布は 1.3 KB のまま（zlib が効く）・署名 0.9 ms（Workers 無料枠は 10 ms）・
+  // 保存 128 KB（KV の1値上限 25 MiB）。**匿名集合が 256 → 65536 に広がる**のでプライバシーも改善。
+  constructor({ uri, issuerKeyPem = null, issuerCertDer = null, signers = null, size = 65536 } = {}) {
     this.uri = uri;                      // 既定（後方互換: 発行済みの資格証が指す /status-lists/1）
     this.issuerKeyPem = issuerKeyPem;    // 同上（SD-JWT 系の鍵）
     this.issuerCertDer = issuerCertDer;
@@ -96,10 +100,20 @@ export class StatusListService {
   /** 資格証1件ぶんの枠を取る。**形式ごとに独立した索引空間**。 */
   allocate(format = null) {
     const l = this.#list(format);
+    // **枠を超えたら黙って伸ばさない。** 伸ばすとリスト長で発行数が漏れる（issue #30）。
+    // 使い切ったら次のリストへ切り替える設計が要る（§13.4 の分割・#30 に残件として記載）
+    if (l.next >= this.size) {
+      throw new Error(`status list full: ${StatusListService.fmt(format)} の枠 ${this.size} を使い切りました`
+        + '（新しいリストへの切り替えが必要です — issue #30）');
+    }
     return { idx: l.next++, uri: this.uriFor(format) };
   }
   revoke(idx, reason = 'unspecified', format = null) {
     const l = this.#list(format);
+    // 枠外の idx を書くと配列が伸びて発行数が漏れる。**範囲外は明示的に断る**
+    if (!(Number.isInteger(idx) && idx >= 0 && idx < l.bits.length)) {
+      throw new Error(`status list index out of range: ${idx}（枠 ${l.bits.length}）`);
+    }
     l.bits[idx] = 1;
     l.reasons.set(idx, { reason, date: new Date().toISOString() });
   }
@@ -144,6 +158,11 @@ export class StatusListService {
   }
   /** 配布するトークン。形式ごとに署名鍵・sub・ビット列が変わる。 */
   async token(format = null) {
+    // **配布するリストの長さは常に事前確保どおり**でなければならない（発行数を漏らさないため）。
+    // 旧データを restore した直後など、長さが食い違っていたら事前確保に揃える（issue #30）
+    for (const l of Object.values(this.lists)) {
+      if (l.bits.length < this.size) l.bits = [...l.bits, ...new Array(this.size - l.bits.length).fill(0)];
+    }
     const f = StatusListService.fmt(format);
     // 後方互換: 明示注入された鍵は legacy にだけ使う（旧デプロイと同じ署名者を保つ）
     if (f === 'legacy' && this.issuerKeyPem) {

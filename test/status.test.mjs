@@ -337,3 +337,50 @@ test('#27 coseVerify は x5chain がどちらのヘッダにあっても検証�
   assert.equal(coseVerify(tampered).valid, false,
     'protected: チェーンを触ると署名が壊れる');
 });
+
+// #30: **事前確保は発行数を漏らさないための固定長**。超えたら黙って伸ばさず失敗させる。
+// 以前は 256 で、超えると配列が伸びて「256〜280 件くらい発行した」と外から分かった（本番で発生）。
+test('#30 事前確保を超えたら失敗し、配布リストの長さは発行数で変わらない', async () => {
+  const { StatusListService } = await import('../src/status.mjs');
+  const s = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 8 });
+
+  // 配布サイズが発行数で変わらない（＝発行数が漏れない）
+  const lenOf = async () => {
+    const jwt = await s.token('mdoc');
+    const p = JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url').toString());
+    const { decompressList } = await import('../src/status.mjs');
+    return decompressList(p.status_list.lst).length * 8;
+  };
+  const before = await lenOf();
+  for (let i = 0; i < 5; i++) s.allocate('mdoc');
+  s.revoke(4, 'x', 'mdoc');
+  assert.equal(await lenOf(), before, '5件発行・1件失効してもリスト長は変わらない');
+
+  // 枠を使い切ったら**明示的に失敗**する（黙って伸ばさない）
+  s.allocate('mdoc'); s.allocate('mdoc'); s.allocate('mdoc');
+  assert.throws(() => s.allocate('mdoc'), /status list full/);
+  // 範囲外の失効も断る
+  assert.throws(() => s.revoke(99, 'x', 'mdoc'), /out of range/);
+  assert.equal(await lenOf(), before, '失敗しても長さは変わらない');
+
+  // 既定の枠は 65536（配布は圧縮が効くので小さいまま）
+  const big = new StatusListService({ uri: `${ISSUER}/status-lists/1` });
+  assert.equal(big.size, 65536);
+  big.allocate('mdoc');
+  assert.ok((await big.token('mdoc')).length < 2000, '65536 件枠でも配布は 2KB 未満');
+});
+
+// 旧データ（枠 256 で保存されたもの）を読んでも、配布時には事前確保に揃う
+test('#30 旧い保存状態を読み込んでも配布リストの長さは事前確保どおり', async () => {
+  const { StatusListService, decompressList } = await import('../src/status.mjs');
+  const s = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 512 });
+  // 280 件ぶんしか無い旧スナップショット（本番で実際に起きていた形）
+  const old = new Array(280).fill(0); old[276] = 1;
+  s.restore({ mdoc: { bits: old, next: 280, reasons: [] } });
+  const jwt = await s.token('mdoc');
+  const p = JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url').toString());
+  assert.equal(decompressList(p.status_list.lst).length * 8, 512, '事前確保に揃う');
+  // 失効の中身は保たれる
+  const { getStatus } = await parseStatusListToken(jwt);
+  assert.equal(getStatus(276), 1, '旧データの失効ビットが残る');
+});
