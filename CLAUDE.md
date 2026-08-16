@@ -124,7 +124,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
 マスク漏れのテストで断片を取るときは**末尾から**取る（先頭だと誤検知する）。
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas+トラストリスト、初回必須・pki/ は gitignore）／`npm test`（388, node:test）／
+`npm run setup`（dev PKI+trust+schemas+トラストリスト、初回必須・pki/ は gitignore）／`npm test`（390, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
@@ -550,6 +550,16 @@ devlog は `portrait|portrait_b64` をマスク。テスト `test/portrait.test.
   差し替え可能だとリストごと入れ替えられる。`schemeCaDer` 未指定は `valid` を立てない／
   (5) **アンカー0件は fail-closed**（引けないときに素通しさせない）。取得失敗時は手元を使い、
   手元も無ければ0件。同じ証明書は fp256 で畳む。有効期間はリゾルバの時計で見る
+- **SD-JWT VC の x5c にトラストアンカーを入れない**（2026-08-16・HAIP §6.1.1「The X.509 certificate of
+  the trust anchor MUST NOT be included in the `x5c` JOSE header of the SD-JWT VC.」）。x5c 自体は
+  **SD-JWT VC §3.5 の正規の鍵解決方式で HAIP では MUST**——落とすのはアンカーだけ。禁止の理由は
+  「**届いたチェーンだけで検証が完結してしまう**」から。実際に旧 `verifySdJwtVc` は
+  `trustedIssuerCaDer ?? header.x5c[1]` で、注入が無いと**トークン自身が連れてきた CA を信じていた**
+  （#26 と同じ穴）。issue 側は**自己署名の証明書を落とす**（中間 CA を挟んでも自動で正しく載る）、
+  verify 側は**アンカーが無ければ検証しない**（fail-closed・`no trusted issuer CA anchor available`）。
+  **旧形式（2枚）の資格証はアンカー注入で従来どおり検証できる**＝本番の保有分は壊れない。
+  回帰=test/sdjwt.test.mjs。なお **readerAuth の x5chain は別ルール**（HAIP のこの MUST NOT は
+  SD-JWT VC の x5c 限定。要求署名証明書が自己署名でないことは満たしている）
 - **Status List の署名者もアンカーへ辿る**（#26 解決）: `parseStatusListToken(jwt,{trustedCas})`。
   **束で渡す**——mdoc のリストは IACA 配下・SD-JWT のリストは SD-JWT CA 配下で、どちらに繋がるかは
   配布 URI からしか分からない。渡さないと「全部有効」のリストに差し替えられる（テストで実証済み）

@@ -81,3 +81,33 @@ test('sd-jwt: KB-JWT binds nonce/aud/sd_hash (M3 seed)', async () => {
   const bad = await verifyKbJwt({ kbJwt: kb, sdjwtPresented: presented, holderJwk: jwk, expectedNonce: 'WRONG', expectedAud: 'verifier.ihv.example' });
   assert.equal(bad.valid, false);
 });
+
+// HAIP §6.1.1: x5c は **MUST**（SD-JWT VC §3.5 の X.509 方式）だが、
+// 「The X.509 certificate of the **trust anchor** MUST NOT be included in the `x5c`
+// JOSE header of the SD-JWT VC.」——アンカーまで同梱すると、受け取る側が
+// **届いたチェーンだけで検証を完結できてしまう**（issue #26 と同じ穴。旧実装は実際に
+// 注入が無いと x5c[1] を CA として使っていた）。
+test('sd-jwt: x5c はリーフだけ — トラストアンカーを同梱しない（HAIP §6.1.1）', async () => {
+  const { jwk } = holderKeypair();
+  const jwt = (await issue(jwk)).split('~')[0];
+  const header = JSON.parse(Buffer.from(jwt.split('.')[0], 'base64url').toString('utf8'));
+  assert.equal(header.x5c.length, 1, 'リーフ1枚（自己署名 CA は落とす）');
+  const certs = header.x5c.map((b) => new X509Certificate(Buffer.from(b, 'base64')));
+  assert.ok(certs.every((c) => c.subject !== c.issuer), '自己署名＝アンカーは1枚も入らない');
+  // リーフ自身は残っており、アンカーを渡せば検証は通る（＝落としたのはアンカーだけ）
+  assert.equal(certs[0].raw.toString('base64'), Buffer.from(issuerCertDer).toString('base64'));
+  const r = await verifySdJwtVc(await issue(jwk), { trustedIssuerCaDer: issuerCaDer });
+  assert.equal(r.valid, true, r.errors.join(';'));
+});
+
+// アンカーを渡さない検証は**素通しさせない**。x5c の中の CA へフォールバックすると
+// 「自己完結したチェーンなら誰でも通る」ことになる（#26）。
+test('sd-jwt: アンカーを渡さない／0件なら検証しない（fail-closed）', async () => {
+  const { jwk } = holderKeypair();
+  const sdjwt = await issue(jwk);
+  for (const opts of [undefined, {}, { trustedIssuerCaDer: [] }]) {
+    const r = await verifySdJwtVc(sdjwt, opts);
+    assert.equal(r.valid, false, `${JSON.stringify(opts)} は通してはいけない`);
+    assert.match(r.errors.join(';'), /no trusted issuer CA anchor available/);
+  }
+});
