@@ -72,3 +72,38 @@ test('EAA: juminhyo + qualification carry signature attributes', () => {
     assert.ok(jKeys.includes(k), `juminhyo missing ${k}`);
   }
 });
+
+// **券面（cardArt）になるのは `logo` であって `background_image` ではない**
+// （2026-08-17 実機で発覚）。Multipaz の `DocumentProvisioningHandler`:
+//   createDocument: `cardArt = credentialMetadata.display.logo`
+//   updateDocument: `display.logo?.let { cardArt = it }`
+// `background_image` は `Display` には載るが既定ハンドラでは使われない。
+// background_image だけ出していたので**全書類がデフォルト券面のままだった**。
+// 「ウォレットがそのフィールドを読む」と「券面になる」は別。
+test('OID4VCI display: 券面は logo に載せる（background_image だけでは効かない）', () => {
+  const cfgs = catalog.credential_configurations_supported;
+  const ids = Object.keys(cfgs);
+  assert.equal(ids.length, 18);
+  for (const id of ids) {
+    for (const d of cfgs[id].display) {
+      const where = `${id} (${d.locale})`;
+      assert.ok(d.logo?.uri, `${where}: logo が要る（これが cardArt になる）`);
+      assert.ok(d.logo.alt_text, `${where}: logo に alt_text`);
+      // 同じ券面を両方に載せる。background_image は OID4VCI の意味論として残す
+      assert.equal(d.background_image?.uri, d.logo.uri, `${where}: 同じ画像`);
+
+      // data: URI は **標準 base64**（Multipaz の loadImage は fromBase64。base64url ではない）
+      const m = /^data:image\/jpeg;base64,(.+)$/.exec(d.logo.uri);
+      assert.ok(m, `${where}: data:image/jpeg;base64,… の形`);
+      assert.ok(!/[-_]/.test(m[1]), `${where}: base64url 文字を含まない`);
+      const buf = Buffer.from(m[1], 'base64');
+      assert.equal(buf.subarray(0, 2).toString('hex'), 'ffd8', `${where}: JPEG SOI`);
+      assert.equal(buf.subarray(-2).toString('hex'), 'ffd9', `${where}: JPEG EOI`);
+      assert.ok(buf.length < 8 * 1024, `${where}: 1枚が小さい（実測 ${buf.length}B）`);
+
+      // 大小の文字に同じ値が入ると重なる（2026-08-16）。形式は description 側へ
+      assert.ok(d.name && d.description && d.name !== d.description, `${where}: name と description は別`);
+      assert.ok(d.background_color && d.text_color, `${where}: 色`);
+    }
+  }
+});
