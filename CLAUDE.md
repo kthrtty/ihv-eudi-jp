@@ -114,9 +114,19 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
 
 **ウォレット上の券面は OID4VCI の `display` が決める**（2026-08-16・実機で判明）: Multipaz は
 **name / description / logo / background_color / text_color / background_image の6つ**を読む
-（`JsonParsing.kt`）。**`name` しか出していなかったため、大きい文字と小さい文字の両方に `name` が
-描かれて重なっていた**うえ、9書類が全部同じ既定グラデーションだった。形式表記は `name` に詰めず
-`description` へ回す。券面は `scripts/gen-cardart.mjs`（和色テーマ＋シルエットを SVG→画像化）で生成し
+（`JsonParsing.kt` の `extractDisplay`）。**`name` しか出していなかったため、大きい文字と小さい文字の
+両方に `name` が描かれて重なっていた**うえ、9書類が全部同じ既定グラデーションだった。形式表記は
+`name` に詰めず `description` へ回す。
+**券面（cardArt）になるのは `logo` であって `background_image` ではない**（2026-08-17 実機で判明）:
+`DocumentProvisioningHandler.createDocument` が `cardArt = credentialMetadata.display.logo`、
+`updateDocument` も `display.logo?.let { cardArt = it }`。`background_image` は `Display` には載るが
+既定ハンドラでは使われない。**「そのフィールドを読む」と「券面になる」は別**で、
+background_image だけ出していたので**全書類がデフォルト券面のまま**だった。
+いまは**同じ画像を logo と background_image の両方**に載せる（logo=実効・background_image=OID4VCI の
+意味論として残す）。data: URI は**標準 base64**（Multipaz の `loadImage` は `fromBase64`。base64url 不可）。
+メタデータは 167→280KB になるが**同じ画像の繰り返しなので gzip 後は 23KB**。回帰=test/schema.test.mjs。
+なお Multipaz の issuer metadata キャッシュは**プロセス内メモリのみ**（`IssuerConfiguration` の
+companion）なので、券面を変えたらアプリを再起動させる。券面は `scripts/gen-cardart.mjs`（和色テーマ＋シルエットを SVG→画像化）で生成し
 `assets/cardart.json` に置く（`gen-schemas.mjs` が `data:` URI で埋める＝**メタデータのサイズに直接効く**）。
 **グラデーションは PNG と相性が悪い**——428×270 の PNG は1枚 20KB・9枚で 1.5MB になり載せられない。
 **JPEG（214×135・quality 82）で 2〜3KB／18構成で計 57KB** に収めた。
@@ -124,7 +134,7 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
 マスク漏れのテストで断片を取るときは**末尾から**取る（先頭だと誤検知する）。
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas+トラストリスト、初回必須・pki/ は gitignore）／`npm test`（393, node:test）／
+`npm run setup`（dev PKI+trust+schemas+トラストリスト、初回必須・pki/ は gitignore）／`npm test`（397, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）

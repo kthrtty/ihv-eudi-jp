@@ -188,21 +188,35 @@ const single = {
 
 // ---- 罹災証明書 EAA --------------------------------------------------------
 
-// OID4VCI の display。**ウォレットは name / description / logo / background_color /
-// text_color / background_image の6つを読む**（Multipaz: JsonParsing.kt）。
+// OID4VCI の display。ウォレットは name / description / logo / background_color /
+// text_color / background_image を読む（Multipaz: JsonParsing.kt の extractDisplay）。
 // `name` しか出していなかったため、Multipaz が大きい文字と小さい文字の**両方に name を描いて
 // 重なっていた**（2026-08-16 実機で判明）。形式は name に詰めず description へ回す。
 //
-// background_image は書類ごとの券面（和色＋シルエット）。**data: URI で載せるので
-// メタデータのサイズに直接効く**——グラデーションは PNG と相性が悪く1枚 20KB になるため
-// JPEG（214×135・quality 82）で 2〜3KB に収めている（18構成で計 57KB）。
+// **券面（cardArt）になるのは `logo` であって `background_image` ではない**
+// （2026-08-17 実機で判明。Multipaz `DocumentProvisioningHandler.createDocument`:
+//  `cardArt = credentialMetadata.display.logo`／`updateDocument` も `display.logo?.let { cardArt = it }`）。
+// `background_image` は `Display` には載るがこの既定ハンドラでは使われない。
+// **「読む」＝「券面になる」ではない**——background_image だけ出していたので、
+// 全書類がデフォルト券面のままだった。
+//
+// よって**同じ画像を logo と background_image の両方に載せる**:
+//   logo             … Multipaz などが券面に使う（実効的にこちらが効く）
+//   background_image … OID4VCI の意味論では券面の背景。他のウォレット向けに残す
+// 券面は書類ごとの和色＋シルエット。**data: URI なのでメタデータのサイズに直接効く**
+// ——グラデーションは PNG と相性が悪く1枚 20KB になるため JPEG（214×135・quality 82）で
+// 2〜3KB に収めている。2箇所に載せるので概算は倍になる（`npm run gen-schemas` が実測を出す）。
 const displayFor = (schema, fmtLabel) => {
   const t = WALLET_CARD_THEME[schema.id] || WALLET_CARD_THEME.pid;
   const art = CARD_ART[schema.id];
+  const uri = art ? `data:${art.mime};base64,${art.b64}` : null;
   const common = {
     background_color: t.c2,
     text_color: '#FFFFFF',
-    ...(art ? { background_image: { uri: `data:${art.mime};base64,${art.b64}` } } : {}),
+    ...(uri ? {
+      logo: { uri, alt_text: schema.display.ja },
+      background_image: { uri },
+    } : {}),
   };
   return [
     { name: schema.display.ja, description: `${fmtLabel} ／ IHV デモ発行者`, locale: 'ja-JP', ...common },
