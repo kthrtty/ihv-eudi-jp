@@ -134,7 +134,7 @@ companion）なので、券面を変えたらアプリを再起動させる。�
 マスク漏れのテストで断片を取るときは**末尾から**取る（先頭だと誤検知する）。
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas+トラストリスト、初回必須・pki/ は gitignore）／`npm test`（400, node:test）／
+`npm run setup`（dev PKI+trust+schemas+トラストリスト、初回必須・pki/ は gitignore）／`npm test`（405, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
@@ -306,6 +306,31 @@ companion）なので、券面を変えたらアプリを再起動させる。�
   ——**同意は既定で真にしない**（送られてこない＝同意していない）。`String({})` は必ず truthy なので型で判定する。
   審査画面は `formRow()` が型ごとに整形（素で埋めると `[object Object]` が並ぶ）。`reviewHide:true` の項目
   （`same_address` のような入力補助）は審査画面に出さない
+- **入力検証は `src/validate.mjs` に集約**（2026-08-18・#33）: 項目定義（`type`/`required`/`options`/`max`）
+  だけを見る純関数で、**申請フォーム（form）と審査の判定（decision）を同じ規則で見る**。
+  以前 `decideApplication` は必須と長さしか見ておらず、**radio の選択肢も date の形式も検証して
+  いなかった**ため `damage_level:"全壊（※実際は無被害）"` が**署名済み VC に載った**
+  （罹災証明書の本体＝統一様式の必須記載事項）。離島は `resident_category:"VIP島民"` が
+  `islandEligible()` の交付ゲートまですり抜け、`expiry_date:"9999-99-99"` も通った。
+  **`authority` と同じクラスの穴が同じ関数の隣に残っていた**——「審査画面が radio を出す」は防御ではない。
+  date は形式だけでなく**実在する日付か**まで見る。制御文字も弾く（VC のクレームにも画面にも入る）
+- **`next` は `isSafeNext()`（src/security.mjs）で判定する**（2026-08-18・#33）。`//evil` を塞ぐだけでは
+  足りない——**ブラウザは URL 中の `\` を `/` に正規化する**ので `/\evil.example` がプロトコル相対 URL に
+  なり外部へ飛ぶ（Chromium で実測: `Location: /\evil.example/pwned` → `http://evil.example/pwned`）。
+  ログイン画面は本人確認の入口なのでフィッシングの足場になる。`%5C` はパスの一部として扱われ
+  同一オリジンに留まるので**許してよい**（塞ぎすぎない）。発行ポータルと自治体窓口の両方で使う
+- **添付は `arrayBuffer()` の前に `file.size` で断る**（2026-08-18・#33）。合計上限を読み込み後に見ていたので、
+  断る前に isolate のメモリ（Workers は 128MB）を使い切らせられた。回帰は**順序を観測する**——
+  「上限超過かつ形式も不正」なファイルを送り、サイズのエラーが返ることを見る
+- **申請は1日 10 件まで**（2026-08-18・#33・`maxAppsPerDay`）。台帳 `_persist:apps` は**1つの KV 値**を
+  全利用者で共有するので、1人が積むと全員の申請・審査・交付が壊れる。1件あたりの大きさは
+  抑えていたが件数が無制限だった。上限を見ないテストは `maxAppsPerDay` を明示的に上げる
+- **PAR の `request_uri` は使い捨て**（RFC 9126 §4「used only once」）。`resolvePar(uri,{consume:true})` を
+  **コードを出す経路だけ**で呼ぶ（GET /authorize は描画のために覗くだけ——未ログインだと
+  ログインへ往復するので、そこで消すと壊れる）。同意フォームは `request_uri` を hidden で持ち回る。
+  なお **`/par`・`/login`・`/offer` は無認証で KV に書く**＝無料枠 1,000 writes/日 を枯らせる。
+  コード側でできるのは「セッション必須化」「isolate 内メモリのレート制限」までで、
+  **分散した攻撃者に対する最終防衛線はエッジ（Cloudflare の Rate Limiting）**——完全には防げない
 - **画面で隠すのは防御ではない**（2026-08-09 セキュリティ確認で実測）: 審査画面は申請先がある申請で
   発行者名の入力欄を出さないが、`/a/:id/decision` は `authority` を受けており、**任意の交付者名が
   署名済み VC に載せられた**（`authority || targetAuthority(app)` の順で手入力が勝っていた）。

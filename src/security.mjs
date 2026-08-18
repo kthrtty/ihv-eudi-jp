@@ -88,3 +88,24 @@ export function makeSsrfSafeFetch(baseFetch, allowlist = []) {
     return baseFetch(url, opts);
   };
 }
+
+/**
+ * ログイン後の遷移先（`next`）として受けてよいか。**同一オリジンの絶対パスだけ**。
+ *
+ * `//evil` を塞ぐだけでは足りない——**ブラウザは URL 中の `\` を `/` に正規化する**ので
+ * `/\evil.example` がプロトコル相対 URL になり外部オリジンへ飛ぶ。2026-08-18 に
+ * Chromium で実測: `Location: /\evil.example/pwned` → `http://evil.example/pwned`。
+ * ログイン画面は本人確認の入口なので、そのままフィッシングの足場になる。
+ *
+ * 受けるのは「`/` で始まり、2文字目が `/` でも `\` でもなく、制御文字を含まない」もの。
+ * `/` 単体は許す（トップへ戻る）。
+ */
+export function isSafeNext(next) {
+  if (typeof next !== 'string' || next === '') return false;
+  if (next === '/') return true;
+  if (next[0] !== '/') return false;
+  if (next[1] === '/' || next[1] === '\\') return false;   // //evil ・ /\evil
+  // eslint-disable-next-line no-control-regex
+  if (/[\x00-\x1F\x7F]/.test(next)) return false;          // 改行でヘッダを割らせない
+  return true;
+}

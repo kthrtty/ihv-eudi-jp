@@ -13,7 +13,7 @@ import { renderVerifyConsole, renderWebVerify, renderWebVerifyResult, renderVeri
 import { scenarioList, getScenario, evaluateScenario, scenarioConfigIds } from './scenarios.mjs';
 import { renderScenarioHome, renderScenarioRun, renderScenarioStep1Done, renderScenarioAccept, renderScenarioGone } from './scenario-demo.mjs';
 import { captureInbound, getLog, pushLog, buildEntry, createLogRing } from './devlog.mjs';
-import { securityHeaders, csrfGuard } from './security.mjs';
+import { securityHeaders, csrfGuard, isSafeNext } from './security.mjs';
 import { createWallet } from './wallet.mjs';
 import { allConfigIds, configInfo, jwks as issuerJwks, accountCatalog } from './issuer.mjs';
 import { getApplicationType, labelOf, subOf, parseHousehold, parseChecks, parseConsents } from './applications.mjs';
@@ -273,12 +273,15 @@ export function createApp(opts = {}) {
       const attachments = [];
       let total = 0;
       for (const [i, file] of files.slice(0, MAX_FILES).entries()) {
-        const v = validateAttachment(new Uint8Array(await file.arrayBuffer()));
-        if (!v.ok) throw httpFail(400, v.error);
-        total += v.bytes.length;
+        // **読む前に大きさを見る**（2026-08-18 の診断）。`arrayBuffer()` で全部展開してから
+        // 合計を判定していたので、上限超過を断る前に isolate のメモリ（Workers は 128MB）を
+        // 使い切らせられた。`file.size` はストリームを読まずに分かる
+        total += file.size;
         if (total > MAX_TOTAL_BYTES) {
           throw httpFail(400, `添付の合計が大きすぎます（上限 ${Math.floor(MAX_TOTAL_BYTES / 1024 / 1024)}MB）`);
         }
+        const v = validateAttachment(new Uint8Array(await file.arrayBuffer()));
+        if (!v.ok) throw httpFail(400, v.error);
         // 正規化（EXIF・継ぎ足しを落とす）の上に、**可能なら描き直す**。Images バインディングが
         // 無い環境では null が返り、正規化済みのバイト列をそのまま保存する
         const re = await reencodeImage(images, v.kind, v.bytes);
@@ -447,9 +450,12 @@ export function createApp(opts = {}) {
   // ---- passwordless session ----
   const sid = (c) => c.req.header('x-session-id') || getCookie(c, 'sid');
   // GET /login — simple user picker for browser access (sets session, redirects to /)
-  // `next` MUST be a local path (single leading '/'): otherwise
-  // /login?next=https://evil is an open redirect off the issuer origin.
-  const safeNext = (n) => (typeof n === 'string' && /^\/(?!\/)/.test(n) ? n : '/');
+  // `next` は**同一オリジンの絶対パスだけ**。`//evil` を塞ぐだけでは足りない——
+  // **ブラウザは URL 中の `\` を `/` に正規化する**ので `/\evil.example` が
+  // プロトコル相対 URL になり外部へ飛ぶ（2026-08-18 に Chromium で実測:
+  // `Location: /\evil.example/pwned` → `http://evil.example/pwned`）。
+  // ログイン画面は本人確認の入口なのでフィッシングの足場になる。
+  const safeNext = (n) => (isSafeNext(n) ? n : '/');
   app.get('/login', async (c) => {
     const users = await svc.listUsers();
     return c.html(renderLogin(users, safeNext(c.req.query('next'))));
@@ -500,6 +506,8 @@ export function createApp(opts = {}) {
     if (c.req.header('x-session-id')) {
       try {
         const { redirect } = await svc.authorize({ sessionId, ...q });
+        // この経路は即座にコードを返すので、PAR はここで使い捨てにする
+        if (c.req.query('request_uri')) await svc.resolvePar(c.req.query('request_uri'), { consume: true });
         return c.redirect(redirect, 302);
       } catch (e) { return fail(c, e); }
     }
@@ -519,6 +527,9 @@ export function createApp(opts = {}) {
         return c.redirect('/login?next=/', 302);
       }
       const f = await c.req.parseBody();
+      // PAR 経由なら**ここで使い捨てにする**（RFC 9126 §4「used only once」）。
+      // GET /authorize は描画のために覗くだけ、コードを出すこの経路で消す
+      if (f.request_uri) await svc.resolvePar(f.request_uri, { consume: true });
       // `app:<configId>` = 同意画面で選ばれた申請。**サーバ側で本人の・交付可能な
       // 申請かを検証する**（画面で隠すのは防御ではない — 2026-08-09 の教訓）
       const applications = {};
