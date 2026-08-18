@@ -134,7 +134,7 @@ companion）なので、券面を変えたらアプリを再起動させる。�
 マスク漏れのテストで断片を取るときは**末尾から**取る（先頭だと誤検知する）。
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas+トラストリスト、初回必須・pki/ は gitignore）／`npm test`（397, node:test）／
+`npm run setup`（dev PKI+trust+schemas+トラストリスト、初回必須・pki/ は gitignore）／`npm test`（400, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
@@ -212,6 +212,23 @@ companion）なので、券面を変えたらアプリを再起動させる。�
   `data-app` で申請 ID を送り `/offer` → `at.applications[configId]` → `credential()` が該当申請を使う。
   **指定が無ければ最新の認定**なので、古い1枚を出したいときは必ず指定する。
   回帰=test/applications.test.mjs（申請ごとに値が混ざらないこと）
+- **どの認定から交付するかは同意画面で選ばせる**（2026-08-18・#32）。罹災は災害ごと、離島は島ごとに
+  別の申請＝別の1枚になりうるのに、以前は書類の種類でしか同意できず `credential()` が黙って
+  **最新の認定**を選んでいた（本番で u_001 は罹災の認定を2件持っていた＝実害が出ていた）。
+  **選択を同意画面に置くのは仕様上そこしか無いから**——OID4VCI 1.0 の規定手段は
+  Credential Dataset（トークン応答 `credential_identifiers` → Credential Request
+  `credential_identifier`）だが、(1) **仕様に各 dataset の表示名を載せる場所が無い**
+  （§6.2 は type/credential_configuration_id/credential_identifiers の3つだけ）ので
+  ウォレットは「区別できない N 個」しか出せない／(2) **Multipaz は全1,718クラスで
+  `credential_identifier(s)` が0件**（Credential Request は常に configuration_id。
+  リフレッシュ時も同じ）／(3) **資格証の中にも dataset id は入らない**（SD-JWT/mdoc とも実測。
+  一意なのは `status` の `{uri,idx}` だけで発行者の台帳からしか逆引きできない）。
+  実装: `issuableChoices()` が候補を返し、候補2件以上のときだけラジオを出す（**JS 不要**・
+  強調も `:has(input:checked)`）。1行要約は `applicationLine()`（**見分けに要る情報だけ**）。
+  既定は最新の認定（暗黙の既定を見える形で踏襲）。`app:<configId>` は `#validateChoices` が
+  **本人の・交付可能な・要求された configId の**申請だけ通す。**refresh_token を実装するときは
+  選択を発行者側で永続化する**（ウォレットはリフレッシュで configuration_id しか送らない）。
+  画面確認=`node scripts/capture-consent.mjs`（候補複数の状態は SEED に無いので注入して撮る）
 - 発行ゲートは `oid4vci.credential()`。persona 無し（SAMPLE・シナリオ selftest）は従来どおり通す
 - 画面は案D（3セクション: いつでも発行 / 認定済み（申請ごとに1行）/ 申請できる手続き）。一覧は
   **PC=表組み・SP=3列グリッド**を1マークアップで両立。住民向け=`src/apply-demo.mjs`（申請フォーム＋

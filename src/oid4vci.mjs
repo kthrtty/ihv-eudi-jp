@@ -385,7 +385,7 @@ export class IssuerService {
 
   // ---- 3.4 Authorization Endpoint (authorization_code + PKCE) ----
   async authorize({ sessionId, response_type, redirect_uri, code_challenge, code_challenge_method,
-    scope, authorization_details, issuer_state, state } = {}) {
+    scope, authorization_details, issuer_state, state, applications: chosen = null } = {}) {
     if (response_type !== 'code') throw httpErr(400, 'unsupported_response_type', String(response_type));
     const sess = sessionId && await this.store.get(`sess:${sessionId}`);
     if (!sess) throw httpErr(401, 'login_required', 'no active session; user must sign in first');
@@ -398,7 +398,12 @@ export class IssuerService {
     const ids = await this.requestedIds({ scope, authorization_details, issuer_state });
     if (!ids.length) throw httpErr(400, 'invalid_scope', 'no credential configuration requested');
     const code = tok();
-    const applications = await this.requestedApplications(issuer_state);
+    // 「どの認定から交付するか」の出どころは2つ。**同意画面の選択が優先**する——
+    // 発行者起点オファー（issuer_state）は入口で1枚に決まっているが、wallet 起点
+    // （scope）は同意画面が唯一の選択箇所だから（issue #32）。
+    // **フォームの値は信用しない**: 本人の・交付可能な申請だけを通す
+    const applications = (await this.#validateChoices(sess.userId, ids, chosen))
+      ?? await this.requestedApplications(issuer_state);
     await this.store.set(`code:${code}`, { userId: sess.userId, ids, redirect_uri, code_challenge, used: false,
       ...(applications ? { applications } : {}) }, this.proofMaxAgeSec);
     const u = new URL(redirect_uri);
@@ -415,6 +420,36 @@ export class IssuerService {
       if (st) ids = st.ids;
     }
     return ids;
+  }
+
+  /**
+   * 同意画面で選ばれた申請を検証する（configId → applicationId）。
+   * **他人の申請 ID を送られても通さない**——`issuableApplications` は userId で絞るので、
+   * そこに無い ID は黙って捨てる（存在も明かさない）。要求されていない configId も捨てる。
+   */
+  async #validateChoices(userId, ids, chosen) {
+    if (!chosen || typeof chosen !== 'object') return null;
+    const out = {};
+    for (const configId of ids) {
+      const wanted = chosen[configId];
+      if (!wanted) continue;
+      const credType = configId.replace(/_(mdoc|sdjwt)$/, '');
+      if (!requiresApplication(credType)) continue;
+      const usable = await this.issuableApplications(userId, credType);
+      if (usable.some((a) => a.id === wanted)) out[configId] = wanted;
+    }
+    return Object.keys(out).length ? out : null;
+  }
+
+  /** その利用者が同意画面で選べる候補（configId → 交付可能な申請の配列）。 */
+  async issuableChoices(userId, ids) {
+    const out = {};
+    for (const configId of ids) {
+      const credType = configId.replace(/_(mdoc|sdjwt)$/, '');
+      if (!requiresApplication(credType)) continue;
+      out[configId] = await this.issuableApplications(userId, credType);
+    }
+    return out;
   }
 
   /** 発行者起点オファーが指定した「どの認定から交付するか」（configId → applicationId）。 */

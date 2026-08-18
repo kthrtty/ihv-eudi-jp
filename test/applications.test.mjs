@@ -485,3 +485,110 @@ test('applications: 複数枚を持っても申請ごとの値が混ざらない
     '島民に準島民の事由の行は出さない（VC にも無いので表示だけ存在してはならない）');
   assert.equal(claimsFor(isl, persona).quasi_reason, null);
 });
+
+// ---- #32 同意画面で「どの認定から交付するか」を選ぶ --------------------------
+// 罹災は災害ごと、離島は島ごとに別の申請＝別の1枚になりうる。以前は書類の種類でしか
+// 同意できず、credential() が黙って**最新の認定**を選んでいた（「熊本の罹災を出した
+// つもりが東京のが出る」が静かに起きる）。**発行者の同意画面が唯一の選択箇所**——
+// OID4VCI の credential_identifiers は不透明文字列で、仕様に表示名を載せる場所が無い（§6.2）。
+const consentSetup = async () => {
+  const app = createApp({ credentialIssuer: 'https://issuer.ihv.example' });
+  const svc = app.svc;
+  await svc._loadApps();
+  // u_001 に2件目の罹災（能登）と2件目の離島（佐渡）を足す
+  svc.applications.push({
+    id: 'A-9001', userId: 'u_001', kind: 'disaster', status: 'approved', target_code: '17204',
+    disaster_id: 'r6-noto-jishin', submitted_at: '2026-08-01T00:00:00.000Z', decided_at: '2026-08-10T00:00:00.000Z',
+    form: { damaged_address: '石川県輪島市河井町2-1' }, decision: { damage_level: '全壊' },
+  }, {
+    id: 'A-9002', userId: 'u_001', kind: 'island', status: 'approved', target_code: '15224',
+    submitted_at: '2026-07-01T00:00:00.000Z', decided_at: '2026-07-15T00:00:00.000Z',
+    form: { applied_category: '準島民', island_name: '佐渡島', quasi_reason: '就学' },
+    decision: { resident_category: '準島民', card_number: 'NG-0007', expiry_date: '2029-03-31' },
+  });
+  await svc._saveApps();
+  const { session_id } = await (await app.request('/login', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_001' }),
+  })).json();
+  return { app, svc, cookie: `sid=${session_id}` };
+};
+const consentHtml = async (app, cookie, scope) => (await app.request(
+  '/authorize?' + new URLSearchParams({
+    response_type: 'code', client_id: 'w', redirect_uri: 'https://issuer.ihv.example/demo/cb',
+    code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM', code_challenge_method: 'S256', scope, state: 's',
+  }), { headers: { cookie } })).text();
+
+test('#32 候補が複数の書類は同意画面でラジオになり、1件なら出ない', async () => {
+  const { app, cookie } = await consentSetup();
+
+  const html = await consentHtml(app, cookie, 'pid_mdoc disaster_sdjwt');
+  const radios = [...html.matchAll(/name="app:disaster_sdjwt" value="(A-\d{4})"/g)].map((m) => m[1]);
+  assert.deepEqual(radios, ['A-0002', 'A-9001'], '認定ぶんの選択肢が出る');
+  assert.match(html, /罹災証明書は認定が <b>2<\/b> 件あります/);
+  // **既定は最新の認定**（従来の暗黙の既定を、見える形で踏襲する）
+  assert.match(html, /value="A-9001" checked/);
+  // 見分けに要る情報が出ている（災害名・被災住家・被害の程度・交付者・認定日）
+  assert.match(html, /令和6年能登半島地震・石川県輪島市河井町2-1 ・ 全壊/);
+  assert.match(html, /輪島市長 ／ 2026-08-10 認定/);
+  // PID は申請不要なのでラジオを出さない
+  assert.ok(!/name="app:pid_mdoc"/.test(html), '申請不要の書類に選択は出さない');
+
+  // 候補1件（u_004 の離島）はラジオ無し。ただし中身の1行は出す
+  const { app: app4 } = await consentSetup();
+  const { session_id } = await (await app4.request('/login', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_004' }),
+  })).json();
+  const one = await consentHtml(app4, `sid=${session_id}`, 'island_sdjwt');
+  assert.ok(!/name="app:island_sdjwt"/.test(one), '候補1件ならラジオを出さない');
+  assert.match(one, /種子島/, '1件でも中身は見せる');
+});
+
+test('#32 複数の書類が同時に候補複数でも、それぞれ独立に選べる', async () => {
+  const { app, cookie } = await consentSetup();
+  const html = await consentHtml(app, cookie, 'disaster_sdjwt island_sdjwt');
+  assert.match(html, /罹災証明書は認定が <b>2<\/b> 件あります/);
+  assert.match(html, /離島割引資格証は認定が <b>2<\/b> 件あります/);
+  assert.equal([...html.matchAll(/name="app:disaster_sdjwt"/g)].length, 2);
+  assert.equal([...html.matchAll(/name="app:island_sdjwt"/g)].length, 2);
+  // 選択グループごとに1つだけ既定が入る（ラジオの name が別なので独立）。
+  // **`/checked/` で数えない**——CSS の `:has(input:checked)` まで拾う
+  assert.deepEqual([...html.matchAll(/value="(A-\d{4})" checked/g)].map((m) => m[1]), ['A-9001', 'A-9002']);
+});
+
+// 選択が実際に発行内容を変えること。**フォームの値は信用しない**（画面で隠すのは防御ではない）。
+test('#32 選ばれた認定から交付され、不正な指定は既定に落ちる', async () => {
+  const { app, cookie } = await consentSetup();
+  const issue = async (chosen) => {
+    const verifier = 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk';
+    const body = new URLSearchParams({
+      response_type: 'code', client_id: 'w', redirect_uri: 'https://issuer.ihv.example/demo/cb',
+      code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM', code_challenge_method: 'S256',
+      scope: 'disaster_sdjwt', state: 's',
+    });
+    if (chosen) body.set('app:disaster_sdjwt', chosen);
+    const res = await app.request('/authorize/consent', {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', cookie }, body: body.toString(),
+    });
+    const code = new URL(res.headers.get('location')).searchParams.get('code');
+    const w = createWallet();
+    await w.exchangeAndReceive({ request: app.request.bind(app), code, verifier,
+      redirectUri: 'https://issuer.ihv.example/demo/cb', credentialIssuer: 'https://issuer.ihv.example',
+      configIds: ['disaster_sdjwt'] });
+    const cred = w.serialize().store[0].credential;
+    const d = cred.split('~').slice(1).filter(Boolean)
+      .map((x) => { try { return JSON.parse(Buffer.from(x, 'base64url').toString('utf8')); } catch { return null; } })
+      .filter(Boolean);
+    const get = (k) => d.find((x) => x[1] === k)?.[2];
+    return { disaster: get('disaster_name'), level: get('damage_level') };
+  };
+
+  assert.deepEqual(await issue('A-0002'), { disaster: '令和元年東日本台風（台風第19号）', level: '半壊' });
+  assert.deepEqual(await issue('A-9001'), { disaster: '令和6年能登半島地震', level: '全壊' });
+  // 指定なし＝最新の認定（画面の既定と一致させる）
+  assert.equal((await issue(null)).disaster, '令和6年能登半島地震');
+  // **別種別の申請 ID**（離島）を罹災の枠に送っても通らない
+  assert.equal((await issue('A-0001')).disaster, '令和6年能登半島地震');
+  // **他人の申請 ID**（u_004 の A-0003）も通らない。存在も明かさず既定に落ちる
+  assert.equal((await issue('A-0003')).disaster, '令和6年能登半島地震');
+  assert.equal((await issue('A-9999')).disaster, '令和6年能登半島地震');
+});
