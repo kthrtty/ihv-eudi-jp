@@ -117,6 +117,22 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
 （`JsonParsing.kt` の `extractDisplay`）。**`name` しか出していなかったため、大きい文字と小さい文字の
 両方に `name` が描かれて重なっていた**うえ、9書類が全部同じ既定グラデーションだった。形式表記は
 `name` に詰めず `description` へ回す。
+**券面は画像に文字を焼く。Multipaz は文字を重ねない**（2026-08-18 実機で判明）:
+`CardView` は `Image(cardArt)` とバッジだけで **`Text(` が1つも無い**。以前 name が二重に描かれて
+重なっていたのは**既定の `default_card_art.png` に文字が焼かれていた**からで、差し替えると文字ごと消える。
+**一覧では上端しか見えない**（実測: カード高 497px に対し露出 128px＝**26%**）ので、
+**書類名と紋章は上 26%（428×270 なら 70px）に収める**——我々の Web ウォレット（-96px 重なり）と同じ制約。
+紋章は**左上**（右下の大きな地紋と分離）、和名＋英名の2行、左下に `DEMO VC ISSUER`。
+**文字サイズは全書類で揃える**（書類ごとに変えると重ねたとき行の高さがばらつく）。
+**和英名は `gen-schemas.mjs` の `DISPLAY_NAMES` から取る**——2箇所に書くとずれ、券面は画像なので
+気づきにくい。そのため `gen-schemas.mjs` は**直接実行時だけ書き出す**（import しただけで
+`schemas/` が古い券面で上書きされるため）。エンボスは CSS `drop-shadow` の二段
+（下に影・上にハイライト）で、白を上げすぎずに立体で見せる。回帰=test/schema.test.mjs
+**個人ごとの券面（顔写真入り）は `/credential` 応答の `display`** で載せられる（Multipaz の
+サンプル発行者がそうしている）。ただし **OID4VCI 1.0 の Credential Response に `display` は無い**
+（定義は credential/credentials/transaction_id/c_nonce/c_nonce_expires_in の4つ。追加は
+「MAY be defined」で許されるが**Multipaz 拡張**と明示すること）。Workers では**テキストを描けない**
+（Images バインディングに `draw()` はあるが文字は無い）ので、顔写真の合成までが限界。
 **券面（cardArt）になるのは `logo` であって `background_image` ではない**（2026-08-17 実機で判明）:
 `DocumentProvisioningHandler.createDocument` が `cardArt = credentialMetadata.display.logo`、
 `updateDocument` も `display.logo?.let { cardArt = it }`。`background_image` は `Display` には載るが
@@ -134,7 +150,7 @@ companion）なので、券面を変えたらアプリを再起動させる。�
 マスク漏れのテストで断片を取るときは**末尾から**取る（先頭だと誤検知する）。
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas+トラストリスト、初回必須・pki/ は gitignore）／`npm test`（411, node:test）／
+`npm run setup`（dev PKI+trust+schemas+トラストリスト、初回必須・pki/ は gitignore）／`npm test`（412, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）

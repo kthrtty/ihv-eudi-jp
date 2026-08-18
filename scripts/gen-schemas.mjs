@@ -1,6 +1,7 @@
 // Build credential schemas (mdoc + SD-JWT VC) and an OID4VCI catalog that lets
 // issuance select credential x format. Run: node scripts/gen-schemas.mjs
 import { writeFileSync, mkdirSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { WALLET_CARD_THEME } from '../src/authcode-demo.mjs';
 import CARD_ART from '../assets/cardart.json' with { type: 'json' };
 const out = (p, o) => writeFileSync(new URL(`../${p}`, import.meta.url), JSON.stringify(o, null, 2));
@@ -25,7 +26,7 @@ const PID_NS = 'jp.go.pid.1';
 const pid = {
   id: 'pid',
   category: 'PID',
-  display: { ja: '個人識別情報 (写真付き身分証)', en: 'Person Identification Data (photo ID)' },
+  display: { ja: '写真付き身分証明書', en: 'Person Identification Data (photo ID)' },
   issuer_ref: 'pid',
   authority: { ja: 'デモ PID プロバイダ', en: 'Demo PID Provider' },
   formats: {
@@ -321,6 +322,12 @@ const island = {
 };
 
 const creds = { pid, juminhyo, qualification, koseki, tax, single, disaster, vaccine, island };
+
+// 券面（scripts/gen-cardart.mjs）が同じ和英名を使うための export。
+// **名前を2箇所に書かない**——ずれると「メタデータの name」と「券面に焼いた文字」が
+// 食い違い、しかも券面側は画像なので気づきにくい。
+export const DISPLAY_NAMES = Object.fromEntries(
+  Object.entries(creds).map(([id, c]) => [id, { ja: c.display.ja, en: c.display.en }]));
 for (const [id, schema] of Object.entries(creds)) out(`schemas/${id}.json`, schema);
 
 // ---- OID4VCI catalog: selectable credential x format -----------------------
@@ -360,18 +367,23 @@ for (const schema of Object.values(creds)) {
   };
 }
 
-const catalog = {
-  // Shape approximates OID4VCI 1.0 Issuer Metadata so the wallet can offer a
-  // pick-list (credential x format) at issuance time.
-  credential_issuer: 'https://issuer.ihv.example',
-  authorization_servers: ['https://issuer.ihv.example'],
-  credential_endpoint: 'https://issuer.ihv.example/credential',
-  nonce_endpoint: 'https://issuer.ihv.example/nonce',
-  display: [{ name: 'IHV Demo Issuer', locale: 'en-US' }, { name: 'IHV デモ発行者', locale: 'ja-JP' }],
-  credential_configurations_supported: configs,
-};
-out('schemas/credential-catalog.json', catalog);
+// **直接実行したときだけ書き出す**——`gen-cardart.mjs` が DISPLAY_NAMES を import するので、
+// トップレベルで書くと import しただけで schemas/ が（古い券面で）上書きされる
+// `node -e` から import されると argv[1] が無いので、その場合も書かない
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const catalog = {
+    // Shape approximates OID4VCI 1.0 Issuer Metadata so the wallet can offer a
+    // pick-list (credential x format) at issuance time.
+    credential_issuer: 'https://issuer.ihv.example',
+    authorization_servers: ['https://issuer.ihv.example'],
+    credential_endpoint: 'https://issuer.ihv.example/credential',
+    nonce_endpoint: 'https://issuer.ihv.example/nonce',
+    display: [{ name: 'IHV Demo Issuer', locale: 'en-US' }, { name: 'IHV デモ発行者', locale: 'ja-JP' }],
+    credential_configurations_supported: configs,
+  };
+  out('schemas/credential-catalog.json', catalog);
 
-console.log('schemas written:', Object.keys(creds).join(', '));
-console.log('catalog configs (selectable at issuance):');
-for (const [k, v] of Object.entries(configs)) console.log(`  - ${k}  [${v.format}]  ${v.doctype || v.vct}`);
+  console.log('schemas written:', Object.keys(creds).join(', '));
+  console.log('catalog configs (selectable at issuance):');
+  for (const [k, v] of Object.entries(configs)) console.log(`  - ${k}  [${v.format}]  ${v.doctype || v.vct}`);
+}
