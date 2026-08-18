@@ -140,7 +140,7 @@ test('authorize consent v2: a multi-scope request lists EVERY credential and cou
   const res = await app.request('/authorize?' + q.toString(), { headers: { cookie: `sid=${login.session_id}` } });
   const html = await res.text();
   assert.match(html, /以下の 2 件の発行に同意しますか/);
-  assert.match(html, /個人識別情報|PID/);
+  assert.match(html, /写真付き身分証明書|PID/);
   assert.match(html, /住民票/);
   assert.match(html, /同意して 2 件を発行する/);
   assert.match(html, /山田 太郎/, 'the signed-in subject is shown');

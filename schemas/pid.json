@@ -2,7 +2,7 @@
   "id": "pid",
   "category": "PID",
   "display": {
-    "ja": "個人識別情報 (写真付き身分証)",
+    "ja": "写真付き身分証明書",
     "en": "Person Identification Data (photo ID)"
   },
   "issuer_ref": "pid",

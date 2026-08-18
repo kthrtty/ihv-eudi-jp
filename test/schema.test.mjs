@@ -99,11 +99,43 @@ test('OID4VCI display: 券面は logo に載せる（background_image だけで�
       const buf = Buffer.from(m[1], 'base64');
       assert.equal(buf.subarray(0, 2).toString('hex'), 'ffd8', `${where}: JPEG SOI`);
       assert.equal(buf.subarray(-2).toString('hex'), 'ffd9', `${where}: JPEG EOI`);
-      assert.ok(buf.length < 8 * 1024, `${where}: 1枚が小さい（実測 ${buf.length}B）`);
+      // **上限は「事故を捕まえる」ためのもの**（写真をそのまま入れる等）。
+      // 券面は 428×270・和英2行・紋章・エンボスで 10〜13KB。閾値はその倍を目安に置く
+      assert.ok(buf.length < 24 * 1024, `${where}: 1枚が小さい（実測 ${buf.length}B）`);
 
       // 大小の文字に同じ値が入ると重なる（2026-08-16）。形式は description 側へ
       assert.ok(d.name && d.description && d.name !== d.description, `${where}: name と description は別`);
       assert.ok(d.background_color && d.text_color, `${where}: 色`);
     }
+  }
+});
+
+// 券面は **Multipaz が cardArt として描き、文字を一切重ねない**（CardView は Image と
+// バッジだけ）。しかも**一覧では上端 26% しか見えない**（実機実測: 高 497px に対し露出 128px）。
+// だから書類名は画像に焼き、可視帯に収める必要がある。
+test('OID4VCI display: 券面画像は書類ごとに違い、名前は生成元と一致する', async () => {
+  const { DISPLAY_NAMES } = await import('../scripts/gen-schemas.mjs');
+  const cfgs = catalog.credential_configurations_supported;
+
+  // **9書類すべてが別の絵**（同じ絵が使い回されていたら一覧で見分けられない）
+  const seen = new Map();
+  for (const [id, cfg] of Object.entries(cfgs)) {
+    const type = id.replace(/_(mdoc|sdjwt)$/, '');
+    const uri = cfg.display[0].logo.uri;
+    if (seen.has(uri)) assert.equal(seen.get(uri), type, `${id}: 別書類と同じ券面`);
+    seen.set(uri, type);
+  }
+  assert.equal(new Set(seen.values()).size, 9, '9書類ぶんの券面がある');
+
+  // **名前は gen-schemas の DISPLAY_NAMES が唯一の出どころ**。券面は画像なので
+  // ずれても気づきにくく、2箇所に書くと必ず食い違う
+  for (const [id, cfg] of Object.entries(cfgs)) {
+    const type = id.replace(/_(mdoc|sdjwt)$/, '');
+    const ja = cfg.display.find((d) => d.locale === 'ja-JP');
+    const en = cfg.display.find((d) => d.locale === 'en-US');
+    assert.equal(ja.name, DISPLAY_NAMES[type].ja, id);
+    assert.equal(en.name, DISPLAY_NAMES[type].en, id);
+    // alt_text も同じ出どころ
+    assert.equal(ja.logo.alt_text, DISPLAY_NAMES[type].ja, id);
   }
 });
