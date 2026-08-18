@@ -24,7 +24,7 @@ let server, adminServer;
 
 test.before(() => {
   const store = memoryStore();   // 両オリジンが同じ KV を共有する（本番も同じ形）
-  server = serve({ fetch: createApp({ credentialIssuer: ISSUER, store }).fetch, port: IPORT });
+  server = serve({ fetch: createApp({ credentialIssuer: ISSUER, store, maxAppsPerDay: 1000 }).fetch, port: IPORT });
   adminServer = serve({ fetch: createAdminApp({ credentialIssuer: ISSUER, store, issuerOrigin: ISSUER }).fetch, port: APORT });
 });
 test.after(() => Promise.all([

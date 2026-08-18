@@ -201,3 +201,139 @@ test('security: 添付は中身で判定し、本人と職員にだけ返す', a
   }
   assert.equal(attIdx('0'), 0);
 });
+
+// ---- 2026-08-18 の脆弱性診断で見つかった5件（issue #33）--------------------
+
+// ② ログイン後の遷移先。**`//evil` を塞ぐだけでは足りない**——ブラウザは URL 中の `\` を
+// `/` に正規化するので `/\evil.example` がプロトコル相対 URL になり外部へ飛ぶ。
+// Chromium で実測済み: `Location: /\evil.example/pwned` → `http://evil.example/pwned`。
+// `%5C`（エンコード済みの `\`）はパスの一部として扱われ同一オリジンに留まるので許す。
+test('#33 next は同一オリジンの絶対パスだけ（バックスラッシュも塞ぐ）', async () => {
+  const { isSafeNext } = await import('../src/security.mjs');
+  for (const ok of ['/', '/apply', '/a/A-0001', '/applications?x=1', '/%5Cevil.example/x']) {
+    assert.equal(isSafeNext(ok), true, ok);
+  }
+  for (const ng of ['//evil.example', '/\\evil.example', '\\\\evil.example', 'https://evil.example',
+    '', null, undefined, 'apply', '/\r\nX-Injected: 1']) {
+    assert.equal(isSafeNext(ng), false, JSON.stringify(ng));
+  }
+
+  // 発行ポータルと自治体窓口の両方で効く
+  const { createAdminApp } = await import('../src/admin-app.mjs');
+  const app = createApp({ credentialIssuer: 'https://issuer.ihv.example' });
+  const admin = createAdminApp({ svc: app.svc });
+  const post = (a, path, body) => a.request(path, { method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(body).toString() });
+  for (const n of ['/\\evil.example', '//evil.example']) {
+    assert.equal((await post(app, '/login/select', { user_id: 'u_001', next: n })).headers.get('location'), '/');
+    assert.equal((await post(admin, '/login', { staff_id: 's_001', next: n })).headers.get('location'), '/');
+  }
+  // 正当な next は通す（塞ぎすぎない）
+  assert.equal((await post(app, '/login/select', { user_id: 'u_001', next: '/apply/disaster' })).headers.get('location'), '/apply/disaster');
+});
+
+// ⑤ PAR は**使い捨て**（RFC 9126 §4「the request_uri value … MUST be used only once」）。
+// 消さないと同じ認可要求を TTL(300s) の間なんども再生できる。
+test('#33 PAR の request_uri は認可コードを出したら使えなくなる', async () => {
+  const app = createApp({ credentialIssuer: 'https://issuer.ihv.example' });
+  const par = await (await app.request('/par', { method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ response_type: 'code', client_id: 'w',
+      redirect_uri: 'https://issuer.ihv.example/demo/cb', code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
+      code_challenge_method: 'S256', scope: 'pid_mdoc' }).toString() })).json();
+
+  // 描画のために覗くだけなら消えない（未ログインならログインへ往復するため）
+  assert.ok(await app.svc.resolvePar(par.request_uri), '覗くだけでは消えない');
+  assert.ok(await app.svc.resolvePar(par.request_uri), '2回覗いても消えない');
+  // コードを出す経路では消える
+  assert.ok(await app.svc.resolvePar(par.request_uri, { consume: true }));
+  assert.equal(await app.svc.resolvePar(par.request_uri), null, '使い捨て');
+});
+
+// ④ 申請台帳は `_persist:apps` という**1つの KV 値**で全利用者が共有する。
+// 1件あたりの大きさは抑えていたが件数は無制限で、1人で全員ぶんを壊せた。
+test('#33 申請は1日 10 件まで', async () => {
+  const { IssuerService, MAX_APPS_PER_DAY } = await import('../src/oid4vci.mjs');
+  assert.equal(MAX_APPS_PER_DAY, 10, '既定値を pin する');
+  const svc = new IssuerService();
+  const one = () => svc.submitApplication({ userId: 'u_002', kind: 'island', targetCode: '46213',
+    form: { applied_category: '島民', island_name: '種子島' } });
+  for (let i = 0; i < MAX_APPS_PER_DAY; i++) await one();
+  await assert.rejects(one, /申請は1日 10 件までです/);
+  // **利用者ごとに数える**（他人の提出で巻き添えにしない）
+  await svc.submitApplication({ userId: 'u_003', kind: 'island', targetCode: '46213',
+    form: { applied_category: '島民', island_name: '種子島' } });
+  // 24時間より古い提出は数えない
+  svc.applications.filter((a) => a.userId === 'u_002')
+    .forEach((a) => { a.submitted_at = new Date(Date.now() - 25 * 3600 * 1000).toISOString(); });
+  await one();
+});
+
+
+// (1) **判定の値に値域検証が無く、任意文字列が署名済み VC に載っていた**。
+// 審査画面は radio を出すが、エンドポイントは自由文字列を受ける
+// ——2026-08-09 に修正した `authority` と同じクラスの穴が、同じ関数の隣に残っていた。
+test('#33 審査の判定は選択肢・日付の値域を検証する', async () => {
+  const { IssuerService } = await import('../src/oid4vci.mjs');
+  const svc = new IssuerService();
+  const disaster = await svc.submitApplication({ userId: 'u_002', kind: 'disaster',
+    targetCode: '43202', disasterId: 'r8-kumamoto',
+    form: { damaged_address: '中央区1-1', contact_tel: '090-0000-0000', damage_cause: ['地震'],
+      property_type: '住家', statement: '被害あり', consents: { info: true, support: true } } });
+
+  // 選択肢に無い被害の程度＝罹災証明書の本体（統一様式の必須記載事項）を偽れた
+  await assert.rejects(() => svc.decideApplication(disaster.id, { status: 'approved',
+    decision: { damage_level: '全壊（※実際は無被害）' } }), /選択肢から選んでください/);
+  // 制御文字も入れさせない（VC のクレームにも画面にも入る）
+  await assert.rejects(() => svc.decideApplication(disaster.id, { status: 'approved',
+    decision: { damage_level: '全壊', extra_note: `a${String.fromCharCode(7)}b` } }), /使えない文字/);
+  // 正しい値は通る
+  const ok = await svc.decideApplication(disaster.id, { status: 'approved', decision: { damage_level: '全壊' } });
+  assert.equal(ok.application.decision.damage_level, '全壊');
+
+  const island = await svc.submitApplication({ userId: 'u_002', kind: 'island', targetCode: '46213',
+    form: { applied_category: '島民', island_name: '種子島' } });
+  // 区分は `islandEligible()` の交付ゲートに効く。「対象外」以外なら交付されるので、
+  // 値域を見ないと "VIP島民" のような値で交付までできてしまった
+  await assert.rejects(() => svc.decideApplication(island.id, { status: 'approved',
+    decision: { resident_category: 'VIP島民', expiry_date: '2029-03-31' } }), /選択肢から選んでください/);
+  // 形が違うもの／形は合うが存在しない日付（9999-99-99 が VC の expiry_date になっていた）
+  await assert.rejects(() => svc.decideApplication(island.id, { status: 'approved',
+    decision: { resident_category: '島民', expiry_date: '2029/03/31' } }), /YYYY-MM-DD/);
+  for (const bad of ['9999-99-99', '2026-02-30']) {
+    await assert.rejects(() => svc.decideApplication(island.id, { status: 'approved',
+      decision: { resident_category: '島民', expiry_date: bad } }), /存在しない日付/, bad);
+  }
+  await svc.decideApplication(island.id, { status: 'approved',
+    decision: { resident_category: '島民', expiry_date: '2029-03-31' } });
+});
+
+// (3) 添付の合計上限を `arrayBuffer()` の**後**でしか見ておらず、断る前に isolate の
+// メモリ（Workers は 128MB）を使い切らせられた。`file.size` は読まずに分かる。
+//
+// **順序を観測する**: 上限超過かつ形式も不正なファイルを送り、どちらのエラーが返るかを見る。
+// サイズが先なら「合計が大きすぎます」、中身が先なら「対応していない形式です」になる。
+test('#33 添付は中身を読む前に大きさで断る', async () => {
+  const app = createApp({ credentialIssuer: 'https://issuer.ihv.example' });
+  const { session_id } = await (await app.request('/login', { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_002' }) })).json();
+  const form = (file) => {
+    const fd = new FormData();
+    for (const [k, v] of Object.entries({ damaged_address: '中央区1-1', contact_tel: '090-0000-0000',
+      property_type: '住家', statement: 'x', disaster_id: 'r8-kumamoto' })) fd.append(k, v);
+    fd.append('damage_cause', '地震');
+    fd.append('consent_info', 'on'); fd.append('consent_support', 'on');
+    if (file) fd.append('attachments', file);
+    return fd;
+  };
+  const post = async (fd) => decodeURIComponent((await app.request('/apply/disaster/43202',
+    { method: 'POST', body: fd, headers: { cookie: `sid=${session_id}` } })).headers.get('location'));
+
+  // 上限（8MB）超過 かつ JPEG/PNG/PDF のいずれでもないバイト列
+  const big = new File([new Uint8Array(9 * 1024 * 1024)], 'big.bin', { type: 'image/jpeg' });
+  assert.match(await post(form(big)), /添付の合計が大きすぎます/, 'サイズを先に見る');
+
+  // 小さければ中身の判定まで進む（大きさで塞ぎすぎていない）
+  const small = new File([new Uint8Array(64)], 'small.bin', { type: 'image/jpeg' });
+  assert.match(await post(form(small)), /対応していない形式です/);
+});

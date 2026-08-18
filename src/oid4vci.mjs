@@ -12,10 +12,13 @@ import { APPLICATION_TYPES as APP_TYPES, getApplicationType, canTransition, canI
 import { offersProcedure, getMunicipality } from './municipalities.mjs';
 import { coversMunicipality, getDisaster } from './disasters.mjs';
 import { sha256, b64url } from './cbor.mjs';
+import { validateFields } from './validate.mjs';
 
 const PRE_AUTH_GRANT = 'urn:ietf:params:oauth:grant-type:pre-authorized_code';
 const PROOF_TYP = 'openid4vci-proof+jwt';
 const tok = () => randomBytes(24).toString('base64url');
+/** 1利用者あたり24時間で受け付ける申請の件数（issue #33 ④）。 */
+export const MAX_APPS_PER_DAY = 10;
 
 /** Derive requested credential_configuration_ids from scope or authorization_details. */
 function configIdsFromRequest(scope, authorization_details) {
@@ -115,10 +118,13 @@ export class IssuerService {
   // statusPki: { key, cert } — injected by worker.mjs for Workers env;
   // null lets StatusListService lazy-load from disk in Node.js dev.
   constructor({ store = memoryStore(), credentialIssuer = 'https://issuer.ihv.example', proofMaxAgeSec = 300,
-    userStore = createUserStore(), statusPki = null, redirectAllowlist = [] } = {}) {
+    userStore = createUserStore(), statusPki = null, redirectAllowlist = [],
+    maxAppsPerDay = MAX_APPS_PER_DAY } = {}) {
     this.store = store;
     this.credentialIssuer = credentialIssuer;
     this.proofMaxAgeSec = proofMaxAgeSec;
+    // 1利用者が24時間に出せる申請の件数（issue #33 ④）。運用で変えられるようにしておく
+    this.maxAppsPerDay = maxAppsPerDay;
     // Allowed authorization redirect_uris (open-redirector guard). Empty =
     // unconfigured → permissive (dev/tests); prod injects a list at deploy time.
     this.redirectAllowlist = parseRedirectAllowlist(redirectAllowlist);
@@ -209,6 +215,16 @@ export class IssuerService {
     if (long.length) throw httpErr(400, 'invalid_request', `入力が長すぎます: ${long.join('・')}`);
     const bad = t.validate ? t.validate(clean, muni, persona) : null;
     if (bad) throw httpErr(400, 'invalid_request', bad);
+    // **1日あたりの提出件数を絞る**（issue #33 ④）。申請台帳は `_persist:apps` という
+    // 1つの KV 値で全利用者が共有するので、1人が延々と積むと**全員の**申請・審査・交付が壊れる。
+    // 1件あたりの大きさは既に抑えているが、件数は無制限だった
+    const since = Date.now() - 24 * 3600 * 1000;
+    const today = this.applications.filter((a) => a.userId === userId
+      && Date.parse(a.submitted_at || 0) >= since).length;
+    if (today >= this.maxAppsPerDay) {
+      throw httpErr(429, 'too_many_requests',
+        `申請は1日 ${this.maxAppsPerDay} 件までです（24時間以内に ${today} 件提出されています）`);
+    }
     this.applicationSeq += 1;
     const app = {
       id: `A-${String(this.applicationSeq).padStart(4, '0')}`,
@@ -264,11 +280,12 @@ export class IssuerService {
       throw httpErr(400, 'invalid_request', `状態を ${app.status} から ${status} へは変更できません`);
     }
     if (status === 'approved') {
-      const missing = t.decision.filter((x) => x.required && !String(decision[x.key] ?? '').trim()).map((x) => x.label);
-      if (missing.length) throw httpErr(400, 'invalid_request', `審査で決める項目が未入力: ${missing.join('・')}`);
-      // 追加記載事項は VC のクレームになるので、ここでも長さを見る
-      const long = overlongFields(t.decision, decision);
-      if (long.length) throw httpErr(400, 'invalid_request', `入力が長すぎます: ${long.join('・')}`);
+      // **判定の値も申請フォームと同じ規則で検証する**（2026-08-18 の診断）。以前は必須と
+      // 長さしか見ておらず、radio の選択肢も date の形式も見ていなかったので、
+      // `damage_level: "全壊（※実際は無被害）"` のような任意文字列が**署名済み VC に載った**。
+      // 審査画面が radio を出すことは防御ではない（`authority` と同じクラスの穴）。
+      const bad = validateFields(t.decision, decision);
+      if (bad.length) throw httpErr(400, 'invalid_request', bad.join('・'));
     }
     // 監査証跡: どの職員がいつ判定したか。名簿が後で変わっても記録は当時のまま残す
     // （参照ではなくスナップショットで持つ）。
@@ -512,9 +529,18 @@ export class IssuerService {
     return { request_uri: `urn:ietf:params:oauth:request_uri:${ref}`, expires_in: 300 };
   }
 
-  async resolvePar(requestUri) {
+  /**
+   * PAR を解決する。**使い捨て**——RFC 9126 §4「the request_uri value … MUST be used only once」。
+   * 消さないと同じ認可要求を TTL(300s) の間なんども再生できる。
+   * `peek` は同一リクエスト内で2回引く経路（/authorize が GET で描画 → consent で再解決）用に
+   * 残すが、コードを発行する経路では必ず消す。
+   */
+  async resolvePar(requestUri, { consume = false } = {}) {
     const ref = String(requestUri || '').split(':').pop();
-    return ref ? this.store.get(`par:${ref}`) : null;
+    if (!ref) return null;
+    const rec = await this.store.get(`par:${ref}`);
+    if (rec && consume) await this.store.del?.(`par:${ref}`);
+    return rec;
   }
 
   // ---- 4. Credential Offer (pre-authorized_code | authorization_code | both) ----

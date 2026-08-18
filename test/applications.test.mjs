@@ -57,7 +57,8 @@ const DISASTER_FORM = {
 const DISASTER = { targetCode: '43100', disasterId: 'h28-kumamoto' };
 
 test('applications: 申請→調査中→認定 で交付できるようになる', async () => {
-  const svc = new IssuerService();
+  // 上限そのものを見ないテストは明示的に上げる（既定 10 の検証は専用テストで行う）
+  const svc = new IssuerService({ maxAppsPerDay: 1000 });
   const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', ...DISASTER, form: DISASTER_FORM });
   assert.match(app.id, /^A-\d{4}$/, '受付番号が採番される');
   assert.equal(app.status, 'submitted');
@@ -74,19 +75,21 @@ test('applications: 申請→調査中→認定 で交付できるようにな�
 });
 
 test('applications: 必須項目が無い申請・審査は断る', async () => {
-  const svc = new IssuerService();
+  // 上限そのものを見ないテストは明示的に上げる（既定 10 の検証は専用テストで行う）
+  const svc = new IssuerService({ maxAppsPerDay: 1000 });
   await assert.rejects(() => svc.submitApplication({ userId: 'u_002', kind: 'disaster', ...DISASTER, form: {} }),
     /未入力の必須項目/);
   const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', ...DISASTER, form: DISASTER_FORM });
   await assert.rejects(() => svc.decideApplication(app.id, { status: 'approved', decision: {} }),
-    /審査で決める項目が未入力/, '被害の程度を選ばずに認定はできない');
+    /被害の程度（判定）を入力してください/, '被害の程度を選ばずに認定はできない');
 });
 
 test('applications: 許可されていない状態遷移は拒否する', async () => {
   assert.equal(canTransition('submitted', 'approved'), true);
   assert.equal(canTransition('approved', 'approved'), true, '再判定');
   assert.equal(canTransition('withdrawn', 'approved'), false);
-  const svc = new IssuerService();
+  // 上限そのものを見ないテストは明示的に上げる（既定 10 の検証は専用テストで行う）
+  const svc = new IssuerService({ maxAppsPerDay: 1000 });
   const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', ...DISASTER, form: DISASTER_FORM });
   await svc.decideApplication(app.id, { status: 'withdrawn' });
   await assert.rejects(() => svc.decideApplication(app.id, { status: 'approved', decision: { damage_level: '全壊' } }),
@@ -130,7 +133,8 @@ test('applications: 再判定で内容が変わると既発行VCを失効させ�
 });
 
 test('applications: 判定が変わらなければ失効させない（全壊→全壊）', async () => {
-  const svc = new IssuerService();
+  // 上限そのものを見ないテストは明示的に上げる（既定 10 の検証は専用テストで行う）
+  const svc = new IssuerService({ maxAppsPerDay: 1000 });
   const store = { get: () => null };
   assert.ok(store);
   const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', ...DISASTER, form: DISASTER_FORM });
@@ -149,7 +153,8 @@ test('applications: 判定が変わらなければ失効させない（全壊→
 });
 
 test('applications: 却下・取下げは内容に関わらず失効させる', async () => {
-  const svc = new IssuerService();
+  // 上限そのものを見ないテストは明示的に上げる（既定 10 の検証は専用テストで行う）
+  const svc = new IssuerService({ maxAppsPerDay: 1000 });
   const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', ...DISASTER, form: DISASTER_FORM });
   await svc.decideApplication(app.id, { status: 'approved', decision: { damage_level: '全壊' } });
   const cur = await svc.getApplication(app.id);
@@ -161,7 +166,8 @@ test('applications: 却下・取下げは内容に関わらず失効させる', 
 });
 
 test('applications: 同じ人が複数件を同時に持てる（別の災害・別の島）', async () => {
-  const svc = new IssuerService();
+  // 上限そのものを見ないテストは明示的に上げる（既定 10 の検証は専用テストで行う）
+  const svc = new IssuerService({ maxAppsPerDay: 1000 });
   const a = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', ...DISASTER, form: DISASTER_FORM });
   const b = await svc.submitApplication({ userId: 'u_002', kind: 'disaster',
     targetCode: '43443', disasterId: 'h28-kumamoto',
@@ -255,7 +261,8 @@ test('applications: スキーマ変更前に発行済みの罹災証明が検証
 // 既にこれだけ認定を持っています」と並べるだけで、住所や災害名の文字列突合はしない
 // （「大江3丁目1番5号」と「大江3-1-5」は機械では解けず、誤検出は正当な申請を却下させる）。
 test('applications: 同じ利用者・同じ種別の認定を申し送る（自動判定も自動失効もしない）', async () => {
-  const svc = new IssuerService();
+  // 上限そのものを見ないテストは明示的に上げる（既定 10 の検証は専用テストで行う）
+  const svc = new IssuerService({ maxAppsPerDay: 1000 });
   const ISLAND = { applied_category: '準島民', reason: '就学（離島出身・島外の学校に在学）', island_name: '種子島' };
   const a = await svc.submitApplication({ userId: 'u_002', kind: 'island', targetCode: '46213', form: ISLAND });
   await svc.decideApplication(a.id, { status: 'approved', decision: { resident_category: '準島民', expiry_date: '2027-03-31' } });
@@ -276,7 +283,8 @@ test('applications: 同じ利用者・同じ種別の認定を申し送る（自
 });
 
 test('applications: 種別と申請者が違えば申し送らない', async () => {
-  const svc = new IssuerService();
+  // 上限そのものを見ないテストは明示的に上げる（既定 10 の検証は専用テストで行う）
+  const svc = new IssuerService({ maxAppsPerDay: 1000 });
   // u_001 は seed で島民の認定と罹災の認定を持つ
   const d = await svc.submitApplication({ userId: 'u_001', kind: 'disaster', ...DISASTER, form: DISASTER_FORM });
   const ex = await svc.existingApprovals(d);
@@ -292,7 +300,8 @@ test('applications: 種別と申請者が違えば申し送らない', async () 
 // **ただし損壊箇所は VC のクレームにしない**——内閣府統一様式の必須記載事項は
 // 「住家の被害の程度」であって箇所ではない。審査の材料として申請レコードにだけ残す。
 test('applications: 被害の申告は選択式で構造化され、VC には載らない', async () => {
-  const svc = new IssuerService();
+  // 上限そのものを見ないテストは明示的に上げる（既定 10 の検証は専用テストで行う）
+  const svc = new IssuerService({ maxAppsPerDay: 1000 });
   const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', ...DISASTER,
     form: { ...DISASTER_FORM, damage_cause: ['地震', '津波'],
       building_parts: ['屋根', '柱'], equipment_parts: ['浴室'] } });
@@ -311,7 +320,8 @@ test('applications: 被害の申告は選択式で構造化され、VC には載
 // 同意は申請者の行為であって初期値ではない。**送られてこない＝同意していない**であり、
 // 欠損として補ってはならない。String() 判定だと object は必ず truthy になって素通りする。
 test('applications: 必須の同意が無ければ受け付けない（既定で真にしない）', async () => {
-  const svc = new IssuerService();
+  // 上限そのものを見ないテストは明示的に上げる（既定 10 の検証は専用テストで行う）
+  const svc = new IssuerService({ maxAppsPerDay: 1000 });
   const t = getApplicationType('disaster');
   const consent = t.form.find((x) => x.key === 'consents');
   assert.deepEqual(consent.items.filter((c) => c.required).map((c) => c.key), ['info', 'support']);
@@ -350,7 +360,8 @@ test('applications: 被害の原因は災害マスタから初期値が入り、
 // 必須は 整理番号／世帯主住所／世帯主氏名／罹災原因／被災住家の所在地／住家の被害の程度 の6つ。
 // **交付年月日は認定した日**でなければならない（SAMPLE の固定日が出ると嘘になる）。
 test('applications: 罹災 VC は紙の統一様式の必須記載事項をすべて含む', async () => {
-  const svc = new IssuerService();
+  // 上限そのものを見ないテストは明示的に上げる（既定 10 の検証は専用テストで行う）
+  const svc = new IssuerService({ maxAppsPerDay: 1000 });
   const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', ...DISASTER,
     form: { ...DISASTER_FORM, damaged_address: '熊本県熊本市中央区大江3-1-5' } });
   const { application } = await svc.decideApplication(app.id, { status: 'approved',
@@ -376,7 +387,8 @@ test('applications: 罹災 VC は紙の統一様式の必須記載事項をす�
 // 埋めてはならない**。審査で「世帯構成員を証明書に記載しない」を外したのに、SAMPLE の
 // 山田家（山田 太郎・莉子）が実在の人の VC に載っていた（2026-08-09 本番で実測）。
 test('applications: 「記載しない」と判定した項目に SAMPLE が漏れない', async () => {
-  const svc = new IssuerService();
+  // 上限そのものを見ないテストは明示的に上げる（既定 10 の検証は専用テストで行う）
+  const svc = new IssuerService({ maxAppsPerDay: 1000 });
   const holderJwk = { kty: 'EC', crv: 'P-256', x: 'A'.repeat(43), y: 'B'.repeat(43) };
   const issue = async (include_household) => {
     const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', ...DISASTER, form: DISASTER_FORM });
@@ -405,7 +417,8 @@ test('applications: 「記載しない」と判定した項目に SAMPLE が漏�
 // 全項目が食い違っていた（山田太郎の罹災は「千代田区長・令和7年台風第10号」と表示されるが、
 // 実物は A-0002 の「世田谷区長・令和元年東日本台風」）。
 test('applications: /account は申請ごとに実値を出す（SAMPLE を混ぜない）', async () => {
-  const svc = new IssuerService();
+  // 上限そのものを見ないテストは明示的に上げる（既定 10 の検証は専用テストで行う）
+  const svc = new IssuerService({ maxAppsPerDay: 1000 });
   const persona = svc.users.get('u_001');
   const dis = accountCatalog(persona, await svc.issuableApplications('u_001')).find((d) => d.type === 'disaster');
 
@@ -444,7 +457,8 @@ test('applications: /account は申請ごとに実値を出す（SAMPLE を混�
 // 由来の分類表（claimSource）は toClaims の隣にあるが、**別々に書いてある以上ズレうる**。
 // 分類漏れは「持ち主でもないのに編集反映と表示する」形で嘘になるので、全キーを固定する。
 test('applications: VC のクレームはすべて由来が分類されている', async () => {
-  const svc = new IssuerService();
+  // 上限そのものを見ないテストは明示的に上げる（既定 10 の検証は専用テストで行う）
+  const svc = new IssuerService({ maxAppsPerDay: 1000 });
   const persona = svc.users.get('u_001');
   const PERSONA_KEYS = new Set(['family_name', 'given_name', 'birth_date', 'head_of_household_address']);
   for (const app of await svc.issuableApplications('u_001')) {
@@ -460,7 +474,8 @@ test('applications: VC のクレームはすべて由来が分類されている
 // 同じ書類を複数枚持てるので、**どの申請の VC なのかが混ざらない**ことが要。
 // /account の表示も、実際に発行される VC も、申請ごとに独立していなければならない。
 test('applications: 複数枚を持っても申請ごとの値が混ざらない', async () => {
-  const svc = new IssuerService();
+  // 上限そのものを見ないテストは明示的に上げる（既定 10 の検証は専用テストで行う）
+  const svc = new IssuerService({ maxAppsPerDay: 1000 });
   const persona = svc.users.get('u_001');   // seed A-0002（世田谷・半壊）を持っている
   const a = await svc.submitApplication({ userId: 'u_001', kind: 'disaster', ...DISASTER,
     form: { ...DISASTER_FORM, building_type: '木造平屋' } });

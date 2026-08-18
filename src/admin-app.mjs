@@ -11,7 +11,7 @@
 import { Hono } from 'hono';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { IssuerService } from './oid4vci.mjs';
-import { securityHeaders, csrfGuard } from './security.mjs';
+import { securityHeaders, csrfGuard, isSafeNext } from './security.mjs';
 import { getApplicationType } from './applications.mjs';
 import { ATT_MIME, attIdx } from './upload.mjs';
 import { listStaff, getStaff, staffStamp } from './staff.mjs';
@@ -51,9 +51,10 @@ export function createAdminApp(opts = {}) {
     await store.set(`asess:${token}`, { staffId: staff.id }, SESSION_TTL);
     if (json) return c.json({ session_id: token, staff });
     setCookie(c, 'asid', token, { httpOnly: true, sameSite: 'Lax', secure: true, path: '/' });
-    // オープンリダイレクタにしない: 同一オリジンの絶対パスだけを受ける
+    // オープンリダイレクタにしない: 同一オリジンの絶対パスだけを受ける。
+    // **`/\evil` もブラウザが `//evil` に正規化するので弾く**（isSafeNext に集約）
     const next = String(body.next || '/');
-    return c.redirect(/^\/[^/]/.test(next) || next === '/' ? next : '/', 303);
+    return c.redirect(isSafeNext(next) ? next : '/', 303);
   });
   app.post('/logout', async (c) => {
     const t = sid(c);

@@ -567,7 +567,9 @@ export function renderStaffLogin(staff, { next = '/' } = {}) {
  */
 export function renderConsentScreen(q, user, infos = [], { choices = {} } = {}) {
   const init = q.issuer_state ? '発行者起点（issuer_state）' : 'ウォレット起点';
-  const hidden = ['response_type', 'client_id', 'redirect_uri', 'code_challenge', 'code_challenge_method', 'scope', 'issuer_state', 'state']
+  // request_uri も持ち回る——**コードを出す POST で PAR を使い捨てにする**ため
+  // （RFC 9126 §4「used only once」。GET は描画のために覗くだけ）
+  const hidden = ['response_type', 'client_id', 'redirect_uri', 'code_challenge', 'code_challenge_method', 'scope', 'issuer_state', 'state', 'request_uri']
     .map((k) => `<input type="hidden" name="${k}" value="${esc(q[k] ?? '')}">`).join('');
   const n = infos.length;
   const swatch = (type) => {
