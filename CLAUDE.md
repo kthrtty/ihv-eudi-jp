@@ -117,6 +117,19 @@ readerAuth 検証は **fail-closed の5チェック**（署名／有効期間=�
 （`JsonParsing.kt` の `extractDisplay`）。**`name` しか出していなかったため、大きい文字と小さい文字の
 両方に `name` が描かれて重なっていた**うえ、9書類が全部同じ既定グラデーションだった。形式表記は
 `name` に詰めず `description` へ回す。
+**`display` は `credential_metadata` の下**（2026-08-18・#33。OID4VCI 1.0 Final）:
+`credential_configurations_supported[id].credential_metadata.display[]`。**直下に置くのは
+draft-13 以前の形**で、Multipaz が `config.objOrNull("credential_metadata") ?: config` と
+**両方見る**ので動いていた——**実装の寛容さに助けられて非準拠に気づけない**、#13 と同じ構図。
+読み手（`configInfo` / wallet-app のカタログ）も `credential_metadata.display ?? display` で追随。
+テストは**値ではなく階層を pin する**（値だけ見ていると置き場所が変わっても通る）。
+仕様が REQUIRED とするのは `name` と `logo.uri` / `background_image.uri`。
+**`data:` URI は仕様が明示的に想定**（"could use the https: scheme, the data: scheme, etc."）。
+**個人化券面の標準手段は SD-JWT VC の Type Metadata**（`vct` が HTTPS なら取得・`vct#integrity` で
+完全性担保）。`display[].rendering` に `simple`（logo/色）と **`svg_template`**（`{{svg_id}}` で
+**クレーム値を差し込める**・テキスト内容にのみ・挿入前にエスケープ必須）がある。発行者が画像を
+描かなくてよいので **Workers でテキストを描けない制約が原理的に消える**。ただし **Multipaz に実装が無く**
+（全1,718クラスで `svg_template`/`TypeMetadata`/`vct#integrity` が0件）、**SD-JWT VC 限定**で mdoc には効かない。
 **券面は画像に文字を焼く。Multipaz は文字を重ねない**（2026-08-18 実機で判明）:
 `CardView` は `Image(cardArt)` とバッジだけで **`Text(` が1つも無い**。以前 name が二重に描かれて
 重なっていたのは**既定の `default_card_art.png` に文字が焼かれていた**からで、差し替えると文字ごと消える。
@@ -150,7 +163,7 @@ companion）なので、券面を変えたらアプリを再起動させる。�
 マスク漏れのテストで断片を取るときは**末尾から**取る（先頭だと誤検知する）。
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas+トラストリスト、初回必須・pki/ は gitignore）／`npm test`（412, node:test）／
+`npm run setup`（dev PKI+trust+schemas+トラストリスト、初回必須・pki/ は gitignore）／`npm test`（413, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）

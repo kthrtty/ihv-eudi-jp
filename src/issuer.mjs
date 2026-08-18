@@ -341,7 +341,10 @@ export function configInfo(configId) {
   const cfg = catalog.credential_configurations_supported[configId];
   const { credId } = splitConfig(configId);
   const schema = schemas[credId];
-  const d = cfg.display?.find((x) => x.locale === 'ja-JP') || cfg.display?.[0];
+  // **`credential_metadata.display` が正**（OID4VCI 1.0 Final・#33）。直下の `display` は
+  // draft-13 以前の形なので、古いカタログを読むときだけのフォールバックとして残す
+  const disp = cfg.credential_metadata?.display ?? cfg.display;
+  const d = disp?.find((x) => x.locale === 'ja-JP') || disp?.[0];
   return {
     configId, name: d?.name || configId, format: cfg.format,
     claims: schema.claims.map((c) => c.key),
