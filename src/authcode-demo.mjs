@@ -7,7 +7,7 @@ import { generateKeyPairSync, randomBytes, createHash } from 'node:crypto';
 import { SignJWT, importPKCS8 } from 'jose';
 import { catalog } from './issuer.mjs';
 import { devToggleHtml, devWidgetHtml } from './devlog.mjs';
-import { applicationTypeList } from './applications.mjs';
+import { applicationTypeList, applicationLine } from './applications.mjs';
 import { verify as verifyCredential } from './issuer.mjs';
 import { offerQrSvg } from './offer.mjs';
 
@@ -551,17 +551,49 @@ export function renderStaffLogin(staff, { next = '/' } = {}) {
 /** Authorization consent (session exists). `infos` = requested credentials
  *  ([{configId, name, format}]) — a multi-scope request lists them all, each with
  *  its wallet-card swatch, so the holder sees exactly what will be issued. */
-export function renderConsentScreen(q, user, infos = []) {
+/**
+ * 同意画面（案B・issue #32）。
+ *
+ * **候補が複数ある書類は「1枚＝1行」に展開してラジオで選ばせる。**
+ * 罹災証明書は災害ごと、離島割引資格証は島ごとに別の申請＝別の1枚になりうるのに、
+ * 以前は書類の種類でしか同意できず、`credential()` が黙って**最新の認定**を選んでいた
+ * （「熊本の罹災を出したつもりが東京のが出る」が静かに起きうる）。
+ *
+ * ここで選ばせるのは、**発行者だけが中身を説明できる**から——OID4VCI の
+ * `credential_identifiers` は不透明文字列で、仕様に表示名を載せる場所が無い（§6.2）。
+ * ウォレット側では「区別できない N 個」しか出せない。
+ *
+ * `choices` は configId → 交付可能な申請の配列。ラジオは **JS 不要**。
+ */
+export function renderConsentScreen(q, user, infos = [], { choices = {} } = {}) {
   const init = q.issuer_state ? '発行者起点（issuer_state）' : 'ウォレット起点';
   const hidden = ['response_type', 'client_id', 'redirect_uri', 'code_challenge', 'code_challenge_method', 'scope', 'issuer_state', 'state']
     .map((k) => `<input type="hidden" name="${k}" value="${esc(q[k] ?? '')}">`).join('');
   const n = infos.length;
+  const swatch = (type) => {
+    const t = WALLET_CARD_THEME[type] || WALLET_CARD_THEME.pid;
+    return `<span class="sw" style="--c1:${t.c1};--c2:${t.c2}">${swatchEmblemHtml(type)}</span>`;
+  };
   const rows = infos.map((i) => {
     const type = i.configId?.replace(/_(mdoc|sdjwt)$/, '');
-    const t = WALLET_CARD_THEME[type] || WALLET_CARD_THEME.pid;
     const fmt = i.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT';
-    return `<div class="reqrow"><span class="sw" style="--c1:${t.c1};--c2:${t.c2}">${swatchEmblemHtml(type)}</span>
-      <div><b>${esc(i.name.replace(/ \(.+\)$/, ''))}</b></div><span class="fmtb">${fmt}</span></div>`;
+    const name = esc(i.name.replace(/ \(.+\)$/, ''));
+    const cands = choices[i.configId] || [];
+    // 候補が1件以下なら従来どおり（ラジオを出さない）。ただし1件でも中身は見せる
+    if (cands.length <= 1) {
+      const sub = cands.length === 1 ? `<div class="rqsub">${esc(applicationLine(cands[0])).replace(/\n/g, '<br>')}</div>` : '';
+      return `<div class="reqrow">${swatch(type)}
+        <div><b>${name}</b>${sub}</div><span class="fmtb">${fmt}</span></div>`;
+    }
+    // **1枚＝1行**。既定は最後の認定（従来の暗黙の既定を、見える形で踏襲する）
+    const opts = cands.map((a, k) => `<label class="reqrow pick">
+        <input type="radio" name="app:${esc(i.configId)}" value="${esc(a.id)}"${k === cands.length - 1 ? ' checked' : ''}>
+        ${swatch(type)}
+        <div><b>${name}</b><div class="rqsub">${esc(applicationLine(a)).replace(/\n/g, '<br>')}</div></div>
+        <span class="fmtb">${fmt}</span></label>`).join('');
+    return `<div class="pickgrp">
+      <div class="picknote">${name}は認定が <b>${cands.length}</b> 件あります。どれを交付しますか？</div>
+      ${opts}</div>`;
   }).join('');
   return appShell('発行への同意', `
     <div class="card" style="margin-top:28px;max-width:520px;margin-left:auto;margin-right:auto">
@@ -585,10 +617,18 @@ export function renderConsentScreen(q, user, infos = []) {
     </div>
     <style>
       .reqrow{display:flex;gap:11px;align-items:center;border:1px solid var(--line);border-radius:11px;padding:10px 12px;margin-top:8px}
+      /* 候補が複数ある書類。ラジオ自体は JS 不要で、選択行だけ枠色を変える */
+      .picknote{font-size:12px;color:var(--muted);margin:14px 0 2px}
+      .picknote b{color:var(--ink)}
+      .reqrow.pick{cursor:pointer}
+      .reqrow.pick input{flex:none;margin:0;accent-color:#1C3F94}
+      .reqrow.pick:has(input:checked){border-color:#1C3F94;box-shadow:0 0 0 1px #1C3F94 inset;background:#F7F9FF}
+      .rqsub{font-size:11.5px;color:var(--muted);line-height:1.65;margin-top:3px}
       .reqrow .sw{width:46px;height:29px;border-radius:6px;flex:none;background:linear-gradient(135deg,var(--c1),var(--c2))}
       ${swatchEmblemCss()}
       .reqrow b{font-size:13.5px}
-      .reqrow .fmtb{margin-left:auto;font-size:10px;font-weight:700;border:1px solid var(--line);border-radius:6px;padding:2px 8px;color:var(--muted)}
+      /* 形式チップは折り返させない（"SD-JWT" が2行に割れて行が伸びていた） */
+      .reqrow .fmtb{margin-left:auto;flex:none;white-space:nowrap;font-size:10px;font-weight:700;border:1px solid var(--line);border-radius:6px;padding:2px 8px;color:var(--muted)}
       .who{display:flex;gap:10px;align-items:center;background:#f7f9fc;border:1px solid var(--line);border-radius:11px;padding:10px 12px;margin:14px 0 8px}
       .techfold{margin-top:10px}.techfold>summary{font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;list-style:none}
       .techfold>summary::before{content:"▸ "}

@@ -426,6 +426,19 @@ export const labelOf = (app) => getApplicationType(app?.kind)?.label(app) ?? '';
 /** 認定で決まった要点（罹災＝被害の程度 / 離島＝対象区分）。見出しの補足に使う。 */
 export const subOf = (app) => getApplicationType(app?.kind)?.sub(app) ?? '';
 
+/**
+ * 同意画面で1件を選ぶための1行（issue #32）。**どの1枚かを見分けられる情報**だけを並べる:
+ * 罹災＝災害名／被災住家／被害の程度、離島＝対象島／申請先／区分。末尾に交付者と認定日。
+ * ここが曖昧だと「熊本のつもりで東京の罹災を出す」が起きる。
+ */
+export function applicationLine(app) {
+  const parts = [labelOf(app), subOf(app)].filter(Boolean);
+  const who = targetAuthority(app);
+  const on = decidedOn(app);
+  const tail = [who, on ? `${on} 認定` : null].filter(Boolean).join(' ／ ');
+  return [parts.join(' ・ '), tail].filter(Boolean).join('\n');
+}
+
 /** 認定内容から VC クレームを組む（種別ごとの toClaims へ委譲）。 */
 export function claimsFor(app, persona) {
   const t = getApplicationType(app?.kind);

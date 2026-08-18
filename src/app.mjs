@@ -506,7 +506,9 @@ export function createApp(opts = {}) {
     // Browser with cookie session — show the explicit consent screen listing
     // every requested credential (multi-scope requests show them all)
     const ids = await svc.requestedIds(q);
-    return c.html(renderConsentScreen(q, user, ids.map(configInfo)));
+    // 候補が複数ある書類（罹災・離島）は同意画面で1枚を選ばせる（issue #32）
+    const choices = await svc.issuableChoices(user.id, ids);
+    return c.html(renderConsentScreen(q, user, ids.map(configInfo), { choices }));
   });
 
   // Consent submit: session must already exist; issue code and redirect to client
@@ -517,10 +519,17 @@ export function createApp(opts = {}) {
         return c.redirect('/login?next=/', 302);
       }
       const f = await c.req.parseBody();
+      // `app:<configId>` = 同意画面で選ばれた申請。**サーバ側で本人の・交付可能な
+      // 申請かを検証する**（画面で隠すのは防御ではない — 2026-08-09 の教訓）
+      const applications = {};
+      for (const [k, v] of Object.entries(f)) {
+        if (k.startsWith('app:') && typeof v === 'string' && v) applications[k.slice(4)] = v;
+      }
       const { redirect } = await svc.authorize({
         sessionId, response_type: f.response_type, redirect_uri: f.redirect_uri,
         code_challenge: f.code_challenge, code_challenge_method: f.code_challenge_method,
         scope: f.scope || undefined, issuer_state: f.issuer_state || undefined, state: f.state,
+        applications: Object.keys(applications).length ? applications : null,
       });
       return c.redirect(redirect, 302);
     } catch (e) { return fail(c, e); }
