@@ -344,7 +344,10 @@ for (const schema of Object.values(creds)) {
     doctype: schema.formats.mso_mdoc.doctype,
     scope: `${schema.id}_mdoc`,
     ...HAIP,
-    display: displayFor(schema, 'mdoc'),
+    // **`display` は `credential_metadata` の下**（OID4VCI 1.0 Final・issue #33）。
+    // 直下に置くのは draft-13 以前の形で、Multipaz が両方見る
+    // （`config.objOrNull("credential_metadata") ?: config`）ので動いていただけ
+    credential_metadata: { display: displayFor(schema, 'mdoc') },
     claims: schema.claims.map((cl) => ({
       path: [schema.formats.mso_mdoc.namespace, cl.mdoc.element],
       mandatory: !cl.optional,
@@ -357,7 +360,7 @@ for (const schema of Object.values(creds)) {
     vct: schema.formats['dc+sd-jwt'].vct,
     scope: `${schema.id}_sdjwt`,
     ...HAIP,
-    display: displayFor(schema, 'SD-JWT VC'),
+    credential_metadata: { display: displayFor(schema, 'SD-JWT VC') },
     claims: schema.claims.map((cl) => ({
       path: cl.sdjwt.path,
       mandatory: !cl.optional,

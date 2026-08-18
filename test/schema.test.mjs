@@ -85,7 +85,7 @@ test('OID4VCI display: 券面は logo に載せる（background_image だけで�
   const ids = Object.keys(cfgs);
   assert.equal(ids.length, 18);
   for (const id of ids) {
-    for (const d of cfgs[id].display) {
+    for (const d of cfgs[id].credential_metadata.display) {
       const where = `${id} (${d.locale})`;
       assert.ok(d.logo?.uri, `${where}: logo が要る（これが cardArt になる）`);
       assert.ok(d.logo.alt_text, `${where}: logo に alt_text`);
@@ -121,7 +121,7 @@ test('OID4VCI display: 券面画像は書類ごとに違い、名前は生成元
   const seen = new Map();
   for (const [id, cfg] of Object.entries(cfgs)) {
     const type = id.replace(/_(mdoc|sdjwt)$/, '');
-    const uri = cfg.display[0].logo.uri;
+    const uri = cfg.credential_metadata.display[0].logo.uri;
     if (seen.has(uri)) assert.equal(seen.get(uri), type, `${id}: 別書類と同じ券面`);
     seen.set(uri, type);
   }
@@ -131,11 +131,30 @@ test('OID4VCI display: 券面画像は書類ごとに違い、名前は生成元
   // ずれても気づきにくく、2箇所に書くと必ず食い違う
   for (const [id, cfg] of Object.entries(cfgs)) {
     const type = id.replace(/_(mdoc|sdjwt)$/, '');
-    const ja = cfg.display.find((d) => d.locale === 'ja-JP');
-    const en = cfg.display.find((d) => d.locale === 'en-US');
+    const ja = cfg.credential_metadata.display.find((d) => d.locale === 'ja-JP');
+    const en = cfg.credential_metadata.display.find((d) => d.locale === 'en-US');
     assert.equal(ja.name, DISPLAY_NAMES[type].ja, id);
     assert.equal(en.name, DISPLAY_NAMES[type].en, id);
     // alt_text も同じ出どころ
     assert.equal(ja.logo.alt_text, DISPLAY_NAMES[type].ja, id);
+  }
+});
+
+// **`display` は `credential_metadata` の下**（OID4VCI 1.0 Final・issue #33）。
+// 直下に置くのは draft-13 以前の形で、Multipaz が
+// `config.objOrNull("credential_metadata") ?: config` と両方見るので動いていただけだった
+// ——**実装の寛容さに助けられて非準拠に気づけない**という、#13 と同じ構図。
+// 値ではなく**階層そのものを pin する**（値だけ見ていると置き場所が変わっても通ってしまう）。
+test('OID4VCI 1.0: display は credential_metadata の下に置く', () => {
+  const cfgs = catalog.credential_configurations_supported;
+  for (const [id, cfg] of Object.entries(cfgs)) {
+    assert.ok(Array.isArray(cfg.credential_metadata?.display), `${id}: credential_metadata.display`);
+    assert.equal(cfg.display, undefined, `${id}: 直下の display は draft 形式なので置かない`);
+    // 仕様が REQUIRED としているのは name と logo.uri / background_image.uri
+    for (const d of cfg.credential_metadata.display) {
+      assert.ok(d.name, `${id}: name は REQUIRED`);
+      if (d.logo) assert.ok(d.logo.uri, `${id}: logo.uri は REQUIRED`);
+      if (d.background_image) assert.ok(d.background_image.uri, `${id}: background_image.uri は REQUIRED`);
+    }
   }
 });

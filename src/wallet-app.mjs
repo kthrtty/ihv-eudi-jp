@@ -215,7 +215,9 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
       const meta = await (await doFetch(issuerUrl + '/.well-known/openid-credential-issuer')).json();
       const list = Object.entries(meta.credential_configurations_supported || {}).map(([id, cc]) => ({
         configId: id, format: cc.format,
-        name: (cc.display?.find((d) => d.locale === 'ja-JP') || cc.display?.[0])?.name || id,
+        // `credential_metadata.display` が正（#33）。直下は旧形式のフォールバック
+        name: (() => { const dp = cc.credential_metadata?.display ?? cc.display;
+          return (dp?.find((d) => d.locale === 'ja-JP') || dp?.[0])?.name || id; })(),
       }));
       if (list.length) { await store?.set(KEY, list, 300); return list; }
     } catch { /* offline -> fallback below */ }
