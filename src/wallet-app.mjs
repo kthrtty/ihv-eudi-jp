@@ -6,6 +6,7 @@
 // The wallet-core (holder key, proof, storage) is reused unchanged; only the
 // transport (cross-origin fetch + browser redirects) is new.
 import { Hono } from 'hono';
+import { esc, js, jsAttr } from './html.mjs';
 import { getCookie, setCookie } from 'hono/cookie';
 import { randomBytes, createHash } from 'node:crypto';
 import { createWallet } from './wallet.mjs';
@@ -72,7 +73,6 @@ function resolvePresentation(request, creds) {
   return out;
 }
 
-const esc = (s) => String(s).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 const rand = () => randomBytes(16).toString('hex');
 const b64url = (b) => Buffer.from(b).toString('base64url');
 const fmt = (v) => {
@@ -1012,7 +1012,7 @@ function credCard(c, { interactive = true } = {}) {
   const extra = entries.length - Math.min(entries.length, 4);
   const name = typeName(credType(c.configId));
   const open = interactive
-    ? ` role="button" tabindex="0" onclick="openCred('${esc(c.id)}')" onkeydown="if(event.key==='Enter'){event.preventDefault();openCred('${esc(c.id)}')}"`
+    ? ` role="button" tabindex="0" onclick="openCred(${jsAttr(c.id)})" onkeydown="if(event.key==='Enter'){event.preventDefault();openCred(${jsAttr(c.id)})}"`
     : '';
   const more = interactive
     ? `<div class="held-more">▤ すべての属性・生データ を表示${extra > 0 ? ` ＋${extra}項目` : ''} →</div>`
@@ -1042,10 +1042,10 @@ function credModal(c, raw) {
     ? `<details class="rawc"><summary>オンワイヤ（${isMdoc ? 'base64url(CBOR)' : 'compact serialization'}）を表示</summary><pre class="djson small">${esc(raw.compact)}</pre></details>`
     : '';
   return `<div class="vcsheet" id="cm-${esc(c.id)}" hidden>
-    <div class="vc-scrim" onclick="closeCred('${esc(c.id)}')"></div>
+    <div class="vc-scrim" onclick="closeCred(${jsAttr(c.id)})"></div>
     <div class="sheet">
       <div class="mh">${typeIcon(credType(c.configId))}<div class="mh-nm">${esc(name)}</div>
-        <button type="button" class="mh-x" onclick="closeCred('${esc(c.id)}')" aria-label="閉じる">×</button></div>
+        <button type="button" class="mh-x" onclick="closeCred(${jsAttr(c.id)})" aria-label="閉じる">×</button></div>
       ${typeNote(credType(c.configId)) ? `<div class="cred-note" style="margin:0 18px 4px">${esc(typeNote(credType(c.configId)))}</div>` : ''}
       <div class="seg">
         <button type="button" class="on" data-pan="attr">属性（全${entries.length}件）</button>
@@ -1053,7 +1053,7 @@ function credModal(c, raw) {
       <div class="mc">
         <div class="pan pan-attr"><div class="dfull">${full}</div></div>
         <div class="pan pan-raw" hidden>${noteBanner}<div class="rawfmt">${esc(fmtLabel)}</div><pre class="djson">${rawJson}</pre>${compact}</div></div>
-      <div class="mfoot"><button type="button" class="vc-del" onclick="askDelete('${esc(c.id)}','${esc(name)}')">${delGlyph()}<span>このデジタル資格証を削除</span></button></div>
+      <div class="mfoot"><button type="button" class="vc-del" onclick="askDelete(${jsAttr(c.id)},${jsAttr(name)})">${delGlyph()}<span>このデジタル資格証を削除</span></button></div>
     </div></div>`;
 }
 
@@ -2091,7 +2091,6 @@ function receivingScreen(configIds, issuerBase) {
 function settingsPage(ttlSec, saved = false, { trustTtlSec = 3600, trustInfo = null } = {}) {
   const min = Math.round(ttlSec / 60);
   const tmin = Math.round(trustTtlSec / 60);
-  const esc = (x) => String(x ?? '').replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
   // アンカーが何件引けているかは**この画面でしか見えない**。0 件＝検証が全部落ちる状態なので目立たせる
   const trustBlock = trustInfo === null ? `
         <div class="hint" style="margin:10px 0 14px">トラストリストは設定されていません（バンドルに焼いたアンカーで検証します）。</div>`

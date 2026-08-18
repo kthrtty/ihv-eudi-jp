@@ -2,13 +2,13 @@
 // 審査（職員向け）は別オリジンの自治体窓口＝src/admin-demo.mjs にある。
 // 一覧は **PC=表組み / SP=カード** を1マークアップで両立（列数だけ切り替える）。
 import { appShell } from './authcode-demo.mjs';
+import { esc, js, jsAttr } from './html.mjs';
 import { WALLET_CARD_THEME, swatchEmblemHtml, swatchEmblemCss } from './authcode-demo.mjs';
 import { STATUS, statusView, labelOf, subOf, getApplicationType, applicationTypeList, targetName, disasterName, disasterDate, HOUSEHOLD_RELS, addressPrefix, stripPrefix } from './applications.mjs';
 import { listDisasters } from './disasters.mjs';
 import { prefecturesFor, municipalitiesIn } from './municipalities.mjs';
 import { ACCEPT_ATTR, MAX_FILES, MAX_FILE_BYTES, MAX_TOTAL_BYTES, MAX_PICK_BYTES, STORE_EDGE, THUMB_EDGE, thumbDataUri } from './upload.mjs';
 
-const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 export const sw = (type) => {
   const t = WALLET_CARD_THEME[type] || WALLET_CARD_THEME.pid;
   return `<span class="cic" style="--c1:${t.c1};--c2:${t.c2};--c3:${t.c3}">${swatchEmblemHtml(type)}</span>`;

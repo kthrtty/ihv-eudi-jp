@@ -2,10 +2,10 @@
 // scenario picker → step 1 (PID / identity proofing) → step 2 (EAA, session-linked)
 // → acceptance (「申請を受理しました」). The expert builder lives at /verifier/builder.
 import { shell, swatchEmblemHtml, WALLET_CARD_THEME } from './authcode-demo.mjs';
+import { esc, js, jsAttr } from './html.mjs';
 import { configInfo } from './issuer.mjs';
 import { claimVal } from './scenarios.mjs';
 
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 const label = (configId, key) => configInfo(configId).claimLabels?.[key] || key;
 // specs may carry format alternatives (configIds); UI labels use the first one —
 // claim labels cover both schema keys AND mdoc wire names, so they render
@@ -114,7 +114,7 @@ function stepActions(s, step, { txn1 = null, selftest = true } = {}) {
       const msg = (m) => document.getElementById('msg').innerHTML = '<div class="hint" style="color:#9E3A3A">' + esc2(m) + '</div>';
       async function build(target) {
         const d = await (await fetch('/vp/build', { method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ scenario: '${s.id}', step: ${step}, ${txn1 ? `linkTxn: '${esc(txn1)}',` : ''} target }) })).json();
+          body: JSON.stringify({ scenario: ${js(s.id)}, step: ${js(step)}, ${txn1 ? `linkTxn: ${js(txn1)},` : ''} target }) })).json();
         if (d.error) { msg(d.error); return null; }
         return d;
       }

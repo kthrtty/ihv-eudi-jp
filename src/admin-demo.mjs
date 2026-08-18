@@ -1,11 +1,11 @@
 // 自治体窓口（職員向け）の画面。発行ポータルとは別オリジンで動く。
 // 意匠と部品は住民向け（apply-demo.mjs）と共有し、シェルと色だけ差し替える。
 import { adminShell } from './authcode-demo.mjs';
+import { esc, js, jsAttr } from './html.mjs';
 import { CSS, sw, chip, field, attachmentsHtml } from './apply-demo.mjs';
 import { STATUS, statusView, labelOf, subOf, getApplicationType, targetName, targetAuthority } from './applications.mjs';
 import { outOfJurisdiction } from './staff.mjs';
 
-const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 const ADMIN_CSS = `
 .filt{display:flex;gap:7px;flex-wrap:wrap;margin:0 0 12px}

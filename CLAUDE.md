@@ -134,7 +134,7 @@ companion）なので、券面を変えたらアプリを再起動させる。�
 マスク漏れのテストで断片を取るときは**末尾から**取る（先頭だと誤検知する）。
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas+トラストリスト、初回必須・pki/ は gitignore）／`npm test`（405, node:test）／
+`npm run setup`（dev PKI+trust+schemas+トラストリスト、初回必須・pki/ は gitignore）／`npm test`（411, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
 
 ## アーキ地図（src/）
@@ -306,6 +306,20 @@ companion）なので、券面を変えたらアプリを再起動させる。�
   ——**同意は既定で真にしない**（送られてこない＝同意していない）。`String({})` は必ず truthy なので型で判定する。
   審査画面は `formRow()` が型ごとに整形（素で埋めると `[object Object]` が並ぶ）。`reviewHide:true` の項目
   （`same_address` のような入力補助）は審査画面に出さない
+- **出力エンコードは `src/html.mjs` に集約し、文脈ごとに使い分ける**（2026-08-18・#33）:
+  `esc`（HTML の本文・属性。`& < > " '` の5文字）／`js`（`<script>` の中。**JSON エンコード**）／
+  `jsAttr`（`on*` 属性。**JS→HTML の二段**）。**入力側でサニタイズしない**——同じ値が
+  HTML本文/属性・inline JS・JSON API・**署名済み VC のクレーム**・CBOR へ流れるので、入力時に
+  1つの encoding で潰すと他が壊れる（VC は「その人について証明する文言」なので原文を保つ）。
+  入力＝値域・形式の検証（validate.mjs）／出力＝文脈ごとのエンコード（html.mjs）。
+  監査で分かったこと3つ: (1) **`esc` が5ファイルに重複し2種類の挙動**だった——`admin-demo`/
+  `apply-demo`（＝申請の自由入力を描く画面）だけ `'` を落とさない版／(2) **`<script>` の中身は
+  HTML デコードされない**ので `esc` は誤り（`&lt;` が literal で入る・`'` を落とさない版なら
+  文字列を抜けられる）。`JSON.stringify` だけでも不足で、値の `</script>` でブロックが閉じる／
+  (3) **`on*` 属性は HTML デコード後に JS 解析**されるので二段が要る。
+  **規約はテストで固定する**（test/output-encoding.test.mjs）——esc の再定義／`<script>` 内の
+  `esc(` ／`on*` の素の差し込み を機械で見張る。`<script>` の中のブラウザ側 helper は対象外
+  （import できないので同名の定義があって正しい）。SQL・XML・手組み JSON は**存在しない**ことを確認済み
 - **入力検証は `src/validate.mjs` に集約**（2026-08-18・#33）: 項目定義（`type`/`required`/`options`/`max`）
   だけを見る純関数で、**申請フォーム（form）と審査の判定（decision）を同じ規則で見る**。
   以前 `decideApplication` は必須と長さしか見ておらず、**radio の選択肢も date の形式も検証して
