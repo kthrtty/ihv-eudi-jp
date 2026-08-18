@@ -433,7 +433,10 @@ export const subOf = (app) => getApplicationType(app?.kind)?.sub(app) ?? '';
  */
 export function applicationLine(app) {
   const parts = [labelOf(app), subOf(app)].filter(Boolean);
-  const who = targetAuthority(app);
+  // **交付者は VC に載るのと同じ順で解決する**（`targetAuthority` → 手入力）。
+  // `target_code` を持たない旧レコード（本番 KV にある）はディレクトリで引けないので、
+  // 落とすと交付者だけ消えて見分けがつきにくくなる（本番で実測）
+  const who = targetAuthority(app) ?? app?.authority ?? null;
   const on = decidedOn(app);
   const tail = [who, on ? `${on} 認定` : null].filter(Boolean).join(' ／ ');
   return [parts.join(' ・ '), tail].filter(Boolean).join('\n');
