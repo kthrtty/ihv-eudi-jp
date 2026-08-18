@@ -4,6 +4,7 @@
 // callback page that completes issuance. The "wallet" PKCE verifier is kept in
 // a server-side demo session purely so the browser demo needs no WebCrypto.
 import { generateKeyPairSync, randomBytes, createHash } from 'node:crypto';
+import { esc, js, jsAttr } from './html.mjs';
 import { SignJWT, importPKCS8 } from 'jose';
 import { catalog } from './issuer.mjs';
 import { devToggleHtml, devWidgetHtml } from './devlog.mjs';
@@ -13,7 +14,6 @@ import { offerQrSvg } from './offer.mjs';
 
 const b64url = (b) => Buffer.from(b).toString('base64url');
 const s256 = (s) => b64url(createHash('sha256').update(Buffer.from(s, 'ascii')).digest());
-const esc = (s) => String(s).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 
 const dispName = (configId) => {
   const c = catalog.credential_configurations_supported[configId];
@@ -295,7 +295,6 @@ export function renderCallback({ code, state }) {
           const r = await fetch('/demo/complete', { method:'POST' });
           const d = await r.json();
           if (d.error) throw new Error(d.error);
-          const esc = (s) => String(s).replace(/[&<>"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
           const IMG_RE = /^data:image\\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=]+$/;
           const rows = Object.entries(d.claims).map(([k,v]) =>
             '<tr><td>'+esc(k)+'</td><td>'+(IMG_RE.test(String(v)) ? '<img class="pimg" src="'+esc(v)+'" alt="顔写真">' : esc(String(v)))+'</td></tr>').join('');
@@ -802,7 +801,7 @@ export function renderVcSelect(user, groups, { walletOrigin = '', approved = [] 
         <div class="cl2">
           <span class="cd">${esc(g.desc)}</span>
           <span class="cchips">${chips}</span>
-          <button type="button" class="cinfo" title="含まれる項目を見る" onclick="openClaims('${esc(g.type)}')">ⓘ</button>
+          <button type="button" class="cinfo" title="含まれる項目を見る" onclick="openClaims(${jsAttr(g.type)})">ⓘ</button>
         </div>
         ${app ? (app.sub ? `<div class="cnote">認定 ${esc(app.sub)}・受付 ${esc(app.id)}</div>` : '')
               : (g.note ? `<div class="cnote">${esc(g.note)}</div>` : '')}

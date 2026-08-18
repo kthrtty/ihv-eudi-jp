@@ -3,6 +3,7 @@
 // (Annex D OID4VP/JWE or Annex C org-iso-mdoc/HPKE), and which claims to request
 // (selective disclosure). Shows the actual request JSON, then the verified result.
 import { shell, typeIcon, typeNote, renderClaimsModal, paginate, pagerHtml, WALLET_CARD_THEME, swatchEmblemHtml } from './authcode-demo.mjs';
+import { esc, js, jsAttr } from './html.mjs';
 import { allConfigIds, configInfo } from './issuer.mjs';
 
 // union ja-label map across every config (family_name -> 姓 …). Keys that repeat
@@ -94,7 +95,7 @@ export function renderVerifyConsole(groups = []) {
         <div class="vcs-name">${g.name}</div>
         <div class="vcs-l2">
           <span class="vcs-chips">${chips}</span>
-          <button type="button" class="vcinfo" title="含まれる項目を見る" onclick="event.stopPropagation();openClaims('${g.type}')">i</button>
+          <button type="button" class="vcinfo" title="含まれる項目を見る" onclick="event.stopPropagation();openClaims(${jsAttr(g.type)})">i</button>
         </div>
         ${note ? `<div class="vcs-note">${escj(note)}</div>` : ''}
       </div>
@@ -191,7 +192,6 @@ export function renderVerifyConsole(groups = []) {
       function reset() { $('reqbox').classList.add('hidden'); $('result').innerHTML = ''; built = null; }
       // Escape BEFORE any innerHTML: claim values come from an external wallet
       // (untrusted input on the native DC API path) and errors may echo them.
-      const esc = (s) => String(s).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
       function err(m) { $('result').innerHTML = '<div class="hint" style="color:#9E3A3A">'+esc(m)+'</div>'; }
 
       claimsEl.addEventListener('click', (e) => {
@@ -470,7 +470,6 @@ export function renderVerifierSettings(ttlSec, saved = false, { trustTtlSec = 36
 }
 
 export function renderVerifyHistory(entries = [], { page = 1, per = 10 } = {}) {
-  const esc = (s) => String(s).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
   // 各エントリは raw vp_token（顔写真 data URI 含む）を折りたたみに抱えて重いので、
   // 1ページ10件に切る（newest-first: 次ページ=より古い提示）
   const { slice, p, pages, total } = paginate(entries, page, per);
