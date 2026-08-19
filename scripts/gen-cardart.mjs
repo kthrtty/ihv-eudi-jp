@@ -17,7 +17,7 @@
 import { chromium } from 'playwright';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { WALLET_CARD_THEME, CARD_SIL } from '../src/authcode-demo.mjs';
+import { WALLET_CARD_THEME, CARD_SIL, embInner } from '../src/authcode-demo.mjs';
 import { DISPLAY_NAMES } from './gen-schemas.mjs';
 
 // ID-1 比（85.6 × 54mm）。スマホでは幅いっぱい（~830px）に伸びるので 214px では滲む
@@ -31,13 +31,18 @@ const JA_SIZE = 23, EN_SIZE = 11.5;
 
 const svgFor = (id) => {
   const t = WALLET_CARD_THEME[id] || WALLET_CARD_THEME.pid;
-  const sil = CARD_SIL[id] || CARD_SIL.pid;
+  // **字形は issuer と同じ `embInner`**（`CARD_SIL_ADJ` の位置補正込み）。
+  // 補正を片方だけに掛けると同じ資格証で紋章の位置がずれる
+  const sil = embInner(id) || CARD_SIL.pid;
   const nm = DISPLAY_NAMES[id] || { ja: id, en: id };
   return `<style>
     html,body{margin:0}
-    /* エンボス（浮き彫り）: 下に影・上にハイライト。**白を上げすぎず立体で見せる** */
-    .emb{fill:rgba(255,255,255,.34);
-      filter:drop-shadow(0 1.6px 0 rgba(0,0,0,.32)) drop-shadow(0 -1.2px .8px rgba(255,255,255,.42))}
+    /* エンボス（浮き彫り）: issuer カタログの .swemb と同じ——不透明に近い白 .92 と
+       二段の drop-shadow（下に影・上にハイライト）。半透明にすると地色が透けて
+       「浮き彫り」ではなく「薄い模様」に見える。影の量は字形の大きさに比例させる
+       （issuer は 26px の字形に 0.7/0.5px なので、52px なら 1.4/1.0px） */
+    .emb{fill:rgba(255,255,255,.92);
+      filter:drop-shadow(0 1.4px 0 rgba(0,0,0,.40)) drop-shadow(0 -1px .8px rgba(255,255,255,.30))}
     .ghost{fill:rgba(255,255,255,.10)}
     .ja{fill:#fff;font-family:"Hiragino Sans","Noto Sans JP",sans-serif;font-weight:800;
       filter:drop-shadow(0 1.5px 2px rgba(0,0,0,.5))}

@@ -183,7 +183,9 @@ const CARD_SIL_ADJ = {
   single: { s: 1.22, cx: 12, cy: 11, dy: 2 },
   koseki: { dx: 0.8 },
 };
-function embInner(type) {
+// **位置補正込みの字形**。issuer カタログの紋章と券面画像（scripts/gen-cardart.mjs）で
+// 同じものを使う——補正を片方だけに掛けると、同じ資格証なのに紋章の位置がずれる
+export function embInner(type) {
   const p = CARD_SIL[type];
   if (!p) return '';
   const a = CARD_SIL_ADJ[type];
