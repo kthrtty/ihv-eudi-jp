@@ -97,11 +97,16 @@ const JA_SIZE = 23, EN_SIZE = 11.5;
  * クラスでなく属性で描く——ページの CSS と衝突させないため）。
  * `inline:false` はラスタライズ用のスタンドアロン文書。
  */
+let uidSeq = 0;
 export function cardArtSvg(id, { inline = true, w = CARD_W, h = CARD_H, title = null } = {}) {
   const t = WALLET_CARD_THEME[id] || WALLET_CARD_THEME.pid;
   const sil = embInner(id) || CARD_SIL.pid;
   const nm = DISPLAY_NAMES[id] || { ja: id, en: id };
-  const u = `ca-${id}`;               // グラデーション id はカードごとに一意（同一ページに複数出る）
+  // **id はカードの種類でなく「呼び出しごと」に一意にする**（2026-08-23 に実機で発覚）。
+  // 同じ券面が1ページに複数回インライン展開される——モバイル用のスタック（display:none）と
+  // PC の一覧に同じカードが出る——ので、種類で採番すると **id が重複**する。HTML として不正で、
+  // `url(#…)` は文書順で最初の定義を指すため、**隠れている側の定義が使われて光沢が消えた**。
+  const u = `ca${++uidSeq}`;
   const label = title ?? `${nm.ja}の券面`;
   // エンボス（浮き彫り）: 不透明に近い白 .92 と二段の drop-shadow（下に影・上にハイライト）。
   // **半透明にすると地色が透けて「浮き彫り」でなく「薄い模様」に見える**。
