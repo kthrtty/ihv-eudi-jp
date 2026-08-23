@@ -894,7 +894,8 @@ const PRESENT_STYLE = `<style>
   .prevfold>summary::before{content:"▸ "}
   .prevfold[open]>summary::before{content:"▾ "}
   .btnrow2{display:flex;gap:10px;width:100%;margin-top:8px}
-  .btnrow2 .btn{flex:1;text-align:center}
+  /* 折り返しうるラベルなので行間 1（Oln）では詰まりすぎる。2行でも読める 1.4 にする */
+  .btnrow2 .btn{flex:1;text-align:center;line-height:1.4}
   .btn.wcancel{background:#fff;color:var(--ink);border:1px solid var(--line)}
   .rpcard h1{font-size:18px;margin:6px 0 12px}
   .hh-warn{font-size:16px;color:#8a6d1a;background:#FCF7E8;border:1px solid #EFE2B8;border-radius:8px;padding:6px 9px;margin-top:5px;line-height:1.6}
@@ -951,7 +952,12 @@ const PRESENT_STYLE = `<style>
   .bar{position:sticky;bottom:0;background:#fff;border:1px solid var(--line);border-radius:14px;padding:13px 16px;margin-top:12px}
   .count{font-size:16px;color:var(--muted);margin-bottom:10px;text-align:center}
   .count b{color:var(--ink)}
-  .bar .btn{display:block;width:100%;background:var(--role-ink)}
+  /* **flex 行に並ぶボタンは自分で中央揃えする**（2026-08-24）。display:block のままだと
+     .btnrow2 の stretch で背の高い方（2行に折り返すラベル）に高さを揃えられ、
+     1行のボタンは padding 分だけ下がった位置＝上寄せに見える。
+     （コメントに画面の文言を引用しない——インライン CSS は HTML の本文になるので、
+       本文一致を見るテストに引っかかる。実際にここで一度落とした） */
+  .bar .btn{display:flex;align-items:center;justify-content:center;width:100%;background:var(--role-ink)}
   .bar .btn:hover{background:var(--role-ink)}
   .mini{font-size:16px;color:var(--role-ink);font-weight:700;text-align:right;margin-top:8px;cursor:pointer}
 </style>`;
@@ -1291,6 +1297,11 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
         .wd-wrap{grid-template-columns:398px 1fr;column-gap:26px;max-width:1040px;align-items:start}
         .wd-wrap>*{grid-column:1}
         .wd-attr{grid-column:2;grid-row:1 / span 99;align-self:start;margin:0}
+        /* 開発者向け（生データ）は**両カラムにまたがって全幅**にする。左カラム 398px では
+           CBOR/JSON も base64 も折り返しだらけで読めない。属性パネルが grid-row:1/span 99 で
+           2列目を占めるので、全幅の要素は自動配置でその下に回る＝右端が属性パネルと揃う。
+           **モバイルは 1カラムなのでこの規則は効かない**（min-width:760px の中） */
+        .wd-dev{grid-column:1 / -1}
       }
       .wd-cardface .vcard{max-width:none}
       .wd-note{font-size:16px;color:#8A6D1F;line-height:1.5;margin:-4px 2px 0}
