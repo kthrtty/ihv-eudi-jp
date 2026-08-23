@@ -429,3 +429,20 @@ test('#30 スナップショットはビット列をパックし、旧形式も�
   assert.equal(old.isRevoked(7, 'sdjwt'), true, '旧形式の失効ビットが残る');
   assert.equal(old.snapshot().sdjwt.size, 512, '読み込み時に事前確保へ揃う');
 });
+
+// #36（2026-08-23・実機 Multipaz で発覚）。**サイズではなくヘッダを固定する**。
+// Multipaz の `zlibInflate()` はヘッダを `78da` と固定バイト比較しており、
+// 既定レベルの `789c` は `invalid compression (wrong header)` で弾かれる。
+// RFC 1950 上はどちらも妥当なので、**壊れても単体テストでは気づけない**——
+// 実機でしか出ない不具合の唯一の見張りがこの1行。
+test('lst の zlib ヘッダが 78da（Multipaz が固定バイト比較している）', () => {
+  const lst = compressList(new Array(65536).fill(0));
+  const head = Buffer.from(lst, 'base64url').subarray(0, 2).toString('hex');
+  assert.equal(head, '78da', `zlib ヘッダは 78da（実測 ${head}）— deflateSync の level を落とすと壊れる`);
+  // 仕様側の妥当性も併せて見る（FLEVEL を変えても RFC 1950 としては正しいままなので、
+  // 「78da だから正しい」ではなく「78da かつ RFC 1950 として妥当」を確かめる）
+  const [cmf, flg] = Buffer.from(lst, 'base64url');
+  assert.equal(cmf & 0x0f, 8, 'CM=8 (deflate)');
+  assert.equal(((cmf << 8) | flg) % 31, 0, 'FCHECK が成立する');
+  assert.equal(decompressList(lst).length * 8, 65536, '往復できる');
+});

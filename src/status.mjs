@@ -16,7 +16,20 @@ export function packBits(bits) {
   return bytes;
 }
 export const bitAt = (bytes, idx) => (bytes[idx >> 3] >> (idx & 7)) & 1;
-export const compressList = (bits) => b64url(deflateSync(Buffer.from(packBits(bits))));
+
+// **圧縮レベルは 9 を明示する**（2026-08-23・#36。実機 Multipaz で発覚）。
+// 目的は出力サイズではなく **zlib ヘッダの2バイト目**。RFC 1950 の FLG は上位2ビットが
+// FLEVEL で、レベル 1→`7801` / 2-5→`785e` / 6(既定)→`789c` / 7-9→`78da` と変わる。
+// RFC 1950 は FLEVEL を "only for informational purposes and do not affect decompression"
+// と定めており、正しい検証は `CM==8` かつ `(CMF<<8|FLG) % 31 == 0` だが、
+// **Multipaz の `ByteArray.zlibInflate()` はヘッダを `byteArrayOf(120, -38)`（=`78da`）と
+// 固定バイト比較している**（multipaz/util/Compression.kt）。既定レベルの `789c` は
+// `IllegalArgumentException: invalid compression (wrong header)` で弾かれ、
+// **失効確認が全滅していた**（Java の Deflater も Python の zlib も既定は `789c` なので
+// 我々に限った話ではない＝上流のバグ。ただしどのレベルも仕様準拠なので9で回避できる）。
+// 実測でサイズは変わらない（65,536 ビットの全ゼロで 31 バイト）。
+// 回帰=test/status.test.mjs「lst の zlib ヘッダ」。
+export const compressList = (bits) => b64url(deflateSync(Buffer.from(packBits(bits)), { level: 9 }));
 export const decompressList = (lst) => new Uint8Array(inflateSync(Buffer.from(lst, 'base64url')));
 
 /** Build a signed Status List Token (typ: statuslist+jwt). */
