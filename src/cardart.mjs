@@ -86,6 +86,11 @@ const EM = 52;                        // 紋章の一辺（可視帯に収まる
 // 文字サイズは**全書類で揃える**。書類ごとに変えると重ねたとき行の高さがばらつく。
 // 一番長い名前（PID の英名 36 文字）が収まる寸法に合わせている。
 const JA_SIZE = 23, EN_SIZE = 11.5;
+// **紋章と文字の上下中心を揃える**（2026-08-23 の指摘）。以前は紋章 y=9（中心 35.0）に対し
+// 文字ブロックが 21.2〜61.4（中心 41.3）で **6.3px 下にいた**。テキストは baseline 指定なので
+// 「y を揃える」では中心が合わない——キャップハイト(≒.73em)とディセンダ(≒.21em)から
+// 視覚的な上下端を出して、両者の中心を 36 に合わせている。
+//   紋章 y=10（10〜62・中心 36） / 和名 baseline y=33 / 英名 baseline y=54
 
 /**
  * 券面1枚を SVG で返す。`inline:true` なら Web に直接埋める形（`<style>` を持たず、
@@ -115,11 +120,11 @@ export function cardArtSvg(id, { inline = true, w = CARD_W, h = CARD_H, title = 
         <stop offset="100%" stop-color="${t.c3}" stop-opacity="0"/></linearGradient>
     </defs>
     <rect width="${CARD_W}" height="${CARD_H}" fill="url(#${u}g)"/>
-    <ellipse cx="${CARD_W * 0.78}" cy="${CARD_H * 0.62}" rx="${CARD_W * 0.52}" ry="${CARD_H * 0.44}" fill="url(#${u}h)"/>
+    <ellipse cx="${CARD_W * 1.10}" cy="${CARD_H * 1.19}" rx="${CARD_W * 0.77}" ry="${CARD_H * 0.87}" fill="url(#${u}h)"/>
     <g fill="rgba(255,255,255,.10)" transform="translate(${CARD_W - 150} ${CARD_H - 150}) scale(6.2)">${sil}</g>
-    <g ${emb} transform="translate(22 9) scale(${EM / 24})">${sil}</g>
-    <text x="${22 + EM + 14}" y="38" ${jaS} font-size="${JA_SIZE}">${esc(nm.ja)}</text>
-    <text x="${22 + EM + 14}" y="59" ${enS} font-size="${EN_SIZE}">${esc(nm.en)}</text>
+    <g ${emb} transform="translate(22 10) scale(${EM / 24})">${sil}</g>
+    <text x="${22 + EM + 14}" y="33" ${jaS} font-size="${JA_SIZE}">${esc(nm.ja)}</text>
+    <text x="${22 + EM + 14}" y="54" ${enS} font-size="${EN_SIZE}">${esc(nm.en)}</text>
     <text x="24" y="${CARD_H - 22}" ${isS}>DEMO VC ISSUER</text>`;
   const open = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${CARD_W} ${CARD_H}"`
     + (inline ? ` role="img" aria-label="${esc(label)}" preserveAspectRatio="xMidYMid slice"`
