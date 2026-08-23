@@ -120,7 +120,7 @@ export function cardArtSvg(id, { inline = true, w = CARD_W, h = CARD_H, title = 
         <stop offset="100%" stop-color="${t.c3}" stop-opacity="0"/></linearGradient>
     </defs>
     <rect width="${CARD_W}" height="${CARD_H}" fill="url(#${u}g)"/>
-    <ellipse cx="${CARD_W * 1.10}" cy="${CARD_H * 1.19}" rx="${CARD_W * 0.77}" ry="${CARD_H * 0.87}" fill="url(#${u}h)"/>
+    <ellipse cx="${CARD_W * 0.95}" cy="${CARD_H * 0.95}" rx="${CARD_W * 0.62}" ry="${CARD_H * 0.62}" fill="url(#${u}h)"/>
     <g fill="rgba(255,255,255,.10)" transform="translate(${CARD_W - 150} ${CARD_H - 150}) scale(6.2)">${sil}</g>
     <g ${emb} transform="translate(22 10) scale(${EM / 24})">${sil}</g>
     <text x="${22 + EM + 14}" y="33" ${jaS} font-size="${JA_SIZE}">${esc(nm.ja)}</text>
