@@ -44,8 +44,8 @@ export function attachmentsHtml(atts = [], { base = '' } = {}) {
 }
 
 export const CSS = `
-.crumb{font-size:11.5px;color:var(--muted);margin-bottom:6px}
-.lead{font-size:12.5px;color:var(--muted);line-height:1.8;margin:0 0 14px}
+.crumb{font-size:16px;color:var(--muted);margin-bottom:6px}
+.lead{font-size:16px;color:var(--muted);line-height:1.8;margin:0 0 14px}
 .acard{background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin-bottom:12px}
 .acard.p0{padding:0;overflow:hidden}
 ${swatchEmblemCss()}
@@ -53,82 +53,82 @@ ${swatchEmblemCss()}
   background:radial-gradient(120% 90% at 85% -12%,var(--c3) 0%,transparent 55%),linear-gradient(135deg,var(--c1) 0%,var(--c2) 100%);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 1px 2px rgba(0,0,0,.18)}
 .cic .swemb{display:block;width:72%;height:72%;color:rgba(255,255,255,.95);filter:drop-shadow(0 1px 0 rgba(0,0,0,.4))}
-.sec{font-size:12px;font-weight:800;color:var(--civic);letter-spacing:.03em;margin:16px 0 9px;padding-bottom:5px;
+.sec{font-size:16px;font-weight:700;color:var(--civic);letter-spacing:.03em;margin:16px 0 9px;padding-bottom:5px;
   border-bottom:1px solid #eaeff7;display:flex;align-items:center}
 .sec:first-child{margin-top:0}
-.tagro{margin-left:auto;font-weight:600;font-size:10.5px;color:var(--muted);background:#F3F5F9;border-radius:6px;padding:2px 8px}
+.tagro{margin-left:auto;font-weight:700;font-size:16px;color:var(--muted);background:#F3F5F9;border-radius:6px;padding:2px 8px}
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
 .fld{margin-bottom:13px}
-.fld label{display:block;font-size:11.5px;font-weight:700;color:#3d4d63;margin-bottom:5px}
-.req{color:#fff;background:var(--seal);border-radius:4px;font-size:9.5px;padding:1px 5px;margin-left:5px;vertical-align:1px}
+.fld label{display:block;font-size:16px;font-weight:700;color:#3d4d63;margin-bottom:5px}
+.req{color:#fff;background:var(--seal);border-radius:4px;font-size:16px;padding:1px 5px;margin-left:5px;vertical-align:1px}
 /* ラジオ/チェックは除く——width:100% を当てるとつまみが行いっぱいに広がって中央に
    浮き、ラベルが次行へ落ちる（ラジオ群と「記載する」が崩れていた） */
-.fld input:not([type=radio]):not([type=checkbox]),.fld select,.fld textarea{width:100%;font:inherit;font-size:13px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:#fff;box-sizing:border-box}
-.ro{background:#F3F5F9;border-radius:8px;padding:9px 11px;font-size:13px}
-.fhint{display:block;font-size:10.5px;color:#8A97AB;margin-top:4px;line-height:1.6}
+.fld input:not([type=radio]):not([type=checkbox]),.fld select,.fld textarea{width:100%;font:inherit;font-size:16px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:#fff;box-sizing:border-box}
+.ro{background:#F3F5F9;border-radius:8px;padding:9px 11px;font-size:16px}
+.fhint{display:block;font-size:16px;color:#8A97AB;margin-top:4px;line-height:1.6}
 /* 選択肢は幅を使い切らない——1行1個だと右側が大きく空いて間延びする。
    広い面では2列、狭い面（SP）では1列に落とす */
 .rg{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:stretch}
 @media(max-width:520px){.rg{grid-template-columns:1fr}}
-.rg label{display:block;border:1px solid var(--line);border-radius:9px;padding:9px 12px;font-size:13px;background:#fff;cursor:pointer}
+.rg label{display:block;border:1px solid var(--line);border-radius:9px;padding:9px 12px;font-size:16px;background:#fff;cursor:pointer}
 .rg label:has(input:checked){border-color:var(--civic);background:#F4F7FD;box-shadow:0 0 0 1px var(--civic) inset}
-.rg label b{font-size:13px}
-.rg label small{display:block;font-size:10.5px;color:var(--muted);margin-top:1px;margin-left:22px}
+.rg label b{font-size:16px}
+.rg label small{display:block;font-size:16px;color:var(--muted);margin-top:1px;margin-left:22px}
 /* 複数選択。**「どれか1つ」ではない**ことがラジオと見分けられなければならないので、
    角丸を小さくし枠を密に並べる（ラジオは .rg で 2列カード） */
 .cg{display:flex;flex-wrap:wrap;gap:7px}
-.cg label{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:8px;padding:7px 11px;font-size:12.5px;background:#fff;cursor:pointer}
+.cg label{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:8px;padding:7px 11px;font-size:16px;background:#fff;cursor:pointer}
 .cg label:has(input:checked){border-color:var(--civic);background:#F4F7FD;box-shadow:0 0 0 1px var(--civic) inset;font-weight:700}
 /* 同意事項は**読ませる**のが目的なので、チップ化せず本文を全文出す */
 .cslist{display:grid;gap:7px}
-.cslist label{display:grid;grid-template-columns:auto 1fr;gap:9px;align-items:start;border:1px solid var(--line);border-radius:10px;padding:11px 13px;background:#fff;cursor:pointer;font-size:12px;font-weight:400;color:var(--ink);line-height:1.75;margin:0}
+.cslist label{display:grid;grid-template-columns:auto 1fr;gap:9px;align-items:start;border:1px solid var(--line);border-radius:10px;padding:11px 13px;background:#fff;cursor:pointer;font-size:16px;font-weight:400;color:var(--ink);line-height:1.75;margin:0}
 .cslist label:has(input:checked){border-color:var(--civic);background:#F7FAFF}
 .cslist input{margin-top:2px}
 /* 住所: 申請先から決まる前置は読み取り専用の見た目で、入力欄と1つの帯に見せる */
-.adr-use{display:inline-block;margin-top:6px;font:inherit;font-size:11.5px;font-weight:600;color:var(--civic);background:#fff;border:1px solid var(--line);border-radius:8px;padding:7px 12px;cursor:pointer}
+.adr-use{display:inline-block;margin-top:6px;font:inherit;font-size:16px;font-weight:700;color:var(--civic);background:#fff;border:1px solid var(--line);border-radius:8px;padding:7px 12px;cursor:pointer}
 .adr-use:hover{background:#F4F7FD;border-color:var(--civic)}
-.adr-use:disabled{color:var(--muted);background:#F3F5F9;cursor:default;font-weight:500}
+.adr-use:disabled{color:var(--muted);background:#F3F5F9;cursor:default;font-weight:400}
 .adr{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:8px;background:#fff;overflow:hidden}
-.adr-fix{display:flex;align-items:center;padding:9px 11px;background:#F3F5F9;color:var(--muted);font-size:12.5px;white-space:nowrap;border-right:1px solid var(--line)}
+.adr-fix{display:flex;align-items:center;padding:9px 11px;background:#F3F5F9;color:var(--muted);font-size:16px;white-space:nowrap;border-right:1px solid var(--line)}
 .adr input{border:0!important;border-radius:0!important;flex:1;min-width:0}
 @media(max-width:520px){.adr{flex-direction:column}
   .adr-fix{border-right:0;border-bottom:1px solid var(--line)}}
 /* 審査画面の読み取り表示（同意した/しなかったを一目で。入力欄には見せない） */
 .ro-list{gap:5px}
-.ro-list>div{display:grid;grid-template-columns:18px 1fr;gap:8px;align-items:start;border:1px solid var(--line);border-radius:9px;padding:9px 11px;background:#F7F9FC;font-size:11.5px;line-height:1.7}
+.ro-list>div{display:grid;grid-template-columns:18px 1fr;gap:8px;align-items:start;border:1px solid var(--line);border-radius:9px;padding:9px 11px;background:#F7F9FC;font-size:16px;line-height:1.7}
 .ro-list>div.yes{color:var(--ink)}
-.ro-list>div.yes>span:first-child{color:var(--success-2);font-weight:800}
+.ro-list>div.yes>span:first-child{color:var(--success-2);font-weight:700}
 .ro-list>div.no{color:var(--muted)}
-.warn{background:#FDF7E3;border-radius:10px;padding:12px 14px;font-size:11.5px;color:#6b5a1e;line-height:1.8;margin:14px 0}
+.warn{background:#FDF7E3;border-radius:10px;padding:12px 14px;font-size:16px;color:#6b5a1e;line-height:1.8;margin:14px 0}
 .warn.err{background:#FDECEA;color:#8a2b22}
-.todo{background:#F3F5F9;border:1px dashed #c3cede;border-radius:10px;padding:11px 14px;font-size:11.5px;color:var(--muted);line-height:1.7;margin-bottom:12px}
+.todo{background:#F3F5F9;border:1px dashed #c3cede;border-radius:10px;padding:11px 14px;font-size:16px;color:var(--muted);line-height:1.7;margin-bottom:12px}
 .acts{display:flex;gap:10px;margin-top:16px;flex-wrap:wrap}
-.abtn{font:inherit;font-size:13.5px;font-weight:700;padding:11px 22px;border-radius:9px;border:0;background:var(--civic);color:#fff;cursor:pointer;text-decoration:none;display:inline-block}
+.abtn{font:inherit;font-size:16px;font-weight:700;padding:11px 22px;border-radius:9px;border:0;background:var(--civic);color:#fff;cursor:pointer;text-decoration:none;display:inline-block}
 .abtn.gh{background:#fff;border:1px solid var(--line);color:var(--civic)}
 .abtn.dn{background:var(--seal)}
 /* 入力元で分けるブロック（住民票にあるもの／申告するもの） */
 .srcbox{border:1px solid var(--line);border-radius:13px;background:#fff;margin-bottom:12px;overflow:hidden}
 .srcbox>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;padding:13px 16px;background:#F2F5F9}
 .srcbox>summary::-webkit-details-marker{display:none}
-.srcbox .ic{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font-size:13px;background:#5B6B82;color:#fff;flex:none}
-.srcbox summary b{font-size:13.5px}
-.srcbox .cnt{margin-left:auto;font-size:11px;color:var(--muted);background:#fff;border:1px solid var(--line);border-radius:999px;padding:2px 9px;white-space:nowrap}
+.srcbox .ic{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font-size:16px;background:#5B6B82;color:#fff;flex:none}
+.srcbox summary b{font-size:16px}
+.srcbox .cnt{margin-left:auto;font-size:16px;color:var(--muted);background:#fff;border:1px solid var(--line);border-radius:999px;padding:2px 9px;white-space:nowrap}
 .srcbox .in{padding:14px 16px 4px}
-.kv{display:grid;grid-template-columns:104px 1fr;gap:4px 12px;font-size:13px;margin-bottom:9px}
-.kv span{color:var(--muted);font-size:11.5px;padding-top:2px}
-.note{background:#F7F9FC;border-radius:9px;padding:10px 13px;font-size:11.5px;color:var(--muted);line-height:1.8;margin:6px 0 12px}
+.kv{display:grid;grid-template-columns:104px 1fr;gap:4px 12px;font-size:16px;margin-bottom:9px}
+.kv span{color:var(--muted);font-size:16px;padding-top:2px}
+.note{background:#F7F9FC;border-radius:9px;padding:10px 13px;font-size:16px;color:var(--muted);line-height:1.8;margin:6px 0 12px}
 .note b{color:var(--ink)}
 @media(max-width:640px){.kv{grid-template-columns:1fr;gap:0 0}.kv span{margin-top:6px}}
 /* 世帯構成員の行編集 */
 .hhlist{display:flex;flex-direction:column;gap:7px}
 .hhrow{display:grid;grid-template-columns:20px 1fr 1fr 104px 148px 26px;gap:6px;align-items:center}
 .hhrow.opt{display:none}
-.hhrow .no{font-size:11px;color:var(--muted);text-align:center}
-.hhrow input,.hhrow select{width:100%;font:inherit;font-size:13px;padding:8px 10px;border:1px solid var(--line);
+.hhrow .no{font-size:16px;color:var(--muted);text-align:center}
+.hhrow input,.hhrow select{width:100%;font:inherit;font-size:16px;padding:8px 10px;border:1px solid var(--line);
   border-radius:8px;background:#fff;box-sizing:border-box}
-.hhdel{border:0;background:none;color:#b6bec9;font-size:13px;cursor:pointer;padding:4px;line-height:1}
+.hhdel{border:0;background:none;color:#b6bec9;font-size:16px;cursor:pointer;padding:4px;line-height:1}
 .hhdel:hover{color:var(--seal)}
-.hhadd{margin-top:8px;font:inherit;font-size:12.5px;font-weight:700;color:var(--civic);background:#fff;
+.hhadd{margin-top:8px;font:inherit;font-size:16px;font-weight:700;color:var(--civic);background:#fff;
   border:1px solid var(--line);border-radius:9px;padding:8px 14px;cursor:pointer}
 .hhadd:hover{border-color:var(--civic)}
 @media(max-width:640px){
@@ -143,31 +143,31 @@ ${swatchEmblemCss()}
 .upgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:9px;margin-bottom:7px}
 .upcell{position:relative;aspect-ratio:1;border-radius:11px;overflow:hidden;border:1px solid var(--line);background:#F3F5F9}
 .upcell img{width:100%;height:100%;object-fit:cover;display:block}
-.upcell .nm{position:absolute;left:0;right:0;bottom:0;color:#fff;font-size:10px;padding:14px 7px 5px;
+.upcell .nm{position:absolute;left:0;right:0;bottom:0;color:#fff;font-size:16px;padding:14px 7px 5px;
   background:linear-gradient(transparent,rgba(0,0,0,.66));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .upcell .rm{position:absolute;top:5px;right:5px;width:22px;height:22px;border-radius:50%;border:0;padding:0;
-  background:rgba(14,26,43,.66);color:#fff;font-size:11px;line-height:1;cursor:pointer;display:grid;place-items:center}
+  background:rgba(14,26,43,.66);color:#fff;font-size:16px;line-height:1;cursor:pointer;display:grid;place-items:center}
 .upcell.doc{display:grid;place-items:center;background:#FDECEA}
-.upcell.doc .pt{font-size:13px;font-weight:800;color:#b3261e}
+.upcell.doc .pt{font-size:16px;font-weight:700;color:#b3261e}
 .uptile{aspect-ratio:1;border:1.5px dashed #c3cede;border-radius:11px;background:#FAFBFD;cursor:pointer;
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}
 .uptile input{display:none}
 .uptile .ic{font-size:26px;line-height:1;color:var(--civic)}
-.uptile b{font-size:11.5px;color:var(--civic)}
+.uptile b{font-size:16px;color:var(--civic)}
 /* 受理済みの添付（申請の控え・審査画面）。アイコンではなく保存したサムネイルを出す */
 .uplist{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:9px;margin-bottom:7px}
 .upi{position:relative;aspect-ratio:1;border-radius:11px;overflow:hidden;border:1px solid var(--line);
   background:#F3F5F9;display:block;text-decoration:none;color:inherit}
 a.upi:hover{border-color:var(--civic);box-shadow:0 2px 10px rgba(14,26,43,.12)}
 .upi .gone{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:0 8px;
-  background:rgba(255,255,255,.78);color:#6b5a1e;font-size:10px;font-weight:700;line-height:1.5}
+  background:rgba(255,255,255,.78);color:#6b5a1e;font-size:16px;font-weight:700;line-height:1.5}
 .upi img{width:100%;height:100%;object-fit:cover;display:block}
-.upi .nm{position:absolute;left:0;right:0;bottom:0;color:#fff;font-size:10px;padding:14px 7px 5px;
+.upi .nm{position:absolute;left:0;right:0;bottom:0;color:#fff;font-size:16px;padding:14px 7px 5px;
   background:linear-gradient(transparent,rgba(0,0,0,.66));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .upi.doc{display:grid;place-items:center;background:#FDECEA}
-.upi.doc .pt{font-size:13px;font-weight:800;color:#b3261e}
+.upi.doc .pt{font-size:16px;font-weight:700;color:#b3261e}
 .upi.doc .nm{color:#6b5a1e;background:none;position:static;padding:2px 7px 0;text-align:center}
-.upi .sz{position:absolute;top:5px;left:6px;font-size:9.5px;color:#fff;background:rgba(14,26,43,.55);
+.upi .sz{position:absolute;top:5px;left:6px;font-size:16px;color:#fff;background:rgba(14,26,43,.55);
   border-radius:5px;padding:1px 5px}
 .upi.doc .sz{color:#8a2b22;background:#fbdcd8}
 /* 一覧: PC=表組み / SP=カード */
@@ -179,38 +179,38 @@ a.upi:hover{border-color:var(--civic);box-shadow:0 2px 10px rgba(14,26,43,.12)}
    折り返し、状態と行動の間に大きな空白が空く（＝右列が間延びして見える）。
    状態=チップ2つぶん・行動=「再判定 ›」ぶん（行動ラベルを短く統一したので詰められる） */
 .ahead,.arow{display:grid;grid-template-columns:80px 132px minmax(0,1fr) 82px 92px 118px 76px;column-gap:12px;align-items:center;padding:11px 16px}
-.ahead{font-size:10.5px;color:var(--muted);font-weight:700;background:#F7F9FC;border-bottom:1px solid var(--line)}
-.arow{border-bottom:1px solid #eef1f6;font-size:12.5px;text-decoration:none;color:inherit}
+.ahead{font-size:16px;color:var(--muted);font-weight:700;background:#F7F9FC;border-bottom:1px solid var(--line)}
+.arow{border-bottom:1px solid #eef1f6;font-size:16px;text-decoration:none;color:inherit}
 .arow:last-child{border-bottom:0}
 .arow:hover{background:#FAFBFD}
-.a-no{grid-column:1;font-family:ui-monospace,monospace;font-size:12px}
+.a-no{grid-column:1;font-family:ui-monospace,monospace;font-size:16px}
 .a-ty{grid-column:2;display:flex;align-items:center;gap:8px;min-width:0}
-.a-ty b{font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.a-ty b{font-size:16px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .a-sub{grid-column:3;min-width:0;display:flex;flex-direction:column;line-height:1.45}
-.a-sub b{font-size:12.5px;font-weight:500}
-.a-sub small{font-size:10.5px;color:var(--muted)}
+.a-sub b{font-size:16px;font-weight:400}
+.a-sub small{font-size:16px;color:var(--muted)}
 .a-who{grid-column:4}
 .a-day{grid-column:5}
 .a-st{grid-column:6;display:flex;gap:5px;flex-wrap:wrap}
 .a-act{grid-column:7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right;color:var(--civic);font-weight:700}
-.chip{display:inline-block;font-size:11px;font-weight:700;border-radius:999px;padding:4px 11px;white-space:nowrap}
+.chip{display:inline-block;font-size:16px;font-weight:700;border-radius:999px;padding:4px 11px;white-space:nowrap}
 .chip.wait{background:#FDF7E3;color:#8a6d00}.chip.doing{background:#EAF0FA;color:#0a5eab}
 .chip.ok{background:#E7F3EE;color:var(--success-2)}.chip.ng{background:#FDECEA;color:#b3261e}.chip.na{background:#F1F3F7;color:#5B6B82}
 .chip.issued{background:#EAF0FA;color:var(--key-900)}
 .dupl{display:flex;flex-direction:column;gap:6px;margin-top:9px}
 .dup{background:#fff;border:1px solid #e8dcb8;border-radius:8px;padding:8px 11px;display:flex;flex-direction:column;line-height:1.5}
-.dup .mono{font-family:ui-monospace,monospace;font-size:10.5px;color:var(--muted)}
-.dup b{font-size:12.5px;color:var(--ink)}
-.dup small{font-size:10.5px;color:var(--muted)}
+.dup .mono{font-family:ui-monospace,monospace;font-size:16px;color:var(--muted)}
+.dup b{font-size:16px;color:var(--ink)}
+.dup small{font-size:16px;color:var(--muted)}
 /* 差分（再判定） */
 .diff{display:flex;align-items:center;justify-content:center;gap:22px;margin:6px 0 14px;flex-wrap:wrap}
 .dcol{text-align:center;background:#F7F9FC;border-radius:11px;padding:13px 26px;min-width:170px}
-.dcol .dh{display:block;font-size:10.5px;color:var(--muted);margin-bottom:4px}
+.dcol .dh{display:block;font-size:16px;color:var(--muted);margin-bottom:4px}
 .dcol b{font-size:19px;color:var(--seal)}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
 .tb3{width:100%;border-collapse:collapse;background:#F7F9FC;border-radius:9px;overflow:hidden}
-.tb3 th{font-size:10.5px;color:var(--muted);text-align:left;padding:8px 11px;background:#E9EEF6}
-.tb3 td{font-size:12px;padding:8px 11px;border-top:1px solid #e6ebf3}
+.tb3 th{font-size:16px;color:var(--muted);text-align:left;padding:8px 11px;background:#E9EEF6}
+.tb3 td{font-size:16px;padding:8px 11px;border-top:1px solid #e6ebf3}
 @media(max-width:640px){
   .two{grid-template-columns:1fr}
   .g2{grid-template-columns:1fr}
@@ -219,11 +219,11 @@ a.upi:hover{border-color:var(--civic);box-shadow:0 2px 10px rgba(14,26,43,.12)}
   .ahead{display:none}
   .arow{grid-template-columns:34px minmax(0,1fr) auto;gap:2px 9px;padding:13px 14px;border-bottom:8px solid #F4F6FA}
   .a-ty{grid-column:1/3;grid-row:1}
-  .a-ty b{font-size:13px;font-weight:700}
+  .a-ty b{font-size:16px;font-weight:700}
   .a-st{grid-column:3;grid-row:1;justify-self:end;flex-direction:column;align-items:flex-end}
   .a-sub{grid-column:1/-1;grid-row:2;margin-top:5px}
-  .a-sub b{font-size:14px;font-weight:700}
-  .a-no,.a-who,.a-day{font-size:11px;color:var(--muted);grid-row:3;margin-top:6px}
+  .a-sub b{font-size:16px;font-weight:700}
+  .a-no,.a-who,.a-day{font-size:16px;color:var(--muted);grid-row:3;margin-top:6px}
   .a-no{grid-column:1/2}.a-who{grid-column:2/3;justify-self:center}.a-day{grid-column:3/-1;justify-self:end}
   .a-act{grid-column:1/-1;grid-row:4;text-align:right;margin-top:9px;padding-top:9px;border-top:1px solid #eef1f6}
 }`;
@@ -332,7 +332,7 @@ export const field = (x, val = '', muni = null, opts = {}) => {
   }
   if (x.type === 'check') {
     return `<div class="fld"${when(x)}><label>${esc(x.label)}</label>
-      <label style="font-size:12px;font-weight:500;color:#3d4d63">
+      <label style="font-size:16px;font-weight:400;color:#3d4d63">
         <input type="checkbox" name="${esc(x.key)}"${x.default ? ' checked' : ''}> ${esc(x.checkLabel || '記載する')}</label>${hint}</div>`;
   }
   return `<div class="fld"${when(x)}><label>${esc(x.label)} ${req}</label>
@@ -489,7 +489,7 @@ export function renderApplyForm(user, t, muni, { error = '', prefill = {}, disas
         ${disaster ? selChip('対象', disaster.name, bk(false)) : ''}
         ${selChip('申請先', `${muni.pref} ${muni.name}`, bk(true))}
       </div>
-      <p class="lead">${esc(t.lead)}<br><span style="font-size:11px">${esc(t.basis)}</span></p>
+      <p class="lead">${esc(t.lead)}<br><span style="font-size:16px">${esc(t.basis)}</span></p>
       ${/* **入力が要る／要らないの線引きを制度どおりに**。ブロック名は**保有主体で呼ばない**——
             住基情報を持つのは住民票のある自治体で、申請先とは限らない（下宿・単身赴任では違う）。
             申請先も市とは限らない（町・村・特別区がある）。「何の情報か」で呼べば常に正しい */''}
@@ -746,7 +746,7 @@ export function renderMyApplications(user, apps, { issuedBy = {} } = {}) {
       ${apps.length ? `<div class="acard p0"><div class="alist my">
         <div class="ahead"><span>受付番号</span><span>種別</span><span>申請の対象</span><span>申請日</span><span>状態</span><span></span></div>
         ${apps.map(row).join('')}
-      </div></div>` : '<div class="acard" style="text-align:center;color:var(--muted);font-size:13px">申請はまだありません</div>'}
+      </div></div>` : '<div class="acard" style="text-align:center;color:var(--muted);font-size:16px">申請はまだありません</div>'}
       <div class="acts">${applicationTypeList().map((t) =>
         `<a class="abtn gh" href="/apply/${esc(t.id)}">${esc(t.title)} →</a>`).join('')}</div>
     </div>
@@ -804,71 +804,71 @@ export function renderMyApplication(user, a, { justSubmitted = false, issued = [
 const PICK_CSS = `
 /* チップと区切りの高さを揃える。**枠線の有無で高さが変わると光学的にずれる**ので、
    box-sizing と固定の高さを与え、未通過だけ破線という差は色で表す */
-.stepbar{display:flex;align-items:center;flex-wrap:wrap;gap:6px 7px;margin-bottom:14px;font-size:11.5px;color:var(--muted)}
+.stepbar{display:flex;align-items:center;flex-wrap:wrap;gap:6px 7px;margin-bottom:14px;font-size:16px;color:var(--muted)}
 .stepbar span,.stepbar i{box-sizing:border-box;height:26px;display:inline-flex;align-items:center;
   align-self:center;line-height:1;white-space:nowrap}
 .stepbar span{padding:0 12px;border-radius:999px;border:1px solid transparent}
 .stepbar span.sb-cur{background:var(--civic);color:#fff;font-weight:700;border-color:var(--civic)}
 .stepbar span.sb-done{background:#EAF0FA;color:var(--civic);font-weight:700;border-color:#D4DEF5}
 .stepbar span.sb-next{background:#F7F9FC;border-style:dashed;border-color:#d5dce6}
-.stepbar i{font-style:normal;font-size:12px;color:#b6bec9;padding:0 1px}
+.stepbar i{font-style:normal;font-size:16px;color:#b6bec9;padding:0 1px}
 .recent{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
-.recent span{font-size:11.5px;color:var(--muted)}
-.recent a{text-decoration:none;font-size:12.5px;font-weight:700;color:var(--civic);background:#EAF0FA;
+.recent span{font-size:16px;color:var(--muted)}
+.recent a{text-decoration:none;font-size:16px;font-weight:700;color:var(--civic);background:#EAF0FA;
   border:1px solid #D4DEF5;border-radius:999px;padding:6px 14px}
 .pick{display:grid;grid-template-columns:200px minmax(0,1fr);border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#fff}
 .pcol{border-right:1px solid var(--line);background:#FAFBFD}
-.pcol a{display:block;padding:9px 16px;font-size:13px;text-decoration:none;color:inherit}
+.pcol a{display:block;padding:9px 16px;font-size:16px;text-decoration:none;color:inherit}
 .pcol a.on{background:#fff;font-weight:700;color:var(--civic);box-shadow:inset 3px 0 0 var(--civic)}
-.pcol a i{float:right;font-style:normal;font-size:11px;color:var(--muted);background:#EDF1F7;border-radius:999px;padding:1px 7px}
+.pcol a i{float:right;font-style:normal;font-size:16px;color:var(--muted);background:#EDF1F7;border-radius:999px;padding:1px 7px}
 .pcol a.on i{background:#E3EAF7;color:var(--civic)}
 .mnone{background:#F7F9FC;border:1px dashed #c3cede;border-radius:11px;padding:26px 18px;text-align:center;
-  font-size:12.5px;color:var(--muted);line-height:1.9}
+  font-size:16px;color:var(--muted);line-height:1.9}
 .mnone b{color:var(--ink)}
 .mcol{padding:16px 18px}
-.pick b.h{display:block;font-size:10.5px;color:var(--muted);padding:11px 16px 7px;letter-spacing:.03em}
+.pick b.h{display:block;font-size:16px;color:var(--muted);padding:11px 16px 7px;letter-spacing:.03em}
 .mcol b.h{padding:0 0 10px}
 .mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px}
 .mcard{display:flex;flex-direction:column;text-decoration:none;color:inherit;border:1px solid var(--line);
   border-radius:10px;padding:10px 13px;background:#fff}
 .mcard:hover{border-color:var(--civic);background:#F7F9FD}
-.mcard b{font-size:13.5px}
-.mcard small{font-size:10.5px;color:var(--muted);font-family:ui-monospace,monospace}
-.mcard .isl{font-size:11px;color:var(--civic);font-weight:700;margin-top:3px}
+.mcard b{font-size:16px}
+.mcard small{font-size:16px;color:var(--muted);font-family:ui-monospace,monospace}
+.mcard .isl{font-size:16px;color:var(--civic);font-weight:700;margin-top:3px}
 /* 選択済みの条件。**ラベル: 値 ✕** の1行だけ。長い値は省略記号で切る */
 .sels{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
 .sel{display:inline-flex;align-items:center;gap:8px;max-width:100%;background:#EAF0FA;border:1px solid #D4DEF5;
   border-radius:999px;padding:5px 6px 5px 13px}
-.sel .k{flex:none;font-size:11px;color:var(--muted)}
-.sel b{font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sel .x{flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:11px;
+.sel .k{flex:none;font-size:16px;color:var(--muted)}
+.sel b{font-size:16px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sel .x{flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:16px;
   line-height:1;text-decoration:none;color:#5B6B82;background:rgba(14,26,43,.07)}
 .sel .x:hover{background:var(--civic);color:#fff}
 .dlist{display:flex;flex-direction:column;gap:10px;margin-bottom:14px}
 .dcard{display:block;position:relative;background:#fff;border:1px solid var(--line);border-radius:13px;
   padding:15px 17px;text-decoration:none;color:inherit}
 .dcard:hover{border-color:var(--civic);box-shadow:0 2px 12px rgba(14,26,43,.10)}
-.dcard b{display:block;font-size:15px}
-.dcard .dwhen{display:block;font-size:11.5px;color:var(--civic);font-weight:700;margin-top:3px}
-.dcard .dnote{display:block;font-size:11.5px;color:var(--muted);line-height:1.7;margin-top:5px;padding-right:110px}
-.dcard .dgo{position:absolute;right:17px;bottom:15px;font-size:12.5px;font-weight:700;color:var(--civic);white-space:nowrap}
-.dcard .dsrc{display:inline-block;margin-left:9px;font-size:10.5px;font-weight:600;color:var(--muted);
+.dcard b{display:block;font-size:16px}
+.dcard .dwhen{display:block;font-size:16px;color:var(--civic);font-weight:700;margin-top:3px}
+.dcard .dnote{display:block;font-size:16px;color:var(--muted);line-height:1.7;margin-top:5px;padding-right:110px}
+.dcard .dgo{position:absolute;right:17px;bottom:15px;font-size:16px;font-weight:700;color:var(--civic);white-space:nowrap}
+.dcard .dsrc{display:inline-block;margin-left:9px;font-size:16px;font-weight:700;color:var(--muted);
   background:#F3F5F9;border-radius:6px;padding:2px 8px}
-.dcard .dpref{display:block;font-size:11px;font-weight:700;color:#5B6B82;margin-top:4px}
+.dcard .dpref{display:block;font-size:16px;font-weight:700;color:#5B6B82;margin-top:4px}
 .pfilt{display:flex;flex-wrap:wrap;gap:7px;align-items:center;background:#fff;border:1px solid var(--line);
   border-radius:13px;padding:12px 14px;margin-bottom:14px}
-.pfilt .lb{font-size:11px;font-weight:700;color:var(--muted);margin-right:3px}
-.pfilt a{font-size:12.5px;font-weight:700;text-decoration:none;color:var(--civic);background:#fff;
+.pfilt .lb{font-size:16px;font-weight:700;color:var(--muted);margin-right:3px}
+.pfilt a{font-size:16px;font-weight:700;text-decoration:none;color:var(--civic);background:#fff;
   border:1px solid var(--line);border-radius:999px;padding:6px 13px}
 .pfilt a.on{background:var(--civic);color:#fff;border-color:var(--civic)}
-.pfilt a i{font-style:normal;font-weight:600;opacity:.65;margin-left:5px}
-.pfilt .hint{width:100%;font-size:10.5px;color:#8A97AB;margin-top:2px;line-height:1.6}
+.pfilt a i{font-style:normal;font-weight:700;opacity:.65;margin-left:5px}
+.pfilt .hint{width:100%;font-size:16px;color:#8A97AB;margin-top:2px;line-height:1.6}
 @media(max-width:640px){.dcard .dnote{padding-right:0}.dcard .dgo{position:static;display:block;margin-top:8px;text-align:right}}
 @media(max-width:640px){
   .pick{grid-template-columns:1fr}
   .pcol{border-right:0;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:4px;padding:10px 12px}
   .pcol b.h{width:100%;padding:0 0 4px}
-  .pcol a{padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:#fff;font-size:12.5px}
+  .pcol a{padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:#fff;font-size:16px}
   .pcol a.on{box-shadow:none;background:var(--civic);color:#fff;border-color:var(--civic)}
   .pcol a i{float:none;margin-left:5px}
   .pcol a.on i{background:rgba(255,255,255,.25);color:#fff}

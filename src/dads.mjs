@@ -243,9 +243,9 @@ const DADS_OVERRIDE_SRC = `
   .mono,.urlbox,code{font-family:'Noto Sans Mono',monospace}
   /* --- 16px 下限。14px は補助情報のみ（DADS: 14px 未満は不可） --- */
   .hint,.nm,.req,.step,.urlbox,table.cl,.ok,.cnote,.wli-note,.vcs-note,.wd-note{
-    ${type('dns-14N-130')}}
-  .req .k,.top small{${type('dns-14N-130')};color:var(--ink-sub);letter-spacing:0}
-  .eyebrow{${type('oln-14B-100')};color:var(--role-ink);letter-spacing:.14em}
+    ${type('std-16N-170')}}
+  .req .k,.top small{${type('std-16N-170')};color:var(--ink-sub);letter-spacing:0}
+  .eyebrow{${type('oln-16B-100')};color:var(--role-ink);letter-spacing:.14em}
   h1{${type('std-24B-150')};margin:.2rem 0 var(--sp3)}
   /* --- ヘッダー: 役割の色は帯と識別チップに限定する --- */
   .top{background:var(--role-tint);border-bottom:1px solid var(--role-line);padding:14px 24px}
@@ -282,6 +282,14 @@ const DADS_OVERRIDE_SRC = `
     border:2px solid var(--gray-700);border-radius:var(--r8);background:#fff;color:var(--ink)}
   textarea{min-height:120px}
   input[type=radio],input[type=checkbox]{width:24px;height:24px;accent-color:var(--key-900)}
+  /* --- タップ領域 44px（DADS「ボタンのターゲット領域は44 CSS px以上を保ってください」） ---
+     見た目の高さは変えずに当たり判定だけ広げる。行が縦に密な場所では隣と重なるので、
+     **横一列に並ぶチップ類にだけ**適用する。 */
+  .vcs-chip,.seg3 button,.seg button,.mini,.wchip,.fmtb{min-height:44px}
+  /* 円形の小さなアイコンボタンは寸法を変えられないので疑似要素で当たり判定を広げる */
+  .vcinfo,.dev-toggle{position:relative}
+  .vcinfo::after,.dev-toggle::after{content:"";position:absolute;left:50%;top:50%;
+    width:44px;height:44px;transform:translate(-50%,-50%)}
 `;
 
 /**

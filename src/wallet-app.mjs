@@ -887,25 +887,25 @@ const PRESENT_STYLE = `<style>
   .grab{width:44px;height:5px;border-radius:3px;background:#C6D0DC;margin:6px auto 10px}
   .csh b{font-size:16px}
   .csheet .card{border:none;padding:0;margin-top:14px}
-  .vbadge{margin-left:auto;font-size:10px;font-weight:700;color:var(--success-2);background:#E7F3EE;border-radius:999px;padding:3px 9px;white-space:nowrap;flex:none}
+  .vbadge{margin-left:auto;font-size:16px;font-weight:700;color:var(--success-2);background:#E7F3EE;border-radius:999px;padding:3px 9px;white-space:nowrap;flex:none}
   .vbadge.warn{color:#8a6d1a;background:#FCF7E8}
   .prevfold{margin-top:10px}
-  .prevfold>summary{font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;list-style:none}
+  .prevfold>summary{font-size:16px;font-weight:700;color:var(--muted);cursor:pointer;list-style:none}
   .prevfold>summary::before{content:"▸ "}
   .prevfold[open]>summary::before{content:"▾ "}
   .btnrow2{display:flex;gap:10px;width:100%;margin-top:8px}
   .btnrow2 .btn{flex:1;text-align:center}
   .btn.wcancel{background:#fff;color:var(--ink);border:1px solid var(--line)}
   .rpcard h1{font-size:18px;margin:6px 0 12px}
-  .hh-warn{font-size:11.5px;color:#8a6d1a;background:#FCF7E8;border:1px solid #EFE2B8;border-radius:8px;padding:6px 9px;margin-top:5px;line-height:1.6}
-  .rp-purpose{background:#F3F8F6;border:1px solid #D2E5DF;border-radius:9px;padding:8px 12px;font-size:12.5px;margin-top:8px}
-  .rp-purpose b{display:block;font-size:11px;color:var(--muted);letter-spacing:.06em}
+  .hh-warn{font-size:16px;color:#8a6d1a;background:#FCF7E8;border:1px solid #EFE2B8;border-radius:8px;padding:6px 9px;margin-top:5px;line-height:1.6}
+  .rp-purpose{background:#F3F8F6;border:1px solid #D2E5DF;border-radius:9px;padding:8px 12px;font-size:16px;margin-top:8px}
+  .rp-purpose b{display:block;font-size:16px;color:var(--muted);letter-spacing:.06em}
   .rp{display:flex;gap:11px;align-items:center;background:#f7f9fc;border:1px solid var(--line);border-radius:11px;padding:12px 14px}
   .rp-ic{width:34px;height:34px;border-radius:9px;background:var(--ink-verifier);flex:none}
-  .rp-k{font-size:11px;color:var(--muted)}
-  .rp-name{font-weight:700;font-size:15px;margin-top:1px}
-  .rp-sub{font-size:11px;color:var(--muted);margin-top:1px}
-  .rp-src{font-size:11px;color:var(--muted);margin-top:8px}
+  .rp-k{font-size:16px;color:var(--muted)}
+  .rp-name{font-weight:700;font-size:16px;margin-top:1px}
+  .rp-sub{font-size:16px;color:var(--muted);margin-top:1px}
+  .rp-src{font-size:16px;color:var(--muted);margin-top:8px}
   .qcard{margin-top:12px;padding:16px}
   .qhead{display:flex;gap:12px;align-items:center}
   .qhead .vcicon{width:48px;height:auto;flex:none}
@@ -914,19 +914,19 @@ const PRESENT_STYLE = `<style>
     background:radial-gradient(120% 90% at 85% -12%,var(--c3) 0%,transparent 55%),linear-gradient(135deg,var(--c1),var(--c2));
     box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 1px 2px rgba(0,0,0,.18)}
   .qhead .cic .swemb{display:block;width:72%;height:72%;color:rgba(255,255,255,.95);filter:drop-shadow(0 1px 0 rgba(0,0,0,.4))}
-  .qname{font-weight:700;font-size:15px}
-  .qmeta{font-size:11px;color:var(--muted);margin-top:2px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .qname{font-weight:700;font-size:16px}
+  .qmeta{font-size:16px;color:var(--muted);margin-top:2px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
   .qmeta .fmt{color:var(--role-ink);font-weight:700}
   /* 候補ラジオの状態チップ・失効行・peek 警告 */
   .pr-tx{flex:1;min-width:0}
-  .prow .sc,.qmeta .sc{font-size:11px;font-weight:700;border-radius:999px;padding:2px 9px;white-space:nowrap;flex:none}
+  .prow .sc,.qmeta .sc{font-size:16px;font-weight:700;border-radius:999px;padding:2px 9px;white-space:nowrap;flex:none}
   .sc.ok{color:var(--success-2);background:#E7F3EE}.sc.bad{color:#C0392B;background:#FBEAE8}.sc.na{color:var(--muted);background:#EEF1F5}
   .prow.is-bad .pr-tx{color:#C0392B}
-  .peek-warn{margin-top:8px;font-size:12px;font-weight:700;color:#C0392B;background:#FBEAE8;border:1px solid #F0C7C1;border-radius:9px;padding:8px 11px;line-height:1.6}
-  .peek-warn b{font-weight:800}
+  .peek-warn{margin-top:8px;font-size:16px;font-weight:700;color:#C0392B;background:#FBEAE8;border:1px solid #F0C7C1;border-radius:9px;padding:8px 11px;line-height:1.6}
+  .peek-warn b{font-weight:700}
   .picker{margin-top:12px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#fbfdfc}
-  .pk-h{font-size:12px;color:var(--muted);margin-bottom:6px}
-  .prow{display:flex;align-items:center;gap:9px;padding:5px 0;font-size:13.5px;cursor:pointer}
+  .pk-h{font-size:16px;color:var(--muted);margin-bottom:6px}
+  .prow{display:flex;align-items:center;gap:9px;padding:5px 0;font-size:16px;cursor:pointer}
   .prow input{display:none}
   .rdo{width:18px;height:18px;border-radius:50%;border:2px solid var(--line);flex:none}
   .prow input:checked+.rdo{border-color:var(--role-ink);background:radial-gradient(circle,#fff 0 3px,var(--role-ink) 4px)}
@@ -940,20 +940,20 @@ const PRESENT_STYLE = `<style>
   .crow.missing{opacity:.5;cursor:not-allowed}
   .crow.locked{cursor:default}
   .crow.locked input:checked+.cbx{background:#9aa7b6;border-color:#9aa7b6}
-  .rtag{display:inline-block;font-size:10px;font-weight:700;border-radius:5px;padding:0 5px;vertical-align:middle;line-height:1.5}
+  .rtag{display:inline-block;font-size:16px;font-weight:700;border-radius:5px;padding:0 5px;vertical-align:middle;line-height:1.5}
   .rtag.req{color:var(--ink);background:#e7edf9;border:1px solid #c9d6ef}
   .rtag.opt{color:var(--ink-sub);background:#E8F2EF;border:1px solid #D2E5DF}
   .cl-main{flex:1;min-width:0}
-  .cl-k{display:block;font-size:11px;color:var(--muted)}
-  .cl-v{display:block;font-size:14px;font-weight:600;margin-top:1px;word-break:break-all}
+  .cl-k{display:block;font-size:16px;color:var(--muted)}
+  .cl-v{display:block;font-size:16px;font-weight:700;margin-top:1px;word-break:break-all}
   #prevCard{margin-top:12px}
-  .prev{background:#0E1A2B;color:#cfe6dd;border-radius:10px;padding:13px 14px;margin:8px 0 0;font-family:ui-monospace,monospace;font-size:12px;line-height:1.7;white-space:pre-wrap;word-break:break-all;overflow:auto}
+  .prev{background:#0E1A2B;color:#cfe6dd;border-radius:10px;padding:13px 14px;margin:8px 0 0;font-family:ui-monospace,monospace;font-size:16px;line-height:1.7;white-space:pre-wrap;word-break:break-all;overflow:auto}
   .bar{position:sticky;bottom:0;background:#fff;border:1px solid var(--line);border-radius:14px;padding:13px 16px;margin-top:12px}
-  .count{font-size:12.5px;color:var(--muted);margin-bottom:10px;text-align:center}
+  .count{font-size:16px;color:var(--muted);margin-bottom:10px;text-align:center}
   .count b{color:var(--ink)}
   .bar .btn{display:block;width:100%;background:var(--role-ink)}
   .bar .btn:hover{background:var(--role-ink)}
-  .mini{font-size:12px;color:var(--role-ink);font-weight:700;text-align:right;margin-top:8px;cursor:pointer}
+  .mini{font-size:16px;color:var(--role-ink);font-weight:700;text-align:right;margin-top:8px;cursor:pointer}
 </style>`;
 
 const PRESENT_JS = `<script>
@@ -1089,8 +1089,8 @@ const VC_MODAL_STYLE = `<style>
   .held:not(.static){cursor:pointer;transition:box-shadow .12s,border-color .12s}
   .held:not(.static):hover{border-color:#cfdbe6;box-shadow:0 2px 10px rgba(14,26,43,.06)}
   .held:focus-visible{outline:2px solid var(--role-ink);outline-offset:2px}
-  .held-more{margin-top:10px;font-size:12px;color:var(--role-ink);font-weight:700}
-  .held-more.static{color:var(--muted);font-weight:600}
+  .held-more{margin-top:10px;font-size:16px;color:var(--role-ink);font-weight:700}
+  .held-more.static{color:var(--muted);font-weight:700}
   .vcsheet,.vc-confirm{position:fixed;inset:0;z-index:90;display:flex} /* modals sit above the dev drawer (z61) */
   .vcsheet[hidden],.vc-confirm[hidden]{display:none}
   .vcsheet{align-items:flex-end}.vc-confirm{align-items:center;justify-content:center;padding:24px}
@@ -1098,33 +1098,33 @@ const VC_MODAL_STYLE = `<style>
   .vcsheet .sheet{position:relative;width:100%;max-width:560px;margin:0 auto;background:#fff;border-radius:18px 18px 0 0;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 -8px 30px rgba(0,0,0,.2)}
   .sheet .mh{display:flex;align-items:center;gap:11px;padding:16px 18px 12px;border-bottom:1px solid var(--line)}
   .sheet .mh .vcicon{width:42px;height:auto}
-  .sheet .mh-nm{font-weight:700;font-size:15px}
+  .sheet .mh-nm{font-weight:700;font-size:16px}
   .sheet .mh-x{margin-left:auto;font-size:22px;line-height:1;color:var(--muted);background:none;border:none;cursor:pointer;padding:0 4px}
   .seg{display:flex;gap:4px;background:#EEF2F1;border:1px solid var(--line);border-radius:11px;padding:4px;margin:12px 18px 0}
-  .seg button{flex:1;font:inherit;font-size:12.5px;font-weight:700;line-height:1;padding:9px 8px;border:none;border-radius:8px;background:transparent;color:var(--muted);cursor:pointer}
+  .seg button{flex:1;font:inherit;font-size:16px;font-weight:700;line-height:1;padding:9px 8px;border:none;border-radius:8px;background:transparent;color:var(--muted);cursor:pointer}
   .seg button.on{background:#fff;color:var(--role-ink);box-shadow:0 1px 2px rgba(14,26,43,.12)}
   .mc{padding:14px 18px 18px;overflow:auto}
-  .dfull .r{display:flex;justify-content:space-between;gap:12px;padding:9px 2px;font-size:13.5px;border-bottom:1px solid #f0f3f8}
+  .dfull .r{display:flex;justify-content:space-between;gap:12px;padding:9px 2px;font-size:16px;border-bottom:1px solid #f0f3f8}
   .dfull .r:last-child{border-bottom:none}
-  .dfull .dk{color:var(--muted)}.dfull .dv{font-weight:600;text-align:right;word-break:break-all}
-  .djson{background:#0E1A2B;color:#cfe6dd;border-radius:10px;padding:14px;margin:0;font-family:ui-monospace,monospace;font-size:11.5px;line-height:1.65;white-space:pre;overflow:auto}
-  .djson.small{font-size:11px;max-height:120px;white-space:pre-wrap;word-break:break-all;margin-top:6px}
-  .cbor-note{background:#FFF7E6;border:1px solid #F2D98B;color:#7a5b13;border-radius:9px;padding:9px 11px;font-size:11.5px;line-height:1.6;margin-bottom:10px}
-  .rawfmt{font-size:11px;font-weight:700;color:var(--role-ink);margin-bottom:6px}
+  .dfull .dk{color:var(--muted)}.dfull .dv{font-weight:700;text-align:right;word-break:break-all}
+  .djson{background:#0E1A2B;color:#cfe6dd;border-radius:10px;padding:14px;margin:0;font-family:ui-monospace,monospace;font-size:16px;line-height:1.65;white-space:pre;overflow:auto}
+  .djson.small{font-size:16px;max-height:120px;white-space:pre-wrap;word-break:break-all;margin-top:6px}
+  .cbor-note{background:#FFF7E6;border:1px solid #F2D98B;color:#7a5b13;border-radius:9px;padding:9px 11px;font-size:16px;line-height:1.6;margin-bottom:10px}
+  .rawfmt{font-size:16px;font-weight:700;color:var(--role-ink);margin-bottom:6px}
   .rawc{margin-top:8px}
-  .rawc>summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--muted);list-style:none}
+  .rawc>summary{cursor:pointer;font-size:16px;font-weight:700;color:var(--muted);list-style:none}
   .rawc>summary::-webkit-details-marker{display:none}
-  .rawc>summary::before{content:"▸ ";font-size:10px}.rawc[open]>summary::before{content:"▾ "}
+  .rawc>summary::before{content:"▸ ";font-size:16px}.rawc[open]>summary::before{content:"▾ "}
   .mfoot{padding:12px 18px 18px;border-top:1px solid var(--line)}
-  .vc-del{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;background:#fff;color:#C8453C;border:1px solid #E2B4AE;border-radius:11px;padding:13px;font:inherit;font-size:14px;font-weight:700;cursor:pointer}
+  .vc-del{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;background:#fff;color:#C8453C;border:1px solid #E2B4AE;border-radius:11px;padding:13px;font:inherit;font-size:16px;font-weight:700;cursor:pointer}
   .vc-del:hover{background:#FBE9E7}
   .vc-confirm .confirm{position:relative;background:#fff;border-radius:16px;padding:22px 20px 18px;width:100%;max-width:340px;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,.25)}
   .cf-ic{width:52px;height:52px;border-radius:13px;border:1.6px solid #C8453C;background:#FBE9E7;display:flex;align-items:center;justify-content:center;margin:0 auto 12px}
   .cf-h{margin:0 0 8px;font-size:17px}
-  .cf-p{margin:0;font-size:13px;color:var(--muted);line-height:1.7}
+  .cf-p{margin:0;font-size:16px;color:var(--muted);line-height:1.7}
   .cf-nm{color:var(--ink);font-weight:700}
   .cf-btns{display:flex;gap:10px;margin-top:18px}
-  .cf-btns button{flex:1;font:inherit;font-size:14px;font-weight:700;padding:12px;border-radius:10px;cursor:pointer}
+  .cf-btns button{flex:1;font:inherit;font-size:16px;font-weight:700;padding:12px;border-radius:10px;cursor:pointer}
   .cf-cancel{background:#fff;border:1px solid var(--line);color:var(--ink)}
   .cf-del{background:#C8453C;border:none;color:#fff}
 </style>`;
@@ -1188,7 +1188,7 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
         <div class="wstack" id="wstack">${s.creds.map(cardOf).join('')}</div>
         <div class="wlist" id="wlist">${s.creds.map(listRow).join('')}</div>
        </div>${n > 1 ? '<div class="rhint"><span class="rh-touch">カードを長押しすると並び替えできます</span><span class="rh-pc">左のハンドル（⣿）をドラッグすると並び替えできます</span>（新しく受け取ったカードは一番上に入ります）</div>' : ''}`
-    : `<div class="ghost-card">デジタル資格証がありません<br><span style="font-size:11.5px">右下の ＋ から発行を受けられます</span></div>`;
+    : `<div class="ghost-card">デジタル資格証がありません<br><span style="font-size:16px">右下の ＋ から発行を受けられます</span></div>`;
 
   // ＋カタログ: 8種タイル × issuer式チップ（クリック=選択・複数可）→ 複数 scope で認可へ
   const types = [...new Set(cat.map((x) => credType(x.configId)))];
@@ -1251,7 +1251,7 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       <div class="wsheet"><div class="grab"></div>
         <div class="wsh"><b>オファーを受け取る — 発行機関から提示された QR・リンク</b><button type="button" class="wx" onclick="closeSheet('qrSheet')">×</button></div>
         <form method="GET" action="/add">
-          <textarea name="credential_offer_uri" rows="3" placeholder="openid-credential-offer://… または https://…" style="width:100%;font:inherit;font-size:12.5px;padding:10px;border:1px solid var(--line);border-radius:10px;box-sizing:border-box"></textarea>
+          <textarea name="credential_offer_uri" rows="3" placeholder="openid-credential-offer://… または https://…" style="width:100%;font:inherit;font-size:16px;padding:10px;border:1px solid var(--line);border-radius:10px;box-sizing:border-box"></textarea>
           <button class="btn" type="submit" style="width:100%;margin-top:10px">このウォレットで取得する</button>
         </form>
         <div class="whint" style="margin-top:10px">Pre-Auth（即交換）/ Authorization Code（要同意・issuer_state）を自動判別します。<a href="${esc(issuerUrl)}/" target="_blank" rel="noopener">発行者でオファーを作成（別タブ）↗</a></div>
@@ -1283,7 +1283,7 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
         transform:translateY(14px);opacity:0;transition:transform .4s cubic-bezier(.22,.8,.16,1),opacity .34s}
       .wd-overlay.show .wd-sheet{transform:none;opacity:1}
       @media(min-width:760px){.wd-sheet{padding:22px max(28px,calc((100% - 1040px)/2))}}
-      .wd-back{border:0;background:#fff;border-radius:999px;padding:8px 16px;font:inherit;font-size:13px;font-weight:700;color:var(--role-ink);cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.1);margin-bottom:14px}
+      .wd-back{border:0;background:#fff;border-radius:999px;padding:8px 16px;font:inherit;font-size:16px;font-weight:700;color:var(--role-ink);cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.1);margin-bottom:14px}
       /* モバイル=1カラム（DOM順: 券面→バンド→属性→履歴→…）。PC=2カラムで属性(.wd-attr)を右へ。 */
       .wd-wrap{display:grid;grid-template-columns:1fr;gap:14px;max-width:560px;margin:0 auto}
       .wd-wrap>*{min-width:0}
@@ -1293,40 +1293,40 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
         .wd-attr{grid-column:2;grid-row:1 / span 99;align-self:start;margin:0}
       }
       .wd-cardface .vcard{max-width:none}
-      .wd-note{font-size:10.5px;color:#8A6D1F;line-height:1.5;margin:-4px 2px 0}
+      .wd-note{font-size:16px;color:#8A6D1F;line-height:1.5;margin:-4px 2px 0}
       .wd-panel{background:#fff;border:1px solid var(--line);border-radius:16px;padding:15px 17px}
-      .wd-ph{font-size:12px;font-weight:700;color:var(--muted);margin:0 0 8px;letter-spacing:.02em}
-      .wd-row{display:flex;justify-content:space-between;gap:12px;font-size:13.5px;padding:8px 2px;border-bottom:1px solid #F0F3F7}
+      .wd-ph{font-size:16px;font-weight:700;color:var(--muted);margin:0 0 8px;letter-spacing:.02em}
+      .wd-row{display:flex;justify-content:space-between;gap:12px;font-size:16px;padding:8px 2px;border-bottom:1px solid #F0F3F7}
       .wd-row:last-child{border-bottom:0}.wd-row span{color:var(--muted);flex:none}.wd-row b{text-align:right;min-width:0;word-break:break-word}
-      .wd-fold{margin-top:4px}.wd-fold>summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--role-ink);padding:6px 2px;list-style:none}
+      .wd-fold{margin-top:4px}.wd-fold>summary{cursor:pointer;font-size:16px;font-weight:700;color:var(--role-ink);padding:6px 2px;list-style:none}
       .wd-fold>summary::-webkit-details-marker{display:none}
       /* 必ず表示バンド */
       .wd-must{background:#fff;border:1px solid var(--line);border-radius:16px;padding:13px 16px}
-      .wd-iss{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;flex-wrap:wrap}
-      .wd-vbadge{font-size:10.5px;font-weight:700;color:var(--success-2);background:#E7F3EE;border-radius:999px;padding:2px 9px}
-      .wd-mrow{display:flex;gap:16px;margin-top:9px;flex-wrap:wrap;font-size:12.5px}
+      .wd-iss{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:700;flex-wrap:wrap}
+      .wd-vbadge{font-size:16px;font-weight:700;color:var(--success-2);background:#E7F3EE;border-radius:999px;padding:2px 9px}
+      .wd-mrow{display:flex;gap:16px;margin-top:9px;flex-wrap:wrap;font-size:16px}
       .wd-mi span{color:var(--muted);margin-right:5px}.wd-mi{font-weight:700}
       .wd-mi.ok{color:var(--success-2)}.wd-mi.bad{color:#C0392B}
       .wd-act{padding:9px 2px;border-bottom:1px solid #F0F3F7}
-      .wd-act span{font-size:11px;color:var(--muted)}.wd-act b{display:block;font-size:13.5px;margin-top:1px}.wd-act small{font-size:11.5px;color:#8595AB}
-      .wd-prow{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;margin-top:10px;padding-top:10px;border-top:1px solid #F0F3F7}
-      .chip2{font-size:12px;font-weight:700;color:var(--success-2);background:#E7F3EE;border-radius:999px;padding:3px 10px}
+      .wd-act span{font-size:16px;color:var(--muted)}.wd-act b{display:block;font-size:16px;margin-top:1px}.wd-act small{font-size:16px;color:#8595AB}
+      .wd-prow{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:700;margin-top:10px;padding-top:10px;border-top:1px solid #F0F3F7}
+      .chip2{font-size:16px;font-weight:700;color:var(--success-2);background:#E7F3EE;border-radius:999px;padding:3px 10px}
       .chip2.bad{color:#C0392B;background:#FBEAE8}.chip2.na{color:var(--muted);background:#EEF1F5}
-      .mini2{border:1px solid var(--line);background:#fff;border-radius:8px;padding:5px 11px;font:inherit;font-size:12px;font-weight:700;color:var(--role-ink);cursor:pointer}
-      .wd-dev>summary{cursor:pointer;font-size:12.5px;font-weight:700;color:var(--muted);padding:8px 2px}
-      .wd-json{background:#0E1A2B;color:#D7E3F4;font-size:11px;border-radius:8px;padding:10px 12px;overflow:auto;white-space:pre;font-family:ui-monospace,monospace}
-      .cbor-note{font-size:11.5px;color:var(--muted);margin-bottom:6px}
-      .wd-del{width:100%;border:1px solid #E7C9C4;background:#fff;color:#C0392B;border-radius:12px;padding:11px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
+      .mini2{border:1px solid var(--line);background:#fff;border-radius:8px;padding:5px 11px;font:inherit;font-size:16px;font-weight:700;color:var(--role-ink);cursor:pointer}
+      .wd-dev>summary{cursor:pointer;font-size:16px;font-weight:700;color:var(--muted);padding:8px 2px}
+      .wd-json{background:#0E1A2B;color:#D7E3F4;font-size:16px;border-radius:8px;padding:10px 12px;overflow:auto;white-space:pre;font-family:ui-monospace,monospace}
+      .cbor-note{font-size:16px;color:var(--muted);margin-bottom:6px}
+      .wd-del{width:100%;border:1px solid #E7C9C4;background:#fff;color:#C0392B;border-radius:12px;padding:11px;font:inherit;font-size:16px;font-weight:700;cursor:pointer}
       /* 削除確認モーダル */
       .wd-dc{position:fixed;inset:0;z-index:210;display:grid;place-items:center;padding:18px}
       .wd-dc[hidden]{display:none}
       .wd-dc-scrim{position:absolute;inset:0;background:rgba(14,26,43,.42)}
       .wd-dc-box{position:relative;background:#fff;border-radius:18px;max-width:360px;width:100%;padding:22px 20px 18px;box-shadow:0 12px 40px rgba(0,0,0,.28)}
       .wd-dc-h{margin:0 0 8px;font-size:16px;color:#0E1A2B}
-      .wd-dc-p{margin:0 0 16px;font-size:13px;line-height:1.7;color:#3C4A61}
+      .wd-dc-p{margin:0 0 16px;font-size:16px;line-height:1.7;color:#3C4A61}
       .wd-dc-btns{display:flex;gap:10px}.wd-dc-btns>*{flex:1}.wd-dc-btns form{display:flex}
-      .wd-dc-cancel{width:100%;border:1px solid var(--line);background:#fff;color:#3C4A61;border-radius:11px;padding:11px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
-      .wd-dc-del{width:100%;border:0;background:#C0392B;color:#fff;border-radius:11px;padding:11px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
+      .wd-dc-cancel{width:100%;border:1px solid var(--line);background:#fff;color:#3C4A61;border-radius:11px;padding:11px;font:inherit;font-size:16px;font-weight:700;cursor:pointer}
+      .wd-dc-del{width:100%;border:0;background:#C0392B;color:#fff;border-radius:11px;padding:11px;font:inherit;font-size:16px;font-weight:700;cursor:pointer}
       body.wd-active{overflow:hidden}
       body.wd-active .topwrap{z-index:200}   /* 詳細表示中はロールヘッダをオーバーレイより前面に */
 
@@ -1350,12 +1350,12 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       .wd-mpanel .wd-cardface{display:none}                  /* 券面は持ち上げた実カードが担う */
       .wd-mpanel .wd-attr{grid-column:auto;grid-row:auto}
       .wd-mpanel .wd-wrap>*{margin-bottom:14px}
-      .wd-mpanel .wd-more{display:block;width:100%;border:1px solid var(--line);background:#fff;border-radius:12px;padding:11px;font:inherit;font-size:12.5px;font-weight:700;color:var(--key-900);cursor:pointer}
+      .wd-mpanel .wd-more{display:block;width:100%;border:1px solid var(--line);background:#fff;border-radius:12px;padding:11px;font:inherit;font-size:16px;font-weight:700;color:var(--key-900);cursor:pointer}
       .wd-mpanel .wd-rest,.wd-mpanel .wd-extra{display:none}
       .wd-mobile.expanded .wd-mpanel .wd-rest,.wd-mobile.expanded .wd-mpanel .wd-extra{display:block}
       .wd-mobile.expanded .wd-mpanel .wd-more{display:none}
       /* 詳細取得中のローディング（回線が遅いと fetch に時間がかかるため、取り寄せ中はスピナーを出す） */
-      .wd-loading{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:72px 20px;color:var(--muted);font-size:13px;font-weight:600}
+      .wd-loading{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:72px 20px;color:var(--muted);font-size:16px;font-weight:700}
       .wd-spin{width:34px;height:34px;border-radius:50%;border:3px solid rgba(46,125,107,.22);border-top-color:var(--role-ink);animation:wd-spin .8s linear infinite}
       @keyframes wd-spin{to{transform:rotate(360deg)}}
       @media(prefers-reduced-motion:reduce){.wd-spin{animation-duration:1.6s}}
@@ -1742,7 +1742,7 @@ function credDetail(cr, raw, st, acts = []) {
     <div class="wstage">
       <div class="back"><a href="/">← ウォレット</a></div>
       ${vcardHtml(type, { title: typeName(type), sub: cr.configId, fmt: cr.format === 'mso_mdoc' ? 'mdoc' : 'SD-JWT', status: st?.checked ? (st.revoked ? '失効' : '有効') : '有効', revoked: !!st?.revoked })}
-      ${typeNote(type) ? `<div style="font-size:10.5px;color:#8A6D1F;line-height:1.5;margin:8px 2px 0">${esc(typeNote(type))}</div>` : ''}
+      ${typeNote(type) ? `<div style="font-size:16px;color:#8A6D1F;line-height:1.5;margin:8px 2px 0">${esc(typeNote(type))}</div>` : ''}
       <div class="panel">
         <div class="ph">属性データ</div>
         <table class="attrs">${head.map(row).join('')}</table>
@@ -1759,7 +1759,7 @@ function credDetail(cr, raw, st, acts = []) {
           ${raw?.note ? `<div class="cbor-note">ⓘ ${esc(raw.note)}</div>` : ''}
           <pre class="djson">${rawJson}</pre>
           ${raw?.compact ? `<details class="rawc"><summary>オンワイヤ表現を表示</summary><pre class="djson small">${esc(raw.compact)}</pre></details>` : ''}
-          <a href="/dev/holder-key" style="font-size:12px;font-weight:700;color:var(--muted)">🔑 バインディング鍵を表示 →</a>
+          <a href="/dev/holder-key" style="font-size:16px;font-weight:700;color:var(--muted)">🔑 バインディング鍵を表示 →</a>
         </div>
       </details>
       <button type="button" class="wdel" onclick="document.getElementById('delConfirm').hidden=false">このデジタル資格証を削除</button>
@@ -1822,7 +1822,7 @@ function credFragment(cr, raw, st, acts = []) {
         <div class="wd-panel" style="margin-top:8px">
           ${raw?.note ? `<div class="cbor-note">ⓘ ${esc(raw.note)}</div>` : ''}
           <pre class="wd-json">${rawJson}</pre>
-          <a href="/dev/holder-key" style="font-size:12px;font-weight:700;color:var(--muted)">🔑 バインディング鍵を表示 →</a>
+          <a href="/dev/holder-key" style="font-size:16px;font-weight:700;color:var(--muted)">🔑 バインディング鍵を表示 →</a>
         </div>
       </details>
       <button type="button" class="wd-del" onclick="wdDelConfirm(this,true)">このデジタル資格証を削除</button>
@@ -1851,12 +1851,12 @@ const WSTYLE = `<style>
   ${walletCardCss()}
   .wstage{background:linear-gradient(180deg,#E4EEEA,#EFF2F7 70%);margin:-6vh -18px 0;padding:18px 18px 120px;min-height:calc(100vh - 60px)}
   .whead{display:flex;align-items:center;margin:0 2px 14px;max-width:420px;margin-left:auto;margin-right:auto}
-  .whead h1{font-size:17px;margin:0}.wn{font-size:12px;color:var(--muted);margin-left:8px}
+  .whead h1{font-size:17px;margin:0}.wn{font-size:16px;color:var(--muted);margin-left:8px}
   .wmenu{margin-left:auto;position:relative}
   .wmenu>summary{list-style:none;width:34px;height:34px;border-radius:50%;background:#fff;border:1px solid var(--line);display:grid;place-items:center;color:var(--muted);cursor:pointer}
   .wmenu>summary::-webkit-details-marker{display:none}
   .wpop{position:absolute;right:0;top:calc(100% + 6px);background:#fff;border:1px solid var(--line);border-radius:12px;min-width:220px;box-shadow:0 6px 24px rgba(14,26,43,.14);padding:6px;z-index:20;display:flex;flex-direction:column}
-  .wpop a,.wpop button{font:inherit;font-size:13px;text-align:left;padding:9px 12px;border:0;background:none;color:var(--ink);text-decoration:none;border-radius:8px;cursor:pointer}
+  .wpop a,.wpop button{font:inherit;font-size:16px;text-align:left;padding:9px 12px;border:0;background:none;color:var(--ink);text-decoration:none;border-radius:8px;cursor:pointer}
   .wpop a:hover,.wpop button:hover{background:#f0f7f5}
   .wstack{max-width:420px;margin:0 auto}
   /* 並び替え（長押しドラッグ・スタック維持型）: レイアウトを一切動かさず、
@@ -1871,7 +1871,7 @@ const WSTYLE = `<style>
   .scrolledge.bottom{bottom:0;background:linear-gradient(180deg,transparent,rgba(46,125,107,.20))}
   .scrolledge.top{top:0;background:linear-gradient(0deg,transparent,rgba(46,125,107,.20))}
   .scrolledge.on{opacity:1}
-  .rhint{text-align:center;font-size:11px;color:var(--muted);margin-top:10px}
+  .rhint{text-align:center;font-size:16px;color:var(--muted);margin-top:10px}
   .rh-pc{display:none}
   @media(min-width:720px){.rh-touch{display:none}.rh-pc{display:inline}}
   #wstack.gfreeze{position:relative}
@@ -1896,22 +1896,22 @@ const WSTYLE = `<style>
   .wli-thumb{width:200px;height:126px;position:relative;overflow:hidden;border-radius:12px}
   .wli-scaler{position:absolute;top:0;left:0;transform-origin:top left;transform:scale(.47619);width:420px}
   .wli-scaler .vcard{max-width:none;width:420px;margin:0}
-  .wli-tx{min-width:0;display:flex;flex-direction:column;gap:5px}.wli-tx b{font-size:16px;line-height:1.3}.wli-tx small{font-size:12px;color:var(--muted)}
+  .wli-tx{min-width:0;display:flex;flex-direction:column;gap:5px}.wli-tx b{font-size:16px;line-height:1.3}.wli-tx small{font-size:16px;color:var(--muted)}
   .wli-chips{display:flex;gap:8px;align-items:center;margin-top:2px}
   /* 券面注記（typeNote）: issuer カタログ／詳細と同じ注意書きを一覧行にも出す */
-  .wli-note{display:block;font-size:10.5px;color:#8A6D1F;line-height:1.45;margin-top:5px}
-  .wli-fmt{font-size:11px;font-weight:700;border:1px solid var(--line);border-radius:7px;padding:3px 9px;color:#334;background:#F7F9FB}
-  .wli-st{font-size:12.5px;font-weight:700;white-space:nowrap}.wli-st.ok{color:var(--success-2)}.wli-st.bad{color:#C0392B}.wli-st.na{color:var(--muted)}
-  .wli-chev{font-size:13px;font-weight:700;color:var(--role-ink);white-space:nowrap}
+  .wli-note{display:block;font-size:16px;color:#8A6D1F;line-height:1.45;margin-top:5px}
+  .wli-fmt{font-size:16px;font-weight:700;border:1px solid var(--line);border-radius:7px;padding:3px 9px;color:#334;background:#F7F9FB}
+  .wli-st{font-size:16px;font-weight:700;white-space:nowrap}.wli-st.ok{color:var(--success-2)}.wli-st.bad{color:#C0392B}.wli-st.na{color:var(--muted)}
+  .wli-chev{font-size:16px;font-weight:700;color:var(--role-ink);white-space:nowrap}
   .wli.wli-dragging{border-color:var(--role-ink);box-shadow:0 22px 40px rgba(14,26,43,.30);z-index:999}
   .wli-slot{border:2px dashed #7FB3A5;border-radius:16px;background:rgba(46,125,107,.06)}
-  .ghost-card{border:2px dashed #C4D6D0;border-radius:22px;aspect-ratio:1.586;display:grid;place-items:center;color:var(--muted);font-size:13px;text-align:center;max-width:420px;margin:0 auto;line-height:1.8}
-  .wfoot{text-align:center;margin-top:22px;font-size:12px}
+  .ghost-card{border:2px dashed #C4D6D0;border-radius:22px;aspect-ratio:1.586;display:grid;place-items:center;color:var(--muted);font-size:16px;text-align:center;max-width:420px;margin:0 auto;line-height:1.8}
+  .wfoot{text-align:center;margin-top:22px;font-size:16px}
   .wfoot a{color:var(--muted);text-decoration:none}
   .devlinks{max-width:420px;margin:18px auto 0}
-  .devlinks>summary{font-size:12px;font-weight:700;color:var(--muted);cursor:pointer}
+  .devlinks>summary{font-size:16px;font-weight:700;color:var(--muted);cursor:pointer}
   .devgrid{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
-  .devgrid a{font-size:12px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:6px 10px;color:var(--ink);text-decoration:none}
+  .devgrid a{font-size:16px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:6px 10px;color:var(--ink);text-decoration:none}
   .fabs{position:fixed;right:20px;bottom:24px;display:flex;flex-direction:column;gap:12px;align-items:center;z-index:60}
   /* dev console open: lift the FABs above the drawer (devlog syncBody) */
   body.dev-open .fabs{bottom:calc(var(--dev-drawer-h,40vh) + 24px)}
@@ -1921,7 +1921,7 @@ const WSTYLE = `<style>
   .wscrim{position:fixed;inset:0;background:rgba(14,26,43,.55);z-index:80}
   .wsheet{position:fixed;left:0;right:0;bottom:0;max-width:560px;margin:0 auto;max-height:92vh;overflow:auto;background:#fff;border-radius:18px 18px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,.25);z-index:81;padding:8px 18px 18px}
   .grab{width:44px;height:5px;border-radius:3px;background:#C6D0DC;margin:6px auto 10px}
-  .wsh{display:flex;align-items:center;margin-bottom:10px;gap:8px}.wsh b{font-size:14.5px;line-height:1.4}
+  .wsh{display:flex;align-items:center;margin-bottom:10px;gap:8px}.wsh b{font-size:16px;line-height:1.4}
   .wx{margin-left:auto;border:0;background:none;font-size:20px;color:var(--muted);cursor:pointer;flex:none}
   .wtiles{display:flex;flex-direction:column;gap:9px}
   @media(min-width:720px){.wtiles{display:grid;grid-template-columns:1fr 1fr;gap:10px}}
@@ -1929,45 +1929,45 @@ const WSTYLE = `<style>
   .wtile.sel{background:#F3F8F6;box-shadow:0 0 0 2px var(--role-ink) inset}
   .wtile .sw{width:46px;height:29px;border-radius:6px;flex:none;background:linear-gradient(135deg,var(--c1),var(--c2))}
   ${swatchEmblemCss()}
-  .wtile .tx{flex:1;min-width:0}.wtile b{font-size:13.5px;line-height:1.3}
+  .wtile .tx{flex:1;min-width:0}.wtile b{font-size:16px;line-height:1.3}
   .wchips{display:flex;gap:5px;flex:none}
-  .wchip{font:inherit;font-size:10.5px;font-weight:700;padding:4px 10px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--muted);cursor:pointer}
+  .wchip{font:inherit;font-size:16px;font-weight:700;padding:4px 10px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--muted);cursor:pointer}
   .wchip.on{background:var(--role-ink);color:#fff;border-color:var(--role-ink)}
   .wcta{display:flex;align-items:center;gap:12px;margin-top:14px;position:sticky;bottom:0;background:#fff;padding:10px 0 2px}
-  .wcount{font-size:12px;color:var(--muted);white-space:nowrap}
+  .wcount{font-size:16px;color:var(--muted);white-space:nowrap}
   .wcta .btn{flex:1}
   .wcta .btn[disabled]{opacity:.45;cursor:default}
-  .whint{font-size:10.5px;color:var(--muted);margin-top:10px;line-height:1.7}
-  .back{max-width:420px;margin:0 auto 12px;font-size:13px}
+  .whint{font-size:16px;color:var(--muted);margin-top:10px;line-height:1.7}
+  .back{max-width:420px;margin:0 auto 12px;font-size:16px}
   .back a{color:var(--muted);text-decoration:none}
   .panel{background:#fff;border:1px solid var(--line);border-radius:14px;margin:14px auto 0;overflow:hidden;max-width:420px}
-  .ph{font-size:11px;color:var(--muted);font-weight:700;padding:12px 16px 0}
-  table.attrs{width:100%;border-collapse:collapse;font-size:13px}
+  .ph{font-size:16px;color:var(--muted);font-weight:700;padding:12px 16px 0}
+  table.attrs{width:100%;border-collapse:collapse;font-size:16px}
   table.attrs td{padding:9px 16px;border-bottom:1px solid #EEF2F6}
   table.attrs td:first-child{color:var(--muted);width:44%}
-  .morefold>summary{display:block;text-align:center;font-size:12px;font-weight:700;color:var(--role-ink);padding:11px;cursor:pointer;list-style:none}
+  .morefold>summary{display:block;text-align:center;font-size:16px;font-weight:700;color:var(--role-ink);padding:11px;cursor:pointer;list-style:none}
   .morefold>summary::-webkit-details-marker{display:none}
   .morefold[open]>summary{color:var(--muted)}
-  .rowfold>summary{display:flex;align-items:center;gap:12px;padding:15px 16px;font-size:14px;font-weight:600;cursor:pointer;list-style:none}
+  .rowfold>summary{display:flex;align-items:center;gap:12px;padding:15px 16px;font-size:16px;font-weight:700;cursor:pointer;list-style:none}
   .rowfold>summary::-webkit-details-marker{display:none}
-  .rowfold .cnt{margin-left:auto;font-size:11px;color:var(--muted)}
-  .prow{display:flex;align-items:center;gap:12px;padding:13px 16px;border-top:1px solid var(--line);font-size:14px;font-weight:600}
+  .rowfold .cnt{margin-left:auto;font-size:16px;color:var(--muted)}
+  .prow{display:flex;align-items:center;gap:12px;padding:13px 16px;border-top:1px solid var(--line);font-size:16px;font-weight:700}
   .prow .ic,.rowfold .ic{width:22px;text-align:center}
-  .chip2{font-size:11px;font-weight:700;border-radius:999px;padding:2px 10px;background:#E7F3EE;color:var(--success-2)}
+  .chip2{font-size:16px;font-weight:700;border-radius:999px;padding:2px 10px;background:#E7F3EE;color:var(--success-2)}
   .chip2.bad{background:#FBE9E7;color:#C8453C}.chip2.na{background:#EEF2F6;color:var(--muted)}
-  .mini2{font:inherit;font-size:11px;font-weight:700;padding:4px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--muted);cursor:pointer}
+  .mini2{font:inherit;font-size:16px;font-weight:700;padding:4px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--muted);cursor:pointer}
   .acts{padding:0 16px 12px}
-  .actrow{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline;font-size:12px;padding:7px 0;border-top:1px dashed #EEF2F6}
+  .actrow{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline;font-size:16px;padding:7px 0;border-top:1px dashed #EEF2F6}
   .actrow small{color:var(--muted)}
   .devfold{max-width:420px;margin:12px auto 0}
-  .devfold>summary{font-size:12px;font-weight:700;color:var(--muted);cursor:pointer;list-style:none}
+  .devfold>summary{font-size:16px;font-weight:700;color:var(--muted);cursor:pointer;list-style:none}
   .devfold>summary::before{content:"▸ "}
   .devfold[open]>summary::before{content:"▾ "}
-  .djson{background:#0E1A2B;color:#cfe6dd;border-radius:9px;padding:11px 12px;margin:6px 0;font-family:"IBM Plex Mono",monospace;font-size:10.5px;line-height:1.55;white-space:pre-wrap;word-break:break-all;overflow:auto;max-height:280px}
+  .djson{background:#0E1A2B;color:#cfe6dd;border-radius:9px;padding:11px 12px;margin:6px 0;font-family:"IBM Plex Mono",monospace;font-size:16px;line-height:1.55;white-space:pre-wrap;word-break:break-all;overflow:auto;max-height:280px}
   .djson.small{max-height:150px}
-  .cbor-note{font-size:11px;color:#7a5b13;background:#FFF7E6;border:1px solid #F2D98B;border-radius:8px;padding:6px 10px;margin-bottom:6px}
-  .rawc>summary{font-size:11.5px;font-weight:700;color:var(--muted);cursor:pointer}
-  .wdel{display:block;width:100%;max-width:420px;margin:14px auto 0;text-align:center;color:#C8453C;font-weight:700;font-size:14px;background:#fff;border:1px solid #EED4D0;border-radius:14px;padding:14px;cursor:pointer}
+  .cbor-note{font-size:16px;color:#7a5b13;background:#FFF7E6;border:1px solid #F2D98B;border-radius:8px;padding:6px 10px;margin-bottom:6px}
+  .rawc>summary{font-size:16px;font-weight:700;color:var(--muted);cursor:pointer}
+  .wdel{display:block;width:100%;max-width:420px;margin:14px auto 0;text-align:center;color:#C8453C;font-weight:700;font-size:16px;background:#fff;border:1px solid #EED4D0;border-radius:14px;padding:14px;cursor:pointer}
 </style>`;
 
 function holderKeyPage(jwk, pem, thumbprint, credCount) {
@@ -1985,14 +1985,14 @@ function holderKeyPage(jwk, pem, thumbprint, credCount) {
       <div class="keybox mono" style="word-break:break-all">${esc(thumbprint)}</div>
 
       <details style="margin-top:12px">
-        <summary style="cursor:pointer;color:#C8453C;font-size:13px">秘密鍵（PKCS#8 PEM）を表示 — デモ専用・本番では非公開</summary>
+        <summary style="cursor:pointer;color:#C8453C;font-size:16px">秘密鍵（PKCS#8 PEM）を表示 — デモ専用・本番では非公開</summary>
         <pre class="keybox" style="margin-top:8px">${esc(pem)}</pre>
       </details>
 
       <div style="margin-top:14px"><a class="btn" href="/">← ウォレットに戻る</a></div>
     </div>${STYLE}
-    <style>.keybox{background:#0E1A2B;color:#D7E0EE;border-radius:10px;padding:12px;font-size:12px;line-height:1.5;overflow:auto;white-space:pre-wrap;font-family:"IBM Plex Mono",monospace;margin:4px 0 0}
-    .k{color:var(--muted);font-size:12px;font-weight:600}</style>`, WALLET);
+    <style>.keybox{background:#0E1A2B;color:#D7E0EE;border-radius:10px;padding:12px;font-size:16px;line-height:1.5;overflow:auto;white-space:pre-wrap;font-family:"IBM Plex Mono",monospace;margin:4px 0 0}
+    .k{color:var(--muted);font-size:16px;font-weight:700}</style>`, WALLET);
 }
 
 // 段階発行のローディング画面（チェックリスト型・2026-07-08 モック協議で選定）。
@@ -2029,27 +2029,27 @@ function receivingScreen(configIds, issuerBase) {
     <style>
       .ldcard{max-width:430px;margin:26px auto;background:#fff;border:1px solid var(--line);border-radius:16px;padding:26px 22px;text-align:center}
       .ldh{font-size:17px;font-weight:700;margin:8px 0 2px}
-      .ldsub{font-size:12px;color:var(--muted)}
-      .ldcnt{font-size:30px;font-weight:800;margin:10px 0 4px;color:var(--role-ink)}
+      .ldsub{font-size:16px;color:var(--muted)}
+      .ldcnt{font-size:30px;font-weight:700;margin:10px 0 4px;color:var(--role-ink)}
       .ldcnt .ldm{font-size:16px;color:var(--muted);font-weight:700}
       .ldtrack{height:6px;border-radius:3px;background:#E3EBE8;overflow:hidden;margin:0 22px 18px}
       .ldtrack i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,var(--role-ink),#59B49A);transition:width .3s ease}
       .ldrows{text-align:left;display:grid;gap:8px}
       .ldrow{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:11px;padding:10px 12px}
       .ldrow.wait{opacity:.55}
-      .ldrow .ic{width:20px;height:20px;border-radius:50%;flex:none;box-sizing:border-box;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:12px}
+      .ldrow .ic{width:20px;height:20px;border-radius:50%;flex:none;box-sizing:border-box;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:16px}
       .ldrow.done .ic{border:none;background:var(--success-2);color:#fff}
       .ldrow.done .ic::after{content:"✓"}
       .ldrow.now .ic{border:2.5px solid #CDE3DC;border-top-color:var(--role-ink);animation:ldspin .8s linear infinite}
-      .ldrow.err .ic{border:2px solid #E5B9B4;background:#FBE9E7;color:var(--error-2);font-weight:800}
+      .ldrow.err .ic{border:2px solid #E5B9B4;background:#FBE9E7;color:var(--error-2);font-weight:700}
       .ldrow.err .ic::after{content:"!"}
       .ldrow .sw{width:12px;height:12px;border-radius:4px;flex:none}
-      .ldrow .nm{font-size:13px;font-weight:600;flex:1}
-      .ldrow .lst{font-size:11px;color:var(--muted);flex:none}
+      .ldrow .nm{font-size:16px;font-weight:700;flex:1}
+      .ldrow .lst{font-size:16px;color:var(--muted);flex:none}
       .ldrow.done .lst{color:var(--success-2)}
-      .fmtc{font-size:9.5px;font-weight:700;border:1px solid var(--line);border-radius:6px;padding:1px 7px;color:var(--muted);flex:none}
-      .ldhint{font-size:11.5px;color:var(--muted);margin-top:16px}
-      .lderr{margin-top:14px;border:1px solid #E7D6D6;background:#FBF3F2;border-radius:11px;padding:12px;font-size:12.5px;color:var(--error-2)}
+      .fmtc{font-size:16px;font-weight:700;border:1px solid var(--line);border-radius:6px;padding:1px 7px;color:var(--muted);flex:none}
+      .ldhint{font-size:16px;color:var(--muted);margin-top:16px}
+      .lderr{margin-top:14px;border:1px solid #E7D6D6;background:#FBF3F2;border-radius:11px;padding:12px;font-size:16px;color:var(--error-2)}
       @keyframes ldspin{to{transform:rotate(360deg)}}
     </style>
     <script>
@@ -2111,7 +2111,7 @@ function settingsPage(ttlSec, saved = false, { trustTtlSec = 3600, trustInfo = n
       ${saved ? '<div class="ok">✓ 保存しました</div>' : ''}
       <form method="POST" action="/settings" style="margin-top:12px">
         <label style="display:block">
-          <div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:6px">Status List のキャッシュ時間（分）</div>
+          <div style="font-size:16px;color:var(--muted);font-weight:700;margin-bottom:6px">Status List のキャッシュ時間（分）</div>
           <input name="status_ttl_min" type="number" min="0" max="1440" step="1" value="${min}"
             style="font:inherit;width:120px;padding:9px 12px;border:1px solid var(--line);border-radius:8px">
         </label>
@@ -2121,7 +2121,7 @@ function settingsPage(ttlSec, saved = false, { trustTtlSec = 3600, trustInfo = n
           サーバーから最新を自動取得します。<b>失効を早く反映したいときはこの時間を短く</b>してください（<b>0 = キャッシュしない＝毎回取得</b>）。既定は 5 分。
         </div>
         <label style="display:block;margin-top:18px">
-          <div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:6px">トラストリストのキャッシュ時間（分）</div>
+          <div style="font-size:16px;color:var(--muted);font-weight:700;margin-bottom:6px">トラストリストのキャッシュ時間（分）</div>
           <input name="trust_ttl_min" type="number" min="0" max="10080" step="1" value="${tmin}"
             style="font:inherit;width:120px;padding:9px 12px;border:1px solid var(--line);border-radius:8px">
         </label>
@@ -2133,10 +2133,10 @@ function settingsPage(ttlSec, saved = false, { trustTtlSec = 3600, trustInfo = n
         <button type="submit" class="btn">保存する</button>
       </form>
       <div style="margin-top:26px;border-top:1px solid var(--line);padding-top:16px">
-        <div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:10px">ウォレットの管理</div>
-        <a href="/dev/holder-key" style="display:block;font-size:13.5px;font-weight:700;color:var(--role-ink);text-decoration:none;padding:10px 0">🔑 バインディング鍵を表示 →</a>
+        <div style="font-size:16px;color:var(--muted);font-weight:700;margin-bottom:10px">ウォレットの管理</div>
+        <a href="/dev/holder-key" style="display:block;font-size:16px;font-weight:700;color:var(--role-ink);text-decoration:none;padding:10px 0">🔑 バインディング鍵を表示 →</a>
         <button type="button" onclick="askReset()"
-          style="display:block;font:inherit;font-size:13.5px;font-weight:700;color:#C8453C;background:none;border:none;padding:10px 0;cursor:pointer">⚠ ウォレットを初期化…</button>
+          style="display:block;font:inherit;font-size:16px;font-weight:700;color:#C8453C;background:none;border:none;padding:10px 0;cursor:pointer">⚠ ウォレットを初期化…</button>
         <div class="hint" style="margin-top:2px">初期化は保管中のすべてのデジタル資格証とホルダーバインディング鍵を削除します。</div>
       </div>
     </div>
@@ -2228,17 +2228,17 @@ function authRequestPreview({ url, configIds = [], issuerBase }) {
         <div class="urlbox mono">${esc(url)}</div>
         <div class="hint" style="margin-top:6px">発行者: <span class="mono">${esc(issuerBase)}</span> / redirect_uri はこのウォレットの <span class="mono">/oidc/cb</span></div>
       </details>
-      <div style="margin-top:14px;font-size:13px"><a href="/">← ウォレットに戻る（選び直す）</a></div>
+      <div style="margin-top:14px;font-size:16px"><a href="/">← ウォレットに戻る（選び直す）</a></div>
     </div>
     <style>
       .reqrow{display:flex;gap:11px;align-items:center;border:1px solid var(--line);border-radius:11px;padding:10px 12px;margin-top:8px}
       .reqrow .sw{width:46px;height:29px;border-radius:6px;flex:none;background:radial-gradient(120% 90% at 88% -12%,var(--c3) 0%,transparent 55%),linear-gradient(135deg,var(--c1),var(--c2))}
       ${swatchEmblemCss()}
-      .reqrow b{font-size:13.5px;display:block;line-height:1.3}
-      .reqrow small{font-size:10px;color:var(--muted)}
-      .reqrow .fmtb{margin-left:auto;font-size:10px;font-weight:700;border:1px solid var(--line);border-radius:6px;padding:2px 8px;color:var(--muted)}
+      .reqrow b{font-size:16px;display:block;line-height:1.3}
+      .reqrow small{font-size:16px;color:var(--muted)}
+      .reqrow .fmtb{margin-left:auto;font-size:16px;font-weight:700;border:1px solid var(--line);border-radius:6px;padding:2px 8px;color:var(--muted)}
       .urlfold{margin-top:12px}
-      .urlfold>summary{font-size:11.5px;font-weight:700;color:var(--muted);cursor:pointer;list-style:none}
+      .urlfold>summary{font-size:16px;font-weight:700;color:var(--muted);cursor:pointer;list-style:none}
       .urlfold>summary::before{content:"▸ "}
       .urlfold[open]>summary::before{content:"▾ "}
     </style>${STYLE}`, WALLET);
@@ -2257,7 +2257,7 @@ function grantChoiceScreen(configId, issuerBase) {
         <button class="btn" type="submit" name="grant" value="pre-authorized_code">Pre-Auth で取得（認可不要）</button>
         <button class="btn" type="submit" name="grant" value="authorization_code">認可コードで取得（同意画面あり）</button>
       </form>
-      <div style="margin-top:12px;font-size:13px;color:var(--muted)">種別: <code>${esc(configId)}</code> / 発行者: ${esc(issuerBase)}</div>
+      <div style="margin-top:12px;font-size:16px;color:var(--muted)">種別: <code>${esc(configId)}</code> / 発行者: ${esc(issuerBase)}</div>
       <div style="margin-top:8px"><a href="/">← キャンセル</a></div>
     </div>${STYLE}`, WALLET);
 }
@@ -2286,13 +2286,13 @@ function offerForm(issuerBase) {
 
 const STYLE = `<style>
   .held{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-top:12px}
-  .cred-note{font-size:10.5px;color:#8A6D1F;line-height:1.5;margin:-2px 0 8px}
+  .cred-note{font-size:16px;color:#8A6D1F;line-height:1.5;margin:-2px 0 8px}
   .held .hd{display:flex;align-items:center;gap:11px;margin-bottom:6px}
   .held .hd-ic .vcicon{width:42px;height:auto;display:block}
   .held .hd-t{flex:1;min-width:0}
-  .held .hd-t small{display:block;font-size:11px;color:var(--muted);font-family:ui-monospace,monospace}
-  .held .fmt{font-size:11px;color:var(--role-ink);background:#E8F2EF;border:1px solid #D2E5DF;border-radius:999px;padding:2px 9px;font-weight:700}
-  table.cl{width:100%;border-collapse:collapse;font-size:13px}
+  .held .hd-t small{display:block;font-size:16px;color:var(--muted);font-family:ui-monospace,monospace}
+  .held .fmt{font-size:16px;color:var(--role-ink);background:#E8F2EF;border:1px solid #D2E5DF;border-radius:999px;padding:2px 9px;font-weight:700}
+  table.cl{width:100%;border-collapse:collapse;font-size:16px}
   table.cl td{padding:6px 8px;border-bottom:1px solid var(--line)}
   table.cl td:first-child{color:var(--muted);white-space:nowrap}
   .btn{background:var(--role-ink)}.btn:hover{background:var(--role-ink)}

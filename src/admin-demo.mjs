@@ -9,13 +9,13 @@ import { outOfJurisdiction } from './staff.mjs';
 
 const ADMIN_CSS = `
 .filt{display:flex;gap:7px;flex-wrap:wrap;margin:0 0 12px}
-.filt a{font-size:11.5px;font-weight:700;text-decoration:none;color:var(--muted);background:#fff;
+.filt a{font-size:16px;font-weight:700;text-decoration:none;color:var(--muted);background:#fff;
   border:1px solid var(--line);border-radius:999px;padding:5px 13px}
 .filt a.on{background:var(--civic);border-color:var(--civic);color:#fff}
 .filt a b{font-weight:700}
 .who{display:flex;flex-direction:column;line-height:1.4}
-.who small{font-size:10.5px;color:var(--muted)}
-.stamp{background:#F7F9FC;border-radius:9px;padding:10px 13px;font-size:11.5px;color:var(--muted);line-height:1.7;margin-bottom:12px}
+.who small{font-size:16px;color:var(--muted)}
+.stamp{background:#F7F9FC;border-radius:9px;padding:10px 13px;font-size:16px;color:var(--muted);line-height:1.7;margin-bottom:12px}
 .stamp b{color:var(--ink)}
 .chip.out{background:#FDF7E3;color:#8a6d00}`;
 
@@ -49,7 +49,7 @@ export function renderAdminList(staff, apps, { issuedBy = {}, applicants = {}, s
       ${shown.length ? `<div class="acard p0"><div class="alist">
         <div class="ahead"><span>受付番号</span><span>種別</span><span>申請の対象</span><span>申請者</span><span>申請日</span><span>状態</span><span></span></div>
         ${shown.map(row).join('')}
-      </div></div>` : '<div class="acard" style="text-align:center;color:var(--muted);font-size:13px">該当する申請はありません</div>'}
+      </div></div>` : '<div class="acard" style="text-align:center;color:var(--muted);font-size:16px">該当する申請はありません</div>'}
     </div>
     <style>${CSS}${ADMIN_CSS}</style>`, staff, { width: 'wide' });
 }

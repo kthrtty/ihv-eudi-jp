@@ -52,17 +52,17 @@ const RESULT_CSS = `
   .okbig{color:var(--verify);font-weight:700;font-size:17px;margin:6px 0}
   .ngbig{color:var(--error-2);font-weight:700;font-size:17px;margin:6px 0}
   .ccard{border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-top:10px}
-  .cchead{background:#f7f9fc;border-bottom:1px solid var(--line);font-size:12px;font-weight:700;padding:7px 12px}
+  .cchead{background:#f7f9fc;border-bottom:1px solid var(--line);font-size:16px;font-weight:700;padding:7px 12px}
   .ccard table.cl{margin:0}
-  .lbl2{font-size:12px;color:var(--muted);font-weight:700}
-  .checks{display:grid;gap:6px;margin-top:6px}.ck2{font-size:13px}
+  .lbl2{font-size:16px;color:var(--muted);font-weight:700}
+  .checks{display:grid;gap:6px;margin-top:6px}.ck2{font-size:16px}
   .cok{color:var(--verify);font-weight:700}.cng2{color:var(--error-2);font-weight:700}
-  .mini2{font-size:12px;color:var(--verify)}
-  .tech{margin-top:14px}.tech>summary{cursor:pointer;font-size:12px;color:var(--muted);font-weight:700}
-  .json{background:#0E1A2B;color:#D7E0EE;border-radius:10px;padding:14px;font-size:11.5px;line-height:1.5;overflow:auto;max-height:340px;font-family:"IBM Plex Mono",monospace;white-space:pre;margin:8px 0}
+  .mini2{font-size:16px;color:var(--verify)}
+  .tech{margin-top:14px}.tech>summary{cursor:pointer;font-size:16px;color:var(--muted);font-weight:700}
+  .json{background:#0E1A2B;color:#D7E0EE;border-radius:10px;padding:14px;font-size:16px;line-height:1.5;overflow:auto;max-height:340px;font-family:"IBM Plex Mono",monospace;white-space:pre;margin:8px 0}
   .navrow{display:flex;gap:10px;margin-top:18px}.navrow .btn{flex:1;text-align:center}
   .btn.ghost{background:#fff;color:var(--role-ink);border:1px solid var(--line)}
-  .stepbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:10px 0 14px;font-size:12px;font-weight:700}
+  .stepbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:10px 0 14px;font-size:16px;font-weight:700}
   .stepbar .sb{display:flex;align-items:center;gap:6px;padding:5px 12px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:#fff}
   .stepbar .sb.done{color:var(--verify);border-color:#CBE3DB;background:#F1F8F5}
   .stepbar .sb.cur{color:var(--role-ink);border-color:#E7D6D6;background:#F6ECEC}
@@ -98,7 +98,7 @@ function stepActions(s, step, { txn1 = null, selftest = true } = {}) {
   }
   const selfBtn = step === 1
     ? `<details class="alt"><summary>ウォレットなしで体験する（テスト実行）</summary>
-        <div class="muted" style="font-size:12px;margin:6px 0">発行者からテスト用の証明書一式を取得し、ステップごとに提示・検証します。</div>
+        <div class="muted" style="font-size:16px;margin:6px 0">発行者からテスト用の証明書一式を取得し、ステップごとに提示・検証します。</div>
         <form method="post" action="/verifier/s/${esc(s.id)}/selftest"><button class="btn ghost" type="submit">テスト実行（ステップ1: 本人確認）→</button></form>
       </details>`
     : '';
@@ -153,7 +153,7 @@ export function renderScenarioHome(scenarios = []) {
       <div class="step" style="display:flex;align-items:center;justify-content:space-between">検証者（Verifier）デモ
         <a class="prolink" href="/verifier/builder">開発者向けビルダー →</a></div>
       <h1>デジタル証明書の提示を体験する</h1>
-      <div class="muted" style="font-size:13px;margin-bottom:14px">実際の行政・民間サービスを想定したシナリオです。まず身分証（PID）で本人確認を行い、続いて資格証明（EAA）を提示すると申請が受理されます。各ステップは目的に必要な項目だけを要求します（データ最小化）。</div>
+      <div class="muted" style="font-size:16px;margin-bottom:14px">実際の行政・民間サービスを想定したシナリオです。まず身分証（PID）で本人確認を行い、続いて資格証明（EAA）を提示すると申請が受理されます。各ステップは目的に必要な項目だけを要求します（データ最小化）。</div>
       <div class="sgrid">${cards}</div>
       <div class="hint" style="display:flex;justify-content:space-between;align-items:center">
         <span>ⓘ 2ステップのシナリオでは、両提示が同一の保有者鍵で署名されたこと（別人のウォレットの混用防止）も検証します。登場する組織名はデモ用の架空設定です。</span>
@@ -161,19 +161,19 @@ export function renderScenarioHome(scenarios = []) {
       </div>
     </div>
     <style>
-      .prolink{font-weight:700;color:var(--muted);text-decoration:none;font-size:11px}
+      .prolink{font-weight:700;color:var(--muted);text-decoration:none;font-size:16px}
       .prolink:hover{color:var(--ink)}
       .sgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
       .scard{display:flex;flex-direction:column;gap:8px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px 16px;text-decoration:none;color:var(--ink);transition:all .12s}
       .scard:hover{border-color:#c9a5a5;transform:translateY(-2px);box-shadow:0 8px 20px #0e1a2b14}
       .sic{font-size:34px;line-height:1}
-      .stt{font-size:15.5px;font-weight:700}
-      .stg{font-size:12.5px;color:var(--muted);line-height:1.55;flex:1}
+      .stt{font-size:16px;font-weight:700}
+      .stg{font-size:16px;color:var(--muted);line-height:1.55;flex:1}
       .sflow{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
-      .fpill{font-size:11px;font-weight:600;background:#F6ECEC;color:var(--role-ink);border:1px solid #E7D6D6;border-radius:999px;padding:2px 9px}
+      .fpill{font-size:16px;font-weight:700;background:#F6ECEC;color:var(--role-ink);border:1px solid #E7D6D6;border-radius:999px;padding:2px 9px}
       .fpill.ok{background:#F1F8F5;color:var(--verify);border-color:#CBE3DB}
-      .farr{font-size:11px;color:var(--muted)}
-      .sgo{font-size:13px;font-weight:700;color:var(--role-ink);margin-top:2px}
+      .farr{font-size:16px;color:var(--muted)}
+      .sgo{font-size:16px;font-weight:700;color:var(--role-ink);margin-top:2px}
     </style>`, SHELL_OPTS);
 }
 
@@ -212,8 +212,8 @@ export function renderScenarioRun(s) {
       <div class="step"><a href="/verifier" style="color:inherit;text-decoration:none">← シナリオ一覧</a></div>
       <div class="rphead"><span class="sic2">${s.icon}</span>
         <div><h1 style="margin:0">${esc(s.title)}</h1>
-        <div class="muted" style="font-size:12.5px">${esc(s.rp)} — ${esc(s.rpKind)}</div></div></div>
-      <p style="font-size:13.5px;line-height:1.8">${esc(s.story)}</p>
+        <div class="muted" style="font-size:16px">${esc(s.rp)} — ${esc(s.rpKind)}</div></div></div>
+      <p style="font-size:16px;line-height:1.8">${esc(s.story)}</p>
       <div class="pbox"><b>利用目的</b><div>${esc(s.purpose)}</div></div>
       <div class="mini2" style="margin:10px 0 2px">✓ ${esc(s.notDisclosed)}</div>
       ${s.discloseNote ? `<div class="warn2">⚠ ${esc(s.discloseNote)}</div>` : ''}
@@ -222,8 +222,8 @@ export function renderScenarioRun(s) {
     <style>
       .rphead{display:flex;gap:12px;align-items:center;margin:4px 0 6px}
       .sic2{font-size:38px;line-height:1}
-      .pbox{background:#f7f9fc;border:1px solid var(--line);border-radius:10px;padding:10px 14px;font-size:12.5px;margin:8px 0 4px}
-      .pbox b{display:block;font-size:11px;color:var(--muted);letter-spacing:.06em}
+      .pbox{background:#f7f9fc;border:1px solid var(--line);border-radius:10px;padding:10px 14px;font-size:16px;margin:8px 0 4px}
+      .pbox b{display:block;font-size:16px;color:var(--muted);letter-spacing:.06em}
       ${TL_CSS}
       ${RESULT_CSS}
     </style>`, SHELL_OPTS);
@@ -264,7 +264,7 @@ export function renderScenarioStep1Done(s, txn1, result1, { selftest = false } =
     </div>
     <style>${TL_CSS}${RESULT_CSS}
       .actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
-      .alt{margin-top:12px}.alt>summary{cursor:pointer;font-size:12px;color:var(--muted);font-weight:700}
+      .alt{margin-top:12px}.alt>summary{cursor:pointer;font-size:16px;color:var(--muted);font-weight:700}
     </style>`, SHELL_OPTS);
 }
 
@@ -273,10 +273,10 @@ const TL_CSS = `
   .tl{border-left:2px solid var(--line);margin:16px 0 4px 13px;padding-left:20px}
   .tstep{position:relative;padding:2px 0 20px}
   .tstep:last-child{padding-bottom:4px}
-  .tnum{position:absolute;left:-33px;top:2px;width:24px;height:24px;border-radius:50%;background:#CBD5E1;color:#fff;font-size:11.5px;font-weight:800;display:flex;align-items:center;justify-content:center}
+  .tnum{position:absolute;left:-33px;top:2px;width:24px;height:24px;border-radius:50%;background:#CBD5E1;color:#fff;font-size:16px;font-weight:700;display:flex;align-items:center;justify-content:center}
   .tstep.cur .tnum{background:var(--role-ink);box-shadow:0 0 0 4px #F6ECEC}
   .tstep.done .tnum{background:var(--success-2)}
-  .tttl{font-size:13.5px;font-weight:700;line-height:1.5}
+  .tttl{font-size:16px;font-weight:700;line-height:1.5}
   .tstep.todo .tttl{color:var(--muted)}
   /* 提案A: ステップタイトル左の券面和色エンボス（何の資格証を要求するステップか一目で） */
   .thead{display:flex;align-items:center;gap:11px}
@@ -289,18 +289,18 @@ const TL_CSS = `
   .tstep .tbody{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:#fff}
   .tstep.cur .tbody{border-color:#E7D6D6;box-shadow:0 4px 14px rgba(158,58,58,.08)}
   .tstep.todo .tbody{background:#FAFBFD}
-  .tlock{font-size:11.5px;color:var(--muted);margin-top:8px}
-  .tok{color:var(--verify);font-weight:700;font-size:13.5px;margin:2px 0 6px}
-  .tng{color:var(--error-2);font-weight:700;font-size:13.5px;margin:2px 0 6px}
+  .tlock{font-size:16px;color:var(--muted);margin-top:8px}
+  .tok{color:var(--verify);font-weight:700;font-size:16px;margin:2px 0 6px}
+  .tng{color:var(--error-2);font-weight:700;font-size:16px;margin:2px 0 6px}
   .cpills{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
-  .cpill{font-size:12px;border-radius:999px;padding:3px 11px}
+  .cpill{font-size:16px;border-radius:999px;padding:3px 11px}
   .cpill.req{background:#F6ECEC;color:var(--role-ink);border:1px solid #E7D6D6}
   .cpill.opt{background:#fff;color:var(--muted);border:1px dashed var(--line)}
-  .mini2{font-size:12px;color:var(--verify)}
-  .warn2{font-size:12px;color:#8a6d1a;background:#FCF7E8;border:1px solid #EFE2B8;border-radius:9px;padding:8px 12px;margin:6px 0 2px}
+  .mini2{font-size:16px;color:var(--verify)}
+  .warn2{font-size:16px;color:#8a6d1a;background:#FCF7E8;border:1px solid #EFE2B8;border-radius:9px;padding:8px 12px;margin:6px 0 2px}
   .actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
   .btn.ghost{background:#fff;color:var(--role-ink);border:1px solid var(--line)}
-  .alt{margin-top:12px}.alt>summary{cursor:pointer;font-size:12px;color:var(--muted);font-weight:700}
+  .alt{margin-top:12px}.alt>summary{cursor:pointer;font-size:16px;color:var(--muted);font-weight:700}
 `;
 
 // ---- acceptance page after step 2 (GET /verifier/s/:id/result/:txn2) ------------
@@ -332,8 +332,8 @@ export function renderScenarioAccept(s, result1, result2, evaluation) {
       <div class="step">${esc(s.rp)} — ${esc(s.title)}</div>
       ${stepBar(s, ok ? 2 : oneStep ? 0 : 1)}
       ${ok
-        ? `<div class="okbig">✓ ${esc(okLabel)}</div><p style="font-size:13.5px;line-height:1.9">${esc(summary)}</p>`
-        : `<div class="ngbig">✗ 受理できませんでした</div><p style="font-size:13.5px;line-height:1.8">${esc(failReason)}</p>`}
+        ? `<div class="okbig">✓ ${esc(okLabel)}</div><p style="font-size:16px;line-height:1.9">${esc(summary)}</p>`
+        : `<div class="ngbig">✗ 受理できませんでした</div><p style="font-size:16px;line-height:1.8">${esc(failReason)}</p>`}
       <div class="lbl2">${oneStep ? '提示された情報' : 'ステップ1で確認した情報'}</div>${pidCard}
       ${oneStep ? '' : `<div class="lbl2" style="margin-top:12px">ステップ2で確認した情報</div>${eaaCard}`}
       <div class="lbl2" style="margin-top:14px">確認内容</div>
@@ -342,11 +342,11 @@ export function renderScenarioAccept(s, result1, result2, evaluation) {
       <details class="tech"><summary>技術詳細を表示（開発者向け）</summary>
         <pre class="json">${esc(JSON.stringify(tech, null, 2))}</pre>
         ${oneStep
-          ? `<div class="muted" style="font-size:11.5px;line-height:1.7">選択的開示により <span class="mono">age_over_20</span> のみが vp_token に含まれます。氏名等は暗号学的に取り出せません。検証者どうしの突合を防ぐには使い捨てクレデンシャルのバッチ発行（OpenID4VCI の複数同時発行・本デモ未実装）が必要です。</div>`
-          : `<div class="muted" style="font-size:11.5px;line-height:1.7">ステップ2の要求は <span class="mono">linkTo</span> でステップ1に連鎖し、Verifier は両提示のホルダー鍵一致（<span class="mono">linkedSameHolder</span>）を検証します。<b>注:</b> 本デモのウォレットは全クレデンシャルを単一鍵にバインドしていますが、ARF 準拠ウォレットは unlinkability のためクレデンシャル毎に鍵を分離する方向で、その場合この検証は鍵関連付け証明（proof of association・ARF検討中）や単一リクエスト内複数クレデンシャルの cnf 比較で代替されます。</div>`}
-        <a href="/verifier/builder" style="font-size:12px;font-weight:700;color:var(--muted)">開発者向けビルダーで同様の要求を作る →</a>
+          ? `<div class="muted" style="font-size:16px;line-height:1.7">選択的開示により <span class="mono">age_over_20</span> のみが vp_token に含まれます。氏名等は暗号学的に取り出せません。検証者どうしの突合を防ぐには使い捨てクレデンシャルのバッチ発行（OpenID4VCI の複数同時発行・本デモ未実装）が必要です。</div>`
+          : `<div class="muted" style="font-size:16px;line-height:1.7">ステップ2の要求は <span class="mono">linkTo</span> でステップ1に連鎖し、Verifier は両提示のホルダー鍵一致（<span class="mono">linkedSameHolder</span>）を検証します。<b>注:</b> 本デモのウォレットは全クレデンシャルを単一鍵にバインドしていますが、ARF 準拠ウォレットは unlinkability のためクレデンシャル毎に鍵を分離する方向で、その場合この検証は鍵関連付け証明（proof of association・ARF検討中）や単一リクエスト内複数クレデンシャルの cnf 比較で代替されます。</div>`}
+        <a href="/verifier/builder" style="font-size:16px;font-weight:700;color:var(--muted)">開発者向けビルダーで同様の要求を作る →</a>
       </details>
-      <div class="muted" style="font-size:11px;margin-top:10px">※ 登場する組織名・手続きはデモ用の架空設定です。実在の組織・制度の運用とは異なります。</div>
+      <div class="muted" style="font-size:16px;margin-top:10px">※ 登場する組織名・手続きはデモ用の架空設定です。実在の組織・制度の運用とは異なります。</div>
       <div class="navrow">
         <a class="btn ghost" href="/verifier">シナリオ一覧へ</a>
         <a class="btn ghost" href="/verifier/s/${esc(s.id)}">もう一度試す</a>
@@ -361,7 +361,7 @@ export function renderScenarioGone(s) {
   return shell('結果が見つかりません', `<div class="card">
     <div class="step">${esc(s.title)}</div>
     <h1>結果が見つかりません</h1>
-    <div class="muted" style="font-size:13px">提示結果の保存期限が切れたか、URL が正しくありません。</div>
+    <div class="muted" style="font-size:16px">提示結果の保存期限が切れたか、URL が正しくありません。</div>
     <div class="navrow"><a class="btn ghost" href="/verifier/s/${esc(s.id)}">もう一度試す</a><a class="btn ghost" href="/verifier">シナリオ一覧へ</a></div>
     <style>${RESULT_CSS}</style>
   </div>`, SHELL_OPTS);

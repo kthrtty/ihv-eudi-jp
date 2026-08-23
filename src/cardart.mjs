@@ -102,6 +102,11 @@ export function cardArtSvg(id, { inline = true, w = CARD_W, h = CARD_H, title = 
   const t = WALLET_CARD_THEME[id] || WALLET_CARD_THEME.pid;
   const sil = embInner(id) || CARD_SIL.pid;
   const nm = DISPLAY_NAMES[id] || { ja: id, en: id };
+  // **券面では英名の括弧補足を落とす**（2026-08-23）。「Certificate of Residence (Juminhyo)」の
+  // 括弧は一覧やメタデータの `name` では他書類との区別に効くが、券面ではすぐ上に和名があるので
+  // 重複しているだけ。長さが右上のチップ（形式・状態）に迫るので、落とすと余白も稼げる。
+  // **スキーマ側の `display.en` は変えない**——あちらは補足が有用な場所で使われる。
+  const en = nm.en.replace(/\s*\([^)]*\)\s*$/, '');
   // **id はカードの種類でなく「呼び出しごと」に一意にする**（2026-08-23 に実機で発覚）。
   // 同じ券面が1ページに複数回インライン展開される——モバイル用のスタック（display:none）と
   // PC の一覧に同じカードが出る——ので、種類で採番すると **id が重複**する。HTML として不正で、
@@ -129,7 +134,7 @@ export function cardArtSvg(id, { inline = true, w = CARD_W, h = CARD_H, title = 
     <g fill="rgba(255,255,255,.10)" transform="translate(${CARD_W - 150} ${CARD_H - 150}) scale(6.2)">${sil}</g>
     <g ${emb} transform="translate(22 10) scale(${EM / 24})">${sil}</g>
     <text x="${22 + EM + 14}" y="33" ${jaS} font-size="${JA_SIZE}">${esc(nm.ja)}</text>
-    <text x="${22 + EM + 14}" y="54" ${enS} font-size="${EN_SIZE}">${esc(nm.en)}</text>
+    <text x="${22 + EM + 14}" y="54" ${enS} font-size="${EN_SIZE}">${esc(en)}</text>
     <text x="24" y="${CARD_H - 22}" ${isS}>DEMO VC ISSUER</text>`;
   const open = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${CARD_W} ${CARD_H}"`
     + (inline ? ` role="img" aria-label="${esc(label)}" preserveAspectRatio="xMidYMid slice"`
