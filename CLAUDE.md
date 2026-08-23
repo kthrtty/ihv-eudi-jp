@@ -87,6 +87,27 @@ OID4VCI 1.0 で発行し、OID4VP 1.0 + HAIP で提示する EUDI/ARF 流クレ�
 - **本番に対する失効テストで未発行の索引を叩かない**（同日実測）: 失効は不可逆で unrevoke API は無い。
   枠内の未使用 idx に立てたビットは、その索引がいずれ払い出されたとき**発行直後から失効している資格証**になる。
   戻すには `scripts/kv-versioned.mjs` で `_persist:state` を編集して put する（世代が残るので安全）
+- **Status List の `lst` は圧縮レベル9で作る**（2026-08-23・#36。実機 Multipaz で失効確認が全滅していた）。
+  効くのはサイズではなく **zlib ヘッダの2バイト目**。RFC 1950 の FLG は上位2ビットが FLEVEL で、
+  レベル 1→`7801` / 2-5→`785e` / **6(Node の既定)→`789c`** / 7-9→`78da` と変わる。
+  **draft-ietf-oauth-status-list §4.1 が発行側に「highest compression level available」を RECOMMENDED**
+  しているので、レベル9は回避策ではなく**仕様推奨に従うこと**（我々は既定の6のままだった）。
+  一方 **Multipaz の `zlibInflate()` はヘッダを `byteArrayOf(120,-38)`=`78da` と固定バイト比較**していて、
+  `789c` を `invalid compression (wrong header)` で弾く（上流バグ。同仕様の検証手順は
+  「ZLIB 互換の解凍器を使え」であってレベル指定ではない。**仕様中の例が全部 `78da` なのは
+  発行側が推奨に従った結果**で、これが誰にも気づかれなかった理由）。
+  **回帰はサイズでなくヘッダを pin する**——`789c` も RFC 1950 としては妥当なので、レベルを落としても
+  単体テストでは気づけず実機でしか出ない。回帰=test/status.test.mjs「lst の zlib ヘッダが 78da」。
+  上流へ報告済み: multipaz#1937/#1938（SDK）・multipaz-wallet#31/#32（表示）
+- **実機の文言から内部状態を逆算するときは、その文言に至る経路を全部数える**（同日・#36 で3時間溶かした）。
+  Multipaz の「No revocation list found」は `error == null` の UNKNOWN でしか出ないので
+  「取りに行く前に落ちている」と結論したが、**画面側が結果を受け取っていない**という2つ目の経路があった
+  （`ShowUserDefinedResult` が `ShowSource` へ `revocationCheckResult` を渡し忘れ・既定値 null で黙って通る）。
+  実際は取得も署名検証も通っていて解凍で落ちていた。**先に logcat を取るべきだった**——
+  Multipaz の `Logger.d` は `isDebugEnabled=false` で出ないが **`Logger.i` は既定で出る**
+  （`RevocationCheckResult: …` はこれ）。開発者設定に「Enable debug logging」と
+  「Clear revocation cache」があり、結果画面はタイトルをタップすると**生の MSO を出す
+  「Detailed response」**が開く（`Revocation info` に Format/URI/Index が出るので一発で切り分けられる）
 - **`.vcard` は `isolation:isolate` 必須**: 子チップが `z-index:1` のため、無いとホームのスタック（負マージン重なり）で
   下のカードのチップが上のカードを突き抜けて描画される（チップ消失/二重に見える）。状態チップは上段（top:44px）配置
 - **「Annex C 対応」は誇大だった（2026-07-09 判明→同日修正）**: `org-iso-mdoc` の data に本来の

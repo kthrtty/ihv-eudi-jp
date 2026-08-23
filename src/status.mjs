@@ -26,7 +26,12 @@ export const bitAt = (bytes, idx) => (bytes[idx >> 3] >> (idx & 7)) & 1;
 // 固定バイト比較している**（multipaz/util/Compression.kt）。既定レベルの `789c` は
 // `IllegalArgumentException: invalid compression (wrong header)` で弾かれ、
 // **失効確認が全滅していた**（Java の Deflater も Python の zlib も既定は `789c` なので
-// 我々に限った話ではない＝上流のバグ。ただしどのレベルも仕様準拠なので9で回避できる）。
+// 我々に限った話ではない＝上流のバグ。同仕様の検証手順も「DEFLATE/ZLIB 互換の解凍器を使え」
+// であってレベル指定ではない）。上流へ報告済み: multipaz#1937/#1938。
+// **なお9は回避策ではなく仕様推奨**——draft-ietf-oauth-status-list §4.1 は発行側に
+// 「Implementations are RECOMMENDED to use the highest compression level available」と
+// 書いており、既定の6のままだった我々がその SHOULD に従っていなかった
+// （仕様中の例が全部 `78da` なのも発行側が推奨に従った結果で、上流バグが露見しなかった理由）。
 // 実測でサイズは変わらない（65,536 ビットの全ゼロで 31 バイト）。
 // 回帰=test/status.test.mjs「lst の zlib ヘッダ」。
 export const compressList = (bits) => b64url(deflateSync(Buffer.from(packBits(bits)), { level: 9 }));
