@@ -641,6 +641,13 @@ DADS では意味が分かれるので**一括置換できない**。1件ずつ�
 - **和英名は `schemas/*.json` の `display` から引く**。`DISPLAY_NAMES` は `gen-schemas.mjs`
   にもあるが**あれは `node:fs` を import するので `src/` からは読めない**。スキーマ束は
   `issuer.mjs` が既に fs ゼロで import しており、生成器の出力そのものなので正本は1つのまま
+- **CSS のコメントにバックティックを書かない**（2026-08-23。`scripts/gen-cardart.mjs` に続き
+  `src/dads.mjs` でも踏んだ）。CSS はテンプレートリテラルの中にあるので、コメント内の
+  `` ` `` がリテラルを終端し、**「Unexpected identifier」という CSS と無関係な構文エラー**になる。
+  同じ理由で**コメント内の日本語は配信前に落とす**（`stripComments`）——インライン `<style>` は
+  HTML の本文になるので、UI に出る語を書くと本文一致のテストに引っかかる
+- **`summary` の `display` を変えない**（同日）。44px の当たり判定を取ろうとして `display:flex` に
+  したら `::marker`（▶）が消えた。既定の list-item のまま `min-height` と上下 padding で足りる
 - **SVG の `id` は「呼び出しごと」に一意にする**（2026-08-23 実機で発覚）。同じ券面が1ページに
   複数回インライン展開される——モバイル用スタック（`display:none`）と PC の一覧に同じカードが
   出る——ので、種類で採番すると **id が重複**する。HTML として不正で、`url(#…)` は文書順で

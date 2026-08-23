@@ -52,9 +52,17 @@ const probe = () => {
         weights[w] = (weights[w] || 0) + 1;
       }
     }
-    if (el.matches('a[href],button,input[type=radio],input[type=checkbox],summary')) {
+    // **DADS の 44px は「ボタンのターゲット領域」**の規定。文中のインラインリンクは
+    // 対象外（行の中に収まる必要があるので 44px にすると本文が崩れる）。
+    if (el.matches('button,input[type=radio],input[type=checkbox],summary')) {
+      // **当たり判定は「その要素」ではなく「押せる範囲」で測る**。ラジオ/チェックは
+      // 視覚寸法 24px のまま、それを包む <label> が 44px あればクリックは通る——
+      // DADS が示すのもその形。要素の矩形だけ見ると正しい実装を不合格にしてしまう。
+      const lab = el.closest('label') || el.parentElement;
       const r = el.getBoundingClientRect();
-      if (r.height > 0 && r.height < 44) taps.push(Math.round(r.height));
+      const lr = lab ? lab.getBoundingClientRect() : r;
+      const h = Math.max(r.height, (lab && lab.contains(el)) ? lr.height : 0);
+      if (h > 0 && h < 44) taps.push(Math.round(h));
     }
   }
   return { below, total, small, weights, taps: taps.length };

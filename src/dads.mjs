@@ -287,8 +287,17 @@ const DADS_OVERRIDE_SRC = `
      **横一列に並ぶチップ類にだけ**適用する。 */
   .vcs-chip,.seg3 button,.seg button,.mini,.wchip,.fmtb{min-height:44px}
   /* 円形の小さなアイコンボタンは寸法を変えられないので疑似要素で当たり判定を広げる */
-  .vcinfo,.dev-toggle{position:relative}
-  .vcinfo::after,.dev-toggle::after{content:"";position:absolute;left:50%;top:50%;
+  .dev-toggle{min-width:44px;min-height:44px}
+  /* 開閉トリガ（summary）も押すものなので 44px を確保する。
+     **display は変えない**——flex にすると ::marker（▶）が消える。
+     summary の既定は list-item で、min-height と上下 padding だけで 44px は満たせる。
+     （CSS コメント内にバックティックを書くとテンプレートリテラルが終端するので使わない） */
+  summary{min-height:44px;padding-block:10px}
+  /* ラジオ/チェックを包む行。**視覚寸法 24px のまま行を 44px** にするのが DADS の作法 */
+  label:has(>input[type=radio]),label:has(>input[type=checkbox]){
+    min-height:44px;display:flex;align-items:center;gap:12px}
+  .vcinfo{position:relative}
+  .vcinfo::after{content:"";position:absolute;left:50%;top:50%;
     width:44px;height:44px;transform:translate(-50%,-50%)}
 `;
 
