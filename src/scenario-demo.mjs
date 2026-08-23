@@ -50,22 +50,22 @@ function claimsTable(configId, claims) {
 
 const RESULT_CSS = `
   .okbig{color:var(--verify);font-weight:700;font-size:17px;margin:6px 0}
-  .ngbig{color:#9E3A3A;font-weight:700;font-size:17px;margin:6px 0}
+  .ngbig{color:var(--error-2);font-weight:700;font-size:17px;margin:6px 0}
   .ccard{border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-top:10px}
   .cchead{background:#f7f9fc;border-bottom:1px solid var(--line);font-size:12px;font-weight:700;padding:7px 12px}
   .ccard table.cl{margin:0}
   .lbl2{font-size:12px;color:var(--muted);font-weight:700}
   .checks{display:grid;gap:6px;margin-top:6px}.ck2{font-size:13px}
-  .cok{color:var(--verify);font-weight:700}.cng2{color:#9E3A3A;font-weight:700}
+  .cok{color:var(--verify);font-weight:700}.cng2{color:var(--error-2);font-weight:700}
   .mini2{font-size:12px;color:var(--verify)}
   .tech{margin-top:14px}.tech>summary{cursor:pointer;font-size:12px;color:var(--muted);font-weight:700}
   .json{background:#0E1A2B;color:#D7E0EE;border-radius:10px;padding:14px;font-size:11.5px;line-height:1.5;overflow:auto;max-height:340px;font-family:"IBM Plex Mono",monospace;white-space:pre;margin:8px 0}
   .navrow{display:flex;gap:10px;margin-top:18px}.navrow .btn{flex:1;text-align:center}
-  .btn.ghost{background:#fff;color:#9E3A3A;border:1px solid var(--line)}
+  .btn.ghost{background:#fff;color:var(--role-ink);border:1px solid var(--line)}
   .stepbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:10px 0 14px;font-size:12px;font-weight:700}
   .stepbar .sb{display:flex;align-items:center;gap:6px;padding:5px 12px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:#fff}
   .stepbar .sb.done{color:var(--verify);border-color:#CBE3DB;background:#F1F8F5}
-  .stepbar .sb.cur{color:#9E3A3A;border-color:#E7D6D6;background:#F6ECEC}
+  .stepbar .sb.cur{color:var(--role-ink);border-color:#E7D6D6;background:#F6ECEC}
   .stepbar .arr{color:var(--muted)}`;
 
 // step progress pill bar: 1 本人確認 → (2 EAA →) 受理. phase: 0=intro,
@@ -111,7 +111,7 @@ function stepActions(s, step, { txn1 = null, selftest = true } = {}) {
     <div id="msg"></div>
     <script>
       const esc2 = (x) => String(x).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
-      const msg = (m) => document.getElementById('msg').innerHTML = '<div class="hint" style="color:#9E3A3A">' + esc2(m) + '</div>';
+      const msg = (m) => document.getElementById('msg').innerHTML = '<div class="hint" style="color:var(--error-2)">' + esc2(m) + '</div>';
       async function build(target) {
         const d = await (await fetch('/vp/build', { method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ scenario: ${js(s.id)}, step: ${js(step)}, ${txn1 ? `linkTxn: ${js(txn1)},` : ''} target }) })).json();
@@ -170,10 +170,10 @@ export function renderScenarioHome(scenarios = []) {
       .stt{font-size:15.5px;font-weight:700}
       .stg{font-size:12.5px;color:var(--muted);line-height:1.55;flex:1}
       .sflow{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
-      .fpill{font-size:11px;font-weight:600;background:#F6ECEC;color:#9E3A3A;border:1px solid #E7D6D6;border-radius:999px;padding:2px 9px}
+      .fpill{font-size:11px;font-weight:600;background:#F6ECEC;color:var(--role-ink);border:1px solid #E7D6D6;border-radius:999px;padding:2px 9px}
       .fpill.ok{background:#F1F8F5;color:var(--verify);border-color:#CBE3DB}
       .farr{font-size:11px;color:var(--muted)}
-      .sgo{font-size:13px;font-weight:700;color:#9E3A3A;margin-top:2px}
+      .sgo{font-size:13px;font-weight:700;color:var(--role-ink);margin-top:2px}
     </style>`, SHELL_OPTS);
 }
 
@@ -237,7 +237,7 @@ export function renderScenarioStep1Done(s, txn1, result1, { selftest = false } =
   const okPid = !!result1?.valid;
   const doneBody = okPid
     ? `<div class="tok">✓ 本人確認が完了しました${pidName ? ` — ${esc(pidName)}様` : ''}</div>${claimsTable(firstCfg(pidSpec), r?.claims)}`
-    : `<div class="tng">✗ 本人確認ができませんでした</div><div class="hint" style="color:#9E3A3A">${esc((result1?.errors || []).join('; '))}</div>`;
+    : `<div class="tng">✗ 本人確認ができませんでした</div><div class="hint" style="color:var(--error-2)">${esc((result1?.errors || []).join('; '))}</div>`;
   const nodes = [
     tStep({
       num: 1, state: okPid ? 'done' : 'cur', emb: specEmblem(pidSpec),
@@ -274,7 +274,7 @@ const TL_CSS = `
   .tstep{position:relative;padding:2px 0 20px}
   .tstep:last-child{padding-bottom:4px}
   .tnum{position:absolute;left:-33px;top:2px;width:24px;height:24px;border-radius:50%;background:#CBD5E1;color:#fff;font-size:11.5px;font-weight:800;display:flex;align-items:center;justify-content:center}
-  .tstep.cur .tnum{background:#9E3A3A;box-shadow:0 0 0 4px #F6ECEC}
+  .tstep.cur .tnum{background:var(--role-ink);box-shadow:0 0 0 4px #F6ECEC}
   .tstep.done .tnum{background:#0E8A6B}
   .tttl{font-size:13.5px;font-weight:700;line-height:1.5}
   .tstep.todo .tttl{color:var(--muted)}
@@ -291,15 +291,15 @@ const TL_CSS = `
   .tstep.todo .tbody{background:#FAFBFD}
   .tlock{font-size:11.5px;color:var(--muted);margin-top:8px}
   .tok{color:var(--verify);font-weight:700;font-size:13.5px;margin:2px 0 6px}
-  .tng{color:#9E3A3A;font-weight:700;font-size:13.5px;margin:2px 0 6px}
+  .tng{color:var(--error-2);font-weight:700;font-size:13.5px;margin:2px 0 6px}
   .cpills{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
   .cpill{font-size:12px;border-radius:999px;padding:3px 11px}
-  .cpill.req{background:#F6ECEC;color:#9E3A3A;border:1px solid #E7D6D6}
+  .cpill.req{background:#F6ECEC;color:var(--role-ink);border:1px solid #E7D6D6}
   .cpill.opt{background:#fff;color:var(--muted);border:1px dashed var(--line)}
   .mini2{font-size:12px;color:var(--verify)}
   .warn2{font-size:12px;color:#8a6d1a;background:#FCF7E8;border:1px solid #EFE2B8;border-radius:9px;padding:8px 12px;margin:6px 0 2px}
   .actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
-  .btn.ghost{background:#fff;color:#9E3A3A;border:1px solid var(--line)}
+  .btn.ghost{background:#fff;color:var(--role-ink);border:1px solid var(--line)}
   .alt{margin-top:12px}.alt>summary{cursor:pointer;font-size:12px;color:var(--muted);font-weight:700}
 `;
 

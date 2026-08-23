@@ -21,6 +21,10 @@ const dispName = (configId) => {
   return d?.name || configId;
 };
 
+// DADS ドラフト適用（design/dads）: 既存 CSS の後ろに DADS 基盤+上書き層を重ねる。
+// 本採用後は既存 CSS 側を畳んでいき、この import が正本になる。
+import { DADS_CSS, DADS_OVERRIDE, DADS_FONTS } from './dads.mjs';
+
 const CSS = `
   :root{--ink:#0E1A2B;--paper:#EFF2F7;--surface:#fff;--civic:#1C3F94;--civic-press:#15306F;
     --seal:#C8453C;--seal-soft:#f4ddd9;--verify:#0E8A6B;--line:#DCE3ED;--muted:#5B6B82}
@@ -111,7 +115,7 @@ const CSS = `
   /* 顔写真クレーム（portrait）のサムネイル表示。3ロール共通 */
   .pimg{width:64px;height:85px;object-fit:cover;border-radius:6px;border:1px solid rgba(0,0,0,.14);background:#E9EDF3;display:block}
 `;
-const FONTS = '<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">';
+const FONTS = DADS_FONTS;
 
 // ---- wallet card visual system (shared by the web wallet + issuer consent) ----
 // 8 documents × Japanese-palette gradients: c1→c2 base, c3 = top-right glow.
@@ -253,7 +257,7 @@ export const shell = (title, body, { brand = 'デジタル資格証発行ポー�
   const cls = width === 'wide' ? 'wrap wide' : width === 'mid' ? 'wrap mid' : 'wrap';
   const roleBadge = `<span class="role">${role === 'verifier' ? 'Verifier' : role === 'wallet' ? 'Wallet' : 'Issuer'}</span>`;
   const right = dev ? `<span class="dev-hdr-right">${devToggleHtml()}${roleBadge}</span>` : roleBadge;
-  return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${roleHead(role, title)}${FONTS}<style>${CSS}</style></head>
+  return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${roleHead(role, title)}${FONTS}<style>${CSS}${DADS_CSS}${DADS_OVERRIDE}</style></head>
 <body class="role-${role}">${SENTINEL}<div class="topwrap"><header class="top ${role}"><span class="tag"></span><a class="brandlink" href="/"><b>${esc(brand)}</b><small>${esc(sub)}</small></a>${right}</header>${DEMO_BAND}</div><div class="${cls}">${body}</div>${dev ? devWidgetHtml() : ''}${STICKY_JS}</body></html>`;
 };
 
@@ -461,7 +465,7 @@ export function appShell(title, body, user = null, { width = 'narrow', dev = tru
   const cls = width === 'wide' ? 'wrap wide' : width === 'mid' ? 'wrap mid' : 'wrap';
   return `<!doctype html><html lang="ja"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-    ${roleHead('issuer', `${title} — IHV 発行ポータル`)}${FONTS}<style>${CSS}</style>
+    ${roleHead('issuer', `${title} — IHV 発行ポータル`)}${FONTS}<style>${CSS}${DADS_CSS}${DADS_OVERRIDE}</style>
   </head><body class="role-issuer" style="background:var(--paper);min-height:100vh">
     ${SENTINEL}<div class="topwrap">${appHeaderHtml(user, dev)}${DEMO_BAND}</div><div class="${cls}">${body}</div>${dev ? devWidgetHtml('', { endpoints: true }) : ''}${STICKY_JS}
   </body></html>`;
@@ -512,7 +516,7 @@ export function adminShell(title, body, staff = null, { width = 'wide' } = {}) {
   const cls = width === 'wide' ? 'wrap wide' : width === 'mid' ? 'wrap mid' : 'wrap';
   return `<!doctype html><html lang="ja"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-    ${roleHead('admin', `${title} — 交付申請 審査システム`)}${FONTS}<style>${CSS}</style>
+    ${roleHead('admin', `${title} — 交付申請 審査システム`)}${FONTS}<style>${CSS}${DADS_CSS}${DADS_OVERRIDE}</style>
   </head><body class="role-admin" style="background:var(--paper);min-height:100vh">
     ${SENTINEL}<div class="topwrap">${adminHeaderHtml(staff)}${DEMO_BAND}</div><div class="${cls}">${body}</div>${STICKY_JS}
   </body></html>`;

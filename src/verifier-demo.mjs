@@ -192,7 +192,7 @@ export function renderVerifyConsole(groups = []) {
       function reset() { $('reqbox').classList.add('hidden'); $('result').innerHTML = ''; built = null; }
       // Escape BEFORE any innerHTML: claim values come from an external wallet
       // (untrusted input on the native DC API path) and errors may echo them.
-      function err(m) { $('result').innerHTML = '<div class="hint" style="color:#9E3A3A">'+esc(m)+'</div>'; }
+      function err(m) { $('result').innerHTML = '<div class="hint" style="color:var(--error-2)">'+esc(m)+'</div>'; }
 
       claimsEl.addEventListener('click', (e) => {
         const b = e.target.closest('.seg3 button'); if (!b) return;
@@ -298,13 +298,13 @@ export function renderVerifyConsole(groups = []) {
         const checks = CHECKS.map((l) => '<div class="ck2"><span class="'+(d.valid?'cok':'cng')+'">'+(d.valid?'✓':'—')+'</span> '+l+'</div>').join('');
         $('result').innerHTML =
           '<div class="eyebrow" style="margin-top:6px">検証結果（VC 受領後）</div>'+
-          (d.valid ? '<div class="ok">✓ 提示を受領・検証しました</div>' : '<div style="color:#9E3A3A;font-weight:700">✗ 検証に失敗しました</div>')+
+          (d.valid ? '<div class="ok">✓ 提示を受領・検証しました</div>' : '<div style="color:var(--error-2);font-weight:700">✗ 検証に失敗しました</div>')+
           '<div class="checks">'+checks+'</div>'+
           (d.sameHolderAcrossCreds != null ? '<div class="ck2"><span class="'+(d.sameHolderAcrossCreds?'cok':'cng')+'">'+(d.sameHolderAcrossCreds?'✓':'✗')+'</span> 複数クレデンシャルが同一ウォレット鍵にバインド</div>' : '')+
           '<div class="muted" style="font-size:12px;margin:12px 0 4px">開示されたクレーム（要求した項目のみ）</div>'+
           '<table class="cl">'+rows+'</table>'+
           (holder ? '<div class="hint mono" style="font-size:11px">holder: '+esc(String(holder).slice(0,40))+'…</div>' : '')+
-          (d.errors && d.errors.length ? '<div class="hint" style="color:#9E3A3A">'+esc(d.errors.join('; '))+'</div>' : '');
+          (d.errors && d.errors.length ? '<div class="hint" style="color:var(--error-2)">'+esc(d.errors.join('; '))+'</div>' : '');
       }
 
       (async () => {
@@ -399,10 +399,10 @@ export function renderWebVerifyResult(result) {
   return shell('検証結果', `
     <div class="card">
       <div class="step">OID4VP リダイレクト · 検証結果</div>
-      ${ok ? '<div class="ok">✓ Web ウォレットからの提示を検証しました</div>' : '<div style="color:#9E3A3A;font-weight:700">✗ 検証に失敗しました</div>'}
+      ${ok ? '<div class="ok">✓ Web ウォレットからの提示を検証しました</div>' : '<div style="color:var(--error-2);font-weight:700">✗ 検証に失敗しました</div>'}
       <div class="checks">${checks}</div>
       ${vpSeg(kvHtml, rawPanels(raws))}
-      ${result?.errors?.length ? `<div class="hint" style="color:#9E3A3A">${escj(result.errors.join('; '))}</div>` : ''}
+      ${result?.errors?.length ? `<div class="hint" style="color:var(--error-2)">${escj(result.errors.join('; '))}</div>` : ''}
       <div class="navrow">
         <a class="btn ghost" href="/verifier">検証ポータルトップへ</a>
         <a class="btn ghost" href="/verifier/history">提示履歴を見る</a>
@@ -514,7 +514,7 @@ export function renderVerifyHistory(entries = [], { page = 1, per = 10 } = {}) {
         <div class="hk">提示されたデジタル資格証</div>
         <div class="hcreds">${credLine(e.creds)}</div>
         ${vpSeg(claimsBlock(e), rawPanels(e.raws || []))}
-        ${e.errors?.length ? `<div class="hint" style="color:#9E3A3A;margin-top:8px">${esc(e.errors.join('; '))}</div>` : ''}
+        ${e.errors?.length ? `<div class="hint" style="color:var(--error-2);margin-top:8px">${esc(e.errors.join('; '))}</div>` : ''}
       </div>
     </div>`;
   const body = slice.length
@@ -534,7 +534,7 @@ export function renderVerifyHistory(entries = [], { page = 1, per = 10 } = {}) {
     .hcard{border:1px solid var(--line);border-radius:12px;margin-top:10px;overflow:hidden}
     .hh{display:flex;align-items:center;gap:9px;padding:10px 14px;background:#f7f9fc;border-bottom:1px solid var(--line)}
     .badge{font-size:12px;font-weight:700;border-radius:999px;padding:2px 10px}
-    .bok{background:#E7F3EE;color:var(--verify)}.bng{background:#FBE9E7;color:#9E3A3A}
+    .bok{background:#E7F3EE;color:var(--verify)}.bng{background:#FBE9E7;color:var(--error-2)}
     .via{font-size:12px;color:var(--muted)}.at{font-size:12px;color:var(--muted);margin-left:auto}
     .hbody{padding:12px 14px}.hk{font-size:11px;color:var(--muted);margin-bottom:4px}
     .hcreds{display:flex;flex-wrap:wrap;gap:4px}
