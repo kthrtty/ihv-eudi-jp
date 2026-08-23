@@ -21,7 +21,16 @@ const issuer = serve({ fetch: createApp({ credentialIssuer: ISSUER, walletOrigin
 const wallet = serve({ fetch: createWalletApp({ walletOrigin: WALLET, issuerUrl: ISSUER }).fetch, port: WPORT });
 const verif = serve({ fetch: createVerifierApp({ verifierOrigin: VERIF, walletOrigin: WALLET, issuerUrl: ISSUER }).fetch, port: VPORT });
 
-const settle = async (p) => { try { await p.evaluate(() => document.fonts.ready); } catch {} await p.waitForTimeout(800); };
+// **閉じているシートを撮らない**（2026-08-23）。`.psheet` は position:fixed で、閉状態は
+// 画面外へ transform で逃がしてあるだけ。`fullPage` は撮影のためにビューポートを広げるので、
+// **利用者には見えていないシートが紙面の中ほどに写り込む**。プレビューとオファーの2枚が
+// 重なって写り「ウォレットに入る姿が見切れている」ように見えた——製品ではなく撮影の問題。
+const HIDE_CLOSED = `.psheet[aria-hidden="true"],.psheet-scrim{display:none!important}`;
+const settle = async (p) => {
+  try { await p.evaluate(() => document.fonts.ready); } catch {}
+  await p.addStyleTag({ content: HIDE_CLOSED }).catch(() => {});
+  await p.waitForTimeout(800);
+};
 const shot = (p, n) => p.screenshot({ path: out + n, fullPage: true });
 const done = [];
 const step = async (n, fn) => {
