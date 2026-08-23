@@ -24,6 +24,7 @@ const dispName = (configId) => {
 // DADS ドラフト適用（design/dads）: 既存 CSS の後ろに DADS 基盤+上書き層を重ねる。
 // 本採用後は既存 CSS 側を畳んでいき、この import が正本になる。
 import { DADS_CSS, DADS_OVERRIDE, DADS_FONTS } from './dads.mjs';
+import { WALLET_CARD_THEME, CARD_SIL, embInner, cardArtSvg } from './cardart.mjs';
 
 const CSS = `
   :root{--ink:#0E1A2B;--paper:#EFF2F7;--surface:#fff;--civic:#1C3F94;--civic-press:#15306F;
@@ -117,25 +118,18 @@ const CSS = `
 `;
 const FONTS = DADS_FONTS;
 
-// ---- wallet card visual system (shared by the web wallet + issuer consent) ----
-// 8 documents × Japanese-palette gradients: c1→c2 base, c3 = top-right glow.
-export const WALLET_CARD_THEME = {
-  pid: { c1: '#2B3A8F', c2: '#1A2565', c3: '#7C6FE0' },          // 紺+菖蒲
-  juminhyo: { c1: '#00796B', c2: '#004D40', c3: '#66D9C4' },     // 深緑+若竹
-  qualification: { c1: '#7B1FA2', c2: '#4A0E7A', c3: '#CE93D8' },// 紫+藤
-  koseki: { c1: '#5D4037', c2: '#3E2723', c3: '#C9A227' },       // 焦茶+金茶
-  tax: { c1: '#2E7D32', c2: '#124D18', c3: '#9CCC65' },          // 緑+若葉
-  single: { c1: '#AD1457', c2: '#7B0F3E', c3: '#F48FB1' },       // 茜+撫子
-  disaster: { c1: '#D84315', c2: '#93290A', c3: '#FFB74D' },     // 柿
-  vaccine: { c1: '#0277BD', c2: '#014377', c3: '#4FC3F7' },      // 空
-  // 山吹（金茶）— 現行8色に黄系が無く、住民票の深緑・課税の緑・罹災の柿のいずれとも
-  // スウォッチ列で判別できる。錆浅葱は住民票と同系に見えたため 2026-07-27 に差し替え
-  island: { c1: '#C97A00', c2: '#7A4200', c3: '#FFD54F' },        // 山吹
-};
+// 券面の意匠は src/cardart.mjs が正本（Web のインライン SVG と Multipaz へ渡す
+// メタデータ画像を同じ1つの SVG から作る）。ここは従来どおりの import 先を保つための再輸出。
+export { WALLET_CARD_THEME, CARD_SIL, embInner, cardArtSvg, DISPLAY_NAMES } from './cardart.mjs';
 // Material 3 face (2026-07-07 協議で選定): 和色グラデは維持しつつ青海波を廃し、
 // ::after=ホログラム虹彩（IDカードのセキュリティホログラム風の極薄conic）+
 // ::before=hoverで横切る光スイープ。角丸16px・M3 elevationトークン・チップはM3(角丸8px)。
 export const walletCardCss = () => `
+  /* 券面は cardArtSvg をインラインで敷く。CSS グラデーションは廃止（意匠の正本は SVG 側）。
+     背景色は SVG が持つが、--c1 は読み込み前の下地として残す（白い矩形が一瞬見えるのを防ぐ）。 */
+  .vface{position:absolute;inset:0;border-radius:16px;overflow:hidden;display:block;z-index:0}
+  .vface svg{width:100%;height:100%;display:block}
+
   .vcard{position:relative;isolation:isolate;display:block;width:100%;max-width:420px;margin:0 auto;aspect-ratio:1.586;border-radius:16px;padding:18px 20px;box-sizing:border-box;color:#fff;text-decoration:none;
     box-shadow:0 1px 2px rgba(0,0,0,.3),0 1px 3px 1px rgba(0,0,0,.15);
     background:radial-gradient(120% 90% at 88% -12%,var(--c3) 0%,transparent 55%),radial-gradient(90% 130% at -8% 112%,rgba(255,255,255,.16) 0%,transparent 50%),linear-gradient(135deg,var(--c1) 0%,var(--c2) 100%);
@@ -167,39 +161,6 @@ export const walletCardCss = () => `
   .vpeek .vcard{-webkit-mask-image:linear-gradient(180deg,#000 30%,transparent 96%);mask-image:linear-gradient(180deg,#000 30%,transparent 96%);box-shadow:none}
 `;
 
-// カード面の行頭エンブレム（案E1 浮き彫り）用の単色シルエット。8種＋fallback。
-export const CARD_SIL = {
-  pid: `<path d="M3 5.5h18c.6 0 1 .4 1 1v11c0 .6-.4 1-1 1H3c-.6 0-1-.4-1-1v-11c0-.6.4-1 1-1zM7 9a2.2 2.2 0 100 4.4A2.2 2.2 0 007 9zm6 .3h6V11h-6zm0 3h5v1.6h-5zM5 15.6h8v1.6H5z"/>`,
-  juminhyo: `<path d="M12 3 2 11.2h3V20h5v-5.5h4V20h5v-8.8h3z"/>`,
-  qualification: `<path d="M12 4 1 9l11 5 9-4.1V15.5h1.8V9zM4.5 12.4v3.1C4.5 17.3 8 18.6 12 18.6s7.5-1.3 7.5-3.1v-3.1L12 15.8z"/>`,
-  koseki: `<path d="M6 3h8l4 4v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm2 7h8v1.6H8zm0 3.2h8v1.6H8zm0 3.2h5v1.6H8z"/>`,
-  tax: `<path d="M6 2l1.5 1.2L9 2l1.5 1.2L12 2l1.5 1.2L15 2l1.5 1.2L18 2v18l-1.5-1.2L15 20l-1.5 1.2L12 20l-1.5-1.2L9 20l-1.5 1.2L6 22zm2.5 5h7v1.6h-7zm0 3.2h7v1.6h-7zm0 3.2h4.5v1.6H8.5z"/>`,
-  single: `<path d="M12 8.2a4.4 4.4 0 100 8.8 4.4 4.4 0 000-8.8zm0 1.8a2.6 2.6 0 110 5.2 2.6 2.6 0 010-5.2zM9.6 2h4.8l1.3 3.1-3.7 2.3L8.3 5.1z"/>`,
-  disaster: `<path d="M12 3 2 11h3v9h6.2l-1.3-3 2.6-2-2-2.4 2.5-1.8V20h6v-9h3z"/>`,
-  // 離島割引資格証: 島影（大小の丘）＋波。飛行機にすると「搭乗券」に見えてしまうので島にした
-  island: `<path d="M12 4.2c-4.9 0-8.9 3.9-9.9 9h19.8c-1-5.1-5-9-9.9-9z"/><path d="M2 16.3c1.67 0 1.67 1.3 3.33 1.3S7 16.3 8.67 16.3s1.66 1.3 3.33 1.3 1.67-1.3 3.33-1.3 1.67 1.3 3.34 1.3S20.33 16.3 22 16.3v2.1c-1.67 0-1.67 1.3-3.33 1.3s-1.67-1.3-3.34-1.3-1.66 1.3-3.33 1.3-1.67-1.3-3.33-1.3S7 19.7 5.33 19.7 3.67 18.4 2 18.4z"/>`,
-  vaccine: `<g transform="rotate(-40 12 12)"><rect x="1.6" y="11.25" width="6" height="1.5" rx=".2"/><rect x="7.4" y="7.8" width="1.7" height="8.4" rx=".4"/><rect x="9" y="9" width="7.6" height="6" rx=".7"/><rect x="11" y="9.3" width="1" height="1.6"/><rect x="12.8" y="9.3" width="1" height="1.6"/><rect x="14.6" y="9.3" width="1" height="1.6"/><rect x="16.4" y="6.6" width="1.9" height="10.8" rx=".4"/><rect x="18.3" y="10.8" width="2.2" height="2.4"/><rect x="20.2" y="8.6" width="1.8" height="6.8" rx=".4"/></g>`,
-};
-// シルエットの視覚中心・大きさを 24×24 枠に合わせる微調整（bbox のズレ/小ささ補正）。
-// swatch と券面エンボスの両方に効かせ、全面で同じ位置・比率に見せる。
-//   dx/dy=平行移動, s=中心(cx,cy)まわりの拡大。single は指輪が細身で小さく見えるため拡大。
-const CARD_SIL_ADJ = {
-  single: { s: 1.22, cx: 12, cy: 11, dy: 2 },
-  koseki: { dx: 0.8 },
-};
-// **位置補正込みの字形**。issuer カタログの紋章と券面画像（scripts/gen-cardart.mjs）で
-// 同じものを使う——補正を片方だけに掛けると、同じ資格証なのに紋章の位置がずれる
-export function embInner(type) {
-  const p = CARD_SIL[type];
-  if (!p) return '';
-  const a = CARD_SIL_ADJ[type];
-  if (!a) return p;
-  const dx = a.dx || 0, dy = a.dy || 0, s = a.s || 1, cx = a.cx ?? 12, cy = a.cy ?? 12;
-  const parts = [];
-  if (dx || dy) parts.push(`translate(${dx} ${dy})`);
-  if (s !== 1) parts.push(`translate(${cx} ${cy}) scale(${s}) translate(${-cx} ${-cy})`);
-  return `<g transform="${parts.join(' ')}">${p}</g>`;
-}
 export function cardEmblemHtml(type) {
   const inner = embInner(type);
   return inner ? `<span class="vemb"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${inner}</svg></span>` : '';
@@ -223,11 +184,15 @@ export function swatchEmblemCss() {
 export function vcardHtml(type, { title, sub = '', fmt = '', issuer = 'デジタル資格証発行ポータル', status = '有効', revoked = false, unknown = false, href = '', style = '' } = {}) {
   const t = WALLET_CARD_THEME[type] || WALLET_CARD_THEME.pid;
   const tag = href ? 'a' : 'div';
+  // **券面そのものは `cardArtSvg` をインラインで敷く**——Multipaz へ渡すメタデータ画像と
+  // 同じ意匠を、Web では画像化せず SVG のまま出す（どの寸法でも滲まない・JPEG の 1/5 の
+  // バイト数・意匠の正本が1つになる）。書類名／英名／DEMO VC ISSUER は SVG が持つので
+  // HTML 側には重ねない（重ねると二重に見える。Multipaz が既定券面で踏んだのと同じ罠）。
+  // HTML に残すのは**動くもの＝形式チップと状態チップだけ**。これらはメタデータ画像には
+  // 焼けない（失効状態は発行後に変わる）。
   return `<${tag} ${href ? `href="${esc(href)}"` : ''} class="vcard" style="--c1:${t.c1};--c2:${t.c2};--c3:${t.c3};${style}">
-    ${cardEmblemHtml(type)}
-    <div class="vt">${esc(title)}</div>${sub ? `<div class="vs">${esc(sub)}</div>` : ''}
+    <span class="vface">${cardArtSvg(type, { title: `${title}${sub ? `（${sub}）` : ''}` })}</span>
     ${fmt ? `<span class="vfmt">${esc(fmt)}</span>` : ''}
-    <span class="viss">${esc(issuer)}</span>
     <span class="vst${revoked ? ' revoked' : unknown ? ' na' : ''}">${esc(status)}</span>
   </${tag}>`;
 }
