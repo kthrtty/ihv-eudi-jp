@@ -346,7 +346,7 @@ export function renderVerifyConsole(groups = []) {
       .seg3{display:flex;gap:3px;background:#eef2f1;border:1px solid var(--line);border-radius:9px;padding:3px;flex:none}
       .seg3 button{font:inherit;font-size:11.5px;font-weight:700;padding:5px 9px;border:none;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer}
       .seg3 button[data-v="req"].on{background:var(--civic);color:#fff}
-      .seg3 button[data-v="opt"].on{background:#E8F2EF;color:#246154;box-shadow:inset 0 0 0 1px #D2E5DF}
+      .seg3 button[data-v="opt"].on{background:var(--role-tint);color:var(--role-ink);box-shadow:inset 0 0 0 1px #D2E5DF}
       .seg3 button[data-v="off"].on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(14,26,43,.12)}
       .actions{display:flex;gap:8px;margin-top:16px}
       .dbg{color:var(--muted);font-size:12.5px}

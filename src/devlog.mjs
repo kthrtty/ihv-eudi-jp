@@ -226,7 +226,7 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
   .dev-drawer.mini{height:46px !important;overflow:hidden}
   .dev-drawer.mini .dev-grip,.dev-drawer.mini .dev-dh,.dev-drawer.mini .dev-tabs,.dev-drawer.mini .dev-pane{display:none}
   .dev-drawer.mini .dev-minibar{display:flex;align-items:center;gap:9px;padding:0 16px;height:46px;font-family:ui-monospace,monospace;font-size:12px;cursor:pointer}
-  .dev-minibar .mb-ic{color:#0E8A6B;font-weight:800}
+  .dev-minibar .mb-ic{color:var(--success-2);font-weight:800}
   .dev-minibar .mb-hint{margin-left:auto;color:var(--muted,#5B6B82);font-size:13px;line-height:1}
   .dev-minibar .mb-x{border:0;background:none;font-size:16px;color:var(--muted,#5B6B82);cursor:pointer;padding:0 0 0 4px}
   .dev-minibar .dev-ep{flex:0 1 auto}
@@ -248,7 +248,7 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
   .dev-ep-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .dev-ep-path{font-family:ui-monospace,monospace;font-size:12px;color:#0E1A2B}
   .dev-ep-desc{font-size:11px;color:var(--muted,#5B6B82);margin-top:5px}
-  .dev-ep-go{margin-left:auto;font-size:11px;font-weight:700;color:#1C3F94;cursor:pointer;text-decoration:none}
+  .dev-ep-go{margin-left:auto;font-size:11px;font-weight:700;color:var(--key-900);cursor:pointer;text-decoration:none}
   .dev-ep-sub{font-family:ui-monospace,monospace;font-size:11px;color:#0E1A2B;margin-top:4px}
   /* grp ごとの見出し。1本目の前だけ上余白を詰める */
   .dev-ep-h{font-size:11px;font-weight:800;color:#0E1A2B;margin:16px 0 2px;letter-spacing:.02em}
@@ -269,13 +269,13 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
   .dev-tl{border-left:2px solid var(--line,#E3E8EF);padding-left:14px;margin-left:9px}
   .dev-step{position:relative;padding:4px 0 12px}
   .dev-num{position:absolute;left:-25px;top:4px;width:20px;height:20px;border-radius:50%;background:#cfd8e3;color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center}
-  .dev-step.open .dev-num{background:#2E7D6B}
+  .dev-step.open .dev-num{background:var(--role-ink)}
   .dev-head{display:flex;align-items:center;gap:8px;padding:7px 9px;background:#f7f9fc;border:1px solid var(--line,#E3E8EF);border-radius:9px;cursor:pointer}
-  .dev-dir{font-weight:800;font-size:13px}.dev-dir.out{color:#2E7D6B}.dev-dir.in{color:#9E3A3A}
+  .dev-dir{font-weight:800;font-size:13px}.dev-dir.out{color:var(--role-ink)}.dev-dir.in{color:var(--role-ink)}
   /* メソッドチップ: inline-flex 中央揃え + min-width で GET/POST の箱幅と文字位置を揃える */
   .dev-mp{display:inline-flex;align-items:center;justify-content:center;min-width:42px;flex:none;font-size:10px;font-weight:800;line-height:1;border-radius:5px;padding:4px 7px;box-sizing:border-box;color:#fff;background:#7A52A8}.dev-mp.GET{background:#3B6EA5}
   .dev-ep{font-family:ui-monospace,monospace;font-size:11px;color:#0E1A2B;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .dev-st{display:inline-flex;align-items:center;flex:none;font-size:10px;font-weight:800;line-height:1;border-radius:999px;padding:4px 8px;background:#E7F3EE;color:#1f7a52}.dev-st.s4,.dev-st.s5{background:#FBE9E7;color:#9E3A3A}
+  .dev-st{display:inline-flex;align-items:center;flex:none;font-size:10px;font-weight:800;line-height:1;border-radius:999px;padding:4px 8px;background:#E7F3EE;color:#1f7a52}.dev-st.s4,.dev-st.s5{background:#FBE9E7;color:var(--error-2)}
   .dev-grp{font-size:10px;color:var(--muted,#5B6B82)}
   .dev-ts{font-size:10px;color:var(--muted,#5B6B82);font-family:ui-monospace,monospace;white-space:nowrap;flex:none}
   /* ボディバイト数: 行=レスポンスサイズ（.dev-hsz）・詳細=節見出しの ↑/↓ チップ（.dev-bytes） */
@@ -287,7 +287,7 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
   .dev-sect{font-size:11.5px;font-weight:800;margin:10px 0 4px}
   .dev-blab{font-size:11px;font-weight:700;color:var(--muted,#5B6B82);margin:8px 0 0}
   .dev-code{background:#0E1A2B;color:#cfe6dd;border-radius:9px;padding:9px 11px;margin:4px 0 0;font-family:ui-monospace,monospace;font-size:10px;line-height:1.5;white-space:pre-wrap;word-break:break-all;overflow:auto;max-height:240px}
-  .dev-fold>summary{font-size:11px;font-weight:700;color:#2E7D6B;cursor:pointer;list-style:none;margin-top:4px}
+  .dev-fold>summary{font-size:11px;font-weight:700;color:var(--role-ink);cursor:pointer;list-style:none;margin-top:4px}
   .dev-fold>summary::-webkit-details-marker{display:none}
   .dev-hdrs{border:1px solid var(--line,#E3E8EF);border-radius:8px;overflow:hidden;margin-top:5px}
   .dev-hrow{display:flex;font-size:11px;border-bottom:1px solid #eef2f6}.dev-hrow:last-child{border-bottom:none}
@@ -298,8 +298,8 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
   .dev-url{font-family:ui-monospace,monospace;font-size:10.5px;background:#f7f9fc;border:1px solid var(--line,#E3E8EF);border-radius:8px;padding:8px 10px;line-height:1.6;color:#0E1A2B;word-break:break-all;max-height:84px;overflow-y:auto;overscroll-behavior:contain;margin-top:2px}
   .dev-url .qs{color:#7A52A8}
   .dev-url::-webkit-scrollbar{width:6px}.dev-url::-webkit-scrollbar-thumb{background:#C6D0DC;border-radius:3px}
-  .dev-copy{font:inherit;font-size:10px;font-weight:700;border:1px solid var(--line,#E3E8EF);border-radius:6px;background:#fff;color:#2E7D6B;padding:2px 8px;cursor:pointer}
-  .dev-copy.ok{color:#fff;background:#2E7D6B;border-color:#2E7D6B}
+  .dev-copy{font:inherit;font-size:10px;font-weight:700;border:1px solid var(--line,#E3E8EF);border-radius:6px;background:#fff;color:var(--role-ink);padding:2px 8px;cursor:pointer}
+  .dev-copy.ok{color:#fff;background:var(--role-ink);border-color:var(--role-ink)}
 </style>
 <script>
 (function(){

@@ -275,7 +275,7 @@ const TL_CSS = `
   .tstep:last-child{padding-bottom:4px}
   .tnum{position:absolute;left:-33px;top:2px;width:24px;height:24px;border-radius:50%;background:#CBD5E1;color:#fff;font-size:11.5px;font-weight:800;display:flex;align-items:center;justify-content:center}
   .tstep.cur .tnum{background:var(--role-ink);box-shadow:0 0 0 4px #F6ECEC}
-  .tstep.done .tnum{background:#0E8A6B}
+  .tstep.done .tnum{background:var(--success-2)}
   .tttl{font-size:13.5px;font-weight:700;line-height:1.5}
   .tstep.todo .tttl{color:var(--muted)}
   /* 提案A: ステップタイトル左の券面和色エンボス（何の資格証を要求するステップか一目で） */

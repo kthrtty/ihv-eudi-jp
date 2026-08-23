@@ -109,6 +109,10 @@ export const DADS_TOKENS = `
     --sp1:8px;--sp2:16px;--sp3:24px;--sp5:40px;--sp8:64px;
     /* --- 役割色（既定=issuer） --- */
     --role-ink:#0017c1;--role-tint:#e8f1fe;--role-line:#c5d7fb;
+    /* 他サイトの役割色を名指しするための別名。**他の主体を指すとき**に使う——
+       ウォレットの提示同意で相手（検証者）を表す、開発者コンソールで発行者宛の通信を
+       色分けする、など。--role-ink は「いま自分がいるサイト」なので流用できない。 */
+    --ink-issuer:#0017c1;--ink-verifier:#8b008b;--ink-wallet:#006173;--ink-admin:#41048e;
   }
   body.role-issuer  {--role-ink:#0017c1;--role-tint:#e8f1fe;--role-line:#c5d7fb}
   body.role-verifier{--role-ink:#8b008b;--role-tint:#f3e5f4;--role-line:#ffaeff}

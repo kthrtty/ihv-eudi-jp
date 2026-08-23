@@ -27,18 +27,18 @@ import { DADS_CSS, DADS_OVERRIDE, DADS_FONTS } from './dads.mjs';
 import { WALLET_CARD_THEME, CARD_SIL, embInner, cardArtSvg } from './cardart.mjs';
 
 const CSS = `
-  :root{--ink:#0E1A2B;--paper:#EFF2F7;--surface:#fff;--civic:#1C3F94;--civic-press:#15306F;
-    --seal:#C8453C;--seal-soft:#f4ddd9;--verify:#0E8A6B;--line:#DCE3ED;--muted:#5B6B82}
+  :root{--ink:#0E1A2B;--paper:#EFF2F7;--surface:#fff;--civic:var(--ink-issuer);--civic-press:var(--key-1000);
+    --seal:#C8453C;--seal-soft:#f4ddd9;--verify:var(--success-2);--line:#DCE3ED;--muted:#5B6B82}
   /* role theming: each site's header tint / accents / primary buttons follow its
      role colour (issuer=blue is the :root default; verifier/wallet override
      --civic so every accent that uses it inherits the role identity). */
   body.role-issuer{--role-soft:#EAF0FA;--role-line:#D4DEF5}
-  body.role-verifier{--role-soft:#F8EEEE;--role-line:#E7D6D6;--civic:#9E3A3A;--civic-press:#7E2D2D}
-  body.role-wallet{--role-soft:#EAF4F1;--role-line:#D2E5DF;--civic:#2E7D6B;--civic-press:#246154}
+  body.role-verifier{--role-soft:#F8EEEE;--role-line:#E7D6D6;--civic:var(--ink-verifier);--civic-press:var(--ink-verifier)}
+  body.role-wallet{--role-soft:#EAF4F1;--role-line:#D2E5DF;--civic:var(--ink-wallet);--civic-press:var(--ink-wallet)}
   /* admin = 自治体の内部業務システム（住民向けではない）。**江戸紫**——Issuer 青(220°)/
      Verifier 煉瓦(0°)/Wallet ティール(165°) のどれとも色相が被らない唯一の空き域。
      ヘッダー・ログイン画面はここのCSS変数だけを見る（着せ替えは1か所） */
-  body.role-admin{--role-soft:#F0EBF6;--role-line:#DFD5EA;--civic:#745399;--civic-press:#5B417A}
+  body.role-admin{--role-soft:#F0EBF6;--role-line:#DFD5EA;--civic:var(--ink-admin);--civic-press:var(--ink-admin)}
   *{box-sizing:border-box}
   body{margin:0;font-family:"Zen Kaku Gothic New",system-ui,sans-serif;background:var(--paper);color:var(--ink);line-height:1.6}
   .mono{font-family:"IBM Plex Mono",monospace}
@@ -58,15 +58,15 @@ const CSS = `
   .ahdr.compact{height:44px;box-shadow:0 2px 12px rgba(14,26,43,.12)}
   .ahdr.compact .ah-sub{display:none}
   .top .tag{width:10px;height:24px;border-radius:3px;background:var(--civic)}
-  .top.verifier .tag{background:#9E3A3A}
-  .top.wallet .tag{background:#2E7D6B}
+  .top.verifier .tag{background:var(--ink-verifier)}
+  .top.wallet .tag{background:var(--ink-wallet)}
   .top>div{min-width:0}
   .top b{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
   .top small{display:block;font-size:11px;color:var(--muted);letter-spacing:.16em}
   .top .role{margin-left:auto;font-size:12px;font-weight:700;letter-spacing:.04em;padding:5px 11px;border-radius:999px;white-space:nowrap}
-  .top.issuer .role{color:#1C3F94;background:#EAEFFA;border:1px solid #D4DEF5}
-  .top.verifier .role{color:#9E3A3A;background:#F6ECEC;border:1px solid #E7D6D6}
-  .top.wallet .role{color:#2E7D6B;background:#E8F2EF;border:1px solid #D2E5DF}
+  .top.issuer .role{color:var(--ink-issuer);background:#EAEFFA;border:1px solid #D4DEF5}
+  .top.verifier .role{color:var(--ink-verifier);background:#F6ECEC;border:1px solid #E7D6D6}
+  .top.wallet .role{color:var(--ink-wallet);background:#E8F2EF;border:1px solid #D2E5DF}
   /* issuer (appShell) header brand truncation */
   .ah-brand{min-width:0}.ah-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   /* ヘッダーのタイトルは各サイトのルートへ戻る導線。動線が深くなっても必ず戻れるように、
@@ -200,10 +200,10 @@ export function vcardHtml(type, { title, sub = '', fmt = '', issuer = 'デジタ
 // Tab-level role identity: coloured-dot favicon (発/W/検) + title prefix, so the
 // three origins are distinguishable in the browser tab strip / screenshots.
 const ROLE_META = {
-  issuer: { prefix: '発行者', color: '#1C3F94', ch: '発' },
-  verifier: { prefix: '検証者', color: '#9E3A3A', ch: '検' },
-  wallet: { prefix: 'ウォレット', color: '#2E7D6B', ch: 'W' },
-  admin: { prefix: '自治体窓口', color: '#745399', ch: '庁' },   // 江戸紫（body.role-admin と揃える）
+  issuer: { prefix: '発行者', color: '#0017c1', ch: '発' },
+  verifier: { prefix: '検証者', color: '#8b008b', ch: '検' },
+  wallet: { prefix: 'ウォレット', color: '#006173', ch: 'W' },
+  admin: { prefix: '自治体窓口', color: '#41048e', ch: '庁' },   // 江戸紫（body.role-admin と揃える）
 };
 export const roleHead = (role, title) => {
   const m = ROLE_META[role] || ROLE_META.issuer;
@@ -349,7 +349,7 @@ export function renderLogin(users, next = '/', { note = null } = {}) {
       </button>
     </form>`).join('');
   const noteHtml = note
-    ? `<div style="margin-top:12px;font-size:13px;color:#1C3F94;background:#EAEFFA;border:1px solid #D4DEF5;border-radius:8px;padding:10px 14px;text-align:left">${esc(note)}</div>`
+    ? `<div style="margin-top:12px;font-size:13px;color:var(--role-ink);background:#EAEFFA;border:1px solid #D4DEF5;border-radius:8px;padding:10px 14px;text-align:left">${esc(note)}</div>`
     : '';
   return `<!doctype html><html lang="ja"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -364,13 +364,13 @@ export function renderLogin(users, next = '/', { note = null } = {}) {
     </style>
   </head><body>
     <div style="text-align:center;max-width:700px;padding:0 24px">
-      <p style="font-size:13px;letter-spacing:.18em;color:#1C3F94;font-weight:700;margin:0 0 14px">デジタル資格証　発行ポータル</p>
+      <p style="font-size:13px;letter-spacing:.18em;color:var(--role-ink);font-weight:700;margin:0 0 14px">デジタル資格証　発行ポータル</p>
       <h1 style="font-size:26px;font-weight:700;margin:0 0 8px">サインインするアカウントを選択</h1>
       <p style="font-size:14px;color:#5B6B82;margin:0 0 4px">アイコンを選ぶだけでサインインできます。</p>
       ${noteHtml}
       <div style="display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:32px">${cards}</div>
       <div style="margin-top:32px;display:flex;align-items:center;gap:8px;justify-content:center;font-size:13px;color:#5B6B82">
-        <span style="width:8px;height:8px;border-radius:50%;background:#0E8A6B;flex-shrink:0;display:inline-block"></span>
+        <span style="width:8px;height:8px;border-radius:50%;background:var(--success-2);flex-shrink:0;display:inline-block"></span>
         パスワード不要のデモ用サインイン。実環境ではマイナンバーカードやパスキーを用いて当人認証します。
       </div>
       <footer style="margin-top:18px;font-size:11px;color:#5B6B82">本デモ中の組織・人物・デジタル資格証等は全て架空のものです</footer>
@@ -383,7 +383,7 @@ function appHeaderHtml(user, dev = false) {
   const devBtn = dev ? devToggleHtml() : '';
   if (!user) return `
     <header class="ahdr" style="background:#EAF0FA;border-bottom:1px solid #D4DEF5;padding:0 24px;display:flex;align-items:center;gap:12px">
-      <span style="width:4px;height:28px;border-radius:2px;background:#1C3F94;flex-shrink:0;display:block"></span>
+      <span style="width:4px;height:28px;border-radius:2px;background:var(--role-ink);flex-shrink:0;display:block"></span>
       <a class="ah-brand brandlink" href="/"><div class="ah-title" style="font-size:16px;font-weight:700;color:#0E1A2B;line-height:1.2">IHV 発行ポータル</div>
         <div class="ah-sub" style="font-size:10px;letter-spacing:.14em;color:#5B6B82">CREDENTIAL ISSUER</div></a>
       ${dev ? `<div style="margin-left:auto">${devBtn}</div>` : ''}
@@ -396,7 +396,7 @@ function appHeaderHtml(user, dev = false) {
   const mItem = 'display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 14px;border:none;background:none;font:inherit;font-size:14px;cursor:pointer;border-radius:6px;text-decoration:none;color:#0E1A2B;box-sizing:border-box';
   return `
     <header class="ahdr" style="background:#EAF0FA;border-bottom:1px solid #D4DEF5;padding:0 24px;display:flex;align-items:center;gap:12px">
-      <span style="width:4px;height:28px;border-radius:2px;background:#1C3F94;flex-shrink:0;display:block"></span>
+      <span style="width:4px;height:28px;border-radius:2px;background:var(--role-ink);flex-shrink:0;display:block"></span>
       <a class="ah-brand brandlink" href="/"><div class="ah-title" style="font-size:16px;font-weight:700;color:#0E1A2B;line-height:1.2">IHV 発行ポータル</div>
         <div class="ah-sub" style="font-size:10px;letter-spacing:.14em;color:#5B6B82">CREDENTIAL ISSUER</div></a>
       <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
@@ -593,8 +593,8 @@ export function renderConsentScreen(q, user, infos = [], { choices = {} } = {}) 
       .picknote{font-size:12px;color:var(--muted);margin:14px 0 2px}
       .picknote b{color:var(--ink)}
       .reqrow.pick{cursor:pointer}
-      .reqrow.pick input{flex:none;margin:0;accent-color:#1C3F94}
-      .reqrow.pick:has(input:checked){border-color:#1C3F94;box-shadow:0 0 0 1px #1C3F94 inset;background:#F7F9FF}
+      .reqrow.pick input{flex:none;margin:0;accent-color:var(--key-900)}
+      .reqrow.pick:has(input:checked){border-color:var(--key-900);box-shadow:0 0 0 1px var(--key-900) inset;background:#F7F9FF}
       .rqsub{font-size:11.5px;color:var(--muted);line-height:1.65;margin-top:3px}
       .reqrow .sw{width:46px;height:29px;border-radius:6px;flex:none;background:linear-gradient(135deg,var(--c1),var(--c2))}
       ${swatchEmblemCss()}
@@ -1050,7 +1050,7 @@ export function renderVcSelect(user, groups, { walletOrigin = '', approved = [] 
       .cinfo{flex:none;border:0;background:none;color:var(--muted);font-size:15px;cursor:pointer;padding:0 2px;line-height:1}
       .cnote{font-size:10.5px;color:#8A6D1F;margin-top:4px;line-height:1.5}
       .csub{margin-top:2px}
-      .capp{display:inline-block;font-size:11px;font-weight:700;color:#1C3F94;background:#EAF0FA;border-radius:6px;padding:2px 8px}
+      .capp{display:inline-block;font-size:11px;font-weight:700;color:var(--key-900);background:#EAF0FA;border-radius:6px;padding:2px 8px}
       .applybtn{font-size:11px;font-weight:700;padding:5px 12px;border-radius:8px;background:#fff;border:1px solid var(--civic);color:var(--civic)}
       .sech{grid-column:1/-1;font-size:12px;font-weight:800;color:var(--muted);letter-spacing:.04em;margin:14px 0 2px}
       .sech:first-child{margin-top:0}
@@ -1202,7 +1202,7 @@ export const pagerHtml = (p, pages, base) => (pages <= 1 ? '' : `
     ${p < pages ? `<a href="${base}?p=${p + 1}">古い記録 →</a>` : '<span></span>'}
   </div>
   <style>.pager{display:flex;align-items:center;justify-content:space-between;margin:14px 2px 4px;font-size:13px}
-    .pager a{color:var(--civic,#1C3F94);text-decoration:none;font-weight:700}
+    .pager a{color:var(--civic,var(--key-900));text-decoration:none;font-weight:700}
     .pager .pinfo{color:var(--muted,#5B6B82);font-size:12px}</style>`);
 
 export function renderHistory(user, issuances, { page = 1, per = 20 } = {}) {
@@ -1260,7 +1260,7 @@ export function renderHistory(user, issuances, { page = 1, per = 20 } = {}) {
       .htx b{font-size:13.5px;display:block}
       .htx small{font-size:10.5px;color:var(--muted);font-family:"IBM Plex Mono",monospace;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .badge{font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;flex:none}
-      .badge.ok{color:#0E8A6B;background:#E3F3EE}
+      .badge.ok{color:var(--success-2);background:#E3F3EE}
       .badge.ng{color:#C8453C;background:#FBE9E7}
       .muted{color:var(--muted)}
       .rvreason{font-size:11.5px;color:var(--muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1428,7 +1428,7 @@ export function renderAccount(user, docs = []) {
       .hh-row{display:grid;grid-template-columns:1fr 1fr 1.4fr 1.2fr auto;gap:6px;margin-bottom:8px;border:1px solid var(--line);border-radius:10px;padding:8px}
       .hh-row input{font:inherit;font-size:13px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;min-width:0}
       .hh-del{font:inherit;border:1px solid var(--line);background:#fff;color:var(--muted);border-radius:8px;padding:0 10px;cursor:pointer}
-      .hh-del:hover{color:#9E3A3A;border-color:#E7D6D6}
+      .hh-del:hover{color:var(--error-2);border-color:#E7D6D6}
       .btn.ghost2{background:#fff;color:var(--civic);border:1px solid var(--line)}
       /* 離島割引の区分: ラジオをチップ化（JS 無しでも :checked で見た目が変わる） */
       .isl-cats{display:flex;gap:8px;flex-wrap:wrap}
@@ -1451,8 +1451,8 @@ export function renderAccount(user, docs = []) {
       .ro-table tr:last-child td{border-bottom:none}
       .src{font-size:10px;color:#8A97AB;display:block;margin-top:1px}
       .badge{display:inline-block;font-size:10px;font-weight:700;border-radius:999px;padding:2px 8px;vertical-align:1px;white-space:nowrap}
-      .b-edit{background:#E7F3EE;color:#0E8A6B}.b-drv{background:#EAF0FA;color:#1C3F94}.b-fix{background:#F1F3F7;color:#5B6B82}
-      .b-app{background:#EAF0FC;color:#1C3F94}.b-dec{background:#F3ECFA;color:#5B3E86}
+      .b-edit{background:#E7F3EE;color:var(--success-2)}.b-drv{background:#EAF0FA;color:var(--success-2)}.b-fix{background:#F1F3F7;color:#5B6B82}
+      .b-app{background:#EAF0FC;color:var(--key-900)}.b-dec{background:#F3ECFA;color:#5B3E86}
       /* 交付申請ベースの書類: 申請ごとに1枚。チップで切り替える */
       .apptabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 14px 0}
       .apptabs button{font:inherit;font-size:11.5px;font-weight:700;border-radius:999px;padding:6px 13px;
