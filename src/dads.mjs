@@ -151,7 +151,7 @@ export const DADS_BASE = `
  */
 export const DADS_BUTTON = `
   .dbtn{display:inline-flex;align-items:center;justify-content:center;gap:var(--sp1);
-    min-width:96px;min-height:48px;padding:0 var(--sp3);border-radius:var(--r8);
+    min-width:96px;min-height:48px;padding:16px var(--sp3);border-radius:var(--r8);
     ${type('oln-16B-100')};text-decoration:none;cursor:pointer;border:2px solid transparent;
     transition:background-color .12s ease,color .12s ease,border-color .12s ease}
   .dbtn-lg{min-width:136px;min-height:56px}
@@ -265,9 +265,14 @@ const DADS_OVERRIDE_SRC = `
   .userbtn{border:1px solid var(--line);border-radius:var(--r12);padding:var(--sp2) 10px}
   .userbtn:hover{border-color:var(--gray-300);box-shadow:var(--e1);transform:none}
   /* --- ボタン: 押せる色はサイト共通で key(青)。高さ 48px・文字 16px --- */
+  /* **上下の揃えを display に依存させない**（2026-08-24）。inline-flex + align-items で
+     中央に置いていたが、画面側の規則が display:block に戻すと中央揃えごと失われ、
+     padding:0 の 48px の箱に 16px の文字が上寄せで乗った（受領票の「ウォレットを開く」）。
+     高さを padding で作れば block でも flex でも中央に来る: 16 + 16*2 = 48px。 */
   a.btn,button.btn{background:var(--key-900);color:#fff;border:2px solid transparent;
-    border-radius:var(--r8);min-height:48px;min-width:96px;padding:0 var(--sp3);
-    display:inline-flex;align-items:center;justify-content:center;${type('oln-16B-100')}}
+    border-radius:var(--r8);min-height:48px;min-width:96px;padding:16px var(--sp3);
+    text-align:center;display:inline-flex;align-items:center;justify-content:center;
+    ${type('oln-16B-100')}}
   a.btn:hover,button.btn:hover{background:var(--key-1000)}
   /* --- 状態の色は意味色に寄せる（成功=green / 失効=red / 未確認=gray） --- */
   .ok{color:var(--success-2);${type('dns-14B-130')}}

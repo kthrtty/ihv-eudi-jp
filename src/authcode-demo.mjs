@@ -147,15 +147,20 @@ export const walletCardCss = () => `
     filter:drop-shadow(0 1.2px 0 rgba(0,0,0,.5)) drop-shadow(0 -1px .5px rgba(255,255,255,.35))}
   .vcard .vt{font-size:17px;font-weight:400;letter-spacing:.01em;text-shadow:0 1px 2px rgba(0,0,0,.28);position:relative;z-index:1;line-height:1.35;padding-left:36px}
   .vcard .vs{font-size:16px;color:rgba(255,255,255,.75);position:relative;z-index:1;padding-left:36px;padding-right:92px}
-  .vcard .vfmt{position:absolute;top:14px;right:16px;font-size:16px;font-weight:400;letter-spacing:.04em;padding:4px 12px;border-radius:8px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.55);z-index:1}
+  .vcard .vfmt{position:absolute;top:14px;right:16px;font-size:16px;font-weight:400;line-height:1;letter-spacing:.04em;padding:5px 12px;border-radius:8px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.55);z-index:1}
   .vcard .viss{position:absolute;left:20px;bottom:16px;font-size:16px;color:rgba(255,255,255,.78);z-index:1;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* 状態チップは上段（fmtチップの下）— ホームのスタックで全カードの状態が見えるように（2026-07-09）。
      isolation:isolate と対: 旧右下配置は次のカードに隠れ、かつ z-index:1 の子が
      次のカードを突き抜けて「隣のカードのチップ」に見える二重表示を起こしていた */
-  .vcard .vst{position:absolute;right:16px;top:44px;font-size:16px;font-weight:400;padding:4px 11px;border-radius:8px;background:rgba(255,255,255,.22);z-index:1}
+  .vcard .vst{position:absolute;right:16px;top:44px;font-size:16px;font-weight:400;line-height:1;padding:5px 11px;border-radius:8px;background:rgba(255,255,255,.22);z-index:1}
   .vcard .vst::before{content:"●";margin-right:4px;color:#7CE3B1}
   .vcard .vst.revoked::before{color:#FF8A80}
   .vcard .vst.na::before{color:rgba(255,255,255,.55)}
+  /* 券面のチップは **DADS の Oln（行間 100%）** を使う。本文の行間 1.7 を継ぐと
+     16px でも高さが 35〜37px になり、top:14px と top:44px に置いた形式チップと状態チップが
+     **互いに 7px 食い込む**。さらに重なり表示の可視帯（実測 78px）も超える。
+     サイズを 14px に落とすのではなく行間で解決する——DADS は UI の1行にこの型を用意している。
+     回帰=下の実測値: fmt 14..40 / vst 44..70（帯 78px に収まり互いに重ならない） */
   /* consent "peek": keep the ID-1 ratio, show only the top, fade into the sheet */
   .vpeek{position:relative;height:118px;overflow:hidden;margin-top:12px}
   .vpeek .vcard{-webkit-mask-image:linear-gradient(180deg,#000 30%,transparent 96%);mask-image:linear-gradient(180deg,#000 30%,transparent 96%);box-shadow:none}
