@@ -17,75 +17,23 @@
 import { chromium } from 'playwright';
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { WALLET_CARD_THEME, CARD_SIL, embInner } from '../src/authcode-demo.mjs';
-import { DISPLAY_NAMES } from './gen-schemas.mjs';
+import { WALLET_CARD_THEME, cardArtSvg, CARD_W, CARD_H } from '../src/cardart.mjs';
 
-// ID-1 比（85.6 × 54mm）。スマホでは幅いっぱい（~830px）に伸びるので 214px では滲む
-const W = 428, H = 270;
-const BAND = Math.round(H * 0.26);   // 一覧で見える帯
-const EM = 52;                       // 紋章の一辺（帯に収まる大きさ）
-
-// 文字サイズは**全書類で揃える**。書類ごとに変えると一覧で重ねたとき行の高さが
-// ばらついて落ち着かない。一番長い名前（PID の英名 36 文字）が収まる寸法に合わせる。
-const JA_SIZE = 23, EN_SIZE = 11.5;
-
-const svgFor = (id) => {
-  const t = WALLET_CARD_THEME[id] || WALLET_CARD_THEME.pid;
-  // **字形は issuer と同じ `embInner`**（`CARD_SIL_ADJ` の位置補正込み）。
-  // 補正を片方だけに掛けると同じ資格証で紋章の位置がずれる
-  const sil = embInner(id) || CARD_SIL.pid;
-  const nm = DISPLAY_NAMES[id] || { ja: id, en: id };
-  return `<style>
-    html,body{margin:0}
-    /* エンボス（浮き彫り）: issuer カタログの .swemb と同じ——不透明に近い白 .92 と
-       二段の drop-shadow（下に影・上にハイライト）。半透明にすると地色が透けて
-       「浮き彫り」ではなく「薄い模様」に見える。影の量は字形の大きさに比例させる
-       （issuer は 26px の字形に 0.7/0.5px なので、52px なら 1.4/1.0px） */
-    .emb{fill:rgba(255,255,255,.92);
-      filter:drop-shadow(0 1.4px 0 rgba(0,0,0,.40)) drop-shadow(0 -1px .8px rgba(255,255,255,.30))}
-    .ghost{fill:rgba(255,255,255,.10)}
-    .ja{fill:#fff;font-family:"Hiragino Sans","Noto Sans JP",sans-serif;font-weight:800;
-      filter:drop-shadow(0 1.5px 2px rgba(0,0,0,.5))}
-    .en{fill:rgba(255,255,255,.88);font-family:"Helvetica Neue",Arial,sans-serif;font-weight:600;
-      letter-spacing:.01em;filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))}
-    .iss{fill:rgba(255,255,255,.72);font-family:"Helvetica Neue",Arial,sans-serif;
-      font-weight:700;font-size:14px;letter-spacing:.14em}
-  </style>
-  <svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
-    <defs>
-      <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0%" stop-color="${t.c1}"/><stop offset="62%" stop-color="${t.c2}"/>
-        <stop offset="100%" stop-color="${t.c1}"/></linearGradient>
-      <linearGradient id="h" x1="0" y1="0" x2="1" y2="0">
-        <stop offset="0%" stop-color="${t.c3}" stop-opacity="0"/>
-        <stop offset="45%" stop-color="${t.c3}" stop-opacity=".28"/>
-        <stop offset="100%" stop-color="${t.c3}" stop-opacity="0"/></linearGradient>
-    </defs>
-    <rect width="${W}" height="${H}" fill="url(#g)"/>
-    <ellipse cx="${W * 0.78}" cy="${H * 0.62}" rx="${W * 0.52}" ry="${H * 0.44}" fill="url(#h)"/>
-    <!-- 下半分は薄い地紋だけ。個人化した券面（顔写真）を重ねる余地を空けておく -->
-    <g class="ghost" transform="translate(${W - 150} ${H - 150}) scale(6.2)">${sil}</g>
-    <!-- ここから上 ${BAND}px = 一覧の可視帯 -->
-    <!-- 紋章は**左**。右下の大きな地紋と重ならないようにする -->
-    <g class="emb" transform="translate(22 9) scale(${EM / 24})">${sil}</g>
-    <text x="${22 + EM + 14}" y="38" class="ja" font-size="${JA_SIZE}">${esc(nm.ja)}</text>
-    <text x="${22 + EM + 14}" y="59" class="en" font-size="${EN_SIZE}">${esc(nm.en)}</text>
-    <!-- 詳細画面でだけ見える位置 -->
-    <text x="24" y="${H - 22}" class="iss">DEMO VC ISSUER</text>
-  </svg>`;
-};
-
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-
+// 描画倍率。**1枚を 32KiB 未満に保つ**のが効く——メタデータは同じ画像を4回運ぶ
+// （logo と background_image × mdoc と SD-JWT）が、gzip の窓が 32KiB なので
+// 1枚が大きいと重複除去が効かなくなる。実測: 428×270 q84 は gzip 82KB、
+// 856×540 q84 は 421KB と5倍に跳ねる。1.5倍の 642×405 q86 が 160KB で折り合う。
+const SCALE = 1.5, QUALITY = 86;
+const W = CARD_W, H = CARD_H;
 const out = fileURLToPath(new URL('../assets/', import.meta.url));
 mkdirSync(out, { recursive: true });
 const br = await chromium.launch();
-const page = await (await br.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 1 })).newPage();
+const page = await (await br.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: SCALE })).newPage();
 const arts = {};
 for (const id of Object.keys(WALLET_CARD_THEME)) {
-  await page.setContent(svgFor(id));
+  await page.setContent(`<style>html,body{margin:0}svg{display:block}</style>${cardArtSvg(id, { inline: false, w: W, h: H })}`);
   // グラデーションは PNG と相性が悪い（可逆なので階調ぶんの情報を全部持つ）。JPEG が圧倒的に小さい
-  const jpg = await page.screenshot({ type: 'jpeg', quality: 84 });
+  const jpg = await page.screenshot({ type: 'jpeg', quality: QUALITY });
   arts[id] = { mime: 'image/jpeg', b64: jpg.toString('base64') };
   console.log(`${id.padEnd(14)} JPEG ${String(jpg.length).padStart(6)} B`);
 }

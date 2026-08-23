@@ -21,19 +21,24 @@ const dispName = (configId) => {
   return d?.name || configId;
 };
 
+// DADS ドラフト適用（design/dads）: 既存 CSS の後ろに DADS 基盤+上書き層を重ねる。
+// 本採用後は既存 CSS 側を畳んでいき、この import が正本になる。
+import { DADS_CSS, DADS_OVERRIDE, DADS_FONTS } from './dads.mjs';
+import { WALLET_CARD_THEME, CARD_SIL, embInner, cardArtSvg } from './cardart.mjs';
+
 const CSS = `
-  :root{--ink:#0E1A2B;--paper:#EFF2F7;--surface:#fff;--civic:#1C3F94;--civic-press:#15306F;
-    --seal:#C8453C;--seal-soft:#f4ddd9;--verify:#0E8A6B;--line:#DCE3ED;--muted:#5B6B82}
+  :root{--ink:#0E1A2B;--paper:#EFF2F7;--surface:#fff;--civic:var(--ink-issuer);--civic-press:var(--key-1000);
+    --seal:#C8453C;--seal-soft:#f4ddd9;--verify:var(--success-2);--line:#DCE3ED;--muted:#5B6B82}
   /* role theming: each site's header tint / accents / primary buttons follow its
      role colour (issuer=blue is the :root default; verifier/wallet override
      --civic so every accent that uses it inherits the role identity). */
   body.role-issuer{--role-soft:#EAF0FA;--role-line:#D4DEF5}
-  body.role-verifier{--role-soft:#F8EEEE;--role-line:#E7D6D6;--civic:#9E3A3A;--civic-press:#7E2D2D}
-  body.role-wallet{--role-soft:#EAF4F1;--role-line:#D2E5DF;--civic:#2E7D6B;--civic-press:#246154}
+  body.role-verifier{--role-soft:#F8EEEE;--role-line:#E7D6D6;--civic:var(--ink-verifier);--civic-press:var(--ink-verifier)}
+  body.role-wallet{--role-soft:#EAF4F1;--role-line:#D2E5DF;--civic:var(--ink-wallet);--civic-press:var(--ink-wallet)}
   /* admin = 自治体の内部業務システム（住民向けではない）。**江戸紫**——Issuer 青(220°)/
      Verifier 煉瓦(0°)/Wallet ティール(165°) のどれとも色相が被らない唯一の空き域。
      ヘッダー・ログイン画面はここのCSS変数だけを見る（着せ替えは1か所） */
-  body.role-admin{--role-soft:#F0EBF6;--role-line:#DFD5EA;--civic:#745399;--civic-press:#5B417A}
+  body.role-admin{--role-soft:#F0EBF6;--role-line:#DFD5EA;--civic:var(--ink-admin);--civic-press:var(--ink-admin)}
   *{box-sizing:border-box}
   body{margin:0;font-family:"Zen Kaku Gothic New",system-ui,sans-serif;background:var(--paper);color:var(--ink);line-height:1.6}
   .mono{font-family:"IBM Plex Mono",monospace}
@@ -42,7 +47,7 @@ const CSS = `
      times, which is the whole point (which-site-am-I-on identification). */
   /* sticky はヘッダー単体でなく topwrap（ヘッダー+デモ告知バンド）ごと追従させる */
   .topwrap{position:sticky;top:0;z-index:60}
-  .demoband{font-size:10px;color:#7a5b13;background:#FFF9E8;border-bottom:1px solid #F2E3AE;padding:4px 22px;letter-spacing:.02em;line-height:1.5}
+  .demoband{font-size:16px;color:#7a5b13;background:#FFF9E8;border-bottom:1px solid #F2E3AE;padding:4px 22px;letter-spacing:.02em;line-height:1.5}
   .top{display:flex;align-items:center;gap:11px;padding:14px 22px;background:var(--role-soft,#fff);border-bottom:1px solid var(--role-line,var(--line));
     transition:padding .18s ease, box-shadow .18s ease}
   .top.compact{padding:6px 22px;box-shadow:0 2px 12px rgba(14,26,43,.12)}
@@ -53,15 +58,15 @@ const CSS = `
   .ahdr.compact{height:44px;box-shadow:0 2px 12px rgba(14,26,43,.12)}
   .ahdr.compact .ah-sub{display:none}
   .top .tag{width:10px;height:24px;border-radius:3px;background:var(--civic)}
-  .top.verifier .tag{background:#9E3A3A}
-  .top.wallet .tag{background:#2E7D6B}
+  .top.verifier .tag{background:var(--ink-verifier)}
+  .top.wallet .tag{background:var(--ink-wallet)}
   .top>div{min-width:0}
   .top b{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
-  .top small{display:block;font-size:11px;color:var(--muted);letter-spacing:.16em}
-  .top .role{margin-left:auto;font-size:12px;font-weight:700;letter-spacing:.04em;padding:5px 11px;border-radius:999px;white-space:nowrap}
-  .top.issuer .role{color:#1C3F94;background:#EAEFFA;border:1px solid #D4DEF5}
-  .top.verifier .role{color:#9E3A3A;background:#F6ECEC;border:1px solid #E7D6D6}
-  .top.wallet .role{color:#2E7D6B;background:#E8F2EF;border:1px solid #D2E5DF}
+  .top small{display:block;font-size:16px;color:var(--muted);letter-spacing:.16em}
+  .top .role{margin-left:auto;font-size:16px;font-weight:700;letter-spacing:.04em;padding:5px 11px;border-radius:999px;white-space:nowrap}
+  .top.issuer .role{color:var(--ink-issuer);background:#EAEFFA;border:1px solid #D4DEF5}
+  .top.verifier .role{color:var(--ink-verifier);background:#F6ECEC;border:1px solid #E7D6D6}
+  .top.wallet .role{color:var(--ink-wallet);background:#E8F2EF;border:1px solid #D2E5DF}
   /* issuer (appShell) header brand truncation */
   .ah-brand{min-width:0}.ah-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   /* ヘッダーのタイトルは各サイトのルートへ戻る導線。動線が深くなっても必ず戻れるように、
@@ -85,10 +90,10 @@ const CSS = `
   .wrap.wide{max-width:1140px}
   @media(max-width:640px){.wrap{margin:4vh auto}}
   .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:26px}
-  .eyebrow{font-size:12px;letter-spacing:.18em;color:var(--civic);font-weight:700}
+  .eyebrow{font-size:16px;letter-spacing:.18em;color:var(--civic);font-weight:700}
   h1{font-size:20px;margin:.3rem 0 1rem}
-  .req{background:#f7f9fc;border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:18px;font-size:14px}
-  .req .k{color:var(--muted);font-size:12px}
+  .req{background:#f7f9fc;border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:18px;font-size:16px}
+  .req .k{color:var(--muted);font-size:16px}
   .req b{color:var(--civic)}
   .req .mono,.req span.mono,.urlbox{overflow-wrap:anywhere;word-break:break-word}
   .users{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-top:8px}
@@ -96,42 +101,35 @@ const CSS = `
     border:2px solid var(--seal);box-shadow:inset 0 0 0 2px #fff,inset 0 0 0 3px var(--seal-soft);font-weight:700;font-size:28px}
   .userbtn{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 10px;display:grid;justify-items:center;gap:9px;cursor:pointer;font:inherit}
   .userbtn:hover{border-color:#c3cee0;transform:translateY(-2px);box-shadow:0 8px 20px #0e1a2b14}
-  .nm{font-size:14px;font-weight:500}
-  .hint{font-size:12px;color:var(--muted);margin-top:16px}
-  .urlbox{word-break:break-all;font-size:12px;background:#f7f9fc;border:1px solid var(--line);border-radius:10px;padding:12px;margin:14px 0}
+  .nm{font-size:16px;font-weight:400}
+  .hint{font-size:16px;color:var(--muted);margin-top:16px}
+  .urlbox{word-break:break-all;font-size:16px;background:#f7f9fc;border:1px solid var(--line);border-radius:10px;padding:12px;margin:14px 0}
   .qr{background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px;width:200px;margin:8px auto;display:block}
   a.btn,button.btn{display:inline-block;background:var(--civic);color:#fff;border:0;border-radius:10px;padding:11px 18px;
-    font:inherit;font-size:14px;text-decoration:none;cursor:pointer}
+    font:inherit;font-size:16px;text-decoration:none;cursor:pointer}
   a.btn:hover,button.btn:hover{background:var(--civic-press)}
-  .ok{display:flex;align-items:center;gap:8px;color:var(--verify);font-weight:700;font-size:13px}
-  table.cl{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px}
+  .ok{display:flex;align-items:center;gap:8px;color:var(--verify);font-weight:700;font-size:16px}
+  table.cl{width:100%;border-collapse:collapse;font-size:16px;margin-top:10px}
   table.cl td{padding:7px 8px;border-bottom:1px solid var(--line)}
   table.cl td:first-child{color:var(--muted);white-space:nowrap}
-  .step{display:inline-block;font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:2px 10px;margin-bottom:10px}
+  .step{display:inline-block;font-size:16px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:2px 10px;margin-bottom:10px}
   /* 顔写真クレーム（portrait）のサムネイル表示。3ロール共通 */
   .pimg{width:64px;height:85px;object-fit:cover;border-radius:6px;border:1px solid rgba(0,0,0,.14);background:#E9EDF3;display:block}
 `;
-const FONTS = '<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">';
+const FONTS = DADS_FONTS;
 
-// ---- wallet card visual system (shared by the web wallet + issuer consent) ----
-// 8 documents × Japanese-palette gradients: c1→c2 base, c3 = top-right glow.
-export const WALLET_CARD_THEME = {
-  pid: { c1: '#2B3A8F', c2: '#1A2565', c3: '#7C6FE0' },          // 紺+菖蒲
-  juminhyo: { c1: '#00796B', c2: '#004D40', c3: '#66D9C4' },     // 深緑+若竹
-  qualification: { c1: '#7B1FA2', c2: '#4A0E7A', c3: '#CE93D8' },// 紫+藤
-  koseki: { c1: '#5D4037', c2: '#3E2723', c3: '#C9A227' },       // 焦茶+金茶
-  tax: { c1: '#2E7D32', c2: '#124D18', c3: '#9CCC65' },          // 緑+若葉
-  single: { c1: '#AD1457', c2: '#7B0F3E', c3: '#F48FB1' },       // 茜+撫子
-  disaster: { c1: '#D84315', c2: '#93290A', c3: '#FFB74D' },     // 柿
-  vaccine: { c1: '#0277BD', c2: '#014377', c3: '#4FC3F7' },      // 空
-  // 山吹（金茶）— 現行8色に黄系が無く、住民票の深緑・課税の緑・罹災の柿のいずれとも
-  // スウォッチ列で判別できる。錆浅葱は住民票と同系に見えたため 2026-07-27 に差し替え
-  island: { c1: '#C97A00', c2: '#7A4200', c3: '#FFD54F' },        // 山吹
-};
+// 券面の意匠は src/cardart.mjs が正本（Web のインライン SVG と Multipaz へ渡す
+// メタデータ画像を同じ1つの SVG から作る）。ここは従来どおりの import 先を保つための再輸出。
+export { WALLET_CARD_THEME, CARD_SIL, embInner, cardArtSvg, DISPLAY_NAMES } from './cardart.mjs';
 // Material 3 face (2026-07-07 協議で選定): 和色グラデは維持しつつ青海波を廃し、
 // ::after=ホログラム虹彩（IDカードのセキュリティホログラム風の極薄conic）+
 // ::before=hoverで横切る光スイープ。角丸16px・M3 elevationトークン・チップはM3(角丸8px)。
 export const walletCardCss = () => `
+  /* 券面は cardArtSvg をインラインで敷く。CSS グラデーションは廃止（意匠の正本は SVG 側）。
+     背景色は SVG が持つが、--c1 は読み込み前の下地として残す（白い矩形が一瞬見えるのを防ぐ）。 */
+  .vface{position:absolute;inset:0;border-radius:16px;overflow:hidden;display:block;z-index:0}
+  .vface svg{width:100%;height:100%;display:block}
+
   .vcard{position:relative;isolation:isolate;display:block;width:100%;max-width:420px;margin:0 auto;aspect-ratio:1.586;border-radius:16px;padding:18px 20px;box-sizing:border-box;color:#fff;text-decoration:none;
     box-shadow:0 1px 2px rgba(0,0,0,.3),0 1px 3px 1px rgba(0,0,0,.15);
     background:radial-gradient(120% 90% at 88% -12%,var(--c3) 0%,transparent 55%),radial-gradient(90% 130% at -8% 112%,rgba(255,255,255,.16) 0%,transparent 50%),linear-gradient(135deg,var(--c1) 0%,var(--c2) 100%);
@@ -147,14 +145,14 @@ export const walletCardCss = () => `
   .vcard .vemb{position:absolute;left:19px;top:15px;width:28px;height:28px;z-index:1}
   .vcard .vemb svg{width:28px;height:28px;display:block;color:rgba(255,255,255,.92);
     filter:drop-shadow(0 1.2px 0 rgba(0,0,0,.5)) drop-shadow(0 -1px .5px rgba(255,255,255,.35))}
-  .vcard .vt{font-size:17px;font-weight:500;letter-spacing:.01em;text-shadow:0 1px 2px rgba(0,0,0,.28);position:relative;z-index:1;line-height:1.35;padding-left:36px}
-  .vcard .vs{font-size:11px;color:rgba(255,255,255,.75);position:relative;z-index:1;padding-left:36px;padding-right:92px}
-  .vcard .vfmt{position:absolute;top:14px;right:16px;font-size:10.5px;font-weight:500;letter-spacing:.04em;padding:4px 12px;border-radius:8px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.55);z-index:1}
-  .vcard .viss{position:absolute;left:20px;bottom:16px;font-size:11px;color:rgba(255,255,255,.78);z-index:1;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .vcard .vt{font-size:17px;font-weight:400;letter-spacing:.01em;text-shadow:0 1px 2px rgba(0,0,0,.28);position:relative;z-index:1;line-height:1.35;padding-left:36px}
+  .vcard .vs{font-size:16px;color:rgba(255,255,255,.75);position:relative;z-index:1;padding-left:36px;padding-right:92px}
+  .vcard .vfmt{position:absolute;top:14px;right:16px;font-size:16px;font-weight:400;letter-spacing:.04em;padding:4px 12px;border-radius:8px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.55);z-index:1}
+  .vcard .viss{position:absolute;left:20px;bottom:16px;font-size:16px;color:rgba(255,255,255,.78);z-index:1;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* 状態チップは上段（fmtチップの下）— ホームのスタックで全カードの状態が見えるように（2026-07-09）。
      isolation:isolate と対: 旧右下配置は次のカードに隠れ、かつ z-index:1 の子が
      次のカードを突き抜けて「隣のカードのチップ」に見える二重表示を起こしていた */
-  .vcard .vst{position:absolute;right:16px;top:44px;font-size:11px;font-weight:500;padding:4px 11px;border-radius:8px;background:rgba(255,255,255,.22);z-index:1}
+  .vcard .vst{position:absolute;right:16px;top:44px;font-size:16px;font-weight:400;padding:4px 11px;border-radius:8px;background:rgba(255,255,255,.22);z-index:1}
   .vcard .vst::before{content:"●";margin-right:4px;color:#7CE3B1}
   .vcard .vst.revoked::before{color:#FF8A80}
   .vcard .vst.na::before{color:rgba(255,255,255,.55)}
@@ -163,39 +161,6 @@ export const walletCardCss = () => `
   .vpeek .vcard{-webkit-mask-image:linear-gradient(180deg,#000 30%,transparent 96%);mask-image:linear-gradient(180deg,#000 30%,transparent 96%);box-shadow:none}
 `;
 
-// カード面の行頭エンブレム（案E1 浮き彫り）用の単色シルエット。8種＋fallback。
-export const CARD_SIL = {
-  pid: `<path d="M3 5.5h18c.6 0 1 .4 1 1v11c0 .6-.4 1-1 1H3c-.6 0-1-.4-1-1v-11c0-.6.4-1 1-1zM7 9a2.2 2.2 0 100 4.4A2.2 2.2 0 007 9zm6 .3h6V11h-6zm0 3h5v1.6h-5zM5 15.6h8v1.6H5z"/>`,
-  juminhyo: `<path d="M12 3 2 11.2h3V20h5v-5.5h4V20h5v-8.8h3z"/>`,
-  qualification: `<path d="M12 4 1 9l11 5 9-4.1V15.5h1.8V9zM4.5 12.4v3.1C4.5 17.3 8 18.6 12 18.6s7.5-1.3 7.5-3.1v-3.1L12 15.8z"/>`,
-  koseki: `<path d="M6 3h8l4 4v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm2 7h8v1.6H8zm0 3.2h8v1.6H8zm0 3.2h5v1.6H8z"/>`,
-  tax: `<path d="M6 2l1.5 1.2L9 2l1.5 1.2L12 2l1.5 1.2L15 2l1.5 1.2L18 2v18l-1.5-1.2L15 20l-1.5 1.2L12 20l-1.5-1.2L9 20l-1.5 1.2L6 22zm2.5 5h7v1.6h-7zm0 3.2h7v1.6h-7zm0 3.2h4.5v1.6H8.5z"/>`,
-  single: `<path d="M12 8.2a4.4 4.4 0 100 8.8 4.4 4.4 0 000-8.8zm0 1.8a2.6 2.6 0 110 5.2 2.6 2.6 0 010-5.2zM9.6 2h4.8l1.3 3.1-3.7 2.3L8.3 5.1z"/>`,
-  disaster: `<path d="M12 3 2 11h3v9h6.2l-1.3-3 2.6-2-2-2.4 2.5-1.8V20h6v-9h3z"/>`,
-  // 離島割引資格証: 島影（大小の丘）＋波。飛行機にすると「搭乗券」に見えてしまうので島にした
-  island: `<path d="M12 4.2c-4.9 0-8.9 3.9-9.9 9h19.8c-1-5.1-5-9-9.9-9z"/><path d="M2 16.3c1.67 0 1.67 1.3 3.33 1.3S7 16.3 8.67 16.3s1.66 1.3 3.33 1.3 1.67-1.3 3.33-1.3 1.67 1.3 3.34 1.3S20.33 16.3 22 16.3v2.1c-1.67 0-1.67 1.3-3.33 1.3s-1.67-1.3-3.34-1.3-1.66 1.3-3.33 1.3-1.67-1.3-3.33-1.3S7 19.7 5.33 19.7 3.67 18.4 2 18.4z"/>`,
-  vaccine: `<g transform="rotate(-40 12 12)"><rect x="1.6" y="11.25" width="6" height="1.5" rx=".2"/><rect x="7.4" y="7.8" width="1.7" height="8.4" rx=".4"/><rect x="9" y="9" width="7.6" height="6" rx=".7"/><rect x="11" y="9.3" width="1" height="1.6"/><rect x="12.8" y="9.3" width="1" height="1.6"/><rect x="14.6" y="9.3" width="1" height="1.6"/><rect x="16.4" y="6.6" width="1.9" height="10.8" rx=".4"/><rect x="18.3" y="10.8" width="2.2" height="2.4"/><rect x="20.2" y="8.6" width="1.8" height="6.8" rx=".4"/></g>`,
-};
-// シルエットの視覚中心・大きさを 24×24 枠に合わせる微調整（bbox のズレ/小ささ補正）。
-// swatch と券面エンボスの両方に効かせ、全面で同じ位置・比率に見せる。
-//   dx/dy=平行移動, s=中心(cx,cy)まわりの拡大。single は指輪が細身で小さく見えるため拡大。
-const CARD_SIL_ADJ = {
-  single: { s: 1.22, cx: 12, cy: 11, dy: 2 },
-  koseki: { dx: 0.8 },
-};
-// **位置補正込みの字形**。issuer カタログの紋章と券面画像（scripts/gen-cardart.mjs）で
-// 同じものを使う——補正を片方だけに掛けると、同じ資格証なのに紋章の位置がずれる
-export function embInner(type) {
-  const p = CARD_SIL[type];
-  if (!p) return '';
-  const a = CARD_SIL_ADJ[type];
-  if (!a) return p;
-  const dx = a.dx || 0, dy = a.dy || 0, s = a.s || 1, cx = a.cx ?? 12, cy = a.cy ?? 12;
-  const parts = [];
-  if (dx || dy) parts.push(`translate(${dx} ${dy})`);
-  if (s !== 1) parts.push(`translate(${cx} ${cy}) scale(${s}) translate(${-cx} ${-cy})`);
-  return `<g transform="${parts.join(' ')}">${p}</g>`;
-}
 export function cardEmblemHtml(type) {
   const inner = embInner(type);
   return inner ? `<span class="vemb"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${inner}</svg></span>` : '';
@@ -219,11 +184,15 @@ export function swatchEmblemCss() {
 export function vcardHtml(type, { title, sub = '', fmt = '', issuer = 'デジタル資格証発行ポータル', status = '有効', revoked = false, unknown = false, href = '', style = '' } = {}) {
   const t = WALLET_CARD_THEME[type] || WALLET_CARD_THEME.pid;
   const tag = href ? 'a' : 'div';
+  // **券面そのものは `cardArtSvg` をインラインで敷く**——Multipaz へ渡すメタデータ画像と
+  // 同じ意匠を、Web では画像化せず SVG のまま出す（どの寸法でも滲まない・JPEG の 1/5 の
+  // バイト数・意匠の正本が1つになる）。書類名／英名／DEMO VC ISSUER は SVG が持つので
+  // HTML 側には重ねない（重ねると二重に見える。Multipaz が既定券面で踏んだのと同じ罠）。
+  // HTML に残すのは**動くもの＝形式チップと状態チップだけ**。これらはメタデータ画像には
+  // 焼けない（失効状態は発行後に変わる）。
   return `<${tag} ${href ? `href="${esc(href)}"` : ''} class="vcard" style="--c1:${t.c1};--c2:${t.c2};--c3:${t.c3};${style}">
-    ${cardEmblemHtml(type)}
-    <div class="vt">${esc(title)}</div>${sub ? `<div class="vs">${esc(sub)}</div>` : ''}
+    <span class="vface">${cardArtSvg(type, { title: `${title}${sub ? `（${sub}）` : ''}` })}</span>
     ${fmt ? `<span class="vfmt">${esc(fmt)}</span>` : ''}
-    <span class="viss">${esc(issuer)}</span>
     <span class="vst${revoked ? ' revoked' : unknown ? ' na' : ''}">${esc(status)}</span>
   </${tag}>`;
 }
@@ -231,10 +200,10 @@ export function vcardHtml(type, { title, sub = '', fmt = '', issuer = 'デジタ
 // Tab-level role identity: coloured-dot favicon (発/W/検) + title prefix, so the
 // three origins are distinguishable in the browser tab strip / screenshots.
 const ROLE_META = {
-  issuer: { prefix: '発行者', color: '#1C3F94', ch: '発' },
-  verifier: { prefix: '検証者', color: '#9E3A3A', ch: '検' },
-  wallet: { prefix: 'ウォレット', color: '#2E7D6B', ch: 'W' },
-  admin: { prefix: '自治体窓口', color: '#745399', ch: '庁' },   // 江戸紫（body.role-admin と揃える）
+  issuer: { prefix: '発行者', color: '#0017c1', ch: '発' },
+  verifier: { prefix: '検証者', color: '#8b008b', ch: '検' },
+  wallet: { prefix: 'ウォレット', color: '#006173', ch: 'W' },
+  admin: { prefix: '自治体窓口', color: '#41048e', ch: '庁' },   // 江戸紫（body.role-admin と揃える）
 };
 export const roleHead = (role, title) => {
   const m = ROLE_META[role] || ROLE_META.issuer;
@@ -253,7 +222,7 @@ export const shell = (title, body, { brand = 'デジタル資格証発行ポー�
   const cls = width === 'wide' ? 'wrap wide' : width === 'mid' ? 'wrap mid' : 'wrap';
   const roleBadge = `<span class="role">${role === 'verifier' ? 'Verifier' : role === 'wallet' ? 'Wallet' : 'Issuer'}</span>`;
   const right = dev ? `<span class="dev-hdr-right">${devToggleHtml()}${roleBadge}</span>` : roleBadge;
-  return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${roleHead(role, title)}${FONTS}<style>${CSS}</style></head>
+  return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${roleHead(role, title)}${FONTS}<style>${CSS}${DADS_CSS}${DADS_OVERRIDE}</style></head>
 <body class="role-${role}">${SENTINEL}<div class="topwrap"><header class="top ${role}"><span class="tag"></span><a class="brandlink" href="/"><b>${esc(brand)}</b><small>${esc(sub)}</small></a>${right}</header>${DEMO_BAND}</div><div class="${cls}">${body}</div>${dev ? devWidgetHtml() : ''}${STICKY_JS}</body></html>`;
 };
 
@@ -269,7 +238,7 @@ export async function renderAuthStart({ issuer, configId, redirectUri, verifier,
       <div class="step">STEP 1 / ウォレット起点</div>
       <div class="eyebrow">Authorization Request</div>
       <h1>認可要求URLを開く</h1>
-      <p style="font-size:13.5px;color:var(--muted);margin-top:-6px">ウォレットが PKCE 付きで生成する認可要求です。同一端末はリンク、別端末はQRで開きます。</p>
+      <p style="font-size:16px;color:var(--muted);margin-top:-6px">ウォレットが PKCE 付きで生成する認可要求です。同一端末はリンク、別端末はQRで開きます。</p>
       <div class="urlbox mono">${esc(url)}</div>
       <img class="qr" alt="authorization request QR" src="data:image/svg+xml;utf8,${encodeURIComponent(qr)}">
       <div style="text-align:center;margin-top:8px"><a class="btn" id="open" href="${esc(url)}">この認可要求URLを開く</a></div>
@@ -284,7 +253,7 @@ export function renderCallback({ code, state }) {
       <div class="step">STEP 3 / リダイレクト受信（認可コードのみ）</div>
       <div class="eyebrow">Redirect (authorization code)</div>
       <h1>認可コードを受領しました</h1>
-      <p style="font-size:13px;color:var(--muted);margin-top:-6px">この時点では発行は未完了。ウォレットがこのコードを使って次段で発行します。</p>
+      <p style="font-size:16px;color:var(--muted);margin-top:-6px">この時点では発行は未完了。ウォレットがこのコードを使って次段で発行します。</p>
       <div class="req"><div class="k">code</div><b class="mono">${esc(String(code).slice(0, 22))}…</b>
         <div class="k" style="margin-top:8px">state</div><span class="mono">${esc(state || '')}</span></div>
       <hr style="border:0;border-top:1px solid var(--line);margin:18px 0">
@@ -322,10 +291,10 @@ export async function renderOfferAuthcode({ offer, offerUri, authorizeUrl, confi
       <div class="step">STEP 1 / 発行者起点（Credential Offer）</div>
       <div class="eyebrow">Credential Offer · authorization_code</div>
       <h1>発行者がオファーQRを提示</h1>
-      <p style="font-size:13.5px;color:var(--muted);margin-top:-6px">オファーは <b>issuer_state</b> だけを運びます（認可コードは含みません）。ウォレットが受け取り、issuer_state 付きで認可要求を始めます。</p>
+      <p style="font-size:16px;color:var(--muted);margin-top:-6px">オファーは <b>issuer_state</b> だけを運びます（認可コードは含みません）。ウォレットが受け取り、issuer_state 付きで認可要求を始めます。</p>
       <img class="qr" alt="credential offer QR" src="data:image/svg+xml;utf8,${encodeURIComponent(qr)}">
-      <div style="text-align:center;margin-top:4px"><a href="${esc(offerDeepLink)}" style="font-size:12.5px;font-weight:700;color:var(--civic);text-decoration:none">📱 この端末のウォレットで開く（QRの代わり）</a></div>
-      <div class="req mono" style="font-size:12px"><div class="k">credential_offer.grants</div>${esc(JSON.stringify(offer.grants))}</div>
+      <div style="text-align:center;margin-top:4px"><a href="${esc(offerDeepLink)}" style="font-size:16px;font-weight:700;color:var(--civic);text-decoration:none">📱 この端末のウォレットで開く（QRの代わり）</a></div>
+      <div class="req mono" style="font-size:16px"><div class="k">credential_offer.grants</div>${esc(JSON.stringify(offer.grants))}</div>
       <div style="text-align:center;margin-top:10px"><a class="btn" id="open" href="${esc(authorizeUrl)}">ウォレットの動作を再現（認可へ進む）</a></div>
       <div class="hint">要求デジタル資格証: <b>${esc(dispName(configId))}</b> / 配送: by reference（<span class="mono">credential_offer_uri</span>）</div>
     </div>`);
@@ -380,7 +349,7 @@ export function renderLogin(users, next = '/', { note = null } = {}) {
       </button>
     </form>`).join('');
   const noteHtml = note
-    ? `<div style="margin-top:12px;font-size:13px;color:#1C3F94;background:#EAEFFA;border:1px solid #D4DEF5;border-radius:8px;padding:10px 14px;text-align:left">${esc(note)}</div>`
+    ? `<div style="margin-top:12px;font-size:16px;color:var(--role-ink);background:#EAEFFA;border:1px solid #D4DEF5;border-radius:8px;padding:10px 14px;text-align:left">${esc(note)}</div>`
     : '';
   return `<!doctype html><html lang="ja"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -391,20 +360,20 @@ export function renderLogin(users, next = '/', { note = null } = {}) {
       .login-card{background:#fff;border:1px solid #DCE3ED;border-radius:14px;padding:24px 18px;width:140px;cursor:pointer;font:inherit;font-family:inherit;display:flex;flex-direction:column;align-items:center;gap:12px;transition:box-shadow .15s,transform .15s}
       .login-card:hover{transform:translateY(-3px);box-shadow:0 8px 24px rgba(14,26,43,.12)}
       .login-seal{width:78px;height:78px;border-radius:50%;background:#fff;color:#C8453C;border:2.5px solid #C8453C;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:700}
-      .login-nm{font-size:14px;font-weight:500;color:#0E1A2B}
+      .login-nm{font-size:16px;font-weight:400;color:#0E1A2B}
     </style>
   </head><body>
     <div style="text-align:center;max-width:700px;padding:0 24px">
-      <p style="font-size:13px;letter-spacing:.18em;color:#1C3F94;font-weight:700;margin:0 0 14px">デジタル資格証　発行ポータル</p>
+      <p style="font-size:16px;letter-spacing:.18em;color:var(--role-ink);font-weight:700;margin:0 0 14px">デジタル資格証　発行ポータル</p>
       <h1 style="font-size:26px;font-weight:700;margin:0 0 8px">サインインするアカウントを選択</h1>
-      <p style="font-size:14px;color:#5B6B82;margin:0 0 4px">アイコンを選ぶだけでサインインできます。</p>
+      <p style="font-size:16px;color:#5B6B82;margin:0 0 4px">アイコンを選ぶだけでサインインできます。</p>
       ${noteHtml}
       <div style="display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:32px">${cards}</div>
-      <div style="margin-top:32px;display:flex;align-items:center;gap:8px;justify-content:center;font-size:13px;color:#5B6B82">
-        <span style="width:8px;height:8px;border-radius:50%;background:#0E8A6B;flex-shrink:0;display:inline-block"></span>
+      <div style="margin-top:32px;display:flex;align-items:center;gap:8px;justify-content:center;font-size:16px;color:#5B6B82">
+        <span style="width:8px;height:8px;border-radius:50%;background:var(--success-2);flex-shrink:0;display:inline-block"></span>
         パスワード不要のデモ用サインイン。実環境ではマイナンバーカードやパスキーを用いて当人認証します。
       </div>
-      <footer style="margin-top:18px;font-size:11px;color:#5B6B82">本デモ中の組織・人物・デジタル資格証等は全て架空のものです</footer>
+      <footer style="margin-top:18px;font-size:16px;color:#5B6B82">本デモ中の組織・人物・デジタル資格証等は全て架空のものです</footer>
     </div>
   </body></html>`;
 }
@@ -414,34 +383,34 @@ function appHeaderHtml(user, dev = false) {
   const devBtn = dev ? devToggleHtml() : '';
   if (!user) return `
     <header class="ahdr" style="background:#EAF0FA;border-bottom:1px solid #D4DEF5;padding:0 24px;display:flex;align-items:center;gap:12px">
-      <span style="width:4px;height:28px;border-radius:2px;background:#1C3F94;flex-shrink:0;display:block"></span>
+      <span style="width:4px;height:28px;border-radius:2px;background:var(--role-ink);flex-shrink:0;display:block"></span>
       <a class="ah-brand brandlink" href="/"><div class="ah-title" style="font-size:16px;font-weight:700;color:#0E1A2B;line-height:1.2">IHV 発行ポータル</div>
-        <div class="ah-sub" style="font-size:10px;letter-spacing:.14em;color:#5B6B82">CREDENTIAL ISSUER</div></a>
+        <div class="ah-sub" style="font-size:16px;letter-spacing:.14em;color:#5B6B82">CREDENTIAL ISSUER</div></a>
       ${dev ? `<div style="margin-left:auto">${devBtn}</div>` : ''}
     </header>`;
   const initial = esc(user.family[0]);
   const name = esc(`${user.family} ${user.given}`);
   // compact header pill: 28px avatar + FAMILY NAME only. The full name / title
   // (desc) live in the dropdown, where there is room for them.
-  const desc = user.desc ? `<div style="font-size:12px;color:#5B6B82">${esc(user.desc)}</div>` : '';
-  const mItem = 'display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 14px;border:none;background:none;font:inherit;font-size:14px;cursor:pointer;border-radius:6px;text-decoration:none;color:#0E1A2B;box-sizing:border-box';
+  const desc = user.desc ? `<div style="font-size:16px;color:#5B6B82">${esc(user.desc)}</div>` : '';
+  const mItem = 'display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 14px;border:none;background:none;font:inherit;font-size:16px;cursor:pointer;border-radius:6px;text-decoration:none;color:#0E1A2B;box-sizing:border-box';
   return `
     <header class="ahdr" style="background:#EAF0FA;border-bottom:1px solid #D4DEF5;padding:0 24px;display:flex;align-items:center;gap:12px">
-      <span style="width:4px;height:28px;border-radius:2px;background:#1C3F94;flex-shrink:0;display:block"></span>
+      <span style="width:4px;height:28px;border-radius:2px;background:var(--role-ink);flex-shrink:0;display:block"></span>
       <a class="ah-brand brandlink" href="/"><div class="ah-title" style="font-size:16px;font-weight:700;color:#0E1A2B;line-height:1.2">IHV 発行ポータル</div>
-        <div class="ah-sub" style="font-size:10px;letter-spacing:.14em;color:#5B6B82">CREDENTIAL ISSUER</div></a>
+        <div class="ah-sub" style="font-size:16px;letter-spacing:.14em;color:#5B6B82">CREDENTIAL ISSUER</div></a>
       <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
         ${devBtn}
         <details style="position:relative">
           <summary class="ah-pill" style="list-style:none;cursor:pointer;display:flex;align-items:center;gap:7px;padding:3px 10px 3px 4px;border:1px solid #DCE3ED;border-radius:999px;background:#fff">
-            <span style="width:28px;height:28px;border-radius:50%;border:2px solid #C8453C;color:#C8453C;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0">${initial}</span>
-            <span class="ah-name" style="font-size:13px;font-weight:600">${esc(user.family)}</span>
-            <span class="ah-name" style="font-size:10px;color:#5B6B82">▾</span>
+            <span style="width:28px;height:28px;border-radius:50%;border:2px solid #C8453C;color:#C8453C;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0">${initial}</span>
+            <span class="ah-name" style="font-size:16px;font-weight:700">${esc(user.family)}</span>
+            <span class="ah-name" style="font-size:16px;color:#5B6B82">▾</span>
           </summary>
           <div style="position:absolute;right:0;top:calc(100% + 6px);background:#fff;border:1px solid #DCE3ED;border-radius:12px;min-width:230px;box-shadow:0 6px 24px rgba(14,26,43,.12);z-index:10;padding:6px">
             <div style="display:flex;align-items:center;gap:12px;padding:12px 14px 14px">
               <span style="width:44px;height:44px;border-radius:50%;border:2px solid #C8453C;color:#C8453C;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:20px;flex-shrink:0">${initial}</span>
-              <div><div style="font-size:15px;font-weight:700">${name}</div>${desc}<div style="font-family:monospace;font-size:12px;color:#5B6B82">${esc(user.id)}</div></div>
+              <div><div style="font-size:16px;font-weight:700">${name}</div>${desc}<div style="font-family:monospace;font-size:16px;color:#5B6B82">${esc(user.id)}</div></div>
             </div>
             <div style="height:1px;background:#EEF1F6;margin:2px 0 6px"></div>
             <a href="/applications" style="${mItem}"><span>📋</span> 申請状況</a>
@@ -461,7 +430,7 @@ export function appShell(title, body, user = null, { width = 'narrow', dev = tru
   const cls = width === 'wide' ? 'wrap wide' : width === 'mid' ? 'wrap mid' : 'wrap';
   return `<!doctype html><html lang="ja"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-    ${roleHead('issuer', `${title} — IHV 発行ポータル`)}${FONTS}<style>${CSS}</style>
+    ${roleHead('issuer', `${title} — IHV 発行ポータル`)}${FONTS}<style>${CSS}${DADS_CSS}${DADS_OVERRIDE}</style>
   </head><body class="role-issuer" style="background:var(--paper);min-height:100vh">
     ${SENTINEL}<div class="topwrap">${appHeaderHtml(user, dev)}${DEMO_BAND}</div><div class="${cls}">${body}</div>${dev ? devWidgetHtml('', { endpoints: true }) : ''}${STICKY_JS}
   </body></html>`;
@@ -472,29 +441,29 @@ export function appShell(title, body, user = null, { width = 'narrow', dev = tru
 // 色（墨紺）とヘッダーで「住民向けの画面ではない」ことを明示する。
 function adminHeaderHtml(staff) {
   const brand = `<a class="ah-brand brandlink" href="/"><div class="ah-title" style="font-size:16px;font-weight:700;color:#0E1A2B;line-height:1.2">交付申請 審査システム</div>
-    <div class="ah-sub" style="font-size:10px;letter-spacing:.14em;color:#5B6B82">MUNICIPAL BACK OFFICE</div></a>`;
+    <div class="ah-sub" style="font-size:16px;letter-spacing:.14em;color:#5B6B82">MUNICIPAL BACK OFFICE</div></a>`;
   const bar = 'background:var(--role-soft);border-bottom:1px solid var(--role-line);padding:0 24px;display:flex;align-items:center;gap:12px';
   const rule = '<span style="width:4px;height:28px;border-radius:2px;background:var(--civic);flex-shrink:0;display:block"></span>';
   if (!staff) return `<header class="ahdr" style="${bar}">${rule}${brand}</header>`;
-  const mItem = 'display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 14px;border:none;background:none;font:inherit;font-size:14px;cursor:pointer;border-radius:6px;text-decoration:none;color:#0E1A2B;box-sizing:border-box';
+  const mItem = 'display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 14px;border:none;background:none;font:inherit;font-size:16px;cursor:pointer;border-radius:6px;text-decoration:none;color:#0E1A2B;box-sizing:border-box';
   return `
     <header class="ahdr" style="${bar}">${rule}${brand}
       <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
         <details style="position:relative">
           <summary class="ah-pill" style="list-style:none;cursor:pointer;display:flex;align-items:center;gap:7px;padding:3px 10px 3px 4px;border:1px solid var(--role-line);border-radius:999px;background:#fff">
-            <span style="width:28px;height:28px;border-radius:7px;background:var(--civic);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0">庁</span>
+            <span style="width:28px;height:28px;border-radius:7px;background:var(--civic);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px;flex-shrink:0">庁</span>
             ${/* 所属は常時見せる。どの自治体の立場で審査しているかは、管轄外の警告が
                  出ていないときにも分かっていないといけない情報 */''}
             <span class="ah-name" style="display:flex;flex-direction:column;line-height:1.25;text-align:left">
-              <b style="font-size:13px;font-weight:600">${esc(staff.name)}</b>
-              <small style="font-size:10px;color:#5B6B82">${esc(staff.municipality)}</small></span>
-            <span class="ah-name" style="font-size:10px;color:#5B6B82">▾</span>
+              <b style="font-size:16px;font-weight:700">${esc(staff.name)}</b>
+              <small style="font-size:16px;color:#5B6B82">${esc(staff.municipality)}</small></span>
+            <span class="ah-name" style="font-size:16px;color:#5B6B82">▾</span>
           </summary>
           <div style="position:absolute;right:0;top:calc(100% + 6px);background:#fff;border:1px solid var(--role-line);border-radius:12px;min-width:250px;box-shadow:0 6px 24px rgba(14,26,43,.12);z-index:10;padding:6px">
             <div style="padding:12px 14px 14px">
-              <div style="font-size:15px;font-weight:700">${esc(staff.name)}<span style="font-size:12px;font-weight:500;color:#5B6B82">　${esc(staff.title)}</span></div>
-              <div style="font-size:12px;color:#5B6B82">${esc(staff.office)}</div>
-              <div style="font-family:monospace;font-size:12px;color:#5B6B82">${esc(staff.id)}</div>
+              <div style="font-size:16px;font-weight:700">${esc(staff.name)}<span style="font-size:16px;font-weight:400;color:#5B6B82">　${esc(staff.title)}</span></div>
+              <div style="font-size:16px;color:#5B6B82">${esc(staff.office)}</div>
+              <div style="font-family:monospace;font-size:16px;color:#5B6B82">${esc(staff.id)}</div>
             </div>
             <div style="height:1px;background:#EEF1F6;margin:2px 0 6px"></div>
             <a href="/" style="${mItem}"><span>📋</span> 申請一覧</a>
@@ -512,7 +481,7 @@ export function adminShell(title, body, staff = null, { width = 'wide' } = {}) {
   const cls = width === 'wide' ? 'wrap wide' : width === 'mid' ? 'wrap mid' : 'wrap';
   return `<!doctype html><html lang="ja"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-    ${roleHead('admin', `${title} — 交付申請 審査システム`)}${FONTS}<style>${CSS}</style>
+    ${roleHead('admin', `${title} — 交付申請 審査システム`)}${FONTS}<style>${CSS}${DADS_CSS}${DADS_OVERRIDE}</style>
   </head><body class="role-admin" style="background:var(--paper);min-height:100vh">
     ${SENTINEL}<div class="topwrap">${adminHeaderHtml(staff)}${DEMO_BAND}</div><div class="${cls}">${body}</div>${STICKY_JS}
   </body></html>`;
@@ -528,18 +497,18 @@ export function renderStaffLogin(staff, { next = '/' } = {}) {
       <span style="min-width:0">
         ${/* 色は必ず明示する。ブラウザ既定のボタン文字色に任せると、環境によっては
              白カードに白文字で消える（発行ポータルの .login-nm は明示していたので出ていた） */''}
-        <b style="display:block;font-size:14.5px;color:#0E1A2B">${esc(s.name)}</b>
-        <small style="display:block;font-size:11px;color:#5B6B82">${esc(s.title)}　${esc(s.municipality)}</small>
+        <b style="display:block;font-size:16px;color:#0E1A2B">${esc(s.name)}</b>
+        <small style="display:block;font-size:16px;color:#5B6B82">${esc(s.title)}　${esc(s.municipality)}</small>
       </span>
     </button></form>`;
   return adminShell('サインイン', `
     <div style="max-width:820px;margin:56px auto;text-align:center">
-      <p style="font-size:12px;letter-spacing:.18em;color:var(--civic);font-weight:700;margin:0 0 12px">自治体 交付申請 審査システム</p>
+      <p style="font-size:16px;letter-spacing:.18em;color:var(--civic);font-weight:700;margin:0 0 12px">自治体 交付申請 審査システム</p>
       <h1 style="font-size:24px;font-weight:700;margin:0 0 8px">職員アカウントでサインイン</h1>
-      <p style="font-size:13.5px;color:#5B6B82;margin:0 0 6px">この画面は<b>自治体職員向け</b>です。住民の発行ポータルとは別のオリジン・別の名簿で動いています。</p>
+      <p style="font-size:16px;color:#5B6B82;margin:0 0 6px">この画面は<b>自治体職員向け</b>です。住民の発行ポータルとは別のオリジン・別の名簿で動いています。</p>
       <div style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:28px">${staff.map(card).join('')}</div>
-      <div style="margin-top:30px;text-align:left;background:#fff;border:1px solid var(--role-line);border-radius:12px;padding:16px 18px;font-size:12.5px;color:#3d4d63;line-height:1.9">
-        <b style="display:block;color:var(--civic);font-size:12px;letter-spacing:.04em;margin-bottom:4px">デモの制約</b>
+      <div style="margin-top:30px;text-align:left;background:#fff;border:1px solid var(--role-line);border-radius:12px;padding:16px 18px;font-size:16px;color:#3d4d63;line-height:1.9">
+        <b style="display:block;color:var(--civic);font-size:16px;letter-spacing:.04em;margin-bottom:4px">デモの制約</b>
         ・<b>自治体ごとのアカウント管理はしていません。</b>どの職員アカウントでも、<b>すべての自治体あての申請を承認できます</b>
         （千代田区の職員が鹿児島県西之表市あての離島割引資格証を認定できます）。<br>
         ・実環境では所属自治体の管轄内に権限を限り、職員 IC カード等で当人認証します。
@@ -604,11 +573,11 @@ export function renderConsentScreen(q, user, infos = [], { choices = {} } = {}) 
       <h1>以下の ${n} 件の発行に同意しますか？</h1>
       ${rows}
       <div class="who"><span class="seal" style="width:38px;height:38px;font-size:16px">${esc((user.family ?? '?')[0])}</span>
-        <div style="font-size:13.5px"><b>${esc(`${user.family} ${user.given}`)}</b> としてサインイン中<br>
-        <span style="font-size:11px;color:var(--muted)">あなたの登録情報がデジタル資格証に記載されます</span></div></div>
-      <div style="font-size:12px;color:var(--muted)">要求元: <b style="color:var(--ink)">${esc(q.client_id || 'wallet')}</b>（${esc(init)}）</div>
+        <div style="font-size:16px"><b>${esc(`${user.family} ${user.given}`)}</b> としてサインイン中<br>
+        <span style="font-size:16px;color:var(--muted)">あなたの登録情報がデジタル資格証に記載されます</span></div></div>
+      <div style="font-size:16px;color:var(--muted)">要求元: <b style="color:var(--ink)">${esc(q.client_id || 'wallet')}</b>（${esc(init)}）</div>
       <details class="techfold"><summary>技術詳細（PKCE / scope / redirect_uri）</summary>
-        <div class="req mono" style="font-size:11.5px;margin-top:8px">
+        <div class="req mono" style="font-size:16px;margin-top:8px">
           scope: ${esc(q.scope || '—')}<br>PKCE: ${esc((q.code_challenge_method || '') + ' ' + String(q.code_challenge || '').slice(0, 24))}…<br>
           redirect_uri: ${esc(q.redirect_uri || '')}
         </div>
@@ -621,19 +590,19 @@ export function renderConsentScreen(q, user, infos = [], { choices = {} } = {}) 
     <style>
       .reqrow{display:flex;gap:11px;align-items:center;border:1px solid var(--line);border-radius:11px;padding:10px 12px;margin-top:8px}
       /* 候補が複数ある書類。ラジオ自体は JS 不要で、選択行だけ枠色を変える */
-      .picknote{font-size:12px;color:var(--muted);margin:14px 0 2px}
+      .picknote{font-size:16px;color:var(--muted);margin:14px 0 2px}
       .picknote b{color:var(--ink)}
       .reqrow.pick{cursor:pointer}
-      .reqrow.pick input{flex:none;margin:0;accent-color:#1C3F94}
-      .reqrow.pick:has(input:checked){border-color:#1C3F94;box-shadow:0 0 0 1px #1C3F94 inset;background:#F7F9FF}
-      .rqsub{font-size:11.5px;color:var(--muted);line-height:1.65;margin-top:3px}
+      .reqrow.pick input{flex:none;margin:0;accent-color:var(--key-900)}
+      .reqrow.pick:has(input:checked){border-color:var(--key-900);box-shadow:0 0 0 1px var(--key-900) inset;background:#F7F9FF}
+      .rqsub{font-size:16px;color:var(--muted);line-height:1.65;margin-top:3px}
       .reqrow .sw{width:46px;height:29px;border-radius:6px;flex:none;background:linear-gradient(135deg,var(--c1),var(--c2))}
       ${swatchEmblemCss()}
-      .reqrow b{font-size:13.5px}
+      .reqrow b{font-size:16px}
       /* 形式チップは折り返させない（"SD-JWT" が2行に割れて行が伸びていた） */
-      .reqrow .fmtb{margin-left:auto;flex:none;white-space:nowrap;font-size:10px;font-weight:700;border:1px solid var(--line);border-radius:6px;padding:2px 8px;color:var(--muted)}
+      .reqrow .fmtb{margin-left:auto;flex:none;white-space:nowrap;font-size:16px;font-weight:700;border:1px solid var(--line);border-radius:6px;padding:2px 8px;color:var(--muted)}
       .who{display:flex;gap:10px;align-items:center;background:#f7f9fc;border:1px solid var(--line);border-radius:11px;padding:10px 12px;margin:14px 0 8px}
-      .techfold{margin-top:10px}.techfold>summary{font-size:11px;font-weight:700;color:var(--muted);cursor:pointer;list-style:none}
+      .techfold{margin-top:10px}.techfold>summary{font-size:16px;font-weight:700;color:var(--muted);cursor:pointer;list-style:none}
       .techfold>summary::before{content:"▸ "}
     </style>`, user);
 }
@@ -748,15 +717,15 @@ export function renderClaimsModal(groups) {
       .cmodal-head{display:flex;align-items:center;gap:14px;padding:18px 22px;border-bottom:1px solid var(--line)}
       .cmodal-icon svg{height:56px;width:auto;display:block}
       .cmodal-title{font-size:18px;font-weight:700}
-      .cmodal-sub{font-size:12px;color:var(--muted)}
+      .cmodal-sub{font-size:16px;color:var(--muted)}
       .cmodal-close{margin-left:auto;cursor:pointer;color:var(--muted);font-size:20px;line-height:1}
       .cmodal-body{padding:18px 22px}
-      .cmodal-grp{font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.04em;margin:0 0 10px}
+      .cmodal-grp{font-size:16px;font-weight:700;color:var(--muted);letter-spacing:.04em;margin:0 0 10px}
       .cmodal-pills{display:flex;flex-wrap:wrap;gap:6px}
-      .cmodal-pill{font-size:12px;font-family:"IBM Plex Mono",monospace;background:#eef2fb;border:1px solid #d7e0f3;color:#26407e;border-radius:999px;padding:3px 11px}
+      .cmodal-pill{font-size:16px;font-family:"IBM Plex Mono",monospace;background:#eef2fb;border:1px solid #d7e0f3;color:#26407e;border-radius:999px;padding:3px 11px}
       /* ⓘ sits bottom-right — the only always-empty corner (title top-left,
          ✓ badge top-right when selected, issuer+chips bottom-left) */
-      .vcinfo{position:absolute;bottom:11px;right:14px;width:24px;height:24px;border-radius:50%;border:1px solid rgba(255,255,255,.5);background:rgba(255,255,255,.15);color:#fff;font-size:12px;font-weight:700;cursor:pointer;z-index:2;font-family:Georgia,serif}
+      .vcinfo{position:absolute;bottom:11px;right:14px;width:24px;height:24px;border-radius:50%;border:1px solid rgba(255,255,255,.5);background:rgba(255,255,255,.15);color:#fff;font-size:16px;font-weight:700;cursor:pointer;z-index:2;font-family:Georgia,serif}
       .vcinfo:hover{background:rgba(255,255,255,.32)}
       .vcinfo:hover{border-color:var(--civic);color:var(--civic);background:#f4f7fd}
     </style>`;
@@ -914,7 +883,7 @@ export function renderVcSelect(user, groups, { walletOrigin = '', approved = [] 
         <details class="jsonfold" id="jsonfold">
           <summary>Credential Offer（JSON）と URI を表示（開発者向け）</summary>
           <pre id="offerjson" class="json"></pre>
-          <div class="k mono" style="font-size:11px;word-break:break-all;margin-top:8px" id="offeruri"></div>
+          <div class="k mono" style="font-size:16px;word-break:break-all;margin-top:8px" id="offeruri"></div>
         </details>
       </div>
     </div>
@@ -1060,7 +1029,7 @@ export function renderVcSelect(user, groups, { walletOrigin = '', approved = [] 
       /* 交付対象外の行: 券面色を落として選べないことを示す（ⓘ は残す=中身は見せる） */
       .crow.is-off{opacity:.62}
       .crow.is-off .cic{filter:grayscale(.85)}
-      .coff{font-size:11.5px;font-weight:700;color:#8A6D1F;background:#FBF3DC;border-radius:999px;padding:4px 11px}
+      .coff{font-size:16px;font-weight:700;color:#8A6D1F;background:#FBF3DC;border-radius:999px;padding:4px 11px}
       .crow{display:grid;grid-template-columns:56px 1fr;column-gap:12px;align-items:center;
         background:#fff;border:1px solid var(--line);border-radius:12px;padding:11px 14px;transition:border-color .15s,box-shadow .15s}
       .crow.on{border-color:var(--civic);box-shadow:0 0 0 1.5px var(--civic)}
@@ -1071,21 +1040,21 @@ export function renderVcSelect(user, groups, { walletOrigin = '', approved = [] 
       .cic .swemb{display:block;width:72%;height:72%;color:rgba(255,255,255,.95);
         filter:drop-shadow(0 1px 0 rgba(0,0,0,.4)) drop-shadow(0 -.6px .4px rgba(255,255,255,.35))}
       .cbody{min-width:0}
-      .cn{font-size:14px;font-weight:700;line-height:1.35}          /* 全幅・折り返し可・省略なし */
+      .cn{font-size:16px;font-weight:700;line-height:1.35}          /* 全幅・折り返し可・省略なし */
       .cl2{display:flex;align-items:center;gap:10px;margin-top:3px}
-      .cd{font-size:11px;color:var(--muted);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .cd{font-size:16px;color:var(--muted);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
       .cchips{display:flex;gap:6px;flex:none}
-      .fmtchip{font:inherit;font-size:11px;font-weight:700;padding:5px 12px;border-radius:8px;background:#fff;border:1px solid var(--line);color:var(--muted);cursor:pointer;transition:all .12s}
+      .fmtchip{font:inherit;font-size:16px;font-weight:700;padding:5px 12px;border-radius:8px;background:#fff;border:1px solid var(--line);color:var(--muted);cursor:pointer;transition:all .12s}
       .fmtchip:hover{border-color:#aebbd3}
       .fmtchip.on{background:var(--civic);border-color:var(--civic);color:#fff}
-      .cinfo{flex:none;border:0;background:none;color:var(--muted);font-size:15px;cursor:pointer;padding:0 2px;line-height:1}
-      .cnote{font-size:10.5px;color:#8A6D1F;margin-top:4px;line-height:1.5}
+      .cinfo{flex:none;border:0;background:none;color:var(--muted);font-size:16px;cursor:pointer;padding:0 2px;line-height:1}
+      .cnote{font-size:16px;color:#8A6D1F;margin-top:4px;line-height:1.5}
       .csub{margin-top:2px}
-      .capp{display:inline-block;font-size:11px;font-weight:700;color:#1C3F94;background:#EAF0FA;border-radius:6px;padding:2px 8px}
-      .applybtn{font-size:11px;font-weight:700;padding:5px 12px;border-radius:8px;background:#fff;border:1px solid var(--civic);color:var(--civic)}
-      .sech{grid-column:1/-1;font-size:12px;font-weight:800;color:var(--muted);letter-spacing:.04em;margin:14px 0 2px}
+      .capp{display:inline-block;font-size:16px;font-weight:700;color:var(--key-900);background:#EAF0FA;border-radius:6px;padding:2px 8px}
+      .applybtn{font-size:16px;font-weight:700;padding:5px 12px;border-radius:8px;background:#fff;border:1px solid var(--civic);color:var(--civic)}
+      .sech{grid-column:1/-1;font-size:16px;font-weight:700;color:var(--muted);letter-spacing:.04em;margin:14px 0 2px}
       .sech:first-child{margin-top:0}
-      .sehint{font-weight:400;font-size:11px;color:#8A97AB;margin-left:10px;letter-spacing:0}
+      .sehint{font-weight:400;font-size:16px;color:#8A97AB;margin-left:10px;letter-spacing:0}
       @media(max-width:520px){
         /* 狭幅では説明を隠して名前とチップに幅を割く（名前は絶対に省略しない） */
         .cl2{flex-wrap:wrap}
@@ -1099,12 +1068,12 @@ export function renderVcSelect(user, groups, { walletOrigin = '', approved = [] 
         border-top:1px solid #D4DEF5;box-shadow:0 -8px 28px rgba(14,26,43,.12)}
       /* カウント＋ボタンを1つの中央グループにまとめて隙間なく配置（間延び防止） */
       .ab-in{margin:0 auto;display:flex;align-items:center;justify-content:center;gap:12px}
-      .ab-cnt{flex:0 1 auto;min-width:0;font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-right:4px}
-      .ab-cnt b{color:#0E1A2B;font-size:14px}
-      @media(max-width:400px){.ab-cnt{font-size:11px;margin-right:0}.ab-in{gap:8px}.ab-prev{padding:9px 12px}}
+      .ab-cnt{flex:0 1 auto;min-width:0;font-size:16px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-right:4px}
+      .ab-cnt b{color:#0E1A2B;font-size:16px}
+      @media(max-width:400px){.ab-cnt{font-size:16px;margin-right:0}.ab-in{gap:8px}.ab-prev{padding:9px 12px}}
       .gearbtn{flex:none;width:40px;height:40px;border:1px solid #D4DEF5;background:#fff;border-radius:10px;font-size:17px;cursor:pointer;color:#3C4A61}
       .gearbtn.on{background:#EAF0FA;border-color:#B7C7EE}
-      .ab-prev{flex:none;background:#fff;border:1px solid var(--civic);color:var(--civic);border-radius:10px;padding:9px 14px;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}
+      .ab-prev{flex:none;background:#fff;border:1px solid var(--civic);color:var(--civic);border-radius:10px;padding:9px 14px;font:inherit;font-size:16px;font-weight:700;cursor:pointer}
       .ab-prev:disabled{opacity:.42;cursor:default}
       .ab-issue{flex:none}
       .ab-issue:disabled{opacity:.42;cursor:default}
@@ -1118,9 +1087,9 @@ export function renderVcSelect(user, groups, { walletOrigin = '', approved = [] 
       body.dev-open .optpanel{bottom:calc(var(--dev-drawer-h,40vh) + 64px)}
       .optpanel[hidden]{display:none}
       .jsonfold{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
-      .jsonfold>summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--muted);list-style:none;user-select:none}
+      .jsonfold>summary{cursor:pointer;font-size:16px;font-weight:700;color:var(--muted);list-style:none;user-select:none}
       .jsonfold>summary::-webkit-details-marker{display:none}
-      .jsonfold>summary::before{content:"▸ ";font-size:10px}
+      .jsonfold>summary::before{content:"▸ ";font-size:16px}
       .jsonfold[open]>summary::before{content:"▾ "}
       .jsonfold[open]>summary{margin-bottom:8px}
 
@@ -1132,13 +1101,13 @@ export function renderVcSelect(user, groups, { walletOrigin = '', approved = [] 
         max-height:84vh;display:flex;flex-direction:column;max-width:560px;margin:0 auto}
       .psheet.open{transform:translateY(0)}
       .ps-grab{width:44px;height:5px;border-radius:3px;background:#C6D0DC;margin:9px auto 4px}
-      .ps-h{display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:700;padding:2px 18px 8px}
-      .ps-cnt{background:var(--civic);color:#fff;border-radius:999px;font-size:11px;font-weight:800;padding:2px 9px}
+      .ps-h{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:700;padding:2px 18px 8px}
+      .ps-cnt{background:var(--civic);color:#fff;border-radius:999px;font-size:16px;font-weight:700;padding:2px 9px}
       .ps-x{margin-left:auto;border:0;background:none;font-size:22px;line-height:1;color:var(--muted);cursor:pointer;padding:0 2px}
       .ps-body{overflow:auto;padding:6px 18px 10px}
       .pstack{position:relative}
       .pstack .vcard{max-width:none;position:absolute;left:0;right:0;transition:top .32s cubic-bezier(.2,.7,.2,1)}
-      .ps-cap{font-size:11px;color:var(--muted);margin-top:8px}
+      .ps-cap{font-size:16px;color:var(--muted);margin-top:8px}
       .ps-issue{margin:8px 18px calc(14px + env(safe-area-inset-bottom))}
       /* 受け渡し（オファリング）シート: プレビューと同じ .psheet ベース。中の受け渡しは
          シート幅に依存せず縦積み（QR→ボタン→キャプション）で崩れないように固定 */
@@ -1167,7 +1136,7 @@ export function renderVcSelect(user, groups, { walletOrigin = '', approved = [] 
         justify-content:center;align-items:center;margin-top:6px}
       .qrside{grid-column:1;grid-row:1}
       .qrside #qrbox img{display:block}
-      .qrcap{grid-column:1;grid-row:2;text-align:center;font-size:11px;color:var(--muted);line-height:1.5}
+      .qrcap{grid-column:1;grid-row:2;text-align:center;font-size:16px;color:var(--muted);line-height:1.5}
       .btnside{grid-column:2;grid-row:1;min-width:0;display:flex;flex-direction:column;gap:8px}
       .act{display:flex;align-items:center;gap:12px;padding:11px 14px;border:1px solid var(--line);border-radius:12px;
         background:#fff;text-decoration:none;color:var(--ink);cursor:pointer;font:inherit;text-align:left;width:100%;transition:all .12s}
@@ -1176,8 +1145,8 @@ export function renderVcSelect(user, groups, { walletOrigin = '', approved = [] 
       .act.primary:hover{border-color:var(--civic)}
       .act-ic{font-size:20px;flex:none}
       .act-tx{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.45}
-      .act-tx b{font-size:13.5px}
-      .act-tx small{font-size:11px;color:var(--muted)}
+      .act-tx b{font-size:16px}
+      .act-tx small{font-size:16px;color:var(--muted)}
       .act-ch{color:var(--muted);font-size:20px;flex:none;line-height:1}
       @media(max-width:640px){
         .handoff{grid-template-columns:1fr;justify-items:center;row-gap:6px}
@@ -1186,26 +1155,26 @@ export function renderVcSelect(user, groups, { walletOrigin = '', approved = [] 
         .btnside{grid-column:1;grid-row:3;width:100%}
       }
       .pinbanner{background:#fff;border:1px solid var(--line);border-left:4px solid var(--seal);border-radius:10px;padding:14px 18px;margin-bottom:14px;text-align:center}
-      .pin-k{font-size:12px;color:var(--muted);letter-spacing:.04em}
+      .pin-k{font-size:16px;color:var(--muted);letter-spacing:.04em}
       .pin-v{font-family:"IBM Plex Mono",monospace;font-size:34px;font-weight:700;letter-spacing:.18em;color:var(--seal);margin:6px 0}
-      .pin-note{font-size:11px;color:var(--muted)}
-      .sect{background:#fff;border:1px solid var(--line);border-left:4px solid var(--verify);border-radius:10px;padding:14px 18px;font-size:13px;color:var(--muted);letter-spacing:.04em}
+      .pin-note{font-size:16px;color:var(--muted)}
+      .sect{background:#fff;border:1px solid var(--line);border-left:4px solid var(--verify);border-radius:10px;padding:14px 18px;font-size:16px;color:var(--muted);letter-spacing:.04em}
       .sect b{color:var(--ink);font-weight:700}
       .h2{font-size:20px;margin:24px 0 6px;font-weight:700}
       ${walletCardCss()}
       .optrow{display:flex;align-items:center;gap:16px;margin-bottom:14px}
-      .optlbl{font-size:12px;color:var(--muted);font-weight:700;width:140px;flex-shrink:0}
+      .optlbl{font-size:16px;color:var(--muted);font-weight:700;width:140px;flex-shrink:0}
       /* scope width:280px to the <select> element only (a bare .sel could collide
          with other 'sel'-toggled elements) */
       select.sel{font:inherit;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;width:280px;max-width:100%}
-      .radios{display:flex;gap:18px;flex-wrap:wrap;font-size:13.5px;min-width:0}
+      .radios{display:flex;gap:18px;flex-wrap:wrap;font-size:16px;min-width:0}
       .radios label,.inline{display:flex;align-items:center;gap:7px}
       .actions{display:flex;gap:10px;margin-top:18px}
       .btn.ghost{background:#fff;color:var(--civic);border:1px solid var(--line)}
       .btn.ghost:hover{background:#f7f9fc}
       .grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,320px);gap:16px;margin-top:16px;align-items:start}
       #out.jsononly .grid2{grid-template-columns:minmax(0,1fr)}
-      .json{background:#0E1A2B;color:#D7E0EE;border-radius:10px;padding:14px;font-size:11.5px;line-height:1.5;overflow:auto;max-width:100%;max-height:480px;font-family:"IBM Plex Mono",monospace;white-space:pre}
+      .json{background:#0E1A2B;color:#D7E0EE;border-radius:10px;padding:14px;font-size:16px;line-height:1.5;overflow:auto;max-width:100%;max-height:480px;font-family:"IBM Plex Mono",monospace;white-space:pre}
       .hidden{display:none}
       @media(max-width:720px){.grid2{grid-template-columns:minmax(0,1fr)}}
       @media(max-width:640px){
@@ -1232,9 +1201,9 @@ export const pagerHtml = (p, pages, base) => (pages <= 1 ? '' : `
     <span class="pinfo">${p} / ${pages} ページ</span>
     ${p < pages ? `<a href="${base}?p=${p + 1}">古い記録 →</a>` : '<span></span>'}
   </div>
-  <style>.pager{display:flex;align-items:center;justify-content:space-between;margin:14px 2px 4px;font-size:13px}
-    .pager a{color:var(--civic,#1C3F94);text-decoration:none;font-weight:700}
-    .pager .pinfo{color:var(--muted,#5B6B82);font-size:12px}</style>`);
+  <style>.pager{display:flex;align-items:center;justify-content:space-between;margin:14px 2px 4px;font-size:16px}
+    .pager a{color:var(--civic,var(--key-900));text-decoration:none;font-weight:700}
+    .pager .pinfo{color:var(--muted,#5B6B82);font-size:16px}</style>`);
 
 export function renderHistory(user, issuances, { page = 1, per = 20 } = {}) {
   const short = (holder) => 'sha256:' + createHash('sha256').update(String(holder)).digest('hex').slice(0, 8);
@@ -1264,9 +1233,9 @@ export function renderHistory(user, issuances, { page = 1, per = 20 } = {}) {
     <div style="margin-top:24px;max-width:880px;margin-left:auto;margin-right:auto">
       <div style="display:flex;align-items:center;justify-content:space-between">
         <h1 style="font-size:22px;margin:0">発行履歴</h1>
-        <a href="/" style="color:var(--civic);text-decoration:none;font-size:14px">← 発行に戻る</a>
+        <a href="/" style="color:var(--civic);text-decoration:none;font-size:16px">← 発行に戻る</a>
       </div>
-      <div style="background:#EAF4EF;border:1px solid #CDE6DB;border-radius:10px;padding:14px 18px;margin:16px 0 8px;font-size:13.5px;color:#1f5c46">
+      <div style="background:#EAF4EF;border:1px solid #CDE6DB;border-radius:10px;padding:14px 18px;margin:16px 0 8px;font-size:16px;color:#1f5c46">
         ⓘ <b>Issuer は提示を追跡しません</b>（issuer-verifier unlinkability）。この台帳は自分が発行した記録のみで、いつ・どこで提示されたか（提示回数・提示先）は保持しません。
       </div>
       <div class="hlegend">発行日時 (JST)・有効期限 (JST) は各行に表示。失効は Token Status List に即時反映されます。全 ${total} 件。</div>
@@ -1282,20 +1251,20 @@ export function renderHistory(user, issuances, { page = 1, per = 20 } = {}) {
       }; });
     </script>
     <style>
-      .hlegend{font-size:11px;color:var(--muted);margin:0 2px 10px}
+      .hlegend{font-size:16px;color:var(--muted);margin:0 2px 10px}
       .hrow{display:flex;align-items:center;gap:12px;background:#fff;border:1px solid var(--line);border-radius:13px;padding:11px 14px;margin-top:9px}
       .hrow .sw{width:52px;height:33px;border-radius:7px;flex:none;
         background:radial-gradient(120% 90% at 88% -12%,var(--c3) 0%,transparent 55%),linear-gradient(135deg,var(--c1),var(--c2))}
       ${swatchEmblemCss()}
       .htx{flex:1;min-width:0}
-      .htx b{font-size:13.5px;display:block}
-      .htx small{font-size:10.5px;color:var(--muted);font-family:"IBM Plex Mono",monospace;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-      .badge{font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;flex:none}
-      .badge.ok{color:#0E8A6B;background:#E3F3EE}
+      .htx b{font-size:16px;display:block}
+      .htx small{font-size:16px;color:var(--muted);font-family:"IBM Plex Mono",monospace;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .badge{font-size:16px;font-weight:700;padding:3px 10px;border-radius:999px;flex:none}
+      .badge.ok{color:var(--success-2);background:#E3F3EE}
       .badge.ng{color:#C8453C;background:#FBE9E7}
       .muted{color:var(--muted)}
-      .rvreason{font-size:11.5px;color:var(--muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-      .revoke{font:inherit;font-size:11.5px;font-weight:700;padding:5px 12px;border-radius:8px;cursor:pointer;border:1px solid #EED4D0;color:#C8453C;background:#fff;flex:none}
+      .rvreason{font-size:16px;color:var(--muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .revoke{font:inherit;font-size:16px;font-weight:700;padding:5px 12px;border-radius:8px;cursor:pointer;border:1px solid #EED4D0;color:#C8453C;background:#fff;flex:none}
       .revoke.on:hover{background:#FBE9E7}
       .revoke:disabled{opacity:.4;cursor:default}
     </style>`, user, { width: 'wide' });
@@ -1376,7 +1345,7 @@ export function renderAccount(user, docs = []) {
   }).join('');
   const f = (label, name, val) => `
     <label style="display:block;margin-bottom:14px">
-      <div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:6px">${esc(label)}</div>
+      <div style="font-size:16px;color:var(--muted);font-weight:700;margin-bottom:6px">${esc(label)}</div>
       <input name="${name}" value="${esc(val ?? '')}" style="font:inherit;width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:8px;box-sizing:border-box">
     </label>`;
   // one household-member row (indexed field names hh_<i>_<field>; empty-name rows
@@ -1394,7 +1363,7 @@ export function renderAccount(user, docs = []) {
     <div style="margin-top:24px">
       <div style="display:flex;align-items:center;justify-content:space-between">
         <h1 style="font-size:22px;margin:0">アカウント設定</h1>
-        <a href="/" style="color:var(--civic);text-decoration:none;font-size:14px">← 発行に戻る</a>
+        <a href="/" style="color:var(--civic);text-decoration:none;font-size:16px">← 発行に戻る</a>
       </div>
       <div class="hint" style="margin:10px 0 16px">左＝編集できる属性（保存すると次回以降の発行デジタル資格証に反映・セッション連動）／右＝VC に載るが直接変更できない属性とその由来。</div>
       <div class="acols">
@@ -1409,7 +1378,7 @@ export function renderAccount(user, docs = []) {
           ${f('肩書き・属性（ヘッダ表示）', 'desc', user.desc)}
           ${f('生年月日', 'birth', user.birth)}
           <label style="display:block;margin-bottom:14px">
-            <div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:6px">性別（ISO/IEC 5218）</div>
+            <div style="font-size:16px;color:var(--muted);font-weight:700;margin-bottom:6px">性別（ISO/IEC 5218）</div>
             <select name="sex" style="font:inherit;width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:8px;box-sizing:border-box;background:#fff">
               <option value="1"${Number(user.sex) === 1 ? ' selected' : ''}>1 — 男性</option>
               <option value="2"${Number(user.sex) === 2 ? ' selected' : ''}>2 — 女性</option>
@@ -1421,7 +1390,7 @@ export function renderAccount(user, docs = []) {
           ${f('本籍', 'honseki', user.honseki)}
 
           <div style="border-top:1px solid var(--line);margin:18px 0 14px"></div>
-          <div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:4px">顔写真（写真付き身分証に記載）</div>
+          <div style="font-size:16px;color:var(--muted);font-weight:700;margin-bottom:4px">顔写真（写真付き身分証に記載）</div>
           <div class="pf-row">
             <img id="pfprev" class="pf-img" alt="現在の顔写真" src="data:image/jpeg;base64,${user.portrait ? Buffer.from(user.portrait, 'base64url').toString('base64') : ''}">
             <div class="pf-ctl">
@@ -1435,7 +1404,7 @@ export function renderAccount(user, docs = []) {
           <input type="hidden" name="portrait_b64" id="portrait_b64" value="">
 
           <div style="border-top:1px solid var(--line);margin:18px 0 14px"></div>
-          <div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:4px">世帯員（家族）</div>
+          <div style="font-size:16px;color:var(--muted);font-weight:700;margin-bottom:4px">世帯員（家族）</div>
           <div class="hint" style="margin:0 0 10px">住民票の写し（世帯全員・続柄記載）の <span class="mono">household_members</span> に「本人（世帯主）＋ここに登録した世帯員」が記載されます。続柄が「子」の世帯員は、子ども口座開設・親権者同意シナリオの親子関係確認に使われます。</div>
           <datalist id="rels"><option value="子"><option value="長男"><option value="長女"><option value="妻"><option value="夫"><option value="母"><option value="父"></datalist>
           <div id="hh-rows">${members.map((m, i) => memberRow(m, i)).join('')}</div>
@@ -1457,14 +1426,14 @@ export function renderAccount(user, docs = []) {
     </div>
     <style>
       .hh-row{display:grid;grid-template-columns:1fr 1fr 1.4fr 1.2fr auto;gap:6px;margin-bottom:8px;border:1px solid var(--line);border-radius:10px;padding:8px}
-      .hh-row input{font:inherit;font-size:13px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;min-width:0}
+      .hh-row input{font:inherit;font-size:16px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;min-width:0}
       .hh-del{font:inherit;border:1px solid var(--line);background:#fff;color:var(--muted);border-radius:8px;padding:0 10px;cursor:pointer}
-      .hh-del:hover{color:#9E3A3A;border-color:#E7D6D6}
+      .hh-del:hover{color:var(--error-2);border-color:#E7D6D6}
       .btn.ghost2{background:#fff;color:var(--civic);border:1px solid var(--line)}
       /* 離島割引の区分: ラジオをチップ化（JS 無しでも :checked で見た目が変わる） */
       .isl-cats{display:flex;gap:8px;flex-wrap:wrap}
       .isl-cat{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;
-        padding:8px 14px;font-size:13px;cursor:pointer;background:#fff}
+        padding:8px 14px;font-size:16px;cursor:pointer;background:#fff}
       .isl-cat:has(input:checked){border-color:var(--civic);background:#EAF0FA;color:var(--civic);font-weight:700}
       .isl-2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
       @media(max-width:560px){.isl-2{grid-template-columns:1fr}}
@@ -1474,39 +1443,39 @@ export function renderAccount(user, docs = []) {
       .acols{display:grid;grid-template-columns:5fr 6fr;gap:20px;align-items:start;max-width:1104px}
       .aside{position:sticky;top:16px;max-height:calc(100vh - 32px);overflow-y:auto;padding-right:2px}
       @media(max-width:900px){.acols{grid-template-columns:1fr}.aside{position:static;max-height:none}}
-      .sec-t{font-size:13px;font-weight:800;margin:0 0 7px;display:flex;align-items:center;gap:6px}
+      .sec-t{font-size:16px;font-weight:700;margin:0 0 7px;display:flex;align-items:center;gap:6px}
       .ro-card{padding:6px 14px}
-      .ro-table{width:100%;border-collapse:collapse;font-size:13px}
+      .ro-table{width:100%;border-collapse:collapse;font-size:16px}
       .ro-table td{padding:7px 8px;border-bottom:1px solid #EEF1F6;vertical-align:top}
       .ro-table td:first-child{color:var(--muted);width:42%}
       .ro-table tr:last-child td{border-bottom:none}
-      .src{font-size:10px;color:#8A97AB;display:block;margin-top:1px}
-      .badge{display:inline-block;font-size:10px;font-weight:700;border-radius:999px;padding:2px 8px;vertical-align:1px;white-space:nowrap}
-      .b-edit{background:#E7F3EE;color:#0E8A6B}.b-drv{background:#EAF0FA;color:#1C3F94}.b-fix{background:#F1F3F7;color:#5B6B82}
-      .b-app{background:#EAF0FC;color:#1C3F94}.b-dec{background:#F3ECFA;color:#5B3E86}
+      .src{font-size:16px;color:#8A97AB;display:block;margin-top:1px}
+      .badge{display:inline-block;font-size:16px;font-weight:700;border-radius:999px;padding:2px 8px;vertical-align:1px;white-space:nowrap}
+      .b-edit{background:#E7F3EE;color:var(--success-2)}.b-drv{background:#EAF0FA;color:var(--success-2)}.b-fix{background:#F1F3F7;color:#5B6B82}
+      .b-app{background:#EAF0FC;color:var(--key-900)}.b-dec{background:#F3ECFA;color:#5B3E86}
       /* 交付申請ベースの書類: 申請ごとに1枚。チップで切り替える */
       .apptabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 14px 0}
-      .apptabs button{font:inherit;font-size:11.5px;font-weight:700;border-radius:999px;padding:6px 13px;
+      .apptabs button{font:inherit;font-size:16px;font-weight:700;border-radius:999px;padding:6px 13px;
         border:1px solid var(--line);background:#fff;color:var(--muted);cursor:pointer}
       .apptabs button.on{background:var(--civic);border-color:var(--civic);color:#fff}
-      .apphd{display:flex;align-items:center;gap:10px;margin:10px 14px 0;padding:9px 12px;background:#F7F9FC;border-radius:9px;font-size:11.5px}
+      .apphd{display:flex;align-items:center;gap:10px;margin:10px 14px 0;padding:9px 12px;background:#F7F9FC;border-radius:9px;font-size:16px}
       .apphd .no{font-family:ui-monospace,monospace;color:var(--muted);flex:none}
-      .apphd b{font-weight:600;min-width:0}
+      .apphd b{font-weight:700;min-width:0}
       .apphd a{margin-left:auto;color:var(--civic);text-decoration:none;font-weight:700;white-space:nowrap;flex:none}
-      .appq-note{margin:10px 14px 12px;background:#F7F9FC;border-radius:9px;padding:10px 12px;font-size:11.5px;color:var(--muted);line-height:1.75}
+      .appq-note{margin:10px 14px 12px;background:#F7F9FC;border-radius:9px;padding:10px 12px;font-size:16px;color:var(--muted);line-height:1.75}
       .appq-note b{color:var(--ink)}
       .appq-link{color:var(--civic);font-weight:700;text-decoration:none}
-      .ro-legend{display:flex;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin:0 0 12px;align-items:center}
+      .ro-legend{display:flex;gap:8px;flex-wrap:wrap;font-size:16px;color:var(--muted);margin:0 0 12px;align-items:center}
       details.doc{border:1px solid var(--line);border-radius:11px;margin-bottom:9px;background:#fff}
-      details.doc>summary{cursor:pointer;padding:11px 14px;font-size:13.5px;font-weight:700;list-style:none;display:flex;align-items:center;gap:9px}
+      details.doc>summary{cursor:pointer;padding:11px 14px;font-size:16px;font-weight:700;list-style:none;display:flex;align-items:center;gap:9px}
       details.doc>summary::-webkit-details-marker{display:none}
       details.doc>summary .sw{width:13px;height:13px;border-radius:4px;flex:none}
-      details.doc>summary .n{margin-left:auto;font-size:11px;color:#8A97AB;font-weight:400}
+      details.doc>summary .n{margin-left:auto;font-size:16px;color:#8A97AB;font-weight:400}
       details.doc .ro-table{padding:0 6px 8px;width:calc(100% - 12px);margin:0 6px 8px}
       .pf-row{display:flex;gap:14px;align-items:flex-start;margin-bottom:14px}
       .pf-img{width:78px;height:104px;object-fit:cover;border-radius:8px;border:1px solid var(--line);background:#E9EDF3;flex:none}
-      .pf-ctl{min-width:0;font-size:13px}
-      .pf-ctl input[type=file]{font:inherit;font-size:12.5px;max-width:100%}
+      .pf-ctl{min-width:0;font-size:16px}
+      .pf-ctl input[type=file]{font:inherit;font-size:16px;max-width:100%}
     </style>
     <script>
 

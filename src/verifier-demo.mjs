@@ -70,14 +70,14 @@ document.addEventListener('click', function (e) {
 </script>`;
 const VP_SEG_CSS = `
   .vseg{display:flex;gap:4px;background:#EEF2F1;border:1px solid var(--line);border-radius:11px;padding:4px;margin:10px 0 0}
-  .vseg-b{flex:1;font:inherit;font-size:13px;font-weight:700;border:0;background:none;color:var(--muted);border-radius:8px;padding:7px 0;cursor:pointer}
+  .vseg-b{flex:1;font:inherit;font-size:16px;font-weight:700;border:0;background:none;color:var(--muted);border-radius:8px;padding:7px 0;cursor:pointer}
   .vseg-b.on{background:#fff;color:var(--verify);box-shadow:0 1px 3px rgba(14,26,43,.12)}
   .vseg-p{margin-top:10px}
   .rawblk+.rawblk{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
-  .rawfmt{font-size:12px;font-weight:700;color:var(--verify)}
-  .rawnote{font-size:11px;color:var(--muted);margin:3px 0 6px;line-height:1.6}
-  .djson{background:#0E1A2B;color:#cfe6dd;border-radius:10px;padding:12px 13px;margin:0;font-family:ui-monospace,monospace;font-size:11.5px;line-height:1.6;white-space:pre;overflow:auto;max-height:440px}
-  .rawc{margin-top:8px}.rawc>summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--muted)}
+  .rawfmt{font-size:16px;font-weight:700;color:var(--verify)}
+  .rawnote{font-size:16px;color:var(--muted);margin:3px 0 6px;line-height:1.6}
+  .djson{background:#0E1A2B;color:#cfe6dd;border-radius:10px;padding:12px 13px;margin:0;font-family:ui-monospace,monospace;font-size:16px;line-height:1.6;white-space:pre;overflow:auto;max-height:440px}
+  .rawc{margin-top:8px}.rawc>summary{cursor:pointer;font-size:16px;font-weight:700;color:var(--muted)}
   .rawc>summary::-webkit-details-marker{display:none}.rawc[open]>summary{margin-bottom:6px}
   .rawc .djson{max-height:220px;white-space:pre-wrap;word-break:break-all}`;
 
@@ -107,7 +107,7 @@ export function renderVerifyConsole(groups = []) {
         <span><a href="/verifier" style="color:inherit;text-decoration:none">← シナリオデモ</a> ｜ 検証要求ビルダー · OpenID4VP / DCQL</span>
         <a href="/verifier/history" style="font-weight:700;color:var(--verify);text-decoration:none">提示履歴 →</a></div>
       <h1>提示を要求するデジタル資格証・証明書と項目を選ぶ</h1>
-      <div class="muted" style="font-size:12px;margin-bottom:4px">開発者向け: プロトコル・提示先・要求項目を自由に組んで実ウォレットへ提示要求できます。一般向けは <a href="/verifier">シナリオデモ</a> へ。</div>
+      <div class="muted" style="font-size:16px;margin-bottom:4px">開発者向け: プロトコル・提示先・要求項目を自由に組んで実ウォレットへ提示要求できます。一般向けは <a href="/verifier">シナリオデモ</a> へ。</div>
 
       <label class="lbl">デジタル資格証（発行者が提示可能なものから選択 — カードの形式をクリック）</label>
       <div class="vcsel">${cfgCards}</div>
@@ -192,7 +192,7 @@ export function renderVerifyConsole(groups = []) {
       function reset() { $('reqbox').classList.add('hidden'); $('result').innerHTML = ''; built = null; }
       // Escape BEFORE any innerHTML: claim values come from an external wallet
       // (untrusted input on the native DC API path) and errors may echo them.
-      function err(m) { $('result').innerHTML = '<div class="hint" style="color:#9E3A3A">'+esc(m)+'</div>'; }
+      function err(m) { $('result').innerHTML = '<div class="hint" style="color:var(--error-2)">'+esc(m)+'</div>'; }
 
       claimsEl.addEventListener('click', (e) => {
         const b = e.target.closest('.seg3 button'); if (!b) return;
@@ -298,13 +298,13 @@ export function renderVerifyConsole(groups = []) {
         const checks = CHECKS.map((l) => '<div class="ck2"><span class="'+(d.valid?'cok':'cng')+'">'+(d.valid?'✓':'—')+'</span> '+l+'</div>').join('');
         $('result').innerHTML =
           '<div class="eyebrow" style="margin-top:6px">検証結果（VC 受領後）</div>'+
-          (d.valid ? '<div class="ok">✓ 提示を受領・検証しました</div>' : '<div style="color:#9E3A3A;font-weight:700">✗ 検証に失敗しました</div>')+
+          (d.valid ? '<div class="ok">✓ 提示を受領・検証しました</div>' : '<div style="color:var(--error-2);font-weight:700">✗ 検証に失敗しました</div>')+
           '<div class="checks">'+checks+'</div>'+
           (d.sameHolderAcrossCreds != null ? '<div class="ck2"><span class="'+(d.sameHolderAcrossCreds?'cok':'cng')+'">'+(d.sameHolderAcrossCreds?'✓':'✗')+'</span> 複数クレデンシャルが同一ウォレット鍵にバインド</div>' : '')+
-          '<div class="muted" style="font-size:12px;margin:12px 0 4px">開示されたクレーム（要求した項目のみ）</div>'+
+          '<div class="muted" style="font-size:16px;margin:12px 0 4px">開示されたクレーム（要求した項目のみ）</div>'+
           '<table class="cl">'+rows+'</table>'+
-          (holder ? '<div class="hint mono" style="font-size:11px">holder: '+esc(String(holder).slice(0,40))+'…</div>' : '')+
-          (d.errors && d.errors.length ? '<div class="hint" style="color:#9E3A3A">'+esc(d.errors.join('; '))+'</div>' : '');
+          (holder ? '<div class="hint mono" style="font-size:16px">holder: '+esc(String(holder).slice(0,40))+'…</div>' : '')+
+          (d.errors && d.errors.length ? '<div class="hint" style="color:var(--error-2)">'+esc(d.errors.join('; '))+'</div>' : '');
       }
 
       (async () => {
@@ -315,7 +315,7 @@ export function renderVerifyConsole(groups = []) {
       })();
     </script>
     <style>
-      .lbl{display:block;font-size:12px;color:var(--muted);font-weight:700;margin:16px 0 6px;letter-spacing:.02em}
+      .lbl{display:block;font-size:16px;color:var(--muted);font-weight:700;margin:16px 0 6px;letter-spacing:.02em}
       .sel{width:100%;font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff}
       /* credential selector rows — issuer 発行カタログと同意匠（和色スウォッチ+2段行・
          narrow=1列 → 760px〜=2列格子。単一選択の ::after リング=レイアウト非破壊） */
@@ -329,36 +329,36 @@ export function renderVerifyConsole(groups = []) {
         box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 1px 2px rgba(0,0,0,.18)}
       .vcs-emb .swemb{display:block;width:72%;height:72%;color:rgba(255,255,255,.95);filter:drop-shadow(0 1px 0 rgba(0,0,0,.4)) drop-shadow(0 -.6px .4px rgba(255,255,255,.35))}
       .vcs-body{min-width:0}
-      .vcs-name{font-size:14px;font-weight:700;line-height:1.35}
+      .vcs-name{font-size:16px;font-weight:700;line-height:1.35}
       .vcs-l2{display:flex;align-items:center;gap:8px;margin-top:4px}
-      .vcs-note{font-size:10px;color:#8A6D1F;line-height:1.45;margin-top:4px}
+      .vcs-note{font-size:16px;color:#8A6D1F;line-height:1.45;margin-top:4px}
       .vcs-chips{display:flex;gap:6px;flex-wrap:wrap}
-      .vcs-chip{font:inherit;font-size:11px;font-weight:600;padding:4px 10px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--muted);cursor:pointer;transition:all .12s}
+      .vcs-chip{font:inherit;font-size:16px;font-weight:700;padding:4px 10px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--muted);cursor:pointer;transition:all .12s}
       .vcs-chip:hover{border-color:#aebbd3}
       .vcs-chip.on{background:var(--civic);color:#fff;border-color:var(--civic)}
-      .radios{display:grid;gap:6px;font-size:13.5px}
+      .radios{display:grid;gap:6px;font-size:16px}
       .radios label{display:flex;align-items:center;gap:8px}
       .claimbar{display:flex;gap:8px;margin-bottom:8px}
-      .mini{font:inherit;font-size:12px;padding:3px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;cursor:pointer}
+      .mini{font:inherit;font-size:16px;padding:3px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;cursor:pointer}
       .claims{display:flex;flex-direction:column;gap:4px;max-height:300px;overflow:auto;padding:8px;border:1px solid var(--line);border-radius:10px}
       .ckrow{display:flex;align-items:center;gap:10px;padding:4px 4px}
-      .ckname{flex:1;min-width:0;font-size:13px;font-family:"IBM Plex Mono",monospace;word-break:break-all}
+      .ckname{flex:1;min-width:0;font-size:16px;font-family:"IBM Plex Mono",monospace;word-break:break-all}
       .seg3{display:flex;gap:3px;background:#eef2f1;border:1px solid var(--line);border-radius:9px;padding:3px;flex:none}
-      .seg3 button{font:inherit;font-size:11.5px;font-weight:700;padding:5px 9px;border:none;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer}
+      .seg3 button{font:inherit;font-size:16px;font-weight:700;padding:5px 9px;border:none;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer}
       .seg3 button[data-v="req"].on{background:var(--civic);color:#fff}
-      .seg3 button[data-v="opt"].on{background:#E8F2EF;color:#246154;box-shadow:inset 0 0 0 1px #D2E5DF}
+      .seg3 button[data-v="opt"].on{background:var(--role-tint);color:var(--role-ink);box-shadow:inset 0 0 0 1px #D2E5DF}
       .seg3 button[data-v="off"].on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(14,26,43,.12)}
       .actions{display:flex;gap:8px;margin-top:16px}
-      .dbg{color:var(--muted);font-size:12.5px}
+      .dbg{color:var(--muted);font-size:16px}
       .reqfold>summary::-webkit-details-marker{display:none}
       .reqfold>summary{list-style:none}
-      .reqfold>summary::before{content:"▸ ";font-size:10px}
+      .reqfold>summary::before{content:"▸ ";font-size:16px}
       .reqfold[open]>summary::before{content:"▾ "}
       .btn.ghost{background:#fff;color:var(--civic);border:1px solid var(--line)}
       .btn.ghost:hover{background:#f7f9fc}
-      .json{background:#0E1A2B;color:#D7E0EE;border-radius:10px;padding:14px;font-size:11.5px;line-height:1.5;overflow:auto;max-height:340px;font-family:"IBM Plex Mono",monospace;white-space:pre}
+      .json{background:#0E1A2B;color:#D7E0EE;border-radius:10px;padding:14px;font-size:16px;line-height:1.5;overflow:auto;max-height:340px;font-family:"IBM Plex Mono",monospace;white-space:pre}
       .hidden{display:none}.muted{color:var(--muted)}
-      .checks{display:grid;gap:6px;margin-top:8px}.ck2{font-size:13px}
+      .checks{display:grid;gap:6px;margin-top:8px}.ck2{font-size:16px}
       .cok{color:var(--verify);font-weight:700}.cng{color:var(--muted)}
     </style>
     ${renderClaimsModal(groups)}`, { brand: 'デジタル資格証検証ポータル', sub: 'VERIFIER', role: 'verifier', width: 'mid', dev: true });
@@ -377,13 +377,13 @@ export function renderWebVerify({ request, requestUri, walletPresent }) {
       <div class="req">
         <div class="k">client_id</div><b class="mono">${request.client_id}</b>
         <div class="k" style="margin-top:8px">response_mode</div><b class="mono">${request.response_mode}</b>
-        <div class="k" style="margin-top:8px">response_uri（暗号化応答の POST 先）</div><span class="mono" style="font-size:12px">${request.response_uri}</span>
+        <div class="k" style="margin-top:8px">response_uri（暗号化応答の POST 先）</div><span class="mono" style="font-size:16px">${request.response_uri}</span>
         <div class="k" style="margin-top:8px">要求項目</div><div style="margin-top:4px">${claims}</div>
       </div>
       <div style="text-align:center;margin-top:12px"><a class="btn" id="present" href="${walletPresent}">Web ウォレットで提示する</a></div>
-      <div class="hint">request は <span class="mono">request_uri</span> で参照配信（DC API 不使用）：<span class="mono" style="font-size:11px">${requestUri}</span></div>
+      <div class="hint">request は <span class="mono">request_uri</span> で参照配信（DC API 不使用）：<span class="mono" style="font-size:16px">${requestUri}</span></div>
     </div>
-    <style>.pill{display:inline-block;font-size:12px;background:#f7f9fc;border:1px solid var(--line);border-radius:999px;padding:2px 9px;margin:2px}</style>`, { brand: 'デジタル資格証検証ポータル', sub: 'VERIFIER', role: 'verifier', dev: true });
+    <style>.pill{display:inline-block;font-size:16px;background:#f7f9fc;border:1px solid var(--line);border-radius:999px;padding:2px 9px;margin:2px}</style>`, { brand: 'デジタル資格証検証ポータル', sub: 'VERIFIER', role: 'verifier', dev: true });
 }
 
 /** Verifier result page after the web wallet posts the encrypted vp_token. */
@@ -395,23 +395,23 @@ export function renderWebVerifyResult(result) {
   const checks = ['発行者署名', 'ホルダーバインディング', 'nonce・origin', 'DCQL 充足', '失効なし']
     .map((l) => `<div class="ck2"><span class="${ok ? 'cok' : 'cng'}">${ok ? '✓' : '—'}</span> ${l}</div>`).join('');
   const raws = (result?.results || []).map((r) => r.raw).filter(Boolean);
-  const kvHtml = `<div class="muted" style="font-size:12px;margin:0 0 4px">開示されたクレーム</div><table class="cl">${rows}</table>`;
+  const kvHtml = `<div class="muted" style="font-size:16px;margin:0 0 4px">開示されたクレーム</div><table class="cl">${rows}</table>`;
   return shell('検証結果', `
     <div class="card">
       <div class="step">OID4VP リダイレクト · 検証結果</div>
-      ${ok ? '<div class="ok">✓ Web ウォレットからの提示を検証しました</div>' : '<div style="color:#9E3A3A;font-weight:700">✗ 検証に失敗しました</div>'}
+      ${ok ? '<div class="ok">✓ Web ウォレットからの提示を検証しました</div>' : '<div style="color:var(--error-2);font-weight:700">✗ 検証に失敗しました</div>'}
       <div class="checks">${checks}</div>
       ${vpSeg(kvHtml, rawPanels(raws))}
-      ${result?.errors?.length ? `<div class="hint" style="color:#9E3A3A">${escj(result.errors.join('; '))}</div>` : ''}
+      ${result?.errors?.length ? `<div class="hint" style="color:var(--error-2)">${escj(result.errors.join('; '))}</div>` : ''}
       <div class="navrow">
         <a class="btn ghost" href="/verifier">検証ポータルトップへ</a>
         <a class="btn ghost" href="/verifier/history">提示履歴を見る</a>
       </div>
     </div>
-    <style>.checks{display:grid;gap:6px;margin-top:8px}.ck2{font-size:13px}.cok{color:var(--verify);font-weight:700}.cng{color:var(--muted)}
-    table.cl{width:100%;border-collapse:collapse;font-size:13px}table.cl td{padding:7px 8px;border-bottom:1px solid var(--line)}table.cl td:first-child{color:var(--muted)}
+    <style>.checks{display:grid;gap:6px;margin-top:8px}.ck2{font-size:16px}.cok{color:var(--verify);font-weight:700}.cng{color:var(--muted)}
+    table.cl{width:100%;border-collapse:collapse;font-size:16px}table.cl td{padding:7px 8px;border-bottom:1px solid var(--line)}table.cl td:first-child{color:var(--muted)}
     .navrow{display:flex;gap:10px;margin-top:18px}.navrow .btn{flex:1;text-align:center}
-    .pill{display:inline-block;font-size:12px;background:#f7f9fc;border:1px solid var(--line);border-radius:999px;padding:2px 9px;margin:2px}${VP_SEG_CSS}</style>${VP_SEG_JS}`,
+    .pill{display:inline-block;font-size:16px;background:#f7f9fc;border:1px solid var(--line);border-radius:999px;padding:2px 9px;margin:2px}${VP_SEG_CSS}</style>${VP_SEG_JS}`,
     { brand: 'デジタル資格証検証ポータル', sub: 'VERIFIER', role: 'verifier', dev: true });
 }
 
@@ -440,7 +440,7 @@ export function renderVerifierSettings(ttlSec, saved = false, { trustTtlSec = 36
       ${saved ? '<div class="ok">✓ 保存しました</div>' : ''}
       <form method="POST" action="/verifier/settings" style="margin-top:12px">
         <label style="display:block">
-          <div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:6px">キャッシュ時間（分）</div>
+          <div style="font-size:16px;color:var(--muted);font-weight:700;margin-bottom:6px">キャッシュ時間（分）</div>
           <input name="status_ttl_min" type="number" min="0" max="1440" step="1" value="${min}"
             style="font:inherit;width:120px;padding:9px 12px;border:1px solid var(--line);border-radius:8px">
         </label>
@@ -451,9 +451,9 @@ export function renderVerifierSettings(ttlSec, saved = false, { trustTtlSec = 36
           <br>注: キャッシュ時間内は直近の失効が検証に反映されません（鮮度と負荷のトレードオフ）。
         </div>
         <div style="margin-top:22px;border-top:1px solid var(--line);padding-top:16px">
-          <div style="font-size:14px;font-weight:800;margin-bottom:10px">トラストリスト</div>
+          <div style="font-size:16px;font-weight:700;margin-bottom:10px">トラストリスト</div>
           <label style="display:block">
-            <div style="font-size:12px;color:var(--muted);font-weight:700;margin-bottom:6px">キャッシュ時間（分）</div>
+            <div style="font-size:16px;color:var(--muted);font-weight:700;margin-bottom:6px">キャッシュ時間（分）</div>
             <input name="trust_ttl_min" type="number" min="0" max="10080" step="1" value="${tmin}"
               style="font:inherit;width:120px;padding:9px 12px;border:1px solid var(--line);border-radius:8px">
           </label>
@@ -501,7 +501,7 @@ export function renderVerifyHistory(entries = [], { page = 1, per = 10 } = {}) {
     }
     return Object.keys(e.claims || {}).length
       ? `<div class="hk">開示されたクレーム</div>${claimRows(e.claims)}`
-      : '<div class="muted" style="font-size:12px">開示クレームなし</div>';
+      : '<div class="muted" style="font-size:16px">開示クレームなし</div>';
   };
   const card = (e) => `
     <div class="hcard">
@@ -514,7 +514,7 @@ export function renderVerifyHistory(entries = [], { page = 1, per = 10 } = {}) {
         <div class="hk">提示されたデジタル資格証</div>
         <div class="hcreds">${credLine(e.creds)}</div>
         ${vpSeg(claimsBlock(e), rawPanels(e.raws || []))}
-        ${e.errors?.length ? `<div class="hint" style="color:#9E3A3A;margin-top:8px">${esc(e.errors.join('; '))}</div>` : ''}
+        ${e.errors?.length ? `<div class="hint" style="color:var(--error-2);margin-top:8px">${esc(e.errors.join('; '))}</div>` : ''}
       </div>
     </div>`;
   const body = slice.length
@@ -525,7 +525,7 @@ export function renderVerifyHistory(entries = [], { page = 1, per = 10 } = {}) {
       <div class="step" style="display:flex;align-items:center;justify-content:space-between;gap:10px">提示履歴 — グローバル（全提示の共有ログ）
         <a href="/verifier" style="font-weight:700;color:var(--verify);text-decoration:none">← 検証ポータルトップへ</a></div>
       <h1 style="font-size:18px;margin:6px 0 4px">この検証者が受け取った提示</h1>
-      <div class="muted" style="font-size:12px;margin-bottom:12px">ホルダー単位のセッションは保持しません。全 ${total} 件（最大 50 件・${per} 件/ページ）。</div>
+      <div class="muted" style="font-size:16px;margin-bottom:12px">ホルダー単位のセッションは保持しません。全 ${total} 件（最大 50 件・${per} 件/ページ）。</div>
       ${body}
       ${pagerHtml(p, pages, '/verifier/history')}
       <div class="navrow"><a class="btn ghost" href="/verifier">検証ポータルトップへ</a><a class="btn ghost" href="/verifier/settings">⚙ 設定</a></div>
@@ -533,18 +533,18 @@ export function renderVerifyHistory(entries = [], { page = 1, per = 10 } = {}) {
     <style>
     .hcard{border:1px solid var(--line);border-radius:12px;margin-top:10px;overflow:hidden}
     .hh{display:flex;align-items:center;gap:9px;padding:10px 14px;background:#f7f9fc;border-bottom:1px solid var(--line)}
-    .badge{font-size:12px;font-weight:700;border-radius:999px;padding:2px 10px}
-    .bok{background:#E7F3EE;color:var(--verify)}.bng{background:#FBE9E7;color:#9E3A3A}
-    .via{font-size:12px;color:var(--muted)}.at{font-size:12px;color:var(--muted);margin-left:auto}
-    .hbody{padding:12px 14px}.hk{font-size:11px;color:var(--muted);margin-bottom:4px}
+    .badge{font-size:16px;font-weight:700;border-radius:999px;padding:2px 10px}
+    .bok{background:#E7F3EE;color:var(--verify)}.bng{background:#FBE9E7;color:var(--error-2)}
+    .via{font-size:16px;color:var(--muted)}.at{font-size:16px;color:var(--muted);margin-left:auto}
+    .hbody{padding:12px 14px}.hk{font-size:16px;color:var(--muted);margin-bottom:4px}
     .hcreds{display:flex;flex-wrap:wrap;gap:4px}
-    .pill{display:inline-block;font-size:12px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:2px 9px}
-    table.cl{width:100%;border-collapse:collapse;font-size:13px;margin-top:4px}
+    .pill{display:inline-block;font-size:16px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:2px 9px}
+    table.cl{width:100%;border-collapse:collapse;font-size:16px;margin-top:4px}
     table.cl td{padding:6px 8px;border-bottom:1px solid var(--line)}table.cl td:first-child{color:var(--muted);width:42%;word-break:break-all}
-    .rawk{display:block;font-family:"IBM Plex Mono",monospace;font-size:10px;opacity:.6}
-    .more>summary{list-style:none;cursor:pointer;font-size:12px;font-weight:700;color:var(--verify);padding:7px 2px 2px;user-select:none}
+    .rawk{display:block;font-family:"IBM Plex Mono",monospace;font-size:16px;opacity:.6}
+    .more>summary{list-style:none;cursor:pointer;font-size:16px;font-weight:700;color:var(--verify);padding:7px 2px 2px;user-select:none}
     .more>summary::-webkit-details-marker{display:none}
-    .more>summary::before{content:"▸ ";font-size:10px}
+    .more>summary::before{content:"▸ ";font-size:16px}
     .more[open]>summary::before{content:"▾ "}
     .more[open]>summary{color:var(--muted)}
     .navrow{display:flex;gap:10px;margin-top:18px}.navrow .btn{flex:1;text-align:center}${VP_SEG_CSS}</style>${VP_SEG_JS}`,
