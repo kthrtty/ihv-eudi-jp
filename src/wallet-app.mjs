@@ -1322,6 +1322,9 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       .wd-mi span{color:var(--muted);margin-right:5px}.wd-mi{font-weight:700}
       .wd-mi.ok{color:var(--success-2)}.wd-mi.bad{color:#C0392B}
       .wd-act{padding:9px 2px;border-bottom:1px solid #F0F3F7}
+      /* **末尾の区切り線は消す**。行間の仕切りなので最後の行の下には要らない——
+         残ると枠の底に行き場のない線が浮いて、枠が途中で切れたように見える。 */
+      .wd-act:last-child{border-bottom:0;padding-bottom:0}
       .wd-act span{font-size:16px;color:var(--muted)}.wd-act b{display:block;font-size:16px;margin-top:1px}.wd-act small{font-size:16px;color:#8595AB}
       .wd-prow{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:700;margin-top:10px;padding-top:10px;border-top:1px solid #F0F3F7}
       .chip2{font-size:16px;font-weight:700;color:var(--success-2);background:#E7F3EE;border-radius:999px;padding:3px 10px}
@@ -1330,6 +1333,9 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       .wd-dev>summary{cursor:pointer;font-size:16px;font-weight:700;color:var(--muted);padding:8px 2px}
       .wd-json{background:#0E1A2B;color:#D7E3F4;font-size:16px;border-radius:8px;padding:10px 12px;overflow:auto;white-space:pre;font-family:ui-monospace,monospace}
       .cbor-note{font-size:16px;color:var(--muted);margin-bottom:6px}
+      /* .wd-wrap>* の 14px は .wd-extra 自身にしか掛からないので、
+         .wd-extra の中の要素同士にも同じ間隔を与える（削除ボタンが枠に密着していた） */
+      .wd-extra>*+*{margin-top:14px}
       .wd-del{width:100%;border:1px solid #E7C9C4;background:#fff;color:#C0392B;border-radius:12px;padding:11px;font:inherit;font-size:16px;font-weight:700;cursor:pointer}
       /* 削除確認モーダル */
       .wd-dc{position:fixed;inset:0;z-index:210;display:grid;place-items:center;padding:18px}
