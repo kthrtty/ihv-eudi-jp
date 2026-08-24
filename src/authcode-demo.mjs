@@ -127,6 +127,10 @@ export { WALLET_CARD_THEME, CARD_SIL, embInner, cardArtSvg, DISPLAY_NAMES } from
 export const walletCardCss = () => `
   /* 券面は cardArtSvg をインラインで敷く。CSS グラデーションは廃止（意匠の正本は SVG 側）。
      背景色は SVG が持つが、--c1 は読み込み前の下地として残す（白い矩形が一瞬見えるのを防ぐ）。 */
+  /* 券面は <a> だが**リンクではなく「面」**。DADS の a{color} / a:hover{color} を継ぐと
+     hover・focus・訪問後に見出しも形式チップも状態チップも青くなる（実測 #00118f）。
+     面の文字色は常に白で固定する。 */
+  a.vcard,a.vcard:hover,a.vcard:focus,a.vcard:visited,a.vcard:active{color:#fff}
   .vface{position:absolute;inset:0;border-radius:16px;overflow:hidden;display:block;z-index:0}
   .vface svg{width:100%;height:100%;display:block}
 
