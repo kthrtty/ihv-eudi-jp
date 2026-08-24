@@ -1213,6 +1213,8 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
   return shell('ウォレット', `
     <div class="wstage">
       <div class="whead"><h1>ウォレット</h1><span class="wn">${n} 枚</span>
+        <button type="button" class="wviewtog" id="wviewtog" aria-pressed="false"
+          title="スマートフォンでの見え方（カードを重ねたスタック）に切り替えます">スマホ表示</button>
         <details class="wmenu"><summary>⋯</summary>
           <div class="wpop">
             <a href="/settings">⚙ 設定</a>
@@ -1392,7 +1394,28 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
         if(!ov)return;
         var mob=document.getElementById('wdMobile'),mTop=document.getElementById('wdMTop'),mPanel=document.getElementById('wdMPanel');
         var openId=null,mode=null; // mode: 'ov' | 'mob'
-        function isMobile(){ return window.matchMedia('(max-width:899px)').matches; }
+        // 強制中は詳細の出し方もスマホ側に揃える（持ち上げ演出）。トグルは「スマホでの
+        // 見え方」を見せるものなので、一覧だけ切り替えても意味が半分になる。
+        function isMobile(){ return window.matchMedia('(max-width:899px)').matches
+          || !!document.querySelector('.whome.as-sp'); }
+
+        // デモ用トグル。**状態は sessionStorage に持つ**——一覧→詳細→戻る で毎回
+        // 押し直すのは煩わしい。狭い画面では CSS 側でボタンを出していないので何もしない。
+        (function(){
+          var home = document.getElementById('whome'), tog = document.getElementById('wviewtog');
+          if (!home || !tog) return;
+          var KEY = 'ihv:wallet-sp-view';
+          function apply(on){
+            home.classList.toggle('as-sp', on);
+            tog.setAttribute('aria-pressed', on ? 'true' : 'false');
+            tog.textContent = on ? 'PC表示に戻す' : 'スマホ表示';
+            try { sessionStorage.setItem(KEY, on ? '1' : '0'); } catch (e) {}
+          }
+          var saved = '0';
+          try { saved = sessionStorage.getItem(KEY) || '0'; } catch (e) {}
+          apply(saved === '1');
+          tog.addEventListener('click', function(){ apply(!home.classList.contains('as-sp')); });
+        })();
         function pushId(id,push){ openId=id; if(push!==false && location.hash!=='#'+id) history.pushState({wd:id},'','#'+id); }
         function cloneCard(a){ var d=document.createElement('div'); d.className='vcard'; d.setAttribute('style',a.getAttribute('style')||''); d.innerHTML=a.innerHTML; return d; }
         function fetchFrag(id){ return fetch('/cred/'+encodeURIComponent(id)+'?embed=1',{headers:{'x-requested-with':'fetch'}}).then(function(r){return r.ok?r.text():Promise.reject();}); }
@@ -1898,6 +1921,10 @@ const WSTYLE = `<style>
   .rhint{text-align:center;font-size:16px;color:var(--muted);margin-top:10px}
   .rh-pc{display:none}
   @media(min-width:720px){.rh-touch{display:none}.rh-pc{display:inline}}
+  /* スマホ表示を強制しているときは、操作もスタックの長押しになるので案内文も戻す。
+     **.rhint は .whome の外（後ろの兄弟）**なので子孫セレクタでは当たらない。 */
+  .whome.as-sp ~ .rhint .rh-pc{display:none}
+  .whome.as-sp ~ .rhint .rh-touch{display:inline}
   #wstack.gfreeze{position:relative}
   #wstack.gfreeze a.vcard{position:absolute;margin:0!important;transition:left .28s ease,top .28s ease,transform .28s ease,filter .28s ease;will-change:left,top}
   #wstack .dropslot{position:absolute;border:2px dashed #7FB3A5;border-radius:16px;background:rgba(46,125,107,.06);opacity:0;transition:left .28s ease,top .28s ease,opacity .2s;pointer-events:none}
@@ -1908,10 +1935,24 @@ const WSTYLE = `<style>
   .wlist{display:none}
   ${swatchEmblemCss()}
   /* PC(≥900px)は左スタック廃止＝一覧のみ全幅。各行に券面を等比縮小で埋め込む */
+  /* デモ用: PC でもスマホの見え方（カードを重ねたスタック）を確認できるトグル。
+     **狭い画面では出さない**——そこでは常にスタックなので選ぶ意味がなく、
+     置くと「PC 表示に戻せる」と誤解させる。 */
+  .wviewtog{display:none;margin-left:auto;margin-right:8px;border:1px solid var(--line);background:#fff;
+    color:var(--muted);border-radius:999px;padding:0 14px;min-height:44px;font:inherit;font-size:16px;
+    font-weight:700;cursor:pointer;white-space:nowrap}
+  .wviewtog[aria-pressed="true"]{background:var(--role-tint);border-color:var(--role-line);color:var(--role-ink)}
   @media(min-width:900px){
     .whome{max-width:760px;display:block}
     .whome .wstack{display:none}
     .wlist{display:flex;flex-direction:column;gap:12px}
+    .whead{max-width:760px}
+    .wviewtog{display:inline-flex;align-items:center}
+    /* 強制中: 一覧を畳んでスタックへ戻し、幅も端末幅に寄せる */
+    .whome.as-sp{max-width:420px}
+    .whome.as-sp .wstack{display:block}
+    .whome.as-sp .wlist{display:none}
+    .wstage:has(.whome.as-sp) .whead{max-width:420px}
   }
   .wli{display:grid;grid-template-columns:30px 200px 1fr auto;gap:16px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:16px;padding:12px 16px 12px 8px;text-decoration:none;color:var(--ink);transition:box-shadow .16s,border-color .16s}
   .wli:hover{border-color:var(--role-ink);box-shadow:0 6px 18px rgba(46,125,107,.12)}
