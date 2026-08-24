@@ -1297,12 +1297,10 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
         .wd-wrap{grid-template-columns:398px 1fr;column-gap:26px;max-width:1040px;align-items:start}
         .wd-wrap>*{grid-column:1}
         .wd-attr{grid-column:2;grid-row:1 / span 99;align-self:start;margin:0}
-        /* 開発者向け（生データ）は**両カラムにまたがって全幅**にする。左カラム 398px では
-           CBOR/JSON も base64 も折り返しだらけで読めない。属性パネルが grid-row:1/span 99 で
-           2列目を占めるので、全幅の要素は自動配置でその下に回る＝右端が属性パネルと揃う。
-           **モバイルは 1カラムなのでこの規則は効かない**（min-width:760px の中） */
-        .wd-dev{grid-column:1 / -1}
       }
+      /* 生データはグリッドの外。**全項目を表示し終わった下**に、区切り線を挟んで全幅で置く。
+         幅は .wd-wrap と同じ 1040px に揃えるので、右端が属性パネルと一致する。 */
+      .wd-dev{max-width:1040px;margin:22px auto 0;border-top:1px solid var(--line);padding-top:14px}
       .wd-cardface .vcard{max-width:none}
       .wd-note{font-size:16px;color:#8A6D1F;line-height:1.5;margin:-4px 2px 0}
       .wd-panel{background:#fff;border:1px solid var(--line);border-radius:16px;padding:15px 17px}
@@ -1362,8 +1360,8 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       .wd-mpanel .wd-attr{grid-column:auto;grid-row:auto}
       .wd-mpanel .wd-wrap>*{margin-bottom:14px}
       .wd-mpanel .wd-more{display:block;width:100%;border:1px solid var(--line);background:#fff;border-radius:12px;padding:11px;font:inherit;font-size:16px;font-weight:700;color:var(--key-900);cursor:pointer}
-      .wd-mpanel .wd-rest,.wd-mpanel .wd-extra{display:none}
-      .wd-mobile.expanded .wd-mpanel .wd-rest,.wd-mobile.expanded .wd-mpanel .wd-extra{display:block}
+      .wd-mpanel .wd-rest,.wd-mpanel .wd-extra,.wd-mpanel .wd-dev{display:none}
+      .wd-mobile.expanded .wd-mpanel .wd-rest,.wd-mobile.expanded .wd-mpanel .wd-extra,.wd-mobile.expanded .wd-mpanel .wd-dev{display:block}
       .wd-mobile.expanded .wd-mpanel .wd-more{display:none}
       /* 詳細取得中のローディング（回線が遅いと fetch に時間がかかるため、取り寄せ中はスピナーを出す） */
       .wd-loading{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:72px 20px;color:var(--muted);font-size:16px;font-weight:700}
@@ -1829,13 +1827,6 @@ function credFragment(cr, raw, st, acts = []) {
       <div class="wd-panel">
         <div class="wd-ph">アクティビティ（提示履歴）· ${acts.length} 件</div>${actList}
       </div>
-      <details class="wd-dev"><summary>開発者向け（生データ / バインディング鍵）</summary>
-        <div class="wd-panel" style="margin-top:8px">
-          ${raw?.note ? `<div class="cbor-note">ⓘ ${esc(raw.note)}</div>` : ''}
-          <pre class="wd-json">${rawJson}</pre>
-          <a href="/dev/holder-key" style="font-size:16px;font-weight:700;color:var(--muted)">🔑 バインディング鍵を表示 →</a>
-        </div>
-      </details>
       <button type="button" class="wd-del" onclick="wdDelConfirm(this,true)">このデジタル資格証を削除</button>
       <div class="wd-dc" hidden>
         <div class="wd-dc-scrim" onclick="wdDelConfirm(this,false)"></div>
@@ -1849,7 +1840,18 @@ function credFragment(cr, raw, st, acts = []) {
         </div>
       </div>
     </div>
-  </div>`;
+  </div>
+  <!-- 生データは**グリッドの外**へ出す。左カラム 398px では CBOR も base64 も折り返しだらけで
+       読めない。以前は .wd-extra の中（グリッドの孫）にあり、grid-column を当てても効かなかった。
+       区切り線を挟んで全項目の下に全幅で置く。モバイルは従来どおり「さらに表示」まで隠す。 -->
+  <details class="wd-dev"><summary>開発者向け（生データ / バインディング鍵）</summary>
+    <div class="wd-panel" style="margin-top:8px">
+      ${raw?.note ? `<div class="cbor-note">ⓘ ${esc(raw.note)}</div>` : ''}
+      <pre class="wd-json">${rawJson}</pre>
+      <a href="/dev/holder-key" style="font-size:16px;font-weight:700;color:var(--muted)">🔑 バインディング鍵を表示 →</a>
+    </div>
+  </details>
+`;
 }
 
 const agoLabel = (t) => {

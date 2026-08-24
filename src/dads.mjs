@@ -298,6 +298,13 @@ const DADS_OVERRIDE_SRC = `
      summary の既定は list-item で、min-height と上下 padding だけで 44px は満たせる。
      （CSS コメント内にバックティックを書くとテンプレートリテラルが終端するので使わない） */
   summary{min-height:44px;padding-block:10px}
+  /* **寸法が決まっている円形/正方形のトリガは伸ばさない**（2026-08-24）。
+     上の 44px を一律に当てたら、34×34 の丸メニュー（border-radius:50%）が
+     縦 44px に伸びて**縦長の楕円**になった。形は保ったまま、当たり判定だけ
+     疑似要素で 44px に広げる（.vcinfo と同じ手）。 */
+  .wmenu>summary{min-height:0;padding-block:0;position:relative}
+  .wmenu>summary::after{content:"";position:absolute;left:50%;top:50%;
+    width:44px;height:44px;transform:translate(-50%,-50%)}
   /* ラジオ/チェックを包む行。**視覚寸法 24px のまま行を 44px** にするのが DADS の作法 */
   label:has(>input[type=radio]),label:has(>input[type=checkbox]){
     min-height:44px;display:flex;align-items:center;gap:12px}
