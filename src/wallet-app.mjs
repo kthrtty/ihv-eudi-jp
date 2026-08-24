@@ -1213,10 +1213,10 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
   return shell('ウォレット', `
     <div class="wstage">
       <div class="whead"><h1>ウォレット</h1><span class="wn">${n} 枚</span>
-        <button type="button" class="wviewtog" id="wviewtog" aria-pressed="false"
-          title="スマートフォンでの見え方（カードを重ねたスタック）に切り替えます">スマホ表示</button>
         <details class="wmenu"><summary>⋯</summary>
           <div class="wpop">
+              <button type="button" class="wpop-sw" id="wviewtog" role="switch" aria-checked="false"
+                title="スマートフォンでの見え方（カードを重ねたスタック）に切り替えます"><span>SP表示</span><span class="sw" aria-hidden="true"></span></button>
             <a href="/settings">⚙ 設定</a>
             <a href="${esc(verifierUrl)}/verifier">✅ 検証者コンソールへ</a>
           </div>
@@ -1368,6 +1368,13 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       .wd-mtop .vcard{max-width:none}
       .wd-mpanel{margin-top:14px;opacity:0;transform:translateY(10px);transition:opacity .4s .2s,transform .45s .2s cubic-bezier(.22,.8,.16,1)}
       .wd-mobile.show .wd-mpanel{opacity:1;transform:none}
+      /* **広い画面で SP 表示を強制したときだけ、端末の幅に寄せる**（2026-08-24）。
+         このレイヤーは position:fixed で左右いっぱいに広がるため、PC で開くと持ち上げた
+         カードも本文も画面幅いっぱいに伸びてスマホの見え方にならない。
+         実機（<900px）では制限しない——そこは本当に端末の幅だから。 */
+      @media(min-width:900px){
+        .wd-mstage>*{max-width:480px;margin-left:auto;margin-right:auto}
+      }
       .wd-mpanel .wd-wrap{display:block;max-width:none}      /* モバイルは常に1カラム */
       .wd-mpanel .wd-cardface{display:none}                  /* 券面は持ち上げた実カードが担う */
       .wd-mpanel .wd-attr{grid-column:auto;grid-row:auto}
@@ -1407,14 +1414,16 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
           var KEY = 'ihv:wallet-sp-view';
           function apply(on){
             home.classList.toggle('as-sp', on);
-            tog.setAttribute('aria-pressed', on ? 'true' : 'false');
-            tog.textContent = on ? 'PC表示に戻す' : 'スマホ表示';
+            tog.setAttribute('aria-checked', on ? 'true' : 'false');
             try { sessionStorage.setItem(KEY, on ? '1' : '0'); } catch (e) {}
           }
           var saved = '0';
           try { saved = sessionStorage.getItem(KEY) || '0'; } catch (e) {}
           apply(saved === '1');
-          tog.addEventListener('click', function(){ apply(!home.classList.contains('as-sp')); });
+          tog.addEventListener('click', function(){
+            apply(!home.classList.contains('as-sp'));
+            var d = tog.closest('details'); if (d) d.open = false;   // 選んだらメニューは閉じる
+          });
         })();
         function pushId(id,push){ openId=id; if(push!==false && location.hash!=='#'+id) history.pushState({wd:id},'','#'+id); }
         function cloneCard(a){ var d=document.createElement('div'); d.className='vcard'; d.setAttribute('style',a.getAttribute('style')||''); d.innerHTML=a.innerHTML; return d; }
@@ -1935,13 +1944,21 @@ const WSTYLE = `<style>
   .wlist{display:none}
   ${swatchEmblemCss()}
   /* PC(≥900px)は左スタック廃止＝一覧のみ全幅。各行に券面を等比縮小で埋め込む */
-  /* デモ用: PC でもスマホの見え方（カードを重ねたスタック）を確認できるトグル。
-     **狭い画面では出さない**——そこでは常にスタックなので選ぶ意味がなく、
-     置くと「PC 表示に戻せる」と誤解させる。 */
-  .wviewtog{display:none;margin-left:auto;margin-right:8px;border:1px solid var(--line);background:#fff;
-    color:var(--muted);border-radius:999px;padding:0 14px;min-height:44px;font:inherit;font-size:16px;
-    font-weight:700;cursor:pointer;white-space:nowrap}
-  .wviewtog[aria-pressed="true"]{background:var(--role-tint);border-color:var(--role-line);color:var(--role-ink)}
+  /* デモ用: PC でもスマホの見え方（カードを重ねたスタック）を確認できるスイッチ。
+     ⋯ メニューの中に置く——常時見えている必要はなく、ヘッダーに独立ボタンを置くと
+     「枚数」「⋯」と並んで主役級に見えてしまう。**狭い画面では行ごと出さない**
+     （そこでは常にスタックなので選ぶ意味がなく、置くと戻せると誤解させる）。
+     見た目は DADS のスイッチに倣い、入/切が形で分かるようにする。 */
+  .wpop-sw{display:none}
+  @media(min-width:900px){
+    .wpop-sw{display:flex!important;align-items:center;justify-content:space-between;gap:14px;min-height:44px}
+  }
+  .wpop-sw .sw{flex:none;width:48px;height:28px;border-radius:999px;background:var(--gray-300);
+    position:relative;transition:background-color .16s}
+  .wpop-sw .sw::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;
+    background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .16s}
+  .wpop-sw[aria-checked="true"] .sw{background:var(--key-900)}
+  .wpop-sw[aria-checked="true"] .sw::after{transform:translateX(20px)}
   @media(min-width:900px){
     .whome{max-width:760px;display:block}
     .whome .wstack{display:none}
