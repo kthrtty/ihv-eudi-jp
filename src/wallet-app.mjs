@@ -1294,7 +1294,12 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       .wd-wrap{display:grid;grid-template-columns:1fr;gap:14px;max-width:560px;margin:0 auto}
       .wd-wrap>*{min-width:0}
       @media(min-width:760px){
-        .wd-wrap{grid-template-columns:398px 1fr;column-gap:26px;max-width:1040px;align-items:start}
+        /* **行間は 0 にして、間隔は子の margin で作る**（2026-08-24）。属性パネルが
+           grid-row:1/span 99 で「全部にまたがる」を表現しているため 99 行が生まれ、
+           row-gap 14px × 98 ＝ 約 1,372px の空白が下にできていた。列の内容が終わった直後に
+           次の要素（生データ）が来るようにする。 */
+        .wd-wrap{grid-template-columns:398px 1fr;column-gap:26px;row-gap:0;max-width:1040px;align-items:start}
+        .wd-wrap>*{margin-bottom:14px}
         .wd-wrap>*{grid-column:1}
         .wd-attr{grid-column:2;grid-row:1 / span 99;align-self:start;margin:0}
       }
