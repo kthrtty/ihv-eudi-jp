@@ -1064,6 +1064,11 @@ export function createVerifierApp(opts = {}) {
       if (target === 'web') {
         if (protocol === 'annex-c') return c.json({ error: 'Annex C はネイティブウォレット（DC API）専用です' }, 400);
         const { transactionId, request } = await v.createRequest({
+          // **署名の有無を選べるようにする**（2026-08-26）。OID4VP 1.0 は Request URI に
+          // 署名済み要求（JAR）を求めるが、**unsigned も現実に使われている**——
+          // Multipaz 実機の DC API 経路がそれで、そちらでは client_id を省略する規定になる。
+          // 既定は signed（仕様に沿う側）。ビルダーで切り替えて挙動の差を見せられる。
+          signed: body.signed !== false,
           specs, transport: 'redirect', responseUriBase: `${verifierOrigin}/oid4vp/response`, ...scnOpts,
         });
         await putRequest(transactionId, request);
@@ -1116,6 +1121,9 @@ export function createVerifierApp(opts = {}) {
   app.get('/oid4vp/request/:txn', async (c) => {
     const r = await getRequest(c.req.param('txn'));
     if (!r) return c.json({ error: 'unknown request' }, 404);
+    // ビルダーで unsigned を選んだ要求は署名しない（client_id も載っていない）
+    const st = await v.store.get(`vp:${c.req.param('txn')}`);
+    if (st && st.signed === false) return c.json(r);
     const jwt = await v.signRequestObject(r);
     if (!jwt) return c.json(r);
     return c.body(jwt, 200, { 'content-type': 'application/oauth-authz-req+jwt' });

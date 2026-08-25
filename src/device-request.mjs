@@ -108,6 +108,47 @@ const inValidity = (cert, at) => {
  *               各CAが自ら宣言する pathLenConstraint の順守。固定階層は強制しない）
  *  trustList  … 発行者が Trusted List の reader_auth アンカーのいずれかとバイト同一（fp256）
  *  アンカー未指定/未取得（trust list が読めない環境）は verified=false（黙って通さない）。 */
+/**
+ * リーダー証明書チェーンをトラストアンカーまで辿る（RFC 5280 流・任意長）。
+ *
+ * **readerAuth（COSE）と署名済み要求オブジェクト（JWS）で共通**なので切り出した。
+ * 器は違っても「x5chain/x5c をリーダーのアンカーへ接地させる」規則は同じ。
+ *  - chain 内にアンカーと fp256 同一の証明書があればそこまでをパスとする
+ *  - 各リンクで 子.verify(発行者公開鍵)・発行者 CA:TRUE
+ *  - 各 CA が**自ら宣言する** pathLenConstraint を順守（固定階層は強制しない）
+ *  - **アンカー未指定/未取得は fail-closed**
+ */
+export function verifyReaderChain(chain, anchors, at = new Date()) {
+  const inValid = (c) => new Date(c.validFrom) <= at && at <= new Date(c.validTo);
+  if (!anchors?.length) return { ok: false, error: '信頼できるリーダー CA がありません（トラストリストを取得できていません）' };
+  const anchorCerts = anchors.map((d) => new X509Certificate(Buffer.from(d)));
+  let anchor = null, pathEnd = chain.length;
+  for (let i = 1; i < chain.length; i++) {
+    const hit = anchorCerts.find((a) => a.fingerprint256 === chain[i].fingerprint256);
+    if (hit) { anchor = hit; pathEnd = i + 1; break; }
+  }
+  for (let i = 0; i < pathEnd - 1; i++) {
+    const issuer = chain[i + 1];
+    if (!(issuer.ca === true && chain[i].verify(issuer.publicKey))) {
+      return { ok: false, error: `証明書パスが深さ ${i} で切れています` };
+    }
+    const plc = pathLenConstraint(issuer.raw);
+    if (plc != null && i > plc) return { ok: false, error: `pathLenConstraint 違反（深さ ${i + 1} の CA は ${plc} を宣言）` };
+  }
+  if (!anchor) {
+    const last = chain[pathEnd - 1];
+    anchor = anchorCerts.find((a) => { try { return a.ca === true && last.verify(a.publicKey); } catch { return false; } });
+    if (anchor) {
+      const plc = pathLenConstraint(anchor.raw);
+      if (plc != null && pathEnd - 1 > plc) return { ok: false, error: `pathLenConstraint 違反（アンカーは ${plc} を宣言）` };
+    }
+  }
+  if (!(anchor && anchor.ca === true && inValid(anchor))) {
+    return { ok: false, error: '信頼できるリーダーの一覧にない発行者です' };
+  }
+  return { ok: true, anchor };
+}
+
 export function verifyReaderAuth({ readerAuth, itemsRequestBytes, sessionTranscriptBytes,
   trustedReaderCaDers = null, trustedReaderCaDer = null, at = Date.now() }) {
   if (!readerAuth) return { present: false, verified: false };

@@ -117,6 +117,11 @@ export function renderVerifyConsole(groups = []) {
         <label><input type="radio" name="proto" value="annex-d" checked> Annex D · OID4VP/HAIP（JWE）— Web/ネイティブ両対応</label>
         <label><input type="radio" name="proto" value="annex-c" id="protoc"> Annex C · org-iso-mdoc（HPKE, mdoc専用・DeviceRequest+readerAuth）— ネイティブのみ</label>
       </div>
+      <div class="fs" id="signedbox">
+        <div class="lg">要求の署名（Request Object）</div>
+        <label><input type="radio" name="signed" value="1" checked> 署名する（JAR）— 仕様どおり。x5c で RP を認証でき、client_id を載せられる</label>
+        <label><input type="radio" name="signed" value="0"> 署名しない — client_id は<b>省略必須</b>。Multipaz 実機の DC API 経路はこちら</label>
+      </div>
 
       <label class="lbl">提示先（どのウォレットに要求するか）</label>
       <div class="radios" id="targets">
@@ -160,6 +165,9 @@ export function renderVerifyConsole(groups = []) {
       function syncTargets() {
         // Annex C is native-only: disable the Web wallet target.
         const annexC = proto() === 'annex-c';
+        // Annex C は DeviceRequest+readerAuth が RP 認証を担うので JAR の選択は効かない
+        const sb = document.getElementById('signedbox');
+        if (sb) sb.style.display = annexC ? 'none' : '';
         $('t-web').querySelector('input').disabled = annexC;
         $('t-web').style.opacity = annexC ? '.4' : '1';
         if (annexC && target() === 'web') $('t-dcapi').querySelector('input').checked = true;
@@ -224,7 +232,9 @@ export function renderVerifyConsole(groups = []) {
         const path = tgt === 'selftest' ? '/demo/verify/prepare' : '/vp/build';
         const body = tgt === 'selftest'
           ? { configId: selCfg, claims, optional, protocol: proto() }
-          : { configId: selCfg, claims, optional, protocol: proto(), target: tgt };
+          : { configId: selCfg, claims, optional, protocol: proto(), target: tgt,
+              // 要求の署名（JAR）。既定は署名する側＝仕様どおり
+              signed: (document.querySelector('input[name=signed]:checked') || {}).value !== '0' };
         const d = await (await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
         if (d.error) { err(d.error); return null; }
         built = { target: tgt, ...d };

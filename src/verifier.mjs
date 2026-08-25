@@ -140,7 +140,7 @@ export class VerifierService {
 
   /** Build a presentation request. protocol: 'annex-d' (OID4VP/HAIP over DC API,
    *  JWE) or 'annex-c' (org-iso-mdoc, HPKE). Annex C is mdoc-only. */
-  async createRequest({ specs, sessionId, linkTo, protocol = 'annex-d', transport, responseUri, responseUriBase, purpose, rpName } = {}) {
+  async createRequest({ specs, sessionId, linkTo, protocol = 'annex-d', transport, responseUri, responseUriBase, purpose, rpName, signed = true } = {}) {
     await this._ensurePki();
     const nonce = rand();
     const dcql_query = buildDcql(specs);
@@ -192,13 +192,12 @@ export class VerifierService {
       const respUri = responseUri || `${responseUriBase}/${transactionId}`;
       const clientId = `redirect_uri:${respUri}`;
       const transcript = oid4vpRedirectSessionTranscript({ clientId, responseUri: respUri, nonce });
-      await this.store.set(`vp:${transactionId}`, { protocol: 'annex-d', transport: 'redirect', clientId, nonce, dcql: dcql_query, transcript, sessionId: sessionId ?? transactionId, linkTo });
+      await this.store.set(`vp:${transactionId}`, { protocol: 'annex-d', transport: 'redirect', clientId, nonce, dcql: dcql_query, transcript, sessionId: sessionId ?? transactionId, linkTo, signed });
       const request = {
-        // **署名済み要求（JAR）にするので client_id を載せる**（2026-08-26・conformance
-        // suite が検出）。unsigned では「client_id は省略必須」だが、署名すれば正当な
-        // RP 識別子になる。CLAUDE.md に書いたとおり「RP 認証が要るなら signed request に
-        // するのが筋で、client_id を足すことではない」——その signed 側に来た。
-        client_id: clientId,
+        // **client_id は署名するときだけ載せる**（2026-08-26・conformance suite が検出）。
+        // 「The client_id parameter MUST be omitted in unsigned requests」＝ unsigned で
+        // 送るのは仕様違反。署名すれば x5c で RP を認証できるので正当な識別子になる。
+        ...(signed ? { client_id: clientId } : {}),
         response_type: 'vp_token',
         response_mode: 'direct_post.jwt',     // encrypted response posted to response_uri
         response_uri: respUri,

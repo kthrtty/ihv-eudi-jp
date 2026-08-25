@@ -670,10 +670,28 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
       // src/trust.mjs の解決層を通すのが筋で、それは別の課題。
       const rres = await doFetch(c.req.query('request_uri'));
       const rtext = (await rres.text()).trim();
-      const request = rtext.startsWith('{')
-        ? JSON.parse(rtext)
-        : JSON.parse(Buffer.from(rtext.split('.')[1], 'base64url').toString('utf8'));
-      s.present = { request };
+      // **署名済み要求（JAR）なら署名とチェーンを検証する**（2026-08-26）。
+      // 署名を付けても受け手が検証しなければ RP 認証にならない——x5c は要求と一緒に
+      // 届くので、それだけを信じると「トークン自身が連れてきた鍵を信じる」形になる
+      // （SD-JWT VC の x5c で踏んだのと同じ穴・#26）。リーダーのアンカーまで辿る。
+      let request, rpAuth = null;
+      if (rtext.startsWith('{')) {
+        request = JSON.parse(rtext);   // unsigned（client_id は載っていないのが正しい）
+      } else {
+        // **アンカーの束が null＝トラストリスト未設定**なら検証を試みない（上の
+        // readerAnchors のコメントと同じ方針）。設定してあるのに 0 件なら空配列が返り、
+        // その場合は fail-closed で「検証できない」と表示される。
+        const anchors = await readerAnchors(s);
+        const vr = anchors
+          ? await verifyRequestObject(rtext, { anchors })
+          : { verified: null, request: null, error: null };
+        // **検証に失敗しても要求自体は読める**（payload は署名の外側から取れる）。
+        // ここで拒否せず同意画面に警告を出すのは、デモとして「検証が通らない RP からの
+        // 要求」を見せられるようにするため。
+        request = vr.request ?? JSON.parse(Buffer.from(rtext.split('.')[1], 'base64url').toString('utf8'));
+        rpAuth = { verified: vr.verified, subject: vr.readerSubject ?? null, error: vr.error ?? null };
+      }
+      s.present = { request, ...(rpAuth ? { rpAuth } : {}) };
       await saveSession(s);
       // 旧表示キャッシュ（(N bytes)）は同意画面に出る前に修復する
       for (const cr of s.creds) await healPortraitCache(s, cr);
@@ -686,7 +704,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
       const statusIds = [...new Set(plan.flatMap((q) => q.matches.map((m) => m.id)))];
       const statusMap = {};
       await Promise.all(statusIds.map(async (id) => { statusMap[id] = await credStatus(s, id); }));
-      return c.html(presentConsent({ request, plan, have, held, statusMap }));
+      return c.html(presentConsent({ request, plan, have, held, statusMap, rpAuth: s.present?.rpAuth ?? null }));
     } catch (e) {
       return c.html(shell('ウォレット', `<div class="card"><h1>提示要求の取得に失敗</h1><div class="hint" style="color:var(--error-2)">${esc(e.message)}</div></div>`, WALLET));
     }
@@ -770,7 +788,7 @@ const presentStatChip = (st) => !st?.checked
   ? '<span class="sc na">● 未確認</span>'
   : st.revoked ? '<span class="sc bad">● 失効</span>' : '<span class="sc ok">● 有効</span>';
 
-function presentConsent({ request, plan, have, held = [], statusMap = {} }) {
+function presentConsent({ request, plan, have, held = [], statusMap = {}, rpAuth = null }) {
   const v = verifierLabel(request);
   const rpHost = (() => { try { return new URL(request.response_uri).host; } catch { return ''; } })();
   // ---- requested-but-not-held: explain the format/type mismatch
@@ -867,7 +885,13 @@ function presentConsent({ request, plan, have, held = [], statusMap = {} }) {
     ? `<div class="vpeek" id="vpeek">${vcardHtml(peekType, { title: typeName(peekType), fmt: plan[0].isMdoc ? 'mdoc' : 'SD-JWT', status: peekStatus, revoked: !!peekSt?.revoked, unknown: !peekSt?.checked })}
         <div class="peek-warn" id="peekWarn" ${peekSt?.revoked ? '' : 'hidden'}>⚠ このデジタル資格証は<b>失効</b>しています。提示先で検証に失敗する可能性があります。</div></div>`
     : '';
-  const verified = v.src !== 'client_metadata.client_name';
+  // **RP が「検証済み」と言えるのは、署名済み要求（JAR）の x5c がリーダーの
+  // トラストアンカーまで辿れたときだけ**（2026-08-26）。以前は「ラベルの出所が
+  // client_metadata 以外か」しか見ておらず、名前の出どころの話で RP 認証ではなかった。
+  //   rpAuth.verified === true  → 署名とチェーンが通った
+  //   rpAuth.verified === false → 署名済みだが検証に失敗（警告）
+  //   rpAuth == null            → unsigned またはトラストリスト未設定（従来の判定）
+  const verified = rpAuth ? rpAuth.verified === true : v.src !== 'client_metadata.client_name';
   return shell('提示の確認', `
     <div class="cscrim"></div>
     <div class="csheet">
@@ -880,7 +904,10 @@ function presentConsent({ request, plan, have, held = [], statusMap = {} }) {
           <div class="rp-name">${esc(v.name)}</div>
           <div class="rp-sub mono">${esc(rpHost || request.client_id)}</div>
         </div>
-        <span class="vbadge${verified ? '' : ' warn'}">${verified ? '✓ 検証済みの提示先' : '⚠ 未検証の名称'}</span>
+        <span class="vbadge${verified ? '' : ' warn'}">${
+          rpAuth?.verified === true ? '✓ 署名を検証しました'
+          : rpAuth?.verified === false ? '⚠ 署名の検証に失敗'
+          : verified ? '✓ 検証済みの提示先' : '⚠ 未検証の名称'}</span>
       </div>
       ${request.purpose ? `<div class="rp-purpose"><b>利用目的</b>${esc(request.purpose)}</div>` : ''}
       <div class="rp-src">ラベル取得元: <code>${esc(v.src)}</code>${request.purpose ? ' ・ 利用目的: <code>request.purpose（デモ拡張）</code>' : ''}</div>
