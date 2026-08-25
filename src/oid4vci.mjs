@@ -426,6 +426,12 @@ export class IssuerService {
     const u = new URL(redirect_uri);
     u.searchParams.set('code', code);
     if (state != null) u.searchParams.set('state', state);
+    // **認可応答に `iss` を載せる**（RFC 9207・2026-08-26 に conformance suite が検出）。
+    // ウォレットが複数の発行者を扱うとき、応答がどの発行者から来たのかを識別できないと
+    // **mix-up 攻撃**（悪意ある AS が別の AS から得た code を混ぜ込む）が成立する。
+    // 値は AS の issuer 識別子＝我々は AS と Credential Issuer が同一なので credentialIssuer。
+    // AS メタデータの `authorization_response_iss_parameter_supported` で対応を告知する。
+    u.searchParams.set('iss', this.credentialIssuer);
     return { redirect: u.toString(), code };
   }
 
@@ -515,6 +521,9 @@ export class IssuerService {
       // pushed_authorization_request_endpoint が string で存在することを必須とする。
       pushed_authorization_request_endpoint: `${base}/par`,
       require_pushed_authorization_requests: false,
+      // RFC 9207: 認可応答に iss を載せることの告知。**載せるだけでなく告知も要る**
+      // ——ウォレット側は告知が無いと「iss が無い応答」を拒否してよいか判断できない
+      authorization_response_iss_parameter_supported: true,
       jwks_uri: `${base}/jwks`,
       response_types_supported: ['code'],
       response_modes_supported: ['query'],
@@ -637,7 +646,11 @@ export class IssuerService {
     if (!at) throw httpErr(401, 'invalid_token', 'missing/invalid access token');
 
     const configId = body.credential_configuration_id;
-    if (!configId || !at.ids.includes(configId)) throw httpErr(400, 'invalid_credential_request', 'config not authorized by token');
+    // **`unknown_credential_configuration`**（同上）。要求された configuration id を
+    // 発行者が知らない／このトークンでは認可されていない場合の専用コード。
+    if (!configId || !at.ids.includes(configId)) {
+      throw httpErr(400, 'unknown_credential_configuration', 'config not authorized by token');
+    }
 
     const jwtProofs = body?.proofs?.jwt;
     if (!Array.isArray(jwtProofs) || jwtProofs.length === 0) throw httpErr(400, 'invalid_proof', 'proofs.jwt required');
@@ -769,7 +782,10 @@ export class IssuerService {
       throw httpErr(400, 'invalid_proof', 'iat outside window');
     }
     const nonceOk = payload.nonce && await this.store.get(`nonce:${payload.nonce}`);
-    if (!nonceOk) throw httpErr(400, 'invalid_proof', 'unknown/expired c_nonce');
+    // **`invalid_nonce`**（OID4VCI 1.0 Final・2026-08-26 に conformance suite が検出）。
+    // `invalid_proof` と区別する意味がある——**nonce が古いだけなら取り直して再試行できる**が、
+    // 署名不正は再試行しても無駄。同じコードで返すとウォレットが回復手段を選べない。
+    if (!nonceOk) throw httpErr(400, 'invalid_nonce', 'unknown/expired c_nonce');
     await this.store.del(`nonce:${payload.nonce}`); // one-time use
     return header.jwk; // bind credential to this holder key
   }

@@ -178,14 +178,18 @@ test('OID4VCI: credential endpoint requires access token (401)', async () => {
   assert.equal(res.status, 401);
 });
 
-test('OID4VCI: proof with wrong c_nonce is rejected (invalid_proof)', async () => {
+// **nonce の不一致は `invalid_nonce`、署名不正は `invalid_proof`**（OID4VCI 1.0 Final。
+// 2026-08-26 に conformance suite が検出）。区別に意味がある——**nonce が古いだけなら
+// 取り直して再試行できる**が、署名不正は再試行しても無駄。同じコードで返すと
+// ウォレットが回復手段を選べない。以前はどちらも invalid_proof で返していた。
+test('OID4VCI: proof with wrong c_nonce is rejected (invalid_nonce)', async () => {
   const h = holder();
   const { accessToken } = await authorize('pid_mdoc');
   const proof = await makeProof(h, { nonce: 'not-a-real-nonce' });
   const res = await J('/credential', { credential_configuration_id: 'pid_mdoc', proofs: { jwt: [proof] } },
     { authorization: `Bearer ${accessToken}` });
   assert.equal(res.status, 400);
-  assert.equal((await res.json()).error, 'invalid_proof');
+  assert.equal((await res.json()).error, 'invalid_nonce');
 });
 
 test('OID4VCI: proof with wrong audience is rejected', async () => {
@@ -215,4 +219,26 @@ test('OID4VCI: c_nonce is single-use (replay rejected)', async () => {
   assert.equal(ok.status, 200);
   const replay = await J('/credential', { credential_configuration_id: 'pid_sdjwt', proofs: { jwt: [proof] } }, { authorization: `Bearer ${accessToken}` });
   assert.equal(replay.status, 400); // nonce already consumed
+});
+
+// RFC 9207（2026-08-26・OpenID conformance suite が検出）。認可応答に発行者識別子が
+// 無いと、複数の発行者を扱うウォレットで **mix-up 攻撃**（悪意ある AS が別の AS から
+// 得た code を混ぜ込む）が成立する。**載せることと告知することの両方**が要る。
+test('OID4VCI: 認可応答に iss が載り、AS メタデータがそれを告知する（RFC 9207）', async () => {
+  const as = await (await app.request('/.well-known/oauth-authorization-server')).json();
+  assert.equal(as.authorization_response_iss_parameter_supported, true);
+
+  const svc = createApp({ credentialIssuer: ISSUER }).svc;
+  const { sessionId } = await svc.login('u_001');
+  const { redirect } = await svc.authorize({
+    sessionId, response_type: 'code', redirect_uri: `${ISSUER}/demo/cb`,
+    scope: 'pid_mdoc', state: 'xyz',
+    // PKCE S256 は必須（我々の実装が要求する。ここは iss の検査が目的なので固定値でよい）
+    code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM',
+    code_challenge_method: 'S256',
+  });
+  const u = new URL(redirect);
+  assert.equal(u.searchParams.get('iss'), ISSUER, '認可応答の iss は AS の識別子');
+  assert.ok(u.searchParams.get('code'), 'code も返る');
+  assert.equal(u.searchParams.get('state'), 'xyz', 'state は往復する');
 });
