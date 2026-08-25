@@ -50,7 +50,11 @@ test('OID4VCI: metadata URLs derive from the configured base — authorization_s
   assert.equal(md.credential_issuer, 'https://issuer.example.org');
   assert.deepEqual(md.authorization_servers, ['https://issuer.example.org']);
   assert.equal(md.credential_endpoint, 'https://issuer.example.org/credential');
-  assert.equal(md.token_endpoint, 'https://issuer.example.org/token');
+  assert.equal(md.nonce_endpoint, 'https://issuer.example.org/nonce');
+  // **AS の項目は Credential Issuer メタデータに置かない**（スキーマが additionalProperties:false）。
+  // 認可・トークンの所在は authorization_servers が指す AS メタデータ側にある。
+  assert.equal(md.authorization_endpoint, undefined);
+  assert.equal(md.token_endpoint, undefined);
 });
 
 test('OID4VCI: AS metadata (RFC 8414) + openid-configuration alias', async () => {
@@ -68,9 +72,14 @@ test('OID4VCI: AS metadata (RFC 8414) + openid-configuration alias', async () =>
   const oc = await (await app.request('/.well-known/openid-configuration')).json();
   assert.equal(oc.issuer, ISSUER);
   assert.ok(oc.id_token_signing_alg_values_supported);
-  // Issuer Metadata now advertises authorization_endpoint too
+  // **AS の項目は Credential Issuer メタデータに置かない**（2026-08-26 に是正）。
+  // 以前ここは「Issuer Metadata now advertises authorization_endpoint too」として
+  // **非準拠を pin していた**。OID4VCI 1.0 Final のスキーマは additionalProperties:false で、
+  // 認可・トークンの所在は authorization_servers が指す AS メタデータ側が持つ。
   const md = await (await app.request('/.well-known/openid-credential-issuer')).json();
-  assert.equal(md.authorization_endpoint, `${ISSUER}/authorize`);
+  assert.equal(md.authorization_endpoint, undefined);
+  assert.equal(md.token_endpoint, undefined);
+  assert.deepEqual(md.authorization_servers, [ISSUER]);   // 所在はこちらから辿る
 });
 
 test('OID4VCI: PAR (RFC 9126) round-trips a pushed request into /authorize → code', async () => {

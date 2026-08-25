@@ -486,10 +486,17 @@ export class IssuerService {
       ...catalog,
       credential_issuer: base,
       authorization_servers: [base],
-      authorization_endpoint: `${base}/authorize`,
       credential_endpoint: `${base}/credential`,
       nonce_endpoint: `${base}/nonce`,
-      token_endpoint: `${base}/token`,
+      // **`authorization_endpoint` と `token_endpoint` はここに置かない**
+      // （2026-08-26・OpenID conformance suite が検出）。Credential Issuer メタデータの
+      // スキーマは additionalProperties:false で、認められるのは credential_issuer /
+      // authorization_servers / credential_endpoint / nonce_endpoint /
+      // deferred_credential_endpoint / notification_endpoint / credential_request_encryption /
+      // credential_response_encryption / batch_credential_issuance / signed_metadata /
+      // display / credential_configurations_supported の12個だけ。認可・トークンの所在は
+      // **authorization_servers が指す AS メタデータ**（RFC 8414）が持つ——asMetadata() に
+      // 正しく載っており、ここは重複でもあった。
     };
   }
 

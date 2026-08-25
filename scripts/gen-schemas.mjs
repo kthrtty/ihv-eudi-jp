@@ -331,9 +331,16 @@ export const DISPLAY_NAMES = Object.fromEntries(
 for (const [id, schema] of Object.entries(creds)) out(`schemas/${id}.json`, schema);
 
 // ---- OID4VCI catalog: selectable credential x format -----------------------
+// **`credential_signing_alg_values_supported` は形式で型が変わる**（2026-08-26・
+// OpenID conformance suite が検出。OID4VCI 1.0 Final §12.2.4）。
+// mdoc は COSE_Sign1 で署名するので **COSE の整数識別子**（ES256 = -7・RFC 9053）、
+// SD-JWT VC は JWS なので **JWA の文字列**（"ES256"）。両方に同じ配列を配っていたため
+// mdoc 側が `["ES256"]` になり、9構成すべてが
+// 「expected COSE integer algorithm identifier, got "ES256"」で落ちていた。
+// **自己ループでは出ない類の非準拠**——我々の実装も Multipaz もこの値を読んでいない。
+const ALG_COSE_ES256 = -7;
 const HAIP = {
   cryptographic_binding_methods_supported: ['jwk', 'cose_key'],
-  credential_signing_alg_values_supported: ['ES256'],
   proof_types_supported: { jwt: { proof_signing_alg_values_supported: ['ES256'] } },
 };
 const configs = {};
@@ -344,6 +351,7 @@ for (const schema of Object.values(creds)) {
     doctype: schema.formats.mso_mdoc.doctype,
     scope: `${schema.id}_mdoc`,
     ...HAIP,
+    credential_signing_alg_values_supported: [ALG_COSE_ES256],   // COSE: ES256 = -7
     // **`display` は `credential_metadata` の下**（OID4VCI 1.0 Final・issue #33）。
     // 直下に置くのは draft-13 以前の形で、Multipaz が両方見る
     // （`config.objOrNull("credential_metadata") ?: config`）ので動いていただけ
@@ -360,6 +368,7 @@ for (const schema of Object.values(creds)) {
     vct: schema.formats['dc+sd-jwt'].vct,
     scope: `${schema.id}_sdjwt`,
     ...HAIP,
+    credential_signing_alg_values_supported: ['ES256'],          // JWS: JWA の文字列
     credential_metadata: { display: displayFor(schema, 'SD-JWT VC') },
     claims: schema.claims.map((cl) => ({
       path: cl.sdjwt.path,

@@ -25,7 +25,12 @@ test('catalog: each config has HAIP binding/alg/proof metadata', () => {
     assert.ok(c.format !== 'mso_mdoc' || c.doctype, `${id} mdoc needs doctype`);
     assert.ok(c.format !== 'dc+sd-jwt' || c.vct, `${id} sd-jwt needs vct`);
     assert.deepEqual(c.cryptographic_binding_methods_supported, ['jwk', 'cose_key']);
-    assert.ok(c.credential_signing_alg_values_supported.includes('ES256'));
+    // **形式で型が変わる**（OID4VCI 1.0 Final §12.2.4）。mdoc は COSE_Sign1 なので
+    // COSE の整数識別子（ES256 = -7）、SD-JWT VC は JWS なので JWA の文字列。
+    // ここを両方 'ES256' で見ていたため、mdoc 側の非準拠を通していた
+    // （2026-08-26 に OpenID conformance suite が検出）。
+    assert.deepEqual(c.credential_signing_alg_values_supported,
+      c.format === 'mso_mdoc' ? [-7] : ['ES256'], `${id} signing alg`);
     assert.ok(c.proof_types_supported.jwt.proof_signing_alg_values_supported.includes('ES256'));
     assert.ok(Array.isArray(c.claims) && c.claims.length > 0);
   }
