@@ -242,3 +242,47 @@ test('OID4VCI: 認可応答に iss が載り、AS メタデータがそれを告
   assert.ok(u.searchParams.get('code'), 'code も返る');
   assert.equal(u.searchParams.get('state'), 'xyz', 'state は往復する');
 });
+
+// issue #38（2026-08-26・conformance suite の happy-flow-multiple-clients が検出）。
+// **client_id を検証しないと「A のコードを B が使う」ことを止められない。**
+// 登録表が無ければ従来どおり検証しない（既存の redirectAllowlist と同じ方針）。
+test('OID4VCI: 登録済みクライアントだけが認可でき、コードは発行先以外に渡らない（#38）', async () => {
+  const CB_A = `${ISSUER}/demo/cb?dummy1=lorem&dummy2=ipsum`;   // suite は**クエリ付き**で登録する
+  const CB_B = `${ISSUER}/demo/cb?other=1`;
+  const svc = createApp({
+    credentialIssuer: ISSUER,
+    clients: { 'client-a': { redirect_uris: [CB_A] }, 'client-b': { redirect_uris: [CB_B] } },
+  }).svc;
+  const { sessionId } = await svc.login('u_001');
+  const base = {
+    sessionId, response_type: 'code', scope: 'pid_mdoc',
+    code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM', code_challenge_method: 'S256',
+  };
+
+  // 未登録の client_id は invalid_client
+  await assert.rejects(
+    () => svc.authorize({ ...base, client_id: 'ghost', redirect_uri: CB_A }),
+    (e) => e.oauthError === 'invalid_client');
+
+  // 登録はあるが redirect_uri が別のクライアントのもの → invalid_client
+  await assert.rejects(
+    () => svc.authorize({ ...base, client_id: 'client-a', redirect_uri: CB_B }),
+    (e) => e.oauthError === 'invalid_client');
+
+  // **クエリまで一致して初めて通る**（isRedirectAllowed はクエリを見ないので、
+  // ここを通すのは登録表の側の仕事）
+  const { redirect } = await svc.authorize({ ...base, client_id: 'client-a', redirect_uri: CB_A });
+  const code = new URL(redirect).searchParams.get('code');
+  assert.ok(code);
+
+  // **別のクライアントは同じコードを交換できない**（#38 の本丸）
+  await assert.rejects(
+    () => svc.token({ grant_type: 'authorization_code', code, redirect_uri: CB_A,
+      client_id: 'client-b', code_verifier: 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk' }),
+    (e) => e.oauthError === 'invalid_grant');
+
+  // 発行先のクライアントなら通る
+  const t = await svc.token({ grant_type: 'authorization_code', code, redirect_uri: CB_A,
+    client_id: 'client-a', code_verifier: 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk' });
+  assert.ok(t.access_token);
+});

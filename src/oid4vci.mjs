@@ -76,6 +76,47 @@ export function isRedirectAllowed(redirectUri, allowlist) {
   return false;
 }
 
+/**
+ * クライアント登録表を解釈する（issue #38）。
+ *
+ * 形は `{"<client_id>": {"redirect_uris": ["https://…/cb", …]}, …}` の JSON、
+ * または同じ形のオブジェクト。環境変数から渡せるよう文字列も受ける。
+ *
+ * **`isRedirectAllowed` とは目的が違う**。あちらは「危険な宛先へ飛ばさない」
+ * （オープンリダイレクタ対策・#34）で、オリジンとパス前方一致だけを見てクエリは無視する。
+ * こちらは「**登録された宛先と同一か**」で、クエリを含めた厳密一致で見る——
+ * conformance suite は `?dummy1=lorem&dummy2=ipsum` 付きの redirect_uri を登録して
+ * クライアントを区別するため。**片方を緩めて他方を満たそうとしない**。
+ */
+export function parseClients(spec) {
+  if (!spec) return null;
+  let obj = spec;
+  if (typeof spec === 'string') {
+    const t = spec.trim();
+    if (!t) return null;
+    try { obj = JSON.parse(t); } catch { return null; }
+  }
+  if (!obj || typeof obj !== 'object') return null;
+  const out = new Map();
+  for (const [id, v] of Object.entries(obj)) {
+    const uris = Array.isArray(v?.redirect_uris) ? v.redirect_uris
+      : Array.isArray(v) ? v : (typeof v === 'string' ? [v] : []);
+    out.set(String(id), uris.map(String));
+  }
+  return out.size ? out : null;
+}
+
+/**
+ * `client_id` と `redirect_uri` の組が登録どおりか。
+ * **登録表が無ければ true**（未設定＝従来どおり検証しない。dev/テスト互換）。
+ */
+export function isRegisteredClient(clientId, redirectUri, clients) {
+  if (!clients) return true;
+  const uris = clients.get(String(clientId ?? ''));
+  if (!uris) return false;                       // 未登録の client_id
+  return uris.includes(String(redirectUri ?? ''));  // クエリまで含めた厳密一致
+}
+
 /** Minimal TTL key-value store (in-memory). Workers: back with KV/D1. */
 export function memoryStore() {
   const m = new Map();
@@ -118,7 +159,7 @@ export class IssuerService {
   // statusPki: { key, cert } — injected by worker.mjs for Workers env;
   // null lets StatusListService lazy-load from disk in Node.js dev.
   constructor({ store = memoryStore(), credentialIssuer = 'https://issuer.ihv.example', proofMaxAgeSec = 300,
-    userStore = createUserStore(), statusPki = null, redirectAllowlist = [],
+    userStore = createUserStore(), statusPki = null, redirectAllowlist = [], clients = null,
     maxAppsPerDay = MAX_APPS_PER_DAY } = {}) {
     this.store = store;
     this.credentialIssuer = credentialIssuer;
@@ -128,6 +169,9 @@ export class IssuerService {
     // Allowed authorization redirect_uris (open-redirector guard). Empty =
     // unconfigured → permissive (dev/tests); prod injects a list at deploy time.
     this.redirectAllowlist = parseRedirectAllowlist(redirectAllowlist);
+    // クライアント登録表（issue #38）。**未設定なら client_id を検証しない**
+    // ——既存の redirectAllowlist と同じ「未設定＝permissive」の方針に揃える。
+    this.clients = parseClients(clients);
     this.statusList = new StatusListService({
       uri: `${credentialIssuer}/status-lists/1`,
       issuerKeyPem: statusPki?.key ?? null,
@@ -402,7 +446,8 @@ export class IssuerService {
 
   // ---- 3.4 Authorization Endpoint (authorization_code + PKCE) ----
   async authorize({ sessionId, response_type, redirect_uri, code_challenge, code_challenge_method,
-    scope, authorization_details, issuer_state, state, applications: chosen = null } = {}) {
+    scope, authorization_details, issuer_state, state, applications: chosen = null,
+    client_id = null } = {}) {
     if (response_type !== 'code') throw httpErr(400, 'unsupported_response_type', String(response_type));
     const sess = sessionId && await this.store.get(`sess:${sessionId}`);
     if (!sess) throw httpErr(401, 'login_required', 'no active session; user must sign in first');
@@ -411,6 +456,12 @@ export class IssuerService {
     // Skipped when no allowlist is configured (dev); prod always carries one.
     if (!redirect_uri || !isRedirectAllowed(redirect_uri, this.redirectAllowlist)) {
       throw httpErr(400, 'invalid_request', 'redirect_uri not allowed');
+    }
+    // **登録済みクライアントかを確かめる**（issue #38）。上の isRedirectAllowed とは
+    // 関心事が違う——あちらは危険な宛先を弾く、こちらは登録された組合せかを見る。
+    // 未登録の client_id / 登録と違う redirect_uri は `invalid_client`（RFC 6749 §5.2）。
+    if (!isRegisteredClient(client_id, redirect_uri, this.clients)) {
+      throw httpErr(400, 'invalid_client', 'unknown client_id or redirect_uri not registered for it');
     }
     const ids = await this.requestedIds({ scope, authorization_details, issuer_state });
     if (!ids.length) throw httpErr(400, 'invalid_scope', 'no credential configuration requested');
@@ -421,8 +472,10 @@ export class IssuerService {
     // **フォームの値は信用しない**: 本人の・交付可能な申請だけを通す
     const applications = (await this.#validateChoices(sess.userId, ids, chosen))
       ?? await this.requestedApplications(issuer_state);
+    // **認可コードに client_id を束ねる**——束ねないと「クライアント A のコードを
+    // クライアント B が使う」ことを止められない（issue #38）。
     await this.store.set(`code:${code}`, { userId: sess.userId, ids, redirect_uri, code_challenge, used: false,
-      ...(applications ? { applications } : {}) }, this.proofMaxAgeSec);
+      ...(client_id ? { client_id } : {}), ...(applications ? { applications } : {}) }, this.proofMaxAgeSec);
     const u = new URL(redirect_uri);
     u.searchParams.set('code', code);
     if (state != null) u.searchParams.set('state', state);
@@ -622,6 +675,15 @@ export class IssuerService {
       const rec = code && await this.store.get(`code:${code}`);
       if (!rec || rec.used) throw httpErr(400, 'invalid_grant', 'unknown or used authorization code');
       if (rec.redirect_uri !== redirect_uri) throw httpErr(400, 'invalid_grant', 'redirect_uri mismatch');
+      // **コードを発行したクライアント以外は交換できない**（issue #38）。
+      // **照合するのは登録表があるときだけ**——無いときに要求すると、client_id を
+      // authorize にだけ渡して token には渡さない既存の呼び出し（テスト・デモ動線）が
+      // 全部 invalid_grant で落ちる。既存の redirectAllowlist と同じ
+      // 「未設定＝検証しない」方針に揃える。
+      if (this.clients && rec.client_id != null
+          && String(params.client_id ?? '') !== String(rec.client_id)) {
+        throw httpErr(400, 'invalid_grant', 'authorization code was issued to a different client');
+      }
       const challenge = b64url(sha256(Buffer.from(String(code_verifier), 'ascii')));
       if (!code_verifier || challenge !== rec.code_challenge) throw httpErr(400, 'invalid_grant', 'PKCE verification failed');
       await this.store.set(`code:${code}`, { ...rec, used: true }); // one-time
