@@ -7,6 +7,7 @@ import { verifyDeviceResponse } from './mdoc.mjs';
 import { verifySdJwtPresentation } from './sdjwt.mjs';
 import { annexDSessionTranscript, annexCSessionTranscript, oid4vpRedirectSessionTranscript, buildEncryptionInfo, hpkeSuite, annexCOpen, decodeAnnexCResponse, dcApiAud, cborEncode, b64url, coseKeyFromJwk } from './handover.mjs';
 import { fromB64url } from './cbor.mjs';
+import { SignJWT, importPKCS8 } from 'jose';
 import { decryptResponse, calculateJwkThumbprint } from './jwe.mjs';
 import { buildDcql, satisfies, missingPresentations } from './dcql.mjs';
 import { buildDeviceRequest } from './device-request.mjs';
@@ -54,6 +55,35 @@ export class VerifierService {
 
   /** RP client_metadata (OpenID4VP). Embedded inline in requests today; also served at
    *  the hosted /client-metadata so a `client_metadata_uri` reference is possible. */
+  /**
+   * 認可要求を **署名済み要求オブジェクト（JAR・RFC 9101）** にする。
+   *
+   * なぜ要るか（2026-08-26・conformance suite が検出）: OID4VP 1.0 の Request URI は
+   * **`application/oauth-authz-req+jwt` で署名済み JWT を返す**のが規定で、我々は素の
+   * JSON を返していた。しかも unsigned のまま `client_id` を載せており
+   * （「MUST be omitted in unsigned requests」）、二重に非準拠だった。署名すれば
+   * `client_id` は正当な RP 識別子になり、両方が同時に解ける。
+   *
+   * 署名鍵は **readerAuth と同じ RP 証明書**（pki/verifier/rp.*）を使う。x5c を載せるので
+   * ウォレットは証明書チェーンで RP を認証できる。**鍵が無ければ null を返し、
+   * 呼び出し側は素の JSON にフォールバックする**——Workers に鍵を配れていない環境で
+   * 提示が丸ごと止まるより、署名なしでも動くほうがデモとして安全（鍵の有無は
+   * `/dev/endpoints` で見える）。
+   */
+  async signRequestObject(request) {
+    if (!this.readerKeyPem || !this.readerCertDer) return null;
+    const x5c = [Buffer.from(this.readerCertDer).toString('base64')];
+    if (this.readerCaDer) x5c.push(Buffer.from(this.readerCaDer).toString('base64'));
+    const key = await importPKCS8(
+      typeof this.readerKeyPem === 'string' ? this.readerKeyPem : this.readerKeyPem.toString('utf8'), 'ES256');
+    const now = Math.floor(Date.now() / 1000);
+    return new SignJWT({ ...request, iss: request.client_id, aud: 'https://self-issued.me/v2' })
+      .setProtectedHeader({ alg: 'ES256', typ: 'oauth-authz-req+jwt', x5c })
+      .setIssuedAt(now)
+      .setExpirationTime(now + 300)
+      .sign(key);
+  }
+
   clientMetadata() {
     return {
       client_name: this.clientName,
@@ -164,6 +194,10 @@ export class VerifierService {
       const transcript = oid4vpRedirectSessionTranscript({ clientId, responseUri: respUri, nonce });
       await this.store.set(`vp:${transactionId}`, { protocol: 'annex-d', transport: 'redirect', clientId, nonce, dcql: dcql_query, transcript, sessionId: sessionId ?? transactionId, linkTo });
       const request = {
+        // **署名済み要求（JAR）にするので client_id を載せる**（2026-08-26・conformance
+        // suite が検出）。unsigned では「client_id は省略必須」だが、署名すれば正当な
+        // RP 識別子になる。CLAUDE.md に書いたとおり「RP 認証が要るなら signed request に
+        // するのが筋で、client_id を足すことではない」——その signed 側に来た。
         client_id: clientId,
         response_type: 'vp_token',
         response_mode: 'direct_post.jwt',     // encrypted response posted to response_uri

@@ -1108,9 +1108,17 @@ export function createVerifierApp(opts = {}) {
     const walletPresent = `${walletOrigin}/present?request_uri=${encodeURIComponent(requestUri)}`;
     return c.html(renderWebVerify({ request, requestUri, walletPresent }));
   });
+  // OID4VP 1.0 §5: Request URI は **署名済み要求オブジェクト（JAR・RFC 9101）** を
+  // `application/oauth-authz-req+jwt` で返す。素の JSON を返していたのは非準拠だった
+  // （2026-08-26・conformance suite が検出）。
+  // **鍵が無い環境では JSON にフォールバックする**——署名できないときに提示が丸ごと
+  // 止まるより動くほうがデモとして安全（鍵の有無は /dev/endpoints で見える）。
   app.get('/oid4vp/request/:txn', async (c) => {
     const r = await getRequest(c.req.param('txn'));
-    return r ? c.json(r) : c.json({ error: 'unknown request' }, 404);
+    if (!r) return c.json({ error: 'unknown request' }, 404);
+    const jwt = await v.signRequestObject(r);
+    if (!jwt) return c.json(r);
+    return c.body(jwt, 200, { 'content-type': 'application/oauth-authz-req+jwt' });
   });
   app.post('/oid4vp/response/:txn', async (c) => {
     try {

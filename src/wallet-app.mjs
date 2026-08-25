@@ -661,7 +661,18 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     }
     const s = await loadSession(c);
     try {
-      const request = await (await doFetch(c.req.query('request_uri'))).json();
+      // **署名済み要求オブジェクト（JAR）にも対応する**（2026-08-26）。OID4VP 1.0 の
+      // Request URI は application/oauth-authz-req+jwt で JWT を返すのが規定。
+      // 素の JSON も読めるままにしておく（署名鍵が無い環境のフォールバック）。
+      // **ここでは署名を検証しない**——検証には RP のトラストアンカー（RICAL / LoTE の
+      // reader_auth）が要る。本デモのウォレットは提示同意画面で RP を人に見せる作りで、
+      // client_metadata 由来の名称には「未検証の名称」を出している。x5c の検証を入れるなら
+      // src/trust.mjs の解決層を通すのが筋で、それは別の課題。
+      const rres = await doFetch(c.req.query('request_uri'));
+      const rtext = (await rres.text()).trim();
+      const request = rtext.startsWith('{')
+        ? JSON.parse(rtext)
+        : JSON.parse(Buffer.from(rtext.split('.')[1], 'base64url').toString('utf8'));
       s.present = { request };
       await saveSession(s);
       // 旧表示キャッシュ（(N bytes)）は同意画面に出る前に修復する

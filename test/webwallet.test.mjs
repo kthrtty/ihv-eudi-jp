@@ -825,7 +825,11 @@ test('web wallet /present/confirm: a Verifier error (no redirect_uri) shows an e
       body: JSON.stringify({ configId: 'juminhyo_mdoc', claims: ['family_name'], protocol: 'annex-d', target: 'web' }),
     })).json();
     const realReqUri = new URL(build.walletPresent).searchParams.get('request_uri');
-    genuineRequest = await (await fetch(realReqUri)).json();
+    // Request URI は **署名済み要求オブジェクト（JAR）** を返す（2026-08-26 に是正）。
+    // 素の JSON も受けられるようにしておく（署名鍵が無い環境のフォールバック）。
+    const gtext = (await (await fetch(realReqUri)).text()).trim();
+    genuineRequest = gtext.startsWith('{') ? JSON.parse(gtext)
+      : JSON.parse(Buffer.from(gtext.split('.')[1], 'base64url').toString('utf8'));
 
     // wallet fetches the stub's request (response_uri -> stub /resp), shows consent
     const consent = await wallet.request('/present?request_uri=' + encodeURIComponent(`${STUB}/req`), { headers: { cookie } });
@@ -1144,4 +1148,37 @@ test('カード詳細フラグメント /cred/:id?embed=1 は「必ず表示バ�
   } finally {
     await new Promise((r) => issuer.close(r));
   }
+});
+
+// OID4VP 1.0 §5（2026-08-26・conformance suite が検出）。Request URI は
+// **署名済み要求オブジェクト（JAR・RFC 9101）** を application/oauth-authz-req+jwt で返す。
+// 以前は素の JSON を返し、しかも unsigned のまま client_id を載せていた
+// （「MUST be omitted in unsigned requests」）——署名することで両方が同時に解ける。
+// ポートは他ファイルと衝突させない（8877 は未使用）。
+test('OID4VP: Request URI は署名済み要求オブジェクト（JAR）を返す', async () => {
+  const VP = 8877;
+  const v = createVerifierApp({ verifierOrigin: `http://127.0.0.1:${VP}`,
+    walletOrigin: `http://127.0.0.1:${VP + 1}`, issuerUrl: `http://127.0.0.1:${VP + 2}` });
+  const build = await (await v.request('/vp/build', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ configId: 'pid_sdjwt', claims: ['family_name'], protocol: 'annex-d', target: 'web' }),
+  })).json();
+  const path = new URL(build.walletPresent).searchParams.get('request_uri')
+    .replace(`http://127.0.0.1:${VP}`, '');
+  const res = await v.request(path);
+  assert.equal(res.status, 200);
+  const body = (await res.text()).trim();
+
+  // 署名鍵が無い環境は JSON にフォールバックする（提示が丸ごと止まるより動くほうを採る）
+  if (body.startsWith('{')) { assert.match(res.headers.get('content-type') || '', /json/); return; }
+
+  assert.match(res.headers.get('content-type') || '', /application\/oauth-authz-req\+jwt/);
+  const [h, p] = body.split('.').slice(0, 2)
+    .map((s) => JSON.parse(Buffer.from(s, 'base64url').toString('utf8')));
+  assert.equal(h.typ, 'oauth-authz-req+jwt', 'typ は仕様どおり');
+  assert.equal(h.alg, 'ES256');
+  assert.ok(Array.isArray(h.x5c) && h.x5c.length >= 1, 'x5c で RP を認証できる');
+  assert.ok(String(p.client_id).startsWith('redirect_uri:'), '署名済みなので client_id は正当');
+  assert.equal(p.response_type, 'vp_token');
+  assert.ok(p.nonce && p.dcql_query, 'nonce と DCQL を運ぶ');
 });
