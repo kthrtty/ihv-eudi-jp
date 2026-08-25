@@ -128,6 +128,53 @@ npm run dev:admin     # wrangler dev --config wrangler.admin.toml
 (`*.<subdomain>.workers.dev`) で DC API 実機テストを行う際は、証明書を本番 SAN で
 再生成し `trust/trust-list.json` を更新する（`scripts/gen-trust.mjs` 参照）。
 
+## TLS: `*.workers.dev` は最低バージョンを設定できない（2026-08-26 実測）
+
+conformance suite の `DisallowTLS10` / `DisallowTLS11` が FAILURE になる。
+**我々の実装の非準拠ではなく、ホスティング環境の性質**なので直せない。
+
+`*.workers.dev` は **Cloudflare が所有するゾーン**配下にあり、アカウントのゾーン設定
+（SSL/TLS → Edge Certificates → Minimum TLS Version）が届かない。Cloudflare API で
+`GET /zones` を引くと自分のゾーンしか出ず、`?name=workers.dev` は 0 件になる。
+公式ドキュメントは Pages と R2 カスタムドメインを対象外と明記するが workers.dev には言及がない。
+
+同一アカウントの独自ゾーンと並べて実測した結果（同じ openssl・同じコマンド）:
+
+| ホスト | TLS 1.0 | TLS 1.1 | TLS 1.2 |
+|---|---|---|---|
+| 自分のゾーン（Minimum TLS 1.2 設定済み） | 拒否 `alert 70` | 拒否 `alert 70` | 接続 |
+| `*.workers.dev` | **接続成立** | **接続成立** | 接続 |
+
+`RequireOnlyBCP195RecommendedCiphersForTLS12` の WARNING も同じ理由（暗号スイートの
+選択もゾーン設定側にある）。解消するには**独自ドメインを Worker に当てる**しかないが、
+[ゾーンの Minimum TLS を Workers Custom Domain が無視するという報告](https://community.cloudflare.com/t/workers-custom-domain-ignores-zone-minimum-tls-1-3-while-www-enforces-it/945380)
+があるので、当てた後に必ず下の方法で実測して確かめること。
+
+### 古い TLS の可否を手元で測る
+
+**openssl 3.x の `no protocols available` はサーバーの応答ではない**。クライアント側の
+既定設定（`MinProtocol`）で無効化されているだけなので、これを「拒否された」と読むと誤る。
+設定を上書きすればハンドシェイクを試せる:
+
+```sh
+cat > /tmp/legacy.cnf <<'EOF'
+openssl_conf = default_conf
+[default_conf]
+ssl_conf = ssl_sect
+[ssl_sect]
+system_default = system_default_sect
+[system_default_sect]
+MinProtocol = TLSv1
+MaxProtocol = TLSv1.3
+CipherString = ALL:@SECLEVEL=0
+EOF
+OPENSSL_CONF=/tmp/legacy.cnf openssl s_client -connect <host>:443 -servername <host> \
+  -tls1 -cipher 'ALL:@SECLEVEL=0' </dev/null 2>&1 | grep -E 'Protocol *:|alert'
+```
+
+`Protocol : TLSv1` が出れば**受け入れられている**、`alert protocol version` (alert 70) なら
+サーバーが拒否している。macOS の curl は LibreSSL なので `--tls-max` が効かないことがある。
+
 ## 技術メモ
 
 - `node:fs` は Workers 非対応。本実装は `await import('node:fs')` で遅延読込し、
