@@ -370,10 +370,17 @@ for (const schema of Object.values(creds)) {
     ...HAIP,
     credential_signing_alg_values_supported: ['ES256'],          // JWS: JWA の文字列
     credential_metadata: { display: displayFor(schema, 'SD-JWT VC') },
+    // **`sd` は出さない**（2026-08-26・OpenID conformance suite が検出）。
+    // OID4VCI 1.0 Final Appendix B の claims description object は
+    // **path / mandatory / display の3つだけ**（スキーマは additionalProperties:false）。
+    // `sd` は SD-JWT VC の **Type Metadata** の語彙で、発行者メタデータの語彙ではない。
+    // しかも**誰も読んでいなかった**——選択的開示の可否は schemas/*.json の
+    // `selective_disclosure` が正本で、これは重複だった。
+    // 巻き添えが大きく、unevaluatedProperties:false の下でこの1個が分岐を失敗させ、
+    // 同じ分岐が定義するはずの vct と claims まで「未知」に見えていた。
     claims: schema.claims.map((cl) => ({
       path: cl.sdjwt.path,
       mandatory: !cl.optional,
-      sd: cl.selective_disclosure ? 'allowed' : 'never',
       display: [{ name: cl.display.ja, locale: 'ja-JP' }, { name: cl.display.en, locale: 'en-US' }],
     })),
   };
