@@ -16,20 +16,25 @@
 const KEY = 'vcfg:features';
 
 /**
- * **isolate 内キャッシュの寿命**（秒）。
+ * **isolate 内キャッシュ**（store → { at, value }）。
  *
- * 毎アクセス KV を読むと、無認証で叩ける `/token` や `/.well-known/*` が
- * そのまま KV read になる（無料枠 10万/日）。一方で `_pki:config` のように
- * **起動時1回だけ**にすると、KV を書き換えても isolate が入れ替わるまで
- * （数分〜）反映されない——**デモの最中に切り替えて対比を見せる**という
- * この機能の目的に合わない。
+ * **プッシュ型の伝播は存在しない**——Workers の isolate は一覧も取れず、外から
+ * 触る API も無い（いつ生まれていつ消えるかも制御できない）。したがって
+ * 「設定を変えたら全 isolate に通知する」は原理的に不可能で、**各 isolate が
+ * 自分で読み直す（プル）しかない**。画面の「リロード」ボタンも、押した要求を
+ * 処理した isolate にしか効かない。
  *
- * 設定の変更頻度は桁違いに低いので **TTL 付きキャッシュ**が噛み合う。
- * 30 秒なら 1 isolate あたり 1 日 2,880 read で、切り替えも「試す前に反映される」。
- * **同じ isolate で保存したときは即座に捨てる**ので、設定画面→確認の往復は待たない。
+ * 寿命は **`cache_ttl_sec` で設定できる**（下の FEATURES）。
+ * **既定は 0＝毎回読む**——`statusBits` / 発行台帳が「毎アクセス KV 再読込」に
+ * しているのと揃える（once ガードにすると isolate A の失効が isolate B に永遠に
+ * 反映されない、という実害を過去に踏んでいる）。
+ * デモの規模では read は無料枠に対して十分小さく、**一貫性を取るほうが得**。
+ *
+ * **KV キーの TTL ではない**——`vcfg:features` は無期限で保存する
+ * （設定に TTL を付けると、更新が途切れただけで消える）。ここで決めるのは
+ * **アプリ側がその値を何秒使い回すか**だけ。
  */
-const CACHE_TTL_MS = 30_000;
-const cache = new WeakMap();   // store → { at, value }
+const cache = new WeakMap();
 
 /**
  * フラグの定義。**グループを持つ**——どれが HAIP 準拠に関わるかが一目で分かるように
@@ -58,12 +63,38 @@ export const FEATURES = {
       + 'キャッシュするので、変えたらアプリの再起動が要る。'
       + '`none` を含めると Multipaz は必ず無認証を選ぶので「両方対応」は成立しない。',
   },
+
+  cache_ttl_sec: {
+    group: '運用',
+    label: '設定のキャッシュ時間',
+    spec: 'アプリ側のキャッシュ寿命（KV キーの TTL ではない）',
+    type: 'number',
+    min: 0,
+    max: 300,
+    unit: '秒',
+    default: 0,
+    affects: [
+      'この設定自体が各インスタンスへ行き渡るまでの時間',
+      'KV 読み取り回数',
+    ],
+    note: '**0 なら毎回 KV を読む**（常に一貫。statusBits と同じ方針）。'
+      + '1 以上にすると読み取りは減るが、**その秒数のあいだインスタンスごとに'
+      + '値が食い違う**——「広告は none なのに別のインスタンスが検証する」状態が'
+      + '起きうる。プッシュ型の伝播は Workers に存在しないので、'
+      + '短くする以外に揃える手段は無い。',
+  },
 };
 
 const clamp = (name, v) => {
   const f = FEATURES[name];
   if (!f) return null;
   if (f.type === 'enum') return f.values.includes(v) ? v : f.default;
+  if (f.type === 'number') {
+    // **値域はここで丸める**（画面で隠すのは防御ではない）。`Number(null)===0` に注意
+    const n = Number(v);
+    if (v == null || !Number.isFinite(n)) return f.default;
+    return Math.min(f.max, Math.max(f.min, Math.round(n)));
+  }
   return typeof v === 'boolean' ? v : f.default;
 };
 
@@ -75,7 +106,11 @@ const clamp = (name, v) => {
 export async function readFeatures(store, { force = false, now = Date.now() } = {}) {
   if (store && !force) {
     const c = cache.get(store);
-    if (c && now - c.at < CACHE_TTL_MS) return c.value;
+    // **寿命は前回読んだ値から取る**（鶏と卵に見えるが循環しない——初回は
+    // キャッシュが無いので必ず読み、そこで得た値が次回以降の寿命を決める。
+    // 設定を変えたら次の読み込みから新しい寿命が効く）
+    const ttlMs = (c?.value?.cache_ttl_sec ?? 0) * 1000;
+    if (c && ttlMs > 0 && now - c.at < ttlMs) return c.value;
   }
   let saved = null;
   try { saved = await store?.get(KEY); } catch { /* 読めなければ既定で動く */ }

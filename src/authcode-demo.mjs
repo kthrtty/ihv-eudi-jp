@@ -1566,19 +1566,34 @@ export function authorizeUrl({ issuer, redirectUri, challenge, state, scope, iss
  * 各項目には「これを変えると何が変わるか」（広告と動作の両方）を併記する。
  */
 export function renderFeatureSettings(FEATURES, current, saved = false) {
+  // 説明文は **強調** と `コード` を使って書いてあるので、表示時に変換する。
+  // **必ず esc してから変換する**——先に変換すると、内容の `<` を通してしまう。
+  // 対象は FEATURES に書いた定数だけで、利用者の入力は通らない
+  // （出力側で文脈ごとに処理する、という src/html.mjs の方針に沿う）。
+  const rich = (t) => esc(String(t ?? ''))
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>');
   const groups = {};
   for (const [name, f] of Object.entries(FEATURES)) (groups[f.group] ??= []).push([name, f]);
+  // 型ごとに入力を出し分ける。**数値は値域を画面にも書く**（サーバ側でも丸める）
+  const input = (name, f) => (f.type === 'number'
+    ? `<label style="display:flex;align-items:center;gap:10px">
+         <input type="number" name="${esc(name)}" value="${esc(String(current[name]))}"
+           min="${f.min}" max="${f.max}" step="1" style="width:110px">
+         <span>${esc(f.unit ?? '')}（${f.min}〜${f.max}。<b>${f.default}＝毎回読む</b>）</span>
+       </label>`
+    : f.values.map((v) => `
+        <label><input type="radio" name="${esc(name)}" value="${esc(v)}"${current[name] === v ? ' checked' : ''}>
+          ${esc(f.valueLabels?.[v] ?? v)}</label>`).join(''));
   const block = ([name, f]) => `
     <div class="fs" style="margin-top:14px">
       <div class="lg">${esc(f.label)} <span class="mono" style="font-weight:400;color:var(--muted)">${esc(name)}</span></div>
       <div class="hint" style="margin:4px 0 10px">${esc(f.spec)}</div>
-      ${f.values.map((v) => `
-        <label><input type="radio" name="${esc(name)}" value="${esc(v)}"${current[name] === v ? ' checked' : ''}>
-          ${esc(f.valueLabels?.[v] ?? v)}${v === f.default ? '' : ''}</label>`).join('')}
+      ${input(name, f)}
       <div class="hint" style="margin-top:10px">
         <b>連動して変わるもの</b><br>${f.affects.map((a) => `・${esc(a)}`).join('<br>')}
       </div>
-      ${f.note ? `<div class="hint" style="margin-top:8px">${esc(f.note)}</div>` : ''}
+      ${f.note ? `<div class="hint" style="margin-top:8px">${rich(f.note)}</div>` : ''}
     </div>`;
   return `
     <div class="card" style="max-width:640px;margin:28px auto">
@@ -1592,13 +1607,15 @@ export function renderFeatureSettings(FEATURES, current, saved = false) {
       ${saved ? '<div class="ok" style="margin-top:12px">保存しました</div>' : ''}
       <form method="POST" action="/settings">
         ${Object.entries(groups).map(([g, items]) => `
-          <h2 style="font-size:18px;margin:22px 0 4px">${esc(g)} 準拠に関わる項目</h2>
+          <h2 style="font-size:18px;margin:22px 0 4px">${g === 'HAIP' ? 'HAIP 準拠に関わる項目' : esc(g)}</h2>
           ${items.map(block).join('')}`).join('')}
         <button class="btn" type="submit" style="margin-top:18px">保存する</button>
       </form>
       <p class="hint" style="margin-top:14px">現在値は開発者コンソールの
         <b>エンドポイント</b>タブにも出ます。<br>
-        設定は KV に置き、各インスタンスは <b>30 秒</b>までキャッシュします
-        （保存したインスタンスは即座に反映）。実機で試す前に行き渡ります。</p>
+        設定は KV に置きます。<b>キャッシュ時間が 0 なら毎回読む</b>ので全インスタンスで
+        常に一致します。1 以上にすると読み取りは減りますが、その秒数のあいだ
+        インスタンスごとに値が食い違います——<b>Workers には全インスタンスへ通知する
+        手段が無い</b>ため、揃える方法は「短くする」しかありません。</p>
     </div>`;
 }

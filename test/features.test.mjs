@@ -115,40 +115,69 @@ test('現在値が /dev/endpoints と設定画面に出る（未設定＝permiss
   assert.match(html, /token_endpoint_auth_methods_supported/, '連動先が読める');
 });
 
-// **KV read の回数を数える**。無認証で叩ける /token や /.well-known/* が
-// そのまま KV read になると無料枠（10万/日）を食う。宣言ではなく回数を測る。
-test('TTL 内は KV を読み直さない（読み取り回数を実測）', async () => {
-  const { readFeatures, invalidateFeatures, setFeature } = await import('../src/features.mjs');
+// **KV read の回数を数える**。宣言ではなく回数を測る。
+// 既定は 0＝毎回読む（statusBits と同じ方針＝常に一貫）。1 以上にすると減るが
+// その秒数のあいだインスタンスごとに値が食い違う。
+test('既定（0）では毎回 KV を読む＝インスタンス間で常に一致する', async () => {
+  const { readFeatures } = await import('../src/features.mjs');
   let reads = 0;
   const inner = new Map();
-  const store = {
-    async get(k) { reads++; return inner.get(k) ?? null; },
-    async set(k, v) { inner.set(k, v); },
-    async del(k) { inner.delete(k); },
-  };
+  const store = { async get(k) { reads++; return inner.get(k) ?? null; },
+    async set(k, v) { inner.set(k, v); }, async del(k) { inner.delete(k); } };
   const t0 = 1_000_000;
-  await readFeatures(store, { now: t0 });
-  const first = reads;
-  assert.equal(first, 1, '初回は読む');
+  for (let i = 0; i < 5; i++) await readFeatures(store, { now: t0 + i });
+  assert.equal(reads, 5, '既定では毎回読む（キャッシュしない）');
+});
 
-  // TTL 内は読まない
+test('cache_ttl_sec を上げると読み取りが減り、下げると即座に戻る', async () => {
+  const { readFeatures, setFeature } = await import('../src/features.mjs');
+  let reads = 0;
+  const inner = new Map();
+  const store = { async get(k) { reads++; return inner.get(k) ?? null; },
+    async set(k, v) { inner.set(k, v); }, async del(k) { inner.delete(k); } };
+  const t0 = 1_000_000;
+
+  await setFeature(store, 'cache_ttl_sec', 30);
+  reads = 0;
+  await readFeatures(store, { now: t0 });          // 1回読んで寿命(30s)を知る
+  const first = reads;
   for (let i = 0; i < 20; i++) await readFeatures(store, { now: t0 + i * 100 });
   assert.equal(reads, first, `TTL 内で ${reads - first} 回よけいに読んでいる`);
 
-  // TTL を過ぎたら読み直す
   await readFeatures(store, { now: t0 + 31_000 });
   assert.equal(reads, first + 1, 'TTL 経過後は1回だけ読む');
 
-  // **保存したら即座に反映**（同じ isolate で待たせない）
+  // **0 に戻すと即座に毎回読むへ**（保存でキャッシュを捨てるため）
+  await setFeature(store, 'cache_ttl_sec', 0);
   const before = reads;
-  await setFeature(store, 'client_auth', 'private_key_jwt');
-  const after = await readFeatures(store, { now: t0 + 31_100 });
-  assert.equal(after.client_auth, 'private_key_jwt', '保存直後にキャッシュが捨てられる');
-  assert.ok(reads > before, '捨てたので読み直している');
+  for (let i = 0; i < 3; i++) await readFeatures(store, { now: t0 + 40_000 + i });
+  assert.ok(reads >= before + 3, '0 に戻したら毎回読む');
+});
 
-  // force で明示的に読み直せる
-  const r2 = reads;
-  await readFeatures(store, { force: true, now: t0 + 31_200 });
-  assert.equal(reads, r2 + 1);
-  invalidateFeatures(store);
+test('値域外はサーバ側で丸める（数値・列挙とも）', async () => {
+  const { FEATURES, readFeatures, setFeature } = await import('../src/features.mjs');
+  const inner = new Map();
+  const store = { async get(k) { return inner.get(k) ?? null; },
+    async set(k, v) { inner.set(k, v); }, async del(k) { inner.delete(k); } };
+  await setFeature(store, 'cache_ttl_sec', 99999);
+  assert.equal((await readFeatures(store)).cache_ttl_sec, FEATURES.cache_ttl_sec.max, '上限で丸める');
+  await setFeature(store, 'cache_ttl_sec', -5);
+  assert.equal((await readFeatures(store)).cache_ttl_sec, FEATURES.cache_ttl_sec.min, '下限で丸める');
+  await setFeature(store, 'cache_ttl_sec', 'abc');
+  assert.equal((await readFeatures(store)).cache_ttl_sec, FEATURES.cache_ttl_sec.default, '数値でなければ既定');
+  await setFeature(store, 'client_auth', 'no-such-method');
+  assert.equal((await readFeatures(store)).client_auth, FEATURES.client_auth.default);
+});
+
+// 説明文は ** と ` を使って書いてある。**エスケープしてから変換する**——
+// 先に変換すると内容の `<` を通してしまう（src/html.mjs の方針）。
+test('設定画面の説明文が記法のまま出ない', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+  const cookie = await login(app);
+  const html = await (await app.request(`${ISSUER}/settings`, { headers: { cookie } })).text();
+  const body = html.slice(html.indexOf('フィーチャーフラグ'));
+  assert.ok(!/\*\*/.test(body), '** が生のまま出ている');
+  assert.ok(!/`[^`]+`/.test(body.replace(/<code>[^<]*<\/code>/g, '')), 'バッククォートが生のまま出ている');
+  assert.match(body, /<b>0 なら毎回 KV を読む<\/b>/, '強調が <b> になっている');
+  assert.match(body, /<code>none<\/code>/, 'コードが <code> になっている');
 });
