@@ -32,7 +32,8 @@
     "deploy:pki": "node scripts/gen-worker-pki.mjs > /tmp/pki.json && node scripts/kv-versioned.mjs put _pki:config /tmp/pki.json",
     "interop:multipaz": "bash interop/multipaz-jvm/run.sh",
     "gen-trustlists": "node scripts/gen-vical.mjs && node scripts/gen-lote.mjs && node scripts/gen-trust-bundle.mjs",
-    "kv": "node scripts/kv-versioned.mjs"
+    "kv": "node scripts/kv-versioned.mjs",
+    "clients": "node scripts/clients.mjs"
   },
   "description": "eIDAS2/ARF IHV demo (OID4VCI/OID4VP/HAIP, mdoc+SD-JWT, DC API)",
   "engines": {

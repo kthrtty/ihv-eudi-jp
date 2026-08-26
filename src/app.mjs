@@ -127,7 +127,11 @@ export function createApp(opts = {}) {
       { method: 'GET', path: '/.well-known/oauth-authorization-server', grp: 'メタデータ', desc: 'AS Metadata（RFC 8414）', value: svc.asMetadata(base) },
       { method: 'GET', path: '/jwks', grp: 'メタデータ', desc: '署名鍵の JWK Set（trust は x5c）', value: jwksVal },
       { method: 'POST', path: '/par', grp: 'OAuth', desc: 'Pushed Authorization Request（RFC 9126）' },
-      { method: 'GET', path: '/authorize', grp: 'OAuth', desc: '認可 EP（PKCE / 同意）' },
+      // **登録表は壊れていても画面は正常に見える**（POST で初めて invalid_client になる）。
+      // 実際 --var に JSON を渡して壊れたとき、本番の発行が止まるまで気づけなかった。
+      // 件数だけ出す（値は出さない）——0 件＝検証していない、が読めることが要点
+      { method: 'GET', path: '/authorize', grp: 'OAuth', desc: '認可 EP（PKCE / 同意）',
+        sub: await svc.clientRegistrySummary() },
       { method: 'POST', path: '/token', grp: 'OID4VCI', desc: 'Token EP — access_token 発行' },
       { method: 'POST', path: '/nonce', grp: 'OID4VCI', desc: 'Nonce EP — c_nonce 発行' },
       { method: 'POST', path: '/credential', grp: 'OID4VCI', desc: 'Credential EP — VC 発行' },
@@ -540,6 +544,13 @@ export function createApp(opts = {}) {
         sessionId, response_type: f.response_type, redirect_uri: f.redirect_uri,
         code_challenge: f.code_challenge, code_challenge_method: f.code_challenge_method,
         scope: f.scope || undefined, issuer_state: f.issuer_state || undefined, state: f.state,
+        // **client_id はここを通さないと届かない**（2026-08-26・本番で2度落ちた）。
+        // #38 で authorize() に client_id 検証を足したとき、この経路の受け渡しを
+        // 足し忘れていた。登録表は正しく、フォームの hidden も正しく、それでも
+        // undefined が渡って全クライアントが invalid_client になる。
+        // **単体テストは svc.authorize() を直接呼ぶので永久に気づけない**——
+        // 回帰は HTTP の同意 POST を通す（test/oid4vci.test.mjs）
+        client_id: f.client_id || undefined,
         applications: Object.keys(applications).length ? applications : null,
       });
       return c.redirect(redirect, 302);

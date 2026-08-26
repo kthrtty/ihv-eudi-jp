@@ -10,6 +10,13 @@ WALLET_ORIGIN      = "https://web-wallet.example.test"
 # Open-redirector guard: authorization redirect_uri allowlist (space/comma-separated).
 # Placeholder only; real origins are injected by `npm run deploy` (scripts/deploy.mjs).
 REDIRECT_URI_ALLOWLIST = "https://issuer.example.test/demo/cb https://web-wallet.example.test/oidc/cb"
+# クライアント登録表（issue #38）。上とは目的が違う——あちらは危険な宛先を弾き、
+# こちらは登録された client_id と redirect_uri の組かをクエリまで厳密に見る。
+# こちらもプレースホルダで、実オリジンは `npm run deploy` が注入する。
+# 形は `<client_id>=<uri>[,<uri>]` の空白区切り。**JSON にしない**——`--var` に JSON を
+# 渡すと値が壊れて本番の発行が止まった（2026-08-26）。外部クライアントは KV の
+# `_clients:config` に足す（`npm run clients` 参照）。2つは合成せず順に問い合わせる。
+CLIENT_REGISTRY = "ihv-web-wallet=https://web-wallet.example.test/oidc/cb ihv-wallet=https://issuer.example.test/demo/cb"
 
 # Secrets (set once with `wrangler secret put`):
 #   ISSUER_PKI_JSON  — node scripts/gen-worker-pki.mjs | wrangler secret put ISSUER_PKI_JSON

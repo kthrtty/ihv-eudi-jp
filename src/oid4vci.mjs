@@ -79,8 +79,15 @@ export function isRedirectAllowed(redirectUri, allowlist) {
 /**
  * クライアント登録表を解釈する（issue #38）。
  *
- * 形は `{"<client_id>": {"redirect_uris": ["https://…/cb", …]}, …}` の JSON、
- * または同じ形のオブジェクト。環境変数から渡せるよう文字列も受ける。
+ * **2つの形を受ける**（2026-08-26）:
+ * 1. JSON `{"<client_id>": {"redirect_uris": ["https://…/cb", …]}, …}`（KV 用）
+ * 2. **平文** `<client_id>=<uri>[,<uri>] <client_id>=<uri> …`（環境変数用）
+ *
+ * 平文を足したのは、**`wrangler deploy --var` に JSON を渡すと壊れたから**。
+ * 登録済みのクライアントまで `invalid_client` で弾かれ、本番の発行が止まった
+ * （値に `:` `{}` `"` が混ざる経路）。`REDIRECT_URI_ALLOWLIST` は空白区切りの
+ * 平文で同じ経路を無事に通っているので、そちらに形を揃える。
+ * KV は値をそのまま保存できるので JSON のままでよい。
  *
  * **`isRedirectAllowed` とは目的が違う**。あちらは「危険な宛先へ飛ばさない」
  * （オープンリダイレクタ対策・#34）で、オリジンとパス前方一致だけを見てクエリは無視する。
@@ -94,7 +101,20 @@ export function parseClients(spec) {
   if (typeof spec === 'string') {
     const t = spec.trim();
     if (!t) return null;
-    try { obj = JSON.parse(t); } catch { return null; }
+    if (t.startsWith('{')) {
+      try { obj = JSON.parse(t); } catch { return null; }
+    } else {
+      // 平文形式。空白/改行区切りの `id=uri[,uri]`。同じ id が複数回出たら足す
+      const out = new Map();
+      for (const tok of t.split(/[\s]+/).filter(Boolean)) {
+        const i = tok.indexOf('=');
+        if (i <= 0) continue;                     // `=` が無い/先頭 は捨てる
+        const id = tok.slice(0, i);
+        const uris = tok.slice(i + 1).split(',').map((s) => s.trim()).filter(Boolean);
+        out.set(id, [...(out.get(id) ?? []), ...uris]);
+      }
+      return out.size ? out : null;
+    }
   }
   if (!obj || typeof obj !== 'object') return null;
   const out = new Map();
@@ -115,6 +135,28 @@ export function isRegisteredClient(clientId, redirectUri, clients) {
   const uris = clients.get(String(clientId ?? ''));
   if (!uris) return false;                       // 未登録の client_id
   return uris.includes(String(redirectUri ?? ''));  // クエリまで含めた厳密一致
+}
+
+/**
+ * 登録表は**複数あってよい**（2026-08-26）。出どころで性質が違うため:
+ * - **ファイル**（`wrangler.toml` / `--var`）… 自分たちのクライアント。オリジンから
+ *   機械的に決まるので、デプロイのたびに必ず正しく揃っているべき
+ * - **KV**（`_clients:config`）… 実機・外部クライアント。値がこちらの都合で決まらず
+ *   運用中に増えるので、再デプロイなしで足せる必要がある
+ *
+ * **合成（マージ）しない。順に問い合わせる。** Map をマージすると「同じ id が
+ * 両方にあったらどちらが勝つか」という規則が要り、KV 側が勝つ設計だと
+ * 「staging を足したつもりが本番のウォレットが死ぬ」事故が起きる
+ * （合成後の表からファイル側の redirect_uri が消えるため）。
+ * いずれかで通ればよいだけなので、順に訊けば済む。
+ *
+ * `isRegisteredClient` は触らない——「登録表が null なら true」という単体の意味を
+ * そのまま保ち、null の判定はここで1回だけ行う。
+ */
+export function isRegisteredClientAny(clientId, redirectUri, registries) {
+  const active = (registries ?? []).filter(Boolean);
+  if (!active.length) return true;   // どれも未設定＝検証しない（redirectAllowlist と同じ方針）
+  return active.some((r) => isRegisteredClient(clientId, redirectUri, r));
 }
 
 /** Minimal TTL key-value store (in-memory). Workers: back with KV/D1. */
@@ -160,6 +202,7 @@ export class IssuerService {
   // null lets StatusListService lazy-load from disk in Node.js dev.
   constructor({ store = memoryStore(), credentialIssuer = 'https://issuer.ihv.example', proofMaxAgeSec = 300,
     userStore = createUserStore(), statusPki = null, redirectAllowlist = [], clients = null,
+    clientsKvKey = '_clients:config',
     maxAppsPerDay = MAX_APPS_PER_DAY } = {}) {
     this.store = store;
     this.credentialIssuer = credentialIssuer;
@@ -171,7 +214,14 @@ export class IssuerService {
     this.redirectAllowlist = parseRedirectAllowlist(redirectAllowlist);
     // クライアント登録表（issue #38）。**未設定なら client_id を検証しない**
     // ——既存の redirectAllowlist と同じ「未設定＝permissive」の方針に揃える。
+    // ファイル側（環境変数・自分たちのクライアント）。KV 側は #clientsKv に遅延読込。
     this.clients = parseClients(clients);
+    // KV に置く追加の登録表（実機・外部クライアント）。**合成せず順に問い合わせる**
+    // （isRegisteredClientAny 参照）。isolate 起動後に1回だけ読む——変更頻度が桁違いに
+    // 低いので毎リクエスト読むと無認証の /authorize が KV 読み込みを誘発するだけ。
+    // 代わりに **KV に足しても古い isolate には反映されない**（数分で入れ替わる）。
+    this.clientsKvKey = clientsKvKey;
+    this._clientsKv = undefined;
     this.statusList = new StatusListService({
       uri: `${credentialIssuer}/status-lists/1`,
       issuerKeyPem: statusPki?.key ?? null,
@@ -460,7 +510,7 @@ export class IssuerService {
     // **登録済みクライアントかを確かめる**（issue #38）。上の isRedirectAllowed とは
     // 関心事が違う——あちらは危険な宛先を弾く、こちらは登録された組合せかを見る。
     // 未登録の client_id / 登録と違う redirect_uri は `invalid_client`（RFC 6749 §5.2）。
-    if (!isRegisteredClient(client_id, redirect_uri, this.clients)) {
+    if (!isRegisteredClientAny(client_id, redirect_uri, await this.#registries())) {
       throw httpErr(400, 'invalid_client', 'unknown client_id or redirect_uri not registered for it');
     }
     const ids = await this.requestedIds({ scope, authorization_details, issuer_state });
@@ -496,6 +546,40 @@ export class IssuerService {
       if (st) ids = st.ids;
     }
     return ids;
+  }
+
+  /**
+   * 有効な登録表を並べて返す（issue #38）。**合成しない**——
+   * 詳細は `isRegisteredClientAny` の説明。KV 側は isolate 起動後に1回だけ読み、
+   * 以降は覚えておく（`undefined`＝未読／`null`＝読んだが無い）。
+   * **読めなかったときは「無い」として扱い、ファイル側だけで判定する**——
+   * KV の一時障害で発行が丸ごと止まるより、静的な登録表で動くほうが安全。
+   */
+  async #registries() {
+    if (this._clientsKv === undefined) {
+      try { this._clientsKv = parseClients(await this.store.get(this.clientsKvKey)); }
+      catch { this._clientsKv = null; }
+    }
+    return [this._clientsKv, this.clients].filter(Boolean);
+  }
+
+  /**
+   * 登録表の状態を1行で（`/dev/endpoints` 用）。**値は出さず件数だけ**。
+   * 0 件＝「client_id を検証していない」状態で、**そこが読めることが要点**——
+   * 登録表が壊れても画面は正常に見え、コードを出す POST で初めて落ちるため。
+   */
+  async clientRegistrySummary() {
+    await this.#registries();  // KV 側を読ませる（未読なら1回だけ）
+    const n = (m) => (m ? m.size : 0);
+    const total = n(this._clientsKv) + n(this.clients);
+    if (!total) return 'client_id 検証: なし（登録表 0 件＝未設定）';
+    // **登録されている値も出す**（client_id も redirect_uri も公開情報）。
+    // 件数だけだと「2 件ある」のに引けない、という壊れ方を切り分けられない——
+    // 実際それで本番の発行が2度止まった（2026-08-26）
+    const dump = (m, label) => (m ? [...m.entries()]
+      .map(([k, v]) => `${label}:${k}→${v.join('|')}`) : []);
+    const rows = [...dump(this.clients, 'file'), ...dump(this._clientsKv, 'kv')];
+    return `client_id 検証: 有効（ファイル ${n(this.clients)} 件 / KV ${n(this._clientsKv)} 件）  ${rows.join('  ')}`;
   }
 
   /**
@@ -680,7 +764,7 @@ export class IssuerService {
       // authorize にだけ渡して token には渡さない既存の呼び出し（テスト・デモ動線）が
       // 全部 invalid_grant で落ちる。既存の redirectAllowlist と同じ
       // 「未設定＝検証しない」方針に揃える。
-      if (this.clients && rec.client_id != null
+      if ((await this.#registries()).length && rec.client_id != null
           && String(params.client_id ?? '') !== String(rec.client_id)) {
         throw httpErr(400, 'invalid_grant', 'authorization code was issued to a different client');
       }

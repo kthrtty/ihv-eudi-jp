@@ -286,3 +286,112 @@ test('OID4VCI: 登録済みクライアントだけが認可でき、コード�
     client_id: 'client-a', code_verifier: 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk' });
   assert.ok(t.access_token);
 });
+
+// issue #38 の本番有効化（2026-08-26）。**値ではなく規則を pin する**——
+// オリジンは環境で変わり、登録表は運用で増えるため。
+test('#38 ファイル側は平文形式で読める（--var に JSON を渡すと壊れた）', async () => {
+  const { parseClients } = await import('../src/oid4vci.mjs');
+  const ISS = 'https://issuer.example', WAL = 'https://wallet.example';
+  // deploy.mjs が組み立てるのと同じ形
+  const r = parseClients(`ihv-web-wallet=${WAL}/oidc/cb ihv-wallet=${ISS}/demo/cb`);
+  assert.deepEqual(r.get('ihv-web-wallet'), [`${WAL}/oidc/cb`]);
+  assert.deepEqual(r.get('ihv-wallet'), [`${ISS}/demo/cb`]);
+  // 1つの client_id に複数の redirect_uri（実機は dev/prod の2つを持つ）
+  const multi = parseClients(`multipaz=${WAL}/a,${WAL}/b`);
+  assert.deepEqual(multi.get('multipaz'), [`${WAL}/a`, `${WAL}/b`]);
+  // JSON も引き続き読める（KV 側はこちら）
+  const j = parseClients(JSON.stringify({ multipaz: { redirect_uris: [`${WAL}/r`] } }));
+  assert.deepEqual(j.get('multipaz'), [`${WAL}/r`]);
+  // 壊れた入力は null（＝検証しない）。**素通しになるので、壊れたら気づけるよう
+  // /dev/endpoints に件数を出してある**
+  assert.equal(parseClients('   '), null);
+  assert.equal(parseClients('=nokey'), null);
+});
+
+test('#38 登録表は合成せず順に問い合わせる（ファイル側の登録が KV に消されない）', async () => {
+  const { parseClients, isRegisteredClientAny } = await import('../src/oid4vci.mjs');
+  const WAL = 'https://wallet.example';
+  const file = parseClients(`ihv-web-wallet=${WAL}/oidc/cb`);
+  // **同じ client_id を KV 側にも別 URI で置く**——マージ方式ならファイル側の
+  // URI が消えて本番のウォレットが死ぬ。順に問い合わせるので両方生きる
+  const kv = parseClients(JSON.stringify({
+    'ihv-web-wallet': { redirect_uris: ['https://staging.example/oidc/cb'] },
+    multipaz: { redirect_uris: ['https://wallet.multipaz.org/redirect'] },
+  }));
+  const regs = [kv, file];
+  assert.ok(isRegisteredClientAny('ihv-web-wallet', `${WAL}/oidc/cb`, regs), 'ファイル側が生きている');
+  assert.ok(isRegisteredClientAny('ihv-web-wallet', 'https://staging.example/oidc/cb', regs), 'KV 側も生きている');
+  assert.ok(isRegisteredClientAny('multipaz', 'https://wallet.multipaz.org/redirect', regs), 'KV だけの登録');
+  assert.ok(!isRegisteredClientAny('unknown', `${WAL}/oidc/cb`, regs), '未登録は弾く');
+  assert.ok(!isRegisteredClientAny('multipaz', `${WAL}/oidc/cb`, regs), '登録済み id でも別の URI は弾く');
+  // **どれも未設定なら検証しない**（redirectAllowlist と同じ方針）
+  assert.ok(isRegisteredClientAny('anything', 'https://anywhere.example/cb', [null, null]));
+  assert.ok(isRegisteredClientAny('anything', 'https://anywhere.example/cb', []));
+});
+
+test('#38 KV とファイルの両方が発行ゲートとして効く（E2E）', async () => {
+  const { createApp } = await import('../src/app.mjs');
+  const { memoryStore } = await import('../src/oid4vci.mjs');
+  const ISS = 'https://issuer.example', WAL = 'https://wallet.example';
+  const store = memoryStore();
+  await store.set('_clients:config', JSON.stringify({
+    multipaz: { redirect_uris: ['https://wallet.multipaz.org/redirect'] },
+  }), null);
+  const app = createApp({ credentialIssuer: ISS, store,
+    clients: `ihv-web-wallet=${WAL}/oidc/cb`,
+    // 登録表と redirect 許可リストは**別の関心事**。両方通らないとコードは出ない
+    redirectAllowlist: `${WAL}/oidc/cb https://wallet.multipaz.org/redirect`,
+  });
+  const { session_id } = await (await app.request('/login', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ user_id: 'u_001' }),
+  })).json();
+  const code = async (client_id, redirect_uri) => {
+    try {
+      await app.svc.authorize({ sessionId: session_id, response_type: 'code',
+        redirect_uri, client_id, code_challenge: 'a'.repeat(43),
+        code_challenge_method: 'S256', scope: 'pid_mdoc' });
+      return 'ok';
+    } catch (e) { return e.oauthError ?? e.message; }
+  };
+  assert.equal(await code('ihv-web-wallet', `${WAL}/oidc/cb`), 'ok', 'ファイル側で通る');
+  assert.equal(await code('multipaz', 'https://wallet.multipaz.org/redirect'), 'ok', 'KV 側で通る');
+  assert.equal(await code('unknown', `${WAL}/oidc/cb`), 'invalid_client', '未登録は弾く');
+  // **登録済みでも別クライアントの redirect_uri は通さない**
+  assert.equal(await code('multipaz', `${WAL}/oidc/cb`), 'invalid_client');
+});
+
+// **HTTP の同意 POST を通す**（2026-08-26）。svc.authorize() を直接呼ぶテストでは
+// 「ハンドラが client_id を渡し忘れている」を永久に検出できない——実際それで
+// 本番の発行が2度止まった。登録表もフォームの hidden も正しいのに undefined が届く。
+test('#38 同意 POST が client_id を authorize へ渡す（本番で落ちた経路）', async () => {
+  const { createApp } = await import('../src/app.mjs');
+  const ISS = 'https://issuer.example', WAL = 'https://wallet.example';
+  const app = createApp({ credentialIssuer: ISS,
+    clients: `ihv-web-wallet=${WAL}/oidc/cb`,
+    redirectAllowlist: `${WAL}/oidc/cb`,
+  });
+  const { session_id } = await (await app.request('/login', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ user_id: 'u_001' }),
+  })).json();
+  const cookie = `sid=${session_id}`;
+  const q = new URLSearchParams({ response_type: 'code', client_id: 'ihv-web-wallet',
+    redirect_uri: `${WAL}/oidc/cb`, code_challenge: 'a'.repeat(43),
+    code_challenge_method: 'S256', scope: 'pid_mdoc' });
+  const html = await (await app.request(`/authorize?${q}`, { headers: { cookie } })).text();
+  // 画面が出す hidden をそのまま送り返す（ブラウザと同じ）
+  const form = new URLSearchParams();
+  for (const m of html.matchAll(/<input[^>]*type="hidden"[^>]*>/g)) {
+    const k = /name="([^"]+)"/.exec(m[0])?.[1];
+    const v = /value="([^"]*)"/.exec(m[0])?.[1] ?? '';
+    if (k) form.set(k, v);
+  }
+  assert.equal(form.get('client_id'), 'ihv-web-wallet', '画面が client_id を hidden で持つ');
+  const r = await app.request('/authorize/consent', {
+    method: 'POST', headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+    body: form,
+  });
+  assert.equal(r.status, 302, await r.text());
+  assert.match(r.headers.get('location') ?? '', /[?&]code=/, '認可コードが出る');
+});

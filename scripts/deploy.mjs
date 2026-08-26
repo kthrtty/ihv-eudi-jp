@@ -42,6 +42,22 @@ vars.REDIRECT_URI_ALLOWLIST = env.REDIRECT_URI_ALLOWLIST
 // from the real origins unless overridden in .deploy.env.
 vars.SSRF_ALLOWED_ORIGINS = env.SSRF_ALLOWED_ORIGINS
   || `${vars.ISSUER_URL} ${vars.VERIFIER_ORIGIN} ${vars.WALLET_ORIGIN}`;
+// クライアント登録表（issue #38）。**REDIRECT_URI_ALLOWLIST とは目的が違う**——
+// あちらは「危険な宛先へ飛ばさない」（オリジン＋パス前方一致）、こちらは
+// 「登録された client_id と redirect_uri の組か」（クエリまで厳密一致）。
+// 我々のクライアントは2つだけなので実オリジンから導出する。
+//   ihv-web-wallet … Web ウォレット（別オリジン）
+//   ihv-wallet     … 発行ポータル内のデモ用ウォレット画面
+// **未設定なら検証しない**（redirectAllowlist と同じ「未設定＝permissive」）。
+// 外部クライアント（conformance suite など）を通すときは .deploy.env で上書きする。
+// **平文で渡す**（`id=uri[,uri]` の空白区切り）。JSON を `--var` に渡したら値が壊れ、
+// 登録済みのクライアントまで invalid_client で弾かれて本番の発行が止まった
+// （2026-08-26）。REDIRECT_URI_ALLOWLIST は同じ経路を平文で無事に通っている。
+// 外部クライアント（実機・conformance）は **KV の `_clients:config`** に足す
+// ——値がこちらの都合で決まらず運用中に増えるので、再デプロイなしで足せる必要がある。
+// 2つの表は**合成せず順に問い合わせる**（isRegisteredClientAny）。
+vars.CLIENT_REGISTRY = env.CLIENT_REGISTRY
+  || `ihv-web-wallet=${vars.WALLET_ORIGIN}/oidc/cb ihv-wallet=${vars.ISSUER_URL}/demo/cb`;
 
 const varArgs = Object.entries(vars).flatMap(([k, v]) => ['--var', `${k}:${v}`]);
 const configs = [null, 'wrangler.verifier.toml', 'wrangler.wallet.toml', 'wrangler.admin.toml'];

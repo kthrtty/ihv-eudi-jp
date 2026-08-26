@@ -58,6 +58,9 @@ export default {
         // Open-redirector guard: only these redirect_uris receive an auth code.
         // Injected at deploy time (scripts/deploy.mjs) — repo carries placeholders.
         redirectAllowlist: env.REDIRECT_URI_ALLOWLIST || '',
+        // 登録済みクライアントか（issue #38）。deploy.mjs が実オリジンから導出する。
+        // **未設定＝検証しない**ので、値が空のまま配ると従来どおり素通しになる
+        clients: env.CLIENT_REGISTRY || null,
         walletOrigin: env.WALLET_ORIGIN || 'https://web-wallet.example.test',
         // 添付画像の再エンコード（無ければ sanitize 済みのバイト列をそのまま保存する）
         images: env.IMAGES || null,
