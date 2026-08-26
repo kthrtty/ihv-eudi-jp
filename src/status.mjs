@@ -37,12 +37,33 @@ export const bitAt = (bytes, idx) => (bytes[idx >> 3] >> (idx & 7)) & 1;
 export const compressList = (bits) => b64url(deflateSync(Buffer.from(packBits(bits)), { level: 9 }));
 export const decompressList = (lst) => new Uint8Array(inflateSync(Buffer.from(lst, 'base64url')));
 
-/** Build a signed Status List Token (typ: statuslist+jwt). */
+/**
+ * Build a signed Status List Token (typ: statuslist+jwt).
+ *
+ * **鍵解決の手がかりを2つ載せる**（2026-08-26）。draft §11.3 は
+ * 「This specification does not mandate specific methods for key resolution and trust
+ * management, however the following recommendations are made」として **`x5c` を第一に**
+ * 挙げつつ `jwks` 等も認めており、**どれも REQUIRED ではない**。
+ *
+ * - `x5c` … **これが信頼の根拠**。ウォレットも我々の verifier もこちらを使い、
+ *   チェーンを「その資格証の信頼根」（mdoc=IACA / SD-JWT=SD-JWT CA）まで辿る。
+ * - `jwk` … **署名鍵の提示にすぎず、信頼の根拠ではない**。誰でも自分の鍵で署名して
+ *   これを載せられるので、`jwk` だけで検証する実装は「出所」を確かめていない。
+ *   載せるのは、鍵解決に x5c を実装していない検証器（conformance suite の
+ *   `VerifyStatusListTokenSignatureUsingEmbeddedJwk` など）でも署名を確認できるようにするため。
+ *
+ * **`x5c` を落として `jwk` に寄せてはいけない。** それをすると
+ * 「届いたトークンだけで検証が完結する」形になり、HAIP §6.1.1 が SD-JWT VC の x5c に
+ * トラストアンカーを入れることを禁じているのと同じ穴が開く。回帰=test/status.test.mjs
+ */
 export async function buildStatusListToken({ bits, issuerKeyPem, issuerCertDer, sub, iat = Math.floor(Date.now() / 1000) }) {
   const x5c = [Buffer.from(issuerCertDer).toString('base64')];
+  const key = await importPKCS8(typeof issuerKeyPem === 'string' ? issuerKeyPem : issuerKeyPem.toString('utf8'), 'ES256');
+  // 証明書の公開鍵＝署名鍵。JWS の `jwk` と `x5c` は同じ鍵を指していなければならない
+  const jwk = new X509Certificate(Buffer.from(issuerCertDer)).publicKey.export({ format: 'jwk' });
   return new SignJWT({ sub, iat, status_list: { bits: 1, lst: compressList(bits) } })
-    .setProtectedHeader({ alg: 'ES256', typ: 'statuslist+jwt', x5c })
-    .sign(await importPKCS8(typeof issuerKeyPem === 'string' ? issuerKeyPem : issuerKeyPem.toString('utf8'), 'ES256'));
+    .setProtectedHeader({ alg: 'ES256', typ: 'statuslist+jwt', x5c, jwk })
+    .sign(key);
 }
 
 /**

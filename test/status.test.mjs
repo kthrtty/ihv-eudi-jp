@@ -446,3 +446,25 @@ test('lst の zlib ヘッダが 78da（Multipaz が固定バイト比較して�
   assert.equal(((cmf << 8) | flg) % 31, 0, 'FCHECK が成立する');
   assert.equal(decompressList(lst).length * 8, 65536, '往復できる');
 });
+
+// draft §11.3 は鍵解決の方法を強制せず x5c を第一に推奨する。**両方載せる**——
+// x5c が信頼の根拠で、jwk は x5c を実装していない検証器のための署名鍵の提示。
+// **x5c を落として jwk に寄せない**こと（届いたトークンだけで検証が完結する形になる）。
+test('Status List Token は x5c と jwk の両方を載せ、同じ鍵を指す', async () => {
+  const { buildStatusListToken } = await import('../src/status.mjs');
+  const { X509Certificate } = await import('node:crypto');
+  const { readFileSync } = await import('node:fs');
+  const key = readFileSync(new URL('../pki/sdjwt/pid.key', import.meta.url));
+  const certDer = new X509Certificate(readFileSync(new URL('../pki/sdjwt/pid.crt', import.meta.url))).raw;
+  const jwt = await buildStatusListToken({ bits: new Uint8Array(64), issuerKeyPem: key,
+    issuerCertDer: certDer, sub: 'https://issuer.example/status-lists/1' });
+  const h = JSON.parse(Buffer.from(jwt.split('.')[0], 'base64url').toString('utf8'));
+
+  assert.ok(Array.isArray(h.x5c) && h.x5c.length, 'x5c がある（信頼の根拠）');
+  assert.ok(h.jwk, 'jwk がある（x5c 非対応の検証器向け）');
+  // **同じ鍵でなければならない**（食い違うと検証器によって結果が変わる）
+  const fromCert = new X509Certificate(Buffer.from(h.x5c[0], 'base64')).publicKey.export({ format: 'jwk' });
+  assert.equal(h.jwk.x, fromCert.x, 'jwk と x5c[0] が同じ鍵');
+  assert.equal(h.jwk.y, fromCert.y);
+  assert.ok(!h.jwk.d, '秘密鍵成分が漏れていない');
+});
