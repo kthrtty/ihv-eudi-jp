@@ -194,10 +194,17 @@ export class VerifierService {
       const transcript = oid4vpRedirectSessionTranscript({ clientId, responseUri: respUri, nonce });
       await this.store.set(`vp:${transactionId}`, { protocol: 'annex-d', transport: 'redirect', clientId, nonce, dcql: dcql_query, transcript, sessionId: sessionId ?? transactionId, linkTo, signed });
       const request = {
-        // **client_id は署名するときだけ載せる**（2026-08-26・conformance suite が検出）。
-        // 「The client_id parameter MUST be omitted in unsigned requests」＝ unsigned で
-        // 送るのは仕様違反。署名すれば x5c で RP を認証できるので正当な識別子になる。
-        ...(signed ? { client_id: clientId } : {}),
+        // **リダイレクト経路では署名の有無によらず client_id を必ず載せる**
+        // （2026-08-26・conformance suite が2度検出）。
+        // 一度「unsigned なら省く」と直したが**それは DC API 限定の規定**だった——
+        // 「The client_id parameter MUST be omitted in unsigned requests」は
+        // Appendix A（DC API）の文で、そちらは origin をプラットフォームが主張するので
+        // RP 識別子が要らない。**HTTPS リダイレクトには origin の主張者がいない**ので
+        // client_id が唯一の RP 識別手段で、`redirect_uri` prefix（§5.10）がまさに
+        // そのために「client_id = redirect_uri:<response_uri>」を定めている。
+        // 省くと suite の EnsureClientIdMatchesResponseUri が落ちる。
+        // **経路ごとに規定が違うものを片方の文言で統一しない。**
+        client_id: clientId,
         response_type: 'vp_token',
         response_mode: 'direct_post.jwt',     // encrypted response posted to response_uri
         response_uri: respUri,
