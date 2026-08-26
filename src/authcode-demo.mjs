@@ -97,7 +97,11 @@ const CSS = `
   .req b{color:var(--civic)}
   .req .mono,.req span.mono,.urlbox{overflow-wrap:anywhere;word-break:break-word}
   .users{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-top:8px}
-  .seal{width:72px;height:72px;display:grid;place-items:center;border-radius:50%;background:#fff;color:var(--seal);
+  /* flex:none が要る（2026-08-27）。seal は who のような flex コンテナの子に
+     なることがあり、flex-shrink の既定は 1 なので幅だけ縮んで縦長の楕円になる
+     （高さは固定のため）。実際スマホ幅の同意画面で崩れていた。
+     丸い要素は幅と高さを指定したから丸いとは限らない——縮まないことまで言う。 */
+  .seal{width:72px;height:72px;flex:none;display:grid;place-items:center;border-radius:50%;background:#fff;color:var(--seal);
     border:2px solid var(--seal);box-shadow:inset 0 0 0 2px #fff,inset 0 0 0 3px var(--seal-soft);font-weight:700;font-size:28px}
   .userbtn{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 10px;display:grid;justify-items:center;gap:9px;cursor:pointer;font:inherit}
   .userbtn:hover{border-color:#c3cee0;transform:translateY(-2px);box-shadow:0 8px 20px #0e1a2b14}
