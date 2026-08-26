@@ -1,7 +1,15 @@
 # 鍵・信頼・失効の考え方
 
 このデモの PKI（誰が何に署名するか）、トラストリスト（誰を信じるか）、失効（Token Status List）の
-設計と、そこで踏んだ落とし穴をまとめる。2026-08-16 時点。
+設計と、そこで踏んだ落とし穴をまとめる。2026-08-26 時点。
+
+- [1. 鍵の階層](#1-鍵の階層) — 独立した2つのルート／**証明書の拡張と、それを要求する仕様**／
+  **プロトコル別に何が何を保証するか**／x5c にアンカーを入れない
+- [2. トラストリスト](#2-トラストリスト) — LoTE と VICAL/RICAL の2系統／x5chain の置き場所／保護の差
+- [3. 鍵を失ったときにどうするか](#3-鍵を失ったときにどうするか) — アンカーを足す・消さない／KV の世代管理
+- [4. 失効（Token Status List）](#4-失効token-status-list) — 形式ごとに別のリストと索引空間
+- [4.5 トラストアンカーをリストから引く](#45-トラストアンカーをリストから引く26--282026-08-16)
+- [5. 教訓](#5-教訓) — 適合を名乗る面は外部実装で pin する
 
 関連 issue: [#25](../../issues/25)（Status List の形式分割）／[#26](../../issues/26)（Verifier の署名検証）／
 [#27](../../issues/27)（VICAL による複数トラストアンカー）
@@ -22,9 +30,13 @@
   IHV-Demo SD-JWT Issuer CA  ── 自己署名
     └── issuer-*.ihv.example（9枚）               SD-JWT に署名（x5c）
 
-【リーダー】※信頼の向きが逆
+【検証者(RP)】※信頼の向きが逆。**用途ごとに2本**（下の「検証者側が2本ある理由」参照）
   IHV-Demo Reader CA
     └── IHV-Demo Reader                           readerAuth に署名（EKU 1.0.18013.5.1.6）
+                                                  SAN なし＝mdoc は client_id を使わない
+  IHV-Demo RP CA
+    └── verifier.<host>                           JAR に署名（OID4VP・x5c）
+                                                  SAN あり＝client_id と完全一致させる
 
 【VICAL/RICAL の発行者】※IACA とは独立
   IHV-Demo VICAL Provider CA
@@ -61,6 +73,58 @@ docType が使われるのは `The DocType in the MSO matches the relevant DocTy
 （DSC は MSO 署名用の EKU を持つ専用証明書）。IACA 直下に end-entity を置くのは仕様の想定内で、
 有効期間の説明に `document signer certificates, JWS certificates, TLS server certificate and OCSP signer`
 と列挙されている。
+
+### 検証者側が2本ある理由（2026-08-26）
+
+**証明書の表現力は形式で変わらない。** mdoc は COSE の `x5chain`（CBOR の bstr 配列）、
+JWS は `x5c`（base64 DER の配列）で運ぶが、**包み方が違うだけで中身は同じ X.509 DER**。
+拡張フィールドも同じように使える。差が出るのは**それぞれの仕様が要求する拡張**のほう。
+
+| 拡張 | 要求する仕様 | 効き方 |
+|---|---|---|
+| `extendedKeyUsage`<br>1.0.18013.5.1.2 / .6 | ISO/IEC 18013-5 | 用途を限定する。`.2`＝MSO 署名（DSC）、`.6`＝readerAuth。**Status List の署名鍵に DSC を流用しない**のはこれが理由 |
+| `subjectAltName`<br>dNSName | OID4VP 1.0 §5.9.3（`x509_san_dns`） | **client_id の prefix 以降と完全一致**が必須。「the original Client Identifier … MUST be a DNS name and match a `dNSName` Subject Alternative Name (SAN)」 |
+| `basicConstraints`<br>CA:TRUE / pathlen | RFC 5280／18013-5 Annex B | チェーン検証で**各 CA が自ら宣言した長さ制限**を守る。固定階層は強制しない |
+| （自己署名） | HAIP §6.1.1／OID4VP §5.9.3 | **トラストアンカーを x5c / x5chain に入れてはならない**（後述） |
+
+`pki/reader/reader.crt` は EKU を持つが SAN を持たず、`pki/verifier/rp.crt` は逆。
+**1枚に両方入れることもできるが、EKU は用途を限定する拡張**なので分けてある。
+mdoc の readerAuth は `client_id` を使わず SessionTranscript が origin・nonce・鍵拇印を
+束ねるので DNS 名の照合が要らない。逆に OID4VP の `x509_san_dns` は SAN との一致が必須で、
+mdoc 専用の EKU は用途外。
+
+**一度これを取り違えて JAR を readerAuth の鍵で署名していた**（2026-08-26 に修正）。
+`signRequestObject` のコメントには最初から「pki/verifier/rp.* を使う」と書いてあったのに
+実装が reader を読んでおり、SAN が無いので `x509_san_dns` へ切り替えられなかった。
+
+### プロトコル別に「何が何を保証するか」
+
+| 経路 | 署名するもの | 使う証明書 | 検証側のアンカー | RP の識別 |
+|---|---|---|---|---|
+| mdoc 発行 | MSO（COSE_Sign1） | DSC | IACA Root | — |
+| SD-JWT VC 発行 | SD-JWT（JWS・x5c） | issuer 証明書 | SD-JWT Issuer CA | — |
+| mdoc 提示（Annex C） | DeviceRequest の readerAuth | Reader | Reader CA | **client_id を使わない**（SessionTranscript が束ねる） |
+| OID4VP `x509_san_dns` | 要求オブジェクト（JAR） | RP | RP CA | **client_id ↔ 証明書の SAN** |
+| OID4VP `redirect_uri` | 署名しない | — | — | **client_id ↔ response_uri** |
+
+**署名の有無は Client Identifier Prefix から決まる**（独立した2つのつまみではない）。
+OID4VP 1.0 §5.9.3 が `redirect_uri` を「Requests using the `redirect_uri` Client Identifier
+Prefix **cannot be signed** because there is no method for the Wallet to obtain a trusted key
+for verification.」、`x509_san_dns` を「The request **MUST be signed** with the private key
+corresponding to the public key in the leaf X.509 certificate」と定めている。
+検証ポータルのビルダーで切り替えられる。
+
+### x5c にトラストアンカーを入れない
+
+HAIP §6.1.1 は SD-JWT VC について「The X.509 certificate of the trust anchor MUST NOT be
+included in the `x5c` JOSE header」と定める。**理由は「届いたチェーンだけで検証が完結して
+しまう」から**——検証側は自分の持つアンカーへ辿れなければ拒否しなければならない。
+
+**同じ規則が JAR にも効く。** SD-JWT VC では守っていたのに、JAR を実装したとき自己署名の
+RP CA を x5c に入れて踏み直した（conformance suite の
+`ValidateRequestObjectSignatureAgainstX5cHeader` が
+`Trust anchor (self-signed root CA) must not be included in x5c chain` で検出）。
+**リーフ以外の自己署名を落とす**実装にしてある（中間 CA を挟んでも自動で正しく載る）。
 
 ---
 
@@ -435,6 +499,14 @@ mdoc 前提のスキーマなので、**SD-JWT Issuer CA を載せる場所が�
   （その CA は DSC を1枚も署名していない）ので、**発行者アンカーの束を丸ごと試せば結果は同じ**。
   リストの記述ミスに強い側を採る
 
+**同じ理由で、RP のアクセス証明書は WRPAC に2本載せる**（2026-08-26）。
+Reader CA（mdoc の readerAuth）と RP CA（OID4VP の JAR / `x509_san_dns`）は
+**役割が同じ「この RP は本物か」でプロトコルが違うだけ**なので、どちらも
+`SvcType/WRPAC/Issuance`。ウォレットは束を丸ごと試せばよく、mdoc の要求が RP CA へ
+繋がることはあり得ないので取り違えは起きない。
+**逆に載せ忘れると、署名済み要求の検証が本番でだけ静かに落ちる**——
+ローカルはトラストリスト未設定で検証をスキップするため気づけない。
+
 ### 器の見分け方（実装で踏んだ）
 
 **RICAL は payload に `type: org.iso.18013.5.1.reader_authentication` を持ち、VICAL は持たない。**
@@ -496,3 +568,19 @@ mdoc 前提のスキーマなので、**SD-JWT Issuer CA を載せる場所が�
 
 `interop/multipaz-jvm/` は Gradle が要るが**エミュレータは不要**で、CI 的に回せる。
 新しく「仕様準拠」を名乗る面を足したら、ここに golden を1本足す。
+
+### 追記（2026-08-26）: OpenID conformance suite も同じ役割を果たした
+
+OID4VP の verifier テストを回して、この文書に書いてある規則を**自分が破っていた**のを2件見つけた。
+
+- **x5c にトラストアンカーを入れていた**。上の「x5c にトラストアンカーを入れない」は
+  SD-JWT VC について書いたもので、実装でも守っていた。ところが JAR を足したとき
+  同じ罠を踏み直した。**規則を知っていても、新しい面に適用し忘れる。**
+  `ValidateRequestObjectSignatureAgainstX5cHeader` が検出
+- **JAR を readerAuth の鍵で署名していた**。用途の違う証明書（EKU が mdoc 専用・SAN なし）で、
+  `x509_san_dns` へ切り替えられなかった。**コメントには正しい方が書いてあった**のに
+  実装がずれており、自分のテストは通っていた
+
+**知識を文書に書くことと、それが実装に効いていることは別。**
+文書は「守るべき規則」を残せるが、「守れているか」は外部の目でしか分からない。
+詳細は ADR-0006。
