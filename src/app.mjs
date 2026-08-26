@@ -442,7 +442,8 @@ export function createApp(opts = {}) {
   app.post('/token', async (c) => {
     try {
       const form = await c.req.parseBody();
-      return c.json(await svc.token(form));
+      // DPoP proof があれば拇印をトークンに束ねる（RFC 9449 §6.1）
+      return c.json(await svc.token(form, { proof: c.req.header('dpop') || null, htu: c.req.url }));
     } catch (e) { return fail(c, e); }
   });
 
@@ -621,13 +622,17 @@ export function createApp(opts = {}) {
   app.post('/credential', async (c) => {
     try {
       const auth = c.req.header('authorization') || '';
-      // OID4VCI/HAIP: Multipaz presents the access token under the DPoP scheme
-      // (RFC 9449), not Bearer. Our tokens are opaque bearer strings (not DPoP-bound),
-      // so accept the token value under either scheme. (DPoP proof binding: TODO.)
+      // OID4VCI/HAIP: Multipaz は DPoP スキームでトークンを提示する（RFC 9449）。
+      // **どちらのスキームでも値を取る**——束縛の有無はトークン側（at.jkt）で決まり、
+      // スキーム名では決まらない。ヘッダだけ DPoP と名乗って proof を送らない、
+      // という抜け道を作らないため
       const m = /^(?:Bearer|DPoP) +(.+)$/.exec(auth);
       const accessToken = m ? m[1].trim() : null;
       const body = await c.req.json();
-      const res = await svc.credential({ accessToken, body });
+      const res = await svc.credential({ accessToken, body,
+        // §4.2: htu は「without query and fragment parts」。dpop.mjs 側でも落とすが
+        // ここでも素の URL を渡す（プロキシ配下でも c.req.url は実際の宛先）
+        dpop: { proof: c.req.header('dpop') || null, htu: c.req.url } });
       c.header('Cache-Control', 'no-store');
       return c.json(res);
     } catch (e) { return fail(c, e); }

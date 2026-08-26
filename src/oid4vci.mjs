@@ -13,6 +13,7 @@ import { offersProcedure, getMunicipality } from './municipalities.mjs';
 import { coversMunicipality, getDisaster } from './disasters.mjs';
 import { sha256, b64url } from './cbor.mjs';
 import { validateFields } from './validate.mjs';
+import { verifyDpopProof } from './dpop.mjs';
 
 const PRE_AUTH_GRANT = 'urn:ietf:params:oauth:grant-type:pre-authorized_code';
 const PROOF_TYP = 'openid4vci-proof+jwt';
@@ -600,6 +601,22 @@ export class IssuerService {
   }
 
   /**
+   * Token EP に来た DPoP proof を検証して拇印を返す（RFC 9449 §6.1）。
+   * **proof が無ければ null**＝束ねない（bearer のまま）。
+   * proof はあるが不正なら**投げる**——「送ってきたが壊れている」を黙って
+   * bearer に落とすと、攻撃者は proof を壊すだけで束縛を外せる。
+   */
+  async #dpopJkt({ proof, htu } = {}) {
+    if (!proof) return null;
+    try {
+      const { jkt } = await verifyDpopProof(proof, { htm: 'POST', htu });
+      return jkt;
+    } catch (e) {
+      throw httpErr(400, 'invalid_dpop_proof', e.message);
+    }
+  }
+
+  /**
    * 登録表の状態を1行で（`/dev/endpoints` 用）。**値は出さず件数だけ**。
    * 0 件＝「client_id を検証していない」状態で、**そこが読めることが要点**——
    * 登録表が壊れても画面は正常に見え、コードを出す POST で初めて落ちるため。
@@ -777,7 +794,15 @@ export class IssuerService {
   }
 
   // ---- 6. Token Endpoint (pre-authorized_code OR authorization_code) ----
-  async token(params = {}) {
+  /**
+   * @param {object} params  form パラメータ
+   * @param {object} [ctx]   DPoP（RFC 9449）の材料。`{ proof, htu }` を渡すと
+   *   proof を検証して**公開鍵の拇印をアクセストークンに束ねる**（§6.1）。
+   *   **proof が無ければ束ねない**——bearer として発行され、Credential EP でも
+   *   照合されない。DPoP を要求するかはエコシステムの選択で、我々は
+   *   「送ってきたクライアントには束ねる」（Multipaz は送ってくる）
+   */
+  async token(params = {}, ctx = {}) {
     const grant_type = params.grant_type;
     if (grant_type === PRE_AUTH_GRANT) {
       const code = params['pre-authorized_code'];
@@ -786,9 +811,13 @@ export class IssuerService {
       if (pac.txCode != null && String(params.tx_code) !== String(pac.txCode)) throw httpErr(400, 'invalid_grant', 'bad tx_code');
       await this.store.set(`pac:${code}`, { ...pac, used: true }); // one-time
       const accessToken = tok();
+      const jkt = await this.#dpopJkt(ctx);
       await this.store.set(`at:${accessToken}`, { ids: pac.ids, ...(pac.claims ? { claims: pac.claims } : {}),
-        ...(pac.applications ? { applications: pac.applications } : {}), ...(pac.userId ? { userId: pac.userId } : {}) }, 600);
-      return { access_token: accessToken, token_type: 'Bearer', expires_in: 600 };
+        ...(pac.applications ? { applications: pac.applications } : {}), ...(pac.userId ? { userId: pac.userId } : {}),
+        ...(jkt ? { jkt } : {}) }, 600);
+      // **束ねたなら token_type も DPoP**（§5）。Bearer と名乗ると、受け取った側は
+      // proof を送らなくてよいと解釈する
+      return { access_token: accessToken, token_type: jkt ? 'DPoP' : 'Bearer', expires_in: 600 };
     }
     if (grant_type === 'authorization_code') {
       const { code, code_verifier, redirect_uri } = params;
@@ -825,10 +854,11 @@ export class IssuerService {
       // 対応するかをここから引く。**このトークンで認可されたものだけ**が載る
       const datasets = rec.authzDetails
         ? Object.fromEntries(rec.ids.map((id) => [datasetId(id), id])) : null;
+      const jkt = await this.#dpopJkt(ctx);
       await this.store.set(`at:${accessToken}`, { ids: rec.ids, userId: rec.userId,
         ...(rec.applications ? { applications: rec.applications } : {}),
-        ...(datasets ? { datasets } : {}) }, 600);
-      return { access_token: accessToken, token_type: 'Bearer', expires_in: 600,
+        ...(datasets ? { datasets } : {}), ...(jkt ? { jkt } : {}) }, 600);
+      return { access_token: accessToken, token_type: jkt ? 'DPoP' : 'Bearer', expires_in: 600,
         // §3.3.4: authorization_details を使った要求には、その parameter を
         // `credential_identifiers` 付きで返す。**scope 経路では返さない**（MAY）
         ...(datasets ? { authorization_details: rec.ids.map((id) => ({
@@ -847,9 +877,33 @@ export class IssuerService {
   }
 
   // ---- 8. Credential Endpoint ----
-  async credential({ accessToken, body }) {
+  /**
+   * @param {object} o
+   * @param {string} o.accessToken
+   * @param {object} o.body
+   * @param {object} [o.dpop]  `{ proof, htu }`。トークンが鍵に束ねられている
+   *   （`at.jkt` がある）なら**必ず照合する**（RFC 9449 §7.1）。
+   */
+  async credential({ accessToken, body, dpop = {} }) {
     const at = accessToken && await this.store.get(`at:${accessToken}`);
     if (!at) throw httpErr(401, 'invalid_token', 'missing/invalid access token');
+
+    // **束ねたトークンは鍵の照合を必須にする**（§7.1「check that the public key of
+    // the DPoP proof matches the public key to which the access token is bound」）。
+    // ここを飛ばすと、トークンを盗んだ者がそのまま使える＝bearer と同じになる。
+    // **`at.jkt` が無いトークンには要求しない**——proof を送らないクライアント向けに
+    // bearer として出したものなので、後から要求すると発行できなくなる
+    if (at.jkt) {
+      let proved;
+      try {
+        proved = await verifyDpopProof(dpop.proof, {
+          htm: 'POST', htu: dpop.htu, accessToken,
+        });
+      } catch (e) { throw httpErr(401, 'invalid_token', `DPoP proof invalid: ${e.message}`); }
+      if (proved.jkt !== at.jkt) {
+        throw httpErr(401, 'invalid_token', 'DPoP proof key does not match the key the token is bound to');
+      }
+    }
 
     // **Credential Request は2通りの指定を受ける**（issue #37・OID4VCI 1.0 §8.2）。
     //   credential_configuration_id … Credential Configuration を直に指す
