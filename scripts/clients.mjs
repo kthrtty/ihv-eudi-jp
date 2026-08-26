@@ -14,28 +14,31 @@
 // **反映は即時ではない**——IssuerService は isolate 起動後に1回だけ読むので、
 // 古い isolate が入れ替わるまで（数分）は旧い表で判定される。
 import { spawnSync } from 'node:child_process';
+import { writeFileSync, unlinkSync } from 'node:fs';
 
 const KEY = '_clients:config';
 const [cmd, id, ...uris] = process.argv.slice(2);
 
-const kv = (args) => {
-  const r = spawnSync('node', ['scripts/kv-versioned.mjs', ...args], { encoding: 'utf8' });
-  if (r.status !== 0) { process.stderr.write(r.stderr || ''); process.exit(r.status ?? 1); }
-  return r.stdout;
-};
-
+// **未設定を異常扱いしない**。初回は当然キーが無く、kv-versioned の `get` は
+// そこで非ゼロ終了する。ここでは「まだ何も登録されていない」だけなので空で続ける。
 const read = () => {
-  const out = kv(['get', KEY]);
-  const i = out.indexOf('{');
+  const r = spawnSync('node', ['scripts/kv-versioned.mjs', 'get', KEY], { encoding: 'utf8' });
+  if (r.status !== 0) return {};
+  const i = (r.stdout || '').indexOf('{');
   if (i < 0) return {};
-  try { return JSON.parse(out.slice(i)); } catch { return {}; }
+  try { return JSON.parse(r.stdout.slice(i)); } catch { return {}; }
 };
 
+// **kv-versioned の `put` は値でなくファイルパスを取る**（wrangler の --path が確実なため）。
+// 書く前に現行を世代へ退避してくれるので、上書きしても前の表は残る。
 const write = (obj) => {
-  // kv-versioned が書く前に現行を退避する（世代管理）
-  const r = spawnSync('node', ['scripts/kv-versioned.mjs', 'put', KEY, JSON.stringify(obj)],
-    { stdio: 'inherit' });
-  if (r.status !== 0) process.exit(r.status ?? 1);
+  const tmp = `/tmp/clients-${process.pid}.json`;
+  writeFileSync(tmp, JSON.stringify(obj, null, 2));
+  try {
+    const r = spawnSync('node', ['scripts/kv-versioned.mjs', 'put', KEY, tmp, 'clients registry'],
+      { stdio: 'inherit' });
+    if (r.status !== 0) process.exit(r.status ?? 1);
+  } finally { unlinkSync(tmp); }
 };
 
 const show = (obj) => {

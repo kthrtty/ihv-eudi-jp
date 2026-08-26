@@ -84,7 +84,11 @@ export function createApp(opts = {}) {
   // Developer console: log the inbound OID4VCI exchanges (masked).
   // isolate メモリのリング（KV 不使用）— 永続はブラウザ側 sessionStorage が担う。
   const devlog = createLogRing();
-  app.use('*', captureInbound(devlog, (p) => /^\/(token|par|nonce|credential|offer|jwks|\.well-known|status-lists)(\/|$)/.test(p)));
+  // **`/authorize` も記録する**（2026-08-26）。実機（Multipaz）が authorization_code で
+  // 何の client_id を送ってくるかを知る手段が他に無く、#38 の登録表を有効にした際に
+  // 実機が invalid_client で止まったとき、**ログにその値が残っていなかった**。
+  // 認可要求のパラメータは同意画面にも出る公開情報で、機微な値は devlog がマスクする。
+  app.use('*', captureInbound(devlog, (p) => /^\/(authorize|token|par|nonce|credential|offer|jwks|\.well-known|status-lists)(\/|$)/.test(p)));
   app.get('/dev/log', (c) => c.json({ entries: getLog(devlog) }));
   // Endpoint inventory for the developer console's エンドポイント tab. Metadata-returning
   // endpoints carry their current value; operational ones list method/path/desc only.
