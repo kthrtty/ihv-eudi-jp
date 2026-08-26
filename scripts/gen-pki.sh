@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# Dev PKI for the IVH (Issuer / Verifier / Holder) EUDI-JP demo ecosystem.
+# Dev PKI for the IHV (Issuer / Verifier / Holder) EUDI-JP demo ecosystem.
 #
 # NOTE: This is a DEVELOPMENT trust setup. Keys are software-held, validity
 # periods and some extensions do NOT enforce the strict ISO/IEC 18013-5 IACA
@@ -61,14 +61,14 @@ mkleaf() { # <keyout> <crtout> <subj> <cakey> <cacrt> <extra-ext-lines...>
 
 echo "==> mdoc: IACA root (trust anchor, C=JP)"
 mkca pki/mdoc/iaca/iaca.key pki/mdoc/iaca/iaca.crt \
-  "/C=JP/O=IHV Demo Issuing Authority/CN=IVH-Demo IACA Root"
+  "/C=JP/O=IHV Demo Issuing Authority/CN=IHV-Demo IACA Root"
 
 # ISO 18013-5 mDL Document Signer EKU = 1.0.18013.5.1.2 (dev placeholder; each
 # ecosystem/doctype defines its own DS EKU in production).
 echo "==> mdoc: Document Signer Certs (PID / Juminhyo / Qualification)"
 for who in pid juminhyo qualification koseki tax single disaster vaccine island; do
   mkleaf pki/mdoc/dsc/${who}.key pki/mdoc/dsc/${who}.crt \
-    "/C=JP/O=IHV Demo Issuing Authority/CN=IVH-Demo DSC ${who}" \
+    "/C=JP/O=IHV Demo Issuing Authority/CN=IHV-Demo DSC ${who}" \
     pki/mdoc/iaca/iaca.key pki/mdoc/iaca/iaca.crt \
     "keyUsage=critical,digitalSignature" \
     "extendedKeyUsage=1.0.18013.5.1.2"
@@ -82,7 +82,7 @@ done
 # IACA 配下でなければならない（SD-JWT 用は SD-JWT CA 配下＝別途）。
 echo "==> mdoc: Status List signer (IACA 直下の end-entity・docType 非依存)"
 mkleaf pki/mdoc/status/status.key pki/mdoc/status/status.crt \
-  "/C=JP/O=IHV Demo Issuing Authority/CN=IVH-Demo Status List Signer" \
+  "/C=JP/O=IHV Demo Issuing Authority/CN=IHV-Demo Status List Signer" \
   pki/mdoc/iaca/iaca.key pki/mdoc/iaca/iaca.crt \
   "keyUsage=critical,digitalSignature"
 
@@ -90,25 +90,25 @@ mkleaf pki/mdoc/status/status.key pki/mdoc/status/status.crt \
 # 署名者が IACA である必要はない）。IACA 秘密鍵を失っても VICAL は出せる。
 echo "==> vical: VICAL provider CA + leaf"
 mkca pki/vical/vical-ca.key pki/vical/vical-ca.crt \
-  "/C=JP/O=IHV Demo VICAL Provider/CN=IVH-Demo VICAL Provider CA"
+  "/C=JP/O=IHV Demo VICAL Provider/CN=IHV-Demo VICAL Provider CA"
 mkleaf pki/vical/provider.key pki/vical/provider.crt \
-  "/C=JP/O=IHV Demo VICAL Provider/CN=IVH-Demo VICAL Provider" \
+  "/C=JP/O=IHV Demo VICAL Provider/CN=IHV-Demo VICAL Provider" \
   pki/vical/vical-ca.key pki/vical/vical-ca.crt \
   "keyUsage=critical,digitalSignature"
 
 echo "==> reader: mdoc reader-auth CA + leaf (verifier)"
 mkca pki/reader/reader-ca.key pki/reader/reader-ca.crt \
-  "/C=JP/O=IHV Demo Relying Party/CN=IVH-Demo Reader CA"
+  "/C=JP/O=IHV Demo Relying Party/CN=IHV-Demo Reader CA"
 # ISO 18013-5 mDL Reader Auth EKU = 1.0.18013.5.1.6
 mkleaf pki/reader/reader.key pki/reader/reader.crt \
-  "/C=JP/O=IHV Demo Relying Party/CN=IVH-Demo Reader" \
+  "/C=JP/O=IHV Demo Relying Party/CN=IHV-Demo Reader" \
   pki/reader/reader-ca.key pki/reader/reader-ca.crt \
   "keyUsage=critical,digitalSignature" \
   "extendedKeyUsage=1.0.18013.5.1.6"
 
 echo "==> sd-jwt: issuer CA + leaf issuer certs (x5c)"
 mkca pki/sdjwt/issuer-ca.key pki/sdjwt/issuer-ca.crt \
-  "/C=JP/O=IHV Demo SD-JWT Issuer CA/CN=IVH-Demo SD-JWT Issuer CA"
+  "/C=JP/O=IHV Demo SD-JWT Issuer CA/CN=IHV-Demo SD-JWT Issuer CA"
 for who in pid juminhyo qualification koseki tax single disaster vaccine island; do
   mkleaf pki/sdjwt/${who}.key pki/sdjwt/${who}.crt \
     "/C=JP/O=IHV Demo Issuer/CN=issuer-${who}.ihv.example" \
@@ -119,7 +119,7 @@ done
 
 echo "==> verifier: RP auth CA + RP cert (x509_san_dns) + JWE recipient key"
 mkca pki/verifier/rp-ca.key pki/verifier/rp-ca.crt \
-  "/C=JP/O=IHV Demo RP CA/CN=IVH-Demo RP CA"
+  "/C=JP/O=IHV Demo RP CA/CN=IHV-Demo RP CA"
 mkleaf pki/verifier/rp.key pki/verifier/rp.crt \
   "/C=JP/O=IHV Demo Verifier/CN=verifier.ihv.example" \
   pki/verifier/rp-ca.key pki/verifier/rp-ca.crt \

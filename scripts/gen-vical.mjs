@@ -100,9 +100,13 @@ console.log(`\nwrote ${out} (${Buffer.from(cborEncode(signed)).length} bytes, IA
 // VICAL とは**信頼の向きが逆**。type は ISO 18013-5 第2版 Annex F の
 // `org.iso.18013.5.1.reader_authentication`。certificateInfos は docType を持たず、
 // 代わりに isTrustAnchor / name を持つ。
-const readerCas = [{ path: 'pki/reader/reader-ca.crt', name: 'IVH-Demo Reader CA' }];
-const ricalInfos = readerCas.map(({ path, name }) => {
+const readerCas = [{ path: 'pki/reader/reader-ca.crt' }];
+const ricalInfos = readerCas.map(({ path }) => {
   const c = new X509Certificate(readFileSync(root(path)));
+  // **name は証明書から取る**（2026-08-26）。以前は文字列で持っていたため、
+  // 証明書を作り直すとリストの表示名だけが古いまま残る形だった（実際 CN の綴りが
+  // 食い違っていた）。**同じ事実を2箇所に書かない。**
+  const name = c.subject.split('\n').find((l) => l.startsWith('CN='))?.slice(3).trim() ?? path;
   console.log(`  reader CA                  ${c.fingerprint256.replace(/:/g, '').slice(0, 24)}  ${path}`);
   return new Map([
     ['certificate', new Uint8Array(c.raw)],

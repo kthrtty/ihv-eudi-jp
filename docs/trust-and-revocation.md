@@ -14,21 +14,21 @@
 
 ```
 【mdoc 系】ISO/IEC 18013-5
-  IVH-Demo IACA Root  ── 自己署名・pathlen:0
+  IHV-Demo IACA Root  ── 自己署名・pathlen:0
     ├── DSC pid / juminhyo / disaster / …（9枚）   MSO に署名（EKU 1.0.18013.5.1.2）
     └── Status List Signer                        Status List に署名（#25 で新設）
 
 【SD-JWT VC 系】
-  IVH-Demo SD-JWT Issuer CA  ── 自己署名
+  IHV-Demo SD-JWT Issuer CA  ── 自己署名
     └── issuer-*.ihv.example（9枚）               SD-JWT に署名（x5c）
 
 【リーダー】※信頼の向きが逆
-  IVH-Demo Reader CA
-    └── IVH-Demo Reader                           readerAuth に署名（EKU 1.0.18013.5.1.6）
+  IHV-Demo Reader CA
+    └── IHV-Demo Reader                           readerAuth に署名（EKU 1.0.18013.5.1.6）
 
 【VICAL/RICAL の発行者】※IACA とは独立
-  IVH-Demo VICAL Provider CA
-    └── IVH-Demo VICAL Provider                   VICAL/RICAL に署名
+  IHV-Demo VICAL Provider CA
+    └── IHV-Demo VICAL Provider                   VICAL/RICAL に署名
 ```
 
 ### なぜ共通の上位ルートを置けないのか
@@ -121,8 +121,8 @@ Web の issuer / wallet / verifier（ARF 系） → LoTE（JSON）    … #28 �
 我々の構成に当てはめると:
 
 ```
-VICAL  → Verifier（検証ポータル）が読む    載る: IVH-Demo IACA Root（＋ trust/retired/ の旧 IACA）
-RICAL  → Wallet（Multipaz / Web）が読む     載る: IVH-Demo Reader CA
+VICAL  → Verifier（検証ポータル）が読む    載る: IHV-Demo IACA Root（＋ trust/retired/ の旧 IACA）
+RICAL  → Wallet（Multipaz / Web）が読む     載る: IHV-Demo Reader CA
 ```
 
 **このリポジトリでは Verifier がリーダーを兼ねる**ので、「Verifier が VICAL を読み、Verifier の CA が
