@@ -395,3 +395,90 @@ test('#38 同意 POST が client_id を authorize へ渡す（本番で落ちた
   assert.equal(r.status, 302, await r.text());
   assert.match(r.headers.get('location') ?? '', /[?&]code=/, '認可コードが出る');
 });
+
+// issue #37: Credential Dataset 方式（OID4VCI 1.0 §3.3.4 / §6.2 / §8.2）。
+// **値ではなく規則を pin する**——dataset の識別子は仕様上「一意であればよい」だけ。
+test('#37 authorization_details 経路は Token 応答に credential_identifiers を返す', async () => {
+  const { createApp } = await import('../src/app.mjs');
+  const { createHash, randomBytes } = await import('node:crypto');
+  const WAL = 'https://wallet.example';
+  const app = createApp({ credentialIssuer: ISSUER, redirectAllowlist: `${WAL}/cb` });
+  const { session_id } = await (await app.request('/login', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ user_id: 'u_001' }),
+  })).json();
+  const verifier = randomBytes(32).toString('base64url');
+  const challenge = createHash('sha256').update(verifier, 'ascii').digest('base64url');
+  const ad = [{ type: 'openid_credential', credential_configuration_id: 'pid_mdoc' }];
+  const { code } = await app.svc.authorize({ sessionId: session_id, response_type: 'code',
+    redirect_uri: `${WAL}/cb`, code_challenge: challenge, code_challenge_method: 'S256',
+    authorization_details: ad });
+  const tok = await app.svc.token({ grant_type: 'authorization_code', code,
+    code_verifier: verifier, redirect_uri: `${WAL}/cb` });
+
+  // §3.3.4「The Authorization Server returns an authorization_details parameter
+  // containing the credential_identifiers parameter in the Token Response」
+  assert.ok(Array.isArray(tok.authorization_details), 'authorization_details が返る');
+  const [d] = tok.authorization_details;
+  assert.equal(d.type, 'openid_credential');
+  assert.equal(d.credential_configuration_id, 'pid_mdoc');
+  assert.ok(Array.isArray(d.credential_identifiers) && d.credential_identifiers.length,
+    '「non-empty array of strings」');
+  // **configuration_id と同じ文字列にしない**——排他なので、値が同じだと
+  // 受け取った側もログを読む側もどちらの意味で来たのか判別できない
+  assert.notEqual(d.credential_identifiers[0], d.credential_configuration_id);
+
+  // 返した識別子がそのまま Credential Request で通ること（往復）
+  const h = holder();
+  const proof = await makeProof(h, { nonce: (await app.svc.nonce()).c_nonce });
+  const out = await app.svc.credential({ accessToken: tok.access_token,
+    body: { credential_identifier: d.credential_identifiers[0], proofs: { jwt: [proof] } } });
+  assert.ok(out.credentials?.[0]?.credential, '返した識別子で発行できる');
+});
+
+test('#37 credential_identifier で発行でき、未知なら unknown_credential_identifier', async () => {
+  const { IssuerService, datasetId } = await import('../src/oid4vci.mjs');
+  const svc = new IssuerService({ credentialIssuer: ISSUER });
+  const h = holder();
+  // authorization_details 経路のトークンを直に組む（authorize→token は上の経路で担保）
+  const ids = ['pid_mdoc'];
+  const at = 'tok-ds';
+  await svc.store.set(`at:${at}`, { ids, userId: 'u_001',
+    datasets: Object.fromEntries(ids.map((id) => [datasetId(id), id])) }, 600);
+
+  const proof = await makeProof(h, { nonce: (await svc.nonce()).c_nonce });
+  const req = (body) => svc.credential({ accessToken: at, body });
+
+  // 1) dataset 識別子で発行できる
+  const ok = await req({ credential_identifier: datasetId('pid_mdoc'), proofs: { jwt: [proof] } });
+  assert.ok(ok.credentials?.[0]?.credential, 'dataset 指定で資格証が出る');
+
+  // 2) 未知の識別子 → 専用のエラーコード（suite が見ているのはここ）
+  const p2 = await makeProof(h, { nonce: (await svc.nonce()).c_nonce });
+  await assert.rejects(() => req({ credential_identifier: 'ds:does-not-exist', proofs: { jwt: [p2] } }),
+    (e) => e.oauthError === 'unknown_credential_identifier');
+
+  // 3) **排他**——両方載せるのは仕様違反（§8.2「MUST NOT be present」）
+  const p3 = await makeProof(h, { nonce: (await svc.nonce()).c_nonce });
+  await assert.rejects(() => req({ credential_identifier: datasetId('pid_mdoc'),
+    credential_configuration_id: 'pid_mdoc', proofs: { jwt: [p3] } }),
+    (e) => e.oauthError === 'invalid_credential_request');
+});
+
+test('#37 scope 経路は従来どおり（credential_identifiers を返さない＝MAY）', async () => {
+  const { IssuerService } = await import('../src/oid4vci.mjs');
+  const svc = new IssuerService({ credentialIssuer: ISSUER });
+  const at = 'tok-scope';
+  await svc.store.set(`at:${at}`, { ids: ['pid_mdoc'], userId: 'u_001' }, 600);
+  const h = holder();
+  const proof = await makeProof(h, { nonce: (await svc.nonce()).c_nonce });
+  // configuration_id で発行できる
+  const ok = await svc.credential({ accessToken: at,
+    body: { credential_configuration_id: 'pid_mdoc', proofs: { jwt: [proof] } } });
+  assert.ok(ok.credentials?.[0]?.credential);
+  // **datasets を持たないトークンに credential_identifier は使えない**
+  const p2 = await makeProof(h, { nonce: (await svc.nonce()).c_nonce });
+  await assert.rejects(() => svc.credential({ accessToken: at,
+    body: { credential_identifier: 'ds:pid_mdoc', proofs: { jwt: [p2] } } }),
+    (e) => e.oauthError === 'unknown_credential_identifier');
+});

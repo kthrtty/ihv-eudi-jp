@@ -159,6 +159,35 @@ export function isRegisteredClientAny(clientId, redirectUri, registries) {
   return active.some((r) => isRegisteredClient(clientId, redirectUri, r));
 }
 
+/**
+ * Credential Dataset の識別子（issue #37・OID4VCI 1.0 §6.2 / §8.2）。
+ *
+ * 仕様は「each uniquely identifying a Credential Dataset」としか言わないので**値は自由**。
+ * `credential_configuration_id` と**同じ文字列にしない**——Credential Request は
+ * どちらか一方しか載せられず（排他）、値が同じだと受け取った側もログを読む側も
+ * どちらの意味で来たのか判別できない。接頭辞で見て分かるようにする。
+ *
+ * **dataset は configuration_id と 1:1 にする**。仕様上は「同じ configuration に対する
+ * 複数の dataset」（罹災の認定が2件ある、など）を表現できるが、**§6.2 に各 dataset の
+ * 表示名を載せる場所が無い**のでウォレットは「区別できない N 個」しか出せない。
+ * 我々は同意画面で選ばせる方式を採っており（#32）、そちらは表示名も持てる。
+ */
+export const datasetId = (configId) => `ds:${configId}`;
+
+/**
+ * `client_assertion`(JWT) が主張する client_id（RFC 7523 §3: `sub`）。
+ * **署名は検証しない**——我々はクライアント認証を実装しておらず、素の `client_id` も
+ * 同じく無検証で受けている。ここで取り出すのは「どのクライアントのつもりか」だけで、
+ * 認証の代わりにはならない（#40）。読めなければ null。
+ */
+export function assertedClientId(assertion) {
+  if (!assertion || typeof assertion !== 'string') return null;
+  try {
+    const payload = JSON.parse(Buffer.from(assertion.split('.')[1], 'base64url').toString('utf8'));
+    return payload?.sub ?? null;
+  } catch { return null; }
+}
+
 /** Minimal TTL key-value store (in-memory). Workers: back with KV/D1. */
 export function memoryStore() {
   const m = new Map();
@@ -524,8 +553,15 @@ export class IssuerService {
       ?? await this.requestedApplications(issuer_state);
     // **認可コードに client_id を束ねる**——束ねないと「クライアント A のコードを
     // クライアント B が使う」ことを止められない（issue #38）。
+    // **authorization_details を使ったかを覚える**（issue #37）。§3.3.4:
+    // 「The Authorization Server returns an authorization_details parameter containing
+    //  the credential_identifiers parameter in the Token Response」＝この経路では REQUIRED。
+    // scope 経路で返すのは MAY なので、そちらは従来どおり返さない
+    // （返さなければウォレットは credential_configuration_id を使う）。
+    const usedAuthzDetails = configIdsFromRequest(null, authorization_details).length > 0;
     await this.store.set(`code:${code}`, { userId: sess.userId, ids, redirect_uri, code_challenge, used: false,
-      ...(client_id ? { client_id } : {}), ...(applications ? { applications } : {}) }, this.proofMaxAgeSec);
+      ...(client_id ? { client_id } : {}), ...(applications ? { applications } : {}),
+      ...(usedAuthzDetails ? { authzDetails: true } : {}) }, this.proofMaxAgeSec);
     const u = new URL(redirect_uri);
     u.searchParams.set('code', code);
     if (state != null) u.searchParams.set('state', state);
@@ -764,17 +800,41 @@ export class IssuerService {
       // authorize にだけ渡して token には渡さない既存の呼び出し（テスト・デモ動線）が
       // 全部 invalid_grant で落ちる。既存の redirectAllowlist と同じ
       // 「未設定＝検証しない」方針に揃える。
+      // **client_id は `client_assertion` の中にあることがある**（2026-08-26）。
+      // RFC 6749 §4.1.3 は `client_id` を「REQUIRED, if the client is not authenticating
+      // with the authorization server」＝ public client にだけ必須とする。
+      // private_key_jwt などで認証する confidential client は素の `client_id` を送らず、
+      // client_assertion(JWT) の `sub` が client_id（RFC 7523 §3）。
+      //
+      // **注意: ここでは client_assertion の署名を検証していない**（我々は
+      // クライアント認証そのものを実装していない）。したがってこの照合は
+      // 「別のクライアントのコードを取り違えて使う事故」を防ぐ水準であって、
+      // **なりすましを防ぐ水準ではない**。攻撃を防ぐにはクライアント認証か
+      // Wallet Attestation（#40）が要る。
+      const presentedClientId = params.client_id ?? assertedClientId(params.client_assertion);
       if ((await this.#registries()).length && rec.client_id != null
-          && String(params.client_id ?? '') !== String(rec.client_id)) {
+          && String(presentedClientId ?? '') !== String(rec.client_id)) {
         throw httpErr(400, 'invalid_grant', 'authorization code was issued to a different client');
       }
       const challenge = b64url(sha256(Buffer.from(String(code_verifier), 'ascii')));
       if (!code_verifier || challenge !== rec.code_challenge) throw httpErr(400, 'invalid_grant', 'PKCE verification failed');
       await this.store.set(`code:${code}`, { ...rec, used: true }); // one-time
       const accessToken = tok();
+      // **authorization_details 経路なら dataset の対応表をトークンに束ねる**（#37）。
+      // Credential Request が `credential_identifier` で来たとき、どの configuration に
+      // 対応するかをここから引く。**このトークンで認可されたものだけ**が載る
+      const datasets = rec.authzDetails
+        ? Object.fromEntries(rec.ids.map((id) => [datasetId(id), id])) : null;
       await this.store.set(`at:${accessToken}`, { ids: rec.ids, userId: rec.userId,
-        ...(rec.applications ? { applications: rec.applications } : {}) }, 600);
-      return { access_token: accessToken, token_type: 'Bearer', expires_in: 600 };
+        ...(rec.applications ? { applications: rec.applications } : {}),
+        ...(datasets ? { datasets } : {}) }, 600);
+      return { access_token: accessToken, token_type: 'Bearer', expires_in: 600,
+        // §3.3.4: authorization_details を使った要求には、その parameter を
+        // `credential_identifiers` 付きで返す。**scope 経路では返さない**（MAY）
+        ...(datasets ? { authorization_details: rec.ids.map((id) => ({
+          type: 'openid_credential', credential_configuration_id: id,
+          credential_identifiers: [datasetId(id)],
+        })) } : {}) };
     }
     throw httpErr(400, 'unsupported_grant_type', String(grant_type));
   }
@@ -791,11 +851,30 @@ export class IssuerService {
     const at = accessToken && await this.store.get(`at:${accessToken}`);
     if (!at) throw httpErr(401, 'invalid_token', 'missing/invalid access token');
 
-    const configId = body.credential_configuration_id;
-    // **`unknown_credential_configuration`**（同上）。要求された configuration id を
-    // 発行者が知らない／このトークンでは認可されていない場合の専用コード。
-    if (!configId || !at.ids.includes(configId)) {
-      throw httpErr(400, 'unknown_credential_configuration', 'config not authorized by token');
+    // **Credential Request は2通りの指定を受ける**（issue #37・OID4VCI 1.0 §8.2）。
+    //   credential_configuration_id … Credential Configuration を直に指す
+    //   credential_identifier       … Token 応答が返した Credential Dataset を指す
+    // 「When this parameter is used, the credential_configuration_id MUST NOT be present」
+    // ＝**排他**。両方来たら要求が壊れているので invalid_credential_request。
+    const ident = body.credential_identifier;
+    if (ident != null && body.credential_configuration_id != null) {
+      throw httpErr(400, 'invalid_credential_request',
+        'credential_identifier and credential_configuration_id are mutually exclusive');
+    }
+    let configId;
+    if (ident != null) {
+      // dataset は**そのトークンで認可されたものだけ**（at.datasets）。
+      // authorization_details を使わなかったトークンには datasets が無いので、
+      // その場合も未知として扱う（仕様上そこでは "MUST NOT be used"）。
+      configId = at.datasets?.[String(ident)];
+      if (!configId) throw httpErr(400, 'unknown_credential_identifier', 'unknown credential_identifier');
+    } else {
+      configId = body.credential_configuration_id;
+      // **`unknown_credential_configuration`**（同上）。要求された configuration id を
+      // 発行者が知らない／このトークンでは認可されていない場合の専用コード。
+      if (!configId || !at.ids.includes(configId)) {
+        throw httpErr(400, 'unknown_credential_configuration', 'config not authorized by token');
+      }
     }
 
     const jwtProofs = body?.proofs?.jwt;
