@@ -19,14 +19,33 @@ import { writeFileSync, unlinkSync } from 'node:fs';
 const KEY = '_clients:config';
 const [cmd, id, ...uris] = process.argv.slice(2);
 
-// **未設定を異常扱いしない**。初回は当然キーが無く、kv-versioned の `get` は
-// そこで非ゼロ終了する。ここでは「まだ何も登録されていない」だけなので空で続ける。
+/**
+ * 現行の登録表を読む。
+ *
+ * **「まだ無い」と「読めなかった」を区別する**（2026-08-26・実害が出た）。
+ * kv-versioned の `get` は**どちらの場合も非ゼロ終了**する。当初これを一律
+ * 「空」と扱っていたため、KV の取得が一度失敗しただけで
+ * **既存の登録（実機の client_id）を黙って上書きして消した**。
+ *
+ * 見分けは**世代の目録**（`<key>:versions`）でつける——世代があるなら
+ * かつて書けていたので、いま読めないのは異常。**その場合は書かずに止める**
+ * （消してから気づくより、進まないほうがよい）。
+ */
 const read = () => {
   const r = spawnSync('node', ['scripts/kv-versioned.mjs', 'get', KEY], { encoding: 'utf8' });
-  if (r.status !== 0) return {};
-  const i = (r.stdout || '').indexOf('{');
-  if (i < 0) return {};
-  try { return JSON.parse(r.stdout.slice(i)); } catch { return {}; }
+  if (r.status === 0) {
+    const i = (r.stdout || '').indexOf('{');
+    if (i >= 0) { try { return JSON.parse(r.stdout.slice(i)); } catch { /* 壊れた値 */ } }
+  }
+  // 読めなかった。世代があるなら「初回」ではない＝異常なので触らない
+  const hist = spawnSync('node', ['scripts/kv-versioned.mjs', 'list', KEY], { encoding: 'utf8' });
+  if (hist.status === 0 && /v\d+\s/.test(hist.stdout || '')) {
+    console.error(`!! ${KEY} を読めませんでした（ただし世代は存在します）。`);
+    console.error('   このまま書くと既存の登録を消すので中断します。');
+    console.error(`   状態: node scripts/kv-versioned.mjs list ${KEY}`);
+    process.exit(1);
+  }
+  return {};   // 世代も無い＝本当に初回
 };
 
 // **kv-versioned の `put` は値でなくファイルパスを取る**（wrangler の --path が確実なため）。
