@@ -1193,3 +1193,44 @@ test('OID4VP: Request URI は署名済み要求オブジェクト（JAR）を返
   assert.equal(p.response_type, 'vp_token');
   assert.ok(p.nonce && p.dcql_query, 'nonce と DCQL を運ぶ');
 });
+
+// **トラストアンカーを設定した状態で署名済み要求を渡す**（2026-08-26）。
+// この経路だけが `verifyRequestObject` を呼ぶ——import 漏れがあっても、
+// アンカー未設定のテストは全部通り、**本番でだけ提示が全滅していた**。
+// 「実装した」と「その経路が一度でも実行された」は別。
+test('署名済み要求（JAR）をアンカーありで検証する（本番だけ落ちていた経路）', async () => {
+  const { serve } = await import('@hono/node-server');
+  const { X509Certificate } = await import('node:crypto');
+  const IP = 8992, VP = 8993, WP = 8994;
+  const ISSUER = `http://127.0.0.1:${IP}`, VERIF = `http://127.0.0.1:${VP}`, WALLET = `http://127.0.0.1:${WP}`;
+  const issuer = serve({ fetch: createApp({ credentialIssuer: ISSUER }).fetch, port: IP });
+  const verifier = serve({ fetch: createVerifierApp({ verifierOrigin: VERIF, walletOrigin: WALLET, issuerUrl: ISSUER }).fetch, port: VP });
+  try {
+    // **本番と同じ経路でアンカーを持たせる**——issuer が配る LoTE を読ませる。
+    // ここを省いて手で注入すると、`verifyRequestObject` を呼ぶ経路自体が実行されず、
+    // import 漏れを検出できない（実際それで本番だけ落ちた）
+    const { default: bundle } = await import('../trust/bundle.json', { with: { type: 'json' } });
+    const wallet = createWalletApp({ walletOrigin: WALLET, issuerUrl: ISSUER,
+      trustListUris: [`${ISSUER}/trust/lote.json`],
+      trustSchemeCaDer: new X509Certificate(Buffer.from(bundle.schemeCa, 'base64')).raw,
+    });
+
+    const made = await (await fetch(`${ISSUER}/offer`, { method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ credential_configuration_ids: ['pid_sdjwt'] }) })).json();
+    const add = await wallet.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${made.offer_id}`));
+    const { cookie } = await driveAdd(wallet, add);
+
+    const build = await (await fetch(`${VERIF}/vp/build`, { method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ configId: 'pid_sdjwt', claims: ['family_name'], target: 'web',
+        clientIdPrefix: 'x509_san_dns' }) })).json();
+    assert.ok(build.request.client_id.startsWith('x509_san_dns:'), '署名済み要求である');
+    const reqUri = new URL(build.walletPresent).searchParams.get('request_uri');
+    const res = await wallet.request('/present?request_uri=' + encodeURIComponent(reqUri), { headers: { cookie } });
+    const html = await res.text();
+    // **落ちていない**こと（import 漏れだと "is not defined" が本文に出る）
+    assert.doesNotMatch(html, /is not defined|提示要求の取得に失敗/, html.slice(0, 300));
+    assert.match(html, /提示先/, '同意画面が描画される');
+  } finally { issuer.close(); verifier.close(); }
+});

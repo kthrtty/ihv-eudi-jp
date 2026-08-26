@@ -15,6 +15,12 @@ import { shell, pkce, typeIcon, typeName, typeNote, vcardHtml, walletCardCss, WA
 import { catalog, configInfo } from './issuer.mjs';
 import { verifyStatus } from './status.mjs';
 import { createTrustResolver } from './trust.mjs';
+// **署名済み要求（JAR）の検証**。import 漏れで本番だけ落ちていた（2026-08-26）——
+// テストはトラストアンカー未設定（anchors=null）でこの関数を呼ばない経路を通るため、
+// 424 件のテストが全部通ったまま、アンカーが設定されている本番でだけ
+// `verifyRequestObject is not defined` で提示が全滅していた。
+// 回帰は**アンカーを注入した状態**で /present を通す（test/webwallet.test.mjs）。
+import { verifyRequestObject } from './request-object.mjs';
 import { storedCredRepr } from './vpdebug.mjs';
 import { recordingFetch, getLog, createLogRing } from './devlog.mjs';
 import { securityHeaders, csrfGuard, makeSsrfSafeFetch } from './security.mjs';
@@ -902,11 +908,16 @@ function presentConsent({ request, plan, have, held = [], statusMap = {}, rpAuth
   // **RP が「検証済み」と言えるのは、署名済み要求（JAR）の x5c がリーダーの
   // トラストアンカーまで辿れたときだけ**（2026-08-26）。以前は「ラベルの出所が
   // client_metadata 以外か」しか見ておらず、名前の出どころの話で RP 認証ではなかった。
-  //   rpAuth.verified === true  → 署名とチェーンが通った
+  //   rpAuth.verified === true  → 署名とチェーンが通った＝**RP を認証できた**
   //   rpAuth.verified === false → 署名済みだが検証に失敗（警告）
-  //   rpAuth == null            → unsigned またはトラストリスト未設定（従来の判定）
-  //   （`rp_name` はデモ拡張で誰でも名乗れるので「検証済み」にはしない）
-  const verified = rpAuth ? rpAuth.verified === true : !String(v.src).startsWith('rp_name');
+  //   rpAuth == null            → **unsigned＝RP 認証は行われていない**
+  //
+  // **unsigned を「検証済み」と出さない**（2026-08-26 に実測して修正）。
+  // 以前は「ラベルの出所が rp_name 以外なら検証済み」としており、
+  // `redirect_uri` prefix（§5.9.3 が "No authentication" と定める経路）でも
+  // 緑の「検証済み」が出ていた。response_uri のホスト名は TLS が宛先を保証するが、
+  // それは「そこへ送られる」であって「相手が誰か確かめた」ではない。
+  const verified = rpAuth?.verified === true;
   return shell('提示の確認', `
     <div class="cscrim"></div>
     <div class="csheet">
@@ -922,7 +933,9 @@ function presentConsent({ request, plan, have, held = [], statusMap = {}, rpAuth
         <span class="vbadge${verified ? '' : ' warn'}">${
           rpAuth?.verified === true ? '✓ 署名を検証しました'
           : rpAuth?.verified === false ? '⚠ 署名の検証に失敗'
-          : verified ? '✓ 検証済みの提示先' : '⚠ 未検証の名称'}</span>
+          // unsigned＝RP 認証なし。何を根拠に出している名前かを言う
+          : String(v.src).startsWith('rp_name') ? '⚠ 未検証の名称'
+          : '⚠ 署名なし（送信先のドメイン）'}</span>
       </div>
       ${request.purpose ? `<div class="rp-purpose"><b>利用目的</b>${esc(request.purpose)}</div>` : ''}
       <div class="rp-src">ラベル取得元: <code>${esc(v.src)}</code>${request.purpose ? ' ・ 利用目的: <code>request.purpose（デモ拡張）</code>' : ''}</div>
@@ -954,7 +967,11 @@ const PRESENT_STYLE = `<style>
   .hh-warn{font-size:16px;color:#8a6d1a;background:#FCF7E8;border:1px solid #EFE2B8;border-radius:8px;padding:6px 9px;margin-top:5px;line-height:1.6}
   .rp-purpose{background:#F3F8F6;border:1px solid #D2E5DF;border-radius:9px;padding:8px 12px;font-size:16px;margin-top:8px}
   .rp-purpose b{display:block;font-size:16px;color:var(--muted);letter-spacing:.06em}
-  .rp{display:flex;gap:11px;align-items:center;background:#f7f9fc;border:1px solid var(--line);border-radius:11px;padding:12px 14px}
+  /* **バッジは折り返す**（2026-08-26）。「✓ 署名を検証しました」は 12 文字あり、
+     nowrap のまま横一列に置くとスマホ幅（430px）で右端が切れて読めなかった。
+     DADS は 16px 未満にできないので、**サイズを落とさず行を増やして解く**。 */
+  .rp{display:flex;gap:11px;align-items:center;flex-wrap:wrap;background:#f7f9fc;border:1px solid var(--line);border-radius:11px;padding:12px 14px}
+  .rp-main{min-width:0;flex:1 1 auto}   /* 縮まないと折り返しが起きない */
   .rp-ic{width:34px;height:34px;border-radius:9px;background:var(--ink-verifier);flex:none}
   .rp-k{font-size:16px;color:var(--muted)}
   .rp-name{font-weight:700;font-size:16px;margin-top:1px}
