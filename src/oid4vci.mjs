@@ -14,6 +14,7 @@ import { coversMunicipality, getDisaster } from './disasters.mjs';
 import { sha256, b64url } from './cbor.mjs';
 import { validateFields } from './validate.mjs';
 import { verifyDpopProof } from './dpop.mjs';
+import { readFeatures } from './features.mjs';
 
 const PRE_AUTH_GRANT = 'urn:ietf:params:oauth:grant-type:pre-authorized_code';
 const PROOF_TYP = 'openid4vci-proof+jwt';
@@ -601,6 +602,48 @@ export class IssuerService {
   }
 
   /**
+   * フィーチャーフラグを解決する。**TTL 付きで isolate 内にキャッシュ**する
+   * （src/features.mjs の CACHE_TTL_MS）——無認証で叩ける /token や
+   * /.well-known/* が毎回 KV read になるのを避けつつ、デモ中の切り替えは
+   * 数十秒で全 isolate に行き渡る。保存した isolate では即座に反映される。
+   */
+  async features() { return readFeatures(this.store); }
+
+  /**
+   * 広告した方式でクライアントを認証する（HAIP §4.4.1）。
+   *
+   * **いまは「提示されていること」までしか見ていない**——`client_assertion` の
+   * **署名は検証していない**（鍵の入手方法を決めていないため。登録表に jwks を
+   * 持たせるのが次の一歩＝#40）。したがって現時点でこのフラグを有効にしても
+   * **なりすましは防げない**。それでも意味があるのは、
+   * (1) 広告と動作の連動という構造をここで固定できる、
+   * (2) 実機が広告に追従して assertion を送り始めるか実測できる、の2点。
+   * **「認証している」とは名乗らない**。
+   */
+  async #requireClientAuth(params, method) {
+    if (method === 'private_key_jwt') {
+      if (!params.client_assertion) {
+        throw httpErr(400, 'invalid_client', 'client_assertion is required (private_key_jwt)');
+      }
+      const type = String(params.client_assertion_type ?? '');
+      // RFC 7523 §2.2 が定める固定値
+      if (type && type !== 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer') {
+        throw httpErr(400, 'invalid_client', `unsupported client_assertion_type: ${type}`);
+      }
+      if (!assertedClientId(params.client_assertion)) {
+        throw httpErr(400, 'invalid_client', 'client_assertion is not a readable JWT with sub');
+      }
+      return;
+    }
+    if (method === 'attest_jwt_client_auth') {
+      // Wallet Attestation（HAIP Appendix E）は未実装。**黙って通さない**——
+      // 広告しておいて素通しにすると、広告が嘘になる
+      throw httpErr(400, 'invalid_client',
+        'attest_jwt_client_auth is advertised but not implemented yet (issue #40)');
+    }
+  }
+
+  /**
    * Token EP に来た DPoP proof を検証して拇印を返す（RFC 9449 §6.1）。
    * **proof が無ければ null**＝束ねない（bearer のまま）。
    * proof はあるが不正なら**投げる**——「送ってきたが壊れている」を黙って
@@ -702,7 +745,13 @@ export class IssuerService {
   // is advertised for discovery; the JWK Set is the issuer's credential-signing public
   // keys (trust remains x5c). `openid-configuration` is offered only as an optional
   // superset alias (see the route) — it is not required by OID4VCI.
-  asMetadata(base = this.credentialIssuer) {
+  /**
+   * @param {string} base
+   * @param {object} [features] 解決済みのフィーチャーフラグ。
+   *   **広告と検証動作は同じフラグから導出する**（src/features.mjs）。
+   *   渡さないときは既定（`client_auth: none`）で組む。
+   */
+  asMetadata(base = this.credentialIssuer, features = null) {
     return {
       issuer: base,
       authorization_endpoint: `${base}/authorize`,
@@ -718,7 +767,9 @@ export class IssuerService {
       response_types_supported: ['code'],
       response_modes_supported: ['query'],
       grant_types_supported: ['authorization_code', PRE_AUTH_GRANT],
-      token_endpoint_auth_methods_supported: ['none'],
+      // **フラグ1つから広告と検証の両方を導出する**——片方だけ変えられると
+      // 「対応していると言っているのにしていない」状態が作れてしまう
+      token_endpoint_auth_methods_supported: [features?.client_auth ?? 'none'],
       code_challenge_methods_supported: ['S256'],
       'pre-authorized_grant_anonymous_access_supported': true,
     };
@@ -840,6 +891,15 @@ export class IssuerService {
       // 「別のクライアントのコードを取り違えて使う事故」を防ぐ水準であって、
       // **なりすましを防ぐ水準ではない**。攻撃を防ぐにはクライアント認証か
       // Wallet Attestation（#40）が要る。
+      // **広告した認証方式を実際に要求する**（src/features.mjs）。
+      // 広告だけ変えて検証しないと「対応していると言っているのにしていない」になる。
+      // **要求するのは authorization_code だけ**——OID4VCI 1.0 は「For the
+      // Pre-Authorized Code Grant Type, authentication of the Client is OPTIONAL」と
+      // 明記しており、pre-auth に要求するとオファー経由の発行が壊れる。
+      const feats = await this.features();
+      if (feats.client_auth !== 'none') {
+        await this.#requireClientAuth(params, feats.client_auth);
+      }
       const presentedClientId = params.client_id ?? assertedClientId(params.client_assertion);
       if ((await this.#registries()).length && rec.client_id != null
           && String(presentedClientId ?? '') !== String(rec.client_id)) {

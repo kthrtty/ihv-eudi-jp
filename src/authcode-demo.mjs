@@ -1557,3 +1557,48 @@ export function authorizeUrl({ issuer, redirectUri, challenge, state, scope, iss
   if (issuerState) p.set('issuer_state', issuerState); else p.set('scope', scope);
   return `${issuer}/authorize?${p.toString()}`;
 }
+
+/**
+ * 発行者のフィーチャーフラグ設定（2026-08-27）。
+ *
+ * **どれが HAIP 準拠に関わるかをグループで示す**——「重いから」で一括して
+ * 切り捨てず是々非々で判断する、という方針を画面で支えるため。
+ * 各項目には「これを変えると何が変わるか」（広告と動作の両方）を併記する。
+ */
+export function renderFeatureSettings(FEATURES, current, saved = false) {
+  const groups = {};
+  for (const [name, f] of Object.entries(FEATURES)) (groups[f.group] ??= []).push([name, f]);
+  const block = ([name, f]) => `
+    <div class="fs" style="margin-top:14px">
+      <div class="lg">${esc(f.label)} <span class="mono" style="font-weight:400;color:var(--muted)">${esc(name)}</span></div>
+      <div class="hint" style="margin:4px 0 10px">${esc(f.spec)}</div>
+      ${f.values.map((v) => `
+        <label><input type="radio" name="${esc(name)}" value="${esc(v)}"${current[name] === v ? ' checked' : ''}>
+          ${esc(f.valueLabels?.[v] ?? v)}${v === f.default ? '' : ''}</label>`).join('')}
+      <div class="hint" style="margin-top:10px">
+        <b>連動して変わるもの</b><br>${f.affects.map((a) => `・${esc(a)}`).join('<br>')}
+      </div>
+      ${f.note ? `<div class="hint" style="margin-top:8px">${esc(f.note)}</div>` : ''}
+    </div>`;
+  return `
+    <div class="card" style="max-width:640px;margin:28px auto">
+      <div class="step">発行者の設定</div>
+      <h1>フィーチャーフラグ</h1>
+      <p class="hint">
+        <b>1つのフラグから「メタデータの広告」と「実際の検証動作」の両方が決まります。</b>
+        片方だけ変えられる作りにすると「対応していると言っているのにしていない」状態が
+        作れてしまうためです。再デプロイは要りません。
+      </p>
+      ${saved ? '<div class="ok" style="margin-top:12px">保存しました</div>' : ''}
+      <form method="POST" action="/settings">
+        ${Object.entries(groups).map(([g, items]) => `
+          <h2 style="font-size:18px;margin:22px 0 4px">${esc(g)} 準拠に関わる項目</h2>
+          ${items.map(block).join('')}`).join('')}
+        <button class="btn" type="submit" style="margin-top:18px">保存する</button>
+      </form>
+      <p class="hint" style="margin-top:14px">現在値は開発者コンソールの
+        <b>エンドポイント</b>タブにも出ます。<br>
+        設定は KV に置き、各インスタンスは <b>30 秒</b>までキャッシュします
+        （保存したインスタンスは即座に反映）。実機で試す前に行き渡ります。</p>
+    </div>`;
+}

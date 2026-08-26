@@ -8,7 +8,7 @@ import { IssuerService } from './oid4vci.mjs';
 import { VerifierService } from './verifier.mjs';
 import { buildDelivery, offerByValueUri, offerByReferenceUri, offerQrSvg } from './offer.mjs';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
-import { shell, renderAuthStart, renderCallback, renderOfferAuthcode, completeIssuance, pkce, authorizeUrl, renderLogin, appShell, renderConsentScreen, renderVcSelect, groupCatalog, renderHistory, renderAccount } from './authcode-demo.mjs';
+import { shell, renderAuthStart, renderCallback, renderOfferAuthcode, completeIssuance, pkce, authorizeUrl, renderLogin, appShell, renderConsentScreen, renderVcSelect, groupCatalog, renderHistory, renderAccount, renderFeatureSettings } from './authcode-demo.mjs';
 import { renderVerifyConsole, renderWebVerify, renderWebVerifyResult, renderVerifyHistory, renderVerifierSettings } from './verifier-demo.mjs';
 import { scenarioList, getScenario, evaluateScenario, scenarioConfigIds } from './scenarios.mjs';
 import { renderScenarioHome, renderScenarioRun, renderScenarioStep1Done, renderScenarioAccept, renderScenarioGone } from './scenario-demo.mjs';
@@ -90,11 +90,35 @@ export function createApp(opts = {}) {
   // 認可要求のパラメータは同意画面にも出る公開情報で、機微な値は devlog がマスクする。
   app.use('*', captureInbound(devlog, (p) => /^\/(authorize|token|par|nonce|credential|offer|jwks|\.well-known|status-lists)(\/|$)/.test(p)));
   app.get('/dev/log', (c) => c.json({ entries: getLog(devlog) }));
+  // ---- フィーチャーフラグの設定画面（2026-08-27）------------------------------
+  // **デモの最中に切り替えて対比を見せる**ためにあるので、再デプロイを挟まない。
+  // 相手（Multipaz）は AS メタデータの広告を読んで挙動を変えるので、
+  // ここを変えると実機の振る舞いも変わる——それ自体が見せ場になる。
+  app.get('/settings', async (c) => {
+    const sid0 = sid(c);
+    if (!sid0 || !await svc.sessionUser(sid0)) return c.redirect('/login?next=/settings', 302);
+    const { FEATURES } = await import('./features.mjs');
+    return c.html(shell('発行者の設定', renderFeatureSettings(
+      FEATURES, await svc.features(), c.req.query('saved') === '1'), { role: 'issuer' }));
+  });
+  app.post('/settings', async (c) => {
+    const sid0 = sid(c);
+    if (!sid0 || !await svc.sessionUser(sid0)) return c.redirect('/login?next=/settings', 302);
+    const { FEATURES, setFeature } = await import('./features.mjs');
+    const f = await c.req.parseBody();
+    // **値域はサーバ側で丸める**（画面で隠すのは防御ではない — 2026-08-09 の教訓）
+    for (const name of Object.keys(FEATURES)) {
+      if (f[name] != null) await setFeature(svc.store, name, String(f[name]));
+    }
+    return c.redirect('/settings?saved=1', 302);
+  });
+
   // Endpoint inventory for the developer console's エンドポイント tab. Metadata-returning
   // endpoints carry their current value; operational ones list method/path/desc only.
   app.get('/dev/endpoints', async (c) => {
     const base = issuerBase(c);
     const jwksVal = await issuerJwks().catch(() => ({ keys: [] }));
+    const feats = await svc.features();
     const [st, tr] = await Promise.all([
       svc.statusSummary().catch(() => null),
       trustSummary().catch(() => null),
@@ -110,7 +134,24 @@ export function createApp(opts = {}) {
       : '（集計できませんでした）');
     // **信頼と失効は「どのリストがどの形式に対応するか」が読めないと意味がない**ので、
     // 節の先頭に対応表を置く（案B）。VICAL に SD-JWT が無いことも表で見える
+    const { FEATURES, summarize } = await import('./features.mjs');
     const sections = [{
+      // **現在値を必ず見せる**（「未設定＝permissive」がバグを隠した反省）。
+      // どれが HAIP 準拠に関わるかをグループで示す
+      grp: 'フィーチャーフラグ',
+      note: '**フラグ1つから「メタデータの広告」と「実際の検証動作」の両方を導出する**。'
+        + '片方だけ変えられると「対応していると言っているのにしていない」状態が作れてしまう。'
+        + '設定は /settings（発行者）で変更でき、再デプロイは要らない。',
+      table: {
+        head: ['項目', '区分', '現在値', '根拠'],
+        rows: Object.entries(FEATURES).map(([name, f]) => [
+          { main: f.label, sub: name },
+          f.group,
+          { main: String(feats[name]), sub: feats[name] === f.default ? '既定' : '変更あり' },
+          f.spec,
+        ]),
+      },
+    }, {
       grp: '信頼と失効',
       note: 'アンカー（誰が発行した資格証を信じるか）と失効（その1枚がまだ有効か）。'
         + '索引空間もリストも形式ごとに独立していて、資格証が指した URI をそのまま辿る。',
@@ -128,7 +169,7 @@ export function createApp(opts = {}) {
     }];
     return c.json({ sections, endpoints: [
       { method: 'GET', path: '/.well-known/openid-credential-issuer', grp: 'メタデータ', desc: 'Issuer Metadata（OID4VCI §12）', value: svc.metadata(base) },
-      { method: 'GET', path: '/.well-known/oauth-authorization-server', grp: 'メタデータ', desc: 'AS Metadata（RFC 8414）', value: svc.asMetadata(base) },
+      { method: 'GET', path: '/.well-known/oauth-authorization-server', grp: 'メタデータ', desc: 'AS Metadata（RFC 8414）', value: svc.asMetadata(base, feats) },
       { method: 'GET', path: '/jwks', grp: 'メタデータ', desc: '署名鍵の JWK Set（trust は x5c）', value: jwksVal },
       { method: 'POST', path: '/par', grp: 'OAuth', desc: 'Pushed Authorization Request（RFC 9126）' },
       // **登録表は壊れていても画面は正常に見える**（POST で初めて invalid_client になる）。
@@ -167,13 +208,13 @@ export function createApp(opts = {}) {
 
   app.get('/.well-known/openid-credential-issuer', (c) => c.json(svc.metadata(issuerBase(c))));
   // OAuth AS metadata (RFC 8414) — OID4VCI's normative AS discovery document.
-  app.get('/.well-known/oauth-authorization-server', (c) => c.json(svc.asMetadata(issuerBase(c))));
+  app.get('/.well-known/oauth-authorization-server', async (c) => c.json(svc.asMetadata(issuerBase(c), await svc.features())));
   // OpenID Configuration — optional superset alias (NOT required by OID4VCI); provided
   // for wallets that fall back to it. Adds the OIDC-only advertised fields on top.
-  app.get('/.well-known/openid-configuration', (c) => {
+  app.get('/.well-known/openid-configuration', async (c) => {
     const base = issuerBase(c);
     return c.json({
-      ...svc.asMetadata(base),
+      ...svc.asMetadata(base, await svc.features()),
       subject_types_supported: ['public'],
       id_token_signing_alg_values_supported: ['ES256'],
       scopes_supported: ['openid'],
