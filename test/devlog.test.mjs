@@ -111,7 +111,8 @@ test('verifier /dev/client-log beacon lands in /dev/log (observe a manually-oper
 test('verifier hosted /client-metadata + /jwks expose the RP enc key (matches inline)', async () => {
   const v = createVerifierApp({ verifierOrigin: 'https://verifier.example', walletOrigin: 'https://wallet.example', issuerUrl: 'https://issuer.example' });
   const cm = await (await v.request('/client-metadata')).json();
-  assert.equal(cm.authorization_encrypted_response_alg, 'ECDH-ES');
+  // 1.0 Final で authorization_encrypted_response_alg/enc は廃止（clientMetadata() 参照）
+  assert.deepEqual(cm.encrypted_response_enc_values_supported, ['A128GCM']);
   assert.equal(cm.jwks.keys[0].use, 'enc');
   const jw = await (await v.request('/jwks')).json();
   assert.equal(jw.keys[0].use, 'enc');

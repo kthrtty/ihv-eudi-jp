@@ -2,7 +2,7 @@
 // encryption) and verifies the encrypted vp_token. Supports single requests and
 // session-linked sequential requests (PID -> EAA) checking same-holder binding.
 import { fileURLToPath } from 'node:url';
-import { randomBytes, X509Certificate, createPrivateKey, createPublicKey } from 'node:crypto';
+import { randomBytes, X509Certificate, createPrivateKey, createPublicKey, generateKeyPairSync } from 'node:crypto';
 import { verifyDeviceResponse } from './mdoc.mjs';
 import { verifySdJwtPresentation } from './sdjwt.mjs';
 import { annexDSessionTranscript, annexCSessionTranscript, oid4vpRedirectSessionTranscript, buildEncryptionInfo, hpkeSuite, annexCOpen, decodeAnnexCResponse, dcApiAud, cborEncode, b64url, coseKeyFromJwk } from './handover.mjs';
@@ -15,7 +15,30 @@ import { rawVpRepr } from './vpdebug.mjs';
 import { verifyStatus } from './status.mjs';
 import { memoryStore } from './oid4vci.mjs';
 
-const rand = () => randomBytes(16).toString('base64url');
+// **nonce は 32 バイト**（2026-08-26・conformance suite が検出）。16 バイトでも
+// 乱数としては 128 ビットあるが、suite は **文字列の Shannon エントロピー**を測って
+// 96 ビットを要求する（OID4VP 1.0 §5.2「fresh, cryptographically random number with
+// sufficient entropy」・OpenID4VP PR #722）。base64url 22 文字では推定 90 ビットにしか
+// ならず届かない——**「乱数の強度」と「測られ方」は別**なので、測られ方に余裕を持たせる。
+const rand = () => randomBytes(32).toString('base64url');
+// 取引 ID は URL とストアのキーで、エントロピーの検査対象ではないので 16 バイトのまま
+const randId = () => randomBytes(16).toString('base64url');
+
+/**
+ * **応答暗号化の鍵は要求ごとに作る**（2026-08-26・conformance suite が検出）。
+ * OID4VP 1.0 §5.1 は client_metadata の `jwks` を「This allows the Verifier to pass
+ * ephemeral keys specific to this Authorization Request」と定め、§8.3 / HAIP §5.5 は
+ * 要求ごとの一時鍵を MUST とする。使い回すと (1) 過去の応答を1つの鍵で遡って復号でき、
+ * (2) **同じ公開鍵が RP 間・要求間の相関子**になる（我々が unlinkability を掲げている面）。
+ * 秘密鍵は `vp:<txn>` に置き、復号時にそこから読む（取引が消えれば鍵も消える）。
+ */
+const newEphemeralEncKey = () => {
+  const { publicKey, privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+  return {
+    encPem: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+    encJwk: publicKey.export({ format: 'jwk' }),
+  };
+};
 const holderId = (jwk) => `${jwk.x}.${jwk.y}`; // normalize holder key across formats
 
 export class VerifierService {
@@ -84,12 +107,25 @@ export class VerifierService {
       .sign(key);
   }
 
-  clientMetadata() {
+  /**
+   * **client_metadata は閉じた集合**（2026-08-26・conformance suite が検出）。
+   * OID4VP 1.0 §5.1「Other metadata parameters MUST be ignored unless a profile of this
+   * specification explicitly defines them as usable in the `client_metadata` parameter.」
+   * 定義されているのは **jwks / encrypted_response_enc_values_supported /
+   * vp_formats_supported** の3つだけ。我々は次の3つを載せていて全部 unknown だった:
+   * - `authorization_encrypted_response_alg` / `_enc` … 1.0 Final で廃止。
+   *   内容暗号は `encrypted_response_enc_values_supported`（配列）が引き継ぎ、
+   *   鍵合意アルゴリズムは jwks の鍵自身（`alg`）が語る
+   * - `client_name` … OIDC Dynamic Client Registration の項目でここには無い。
+   *   **「MUST be ignored」＝載せても機能しない**ので、RP 名はデモ拡張として
+   *   要求のトップレベル（`rp_name`）へ移した。purpose と同じ扱い。
+   *   仕様上の正攻法は verifier_info（RP 属性証明）だが HAIP 相当で重い
+   * @param {object} encJwk この要求専用の一時公開鍵
+   */
+  clientMetadata(encJwk = this.encJwk) {
     return {
-      client_name: this.clientName,
-      jwks: this.jwksSet(),
-      authorization_encrypted_response_alg: 'ECDH-ES',
-      authorization_encrypted_response_enc: 'A128GCM',
+      jwks: { keys: [{ ...encJwk, use: 'enc', alg: 'ECDH-ES', kid: 'rp-enc-1' }] },
+      encrypted_response_enc_values_supported: ['A128GCM'],
       vp_formats_supported: { 'dc+sd-jwt': { 'sd-jwt_alg_values': ['ES256'], 'kb-jwt_alg_values': ['ES256'] }, mso_mdoc: { alg: ['ES256'] } },
     };
   }
@@ -144,7 +180,9 @@ export class VerifierService {
     await this._ensurePki();
     const nonce = rand();
     const dcql_query = buildDcql(specs);
-    const transactionId = rand();
+    const transactionId = randId();
+    // この要求専用の応答暗号鍵（上の newEphemeralEncKey を参照）
+    const { encPem, encJwk } = newEphemeralEncKey();
 
     if (protocol === 'annex-c') {
       if (dcql_query.credentials.some((q) => q.format !== 'mso_mdoc')) {
@@ -156,11 +194,11 @@ export class VerifierService {
         throw new Error('Annex C (org-iso-mdoc) supports a single credential per request; use Annex D for multi-credential');
       }
       const nonceBytes = randomBytes(16);
-      const encInfo = buildEncryptionInfo({ nonce: nonceBytes, recipientCoseKey: coseKeyFromJwk(this.encJwk) });
+      const encInfo = buildEncryptionInfo({ nonce: nonceBytes, recipientCoseKey: coseKeyFromJwk(encJwk) });
       const base64EncryptionInfo = b64url(cborEncode(encInfo));
       const transcript = annexCSessionTranscript({ base64EncryptionInfo, serializedOrigin: this.origin });
       await this.store.set(`vp:${transactionId}`, {
-        protocol: 'annex-c', nonce, dcql: dcql_query, transcript, base64EncryptionInfo,
+        protocol: 'annex-c', nonce, dcql: dcql_query, transcript, base64EncryptionInfo, encPem,
         sessionId: sessionId ?? transactionId, linkTo,
       });
       // 仕様準拠の wire（issue #13）: data は {deviceRequest, encryptionInfo} の2メンバーのみ。
@@ -185,14 +223,14 @@ export class VerifierService {
     }
 
     // ---- Annex D : OID4VP / HAIP over DC API (JWE) ----
-    const thumbprint = await calculateJwkThumbprint(this.encJwk);
+    const thumbprint = await calculateJwkThumbprint(encJwk);
 
     if (transport === 'redirect') {
       // OID4VP over HTTPS redirects (no DC API): mdoc MUST use direct_post.jwt.
       const respUri = responseUri || `${responseUriBase}/${transactionId}`;
       const clientId = `redirect_uri:${respUri}`;
       const transcript = oid4vpRedirectSessionTranscript({ clientId, responseUri: respUri, nonce });
-      await this.store.set(`vp:${transactionId}`, { protocol: 'annex-d', transport: 'redirect', clientId, nonce, dcql: dcql_query, transcript, sessionId: sessionId ?? transactionId, linkTo, signed });
+      await this.store.set(`vp:${transactionId}`, { protocol: 'annex-d', transport: 'redirect', clientId, nonce, dcql: dcql_query, transcript, encPem, sessionId: sessionId ?? transactionId, linkTo, signed });
       const request = {
         // **リダイレクト経路では署名の有無によらず client_id を必ず載せる**
         // （2026-08-26・conformance suite が2度検出）。
@@ -210,7 +248,14 @@ export class VerifierService {
         response_uri: respUri,
         nonce,
         dcql_query,
-        client_metadata: { ...this.clientMetadata(), ...(rpName ? { client_name: rpName } : {}) },
+        client_metadata: this.clientMetadata(encJwk),
+        // **RP 名はデモ拡張**（client_metadata は閉じた集合で `client_name` は
+        // 「MUST be ignored」＝入れても機能しない。clientMetadata() 参照）。
+        // **明示的に渡されたときだけ載せる**——既定値まで載せると素の要求が常に
+        // 「未知パラメータあり」になる。シナリオは見せ場なので載せ、通常の提示は
+        // 仕様どおりの形にして、ウォレットは response_uri のホスト名を出す。
+        // 仕様上の正攻法は `verifier_info`（RP 属性証明・署名付き）＝issue #39。
+        ...(rpName ? { rp_name: rpName } : {}),
         // demo extension for the consent screen (OID4VP 1.0 DCQL has no per-credential
         // purpose field; production would use transaction_data). Redirect transport only —
         // our own web wallet renders it; native wallets never see it.
@@ -227,7 +272,7 @@ export class VerifierService {
     // mdoc は SessionTranscript が origin/nonce/鍵拇印を束ねるため影響を受けない＝
     // mdoc だけ通って SD-JWT だけ落ちる、という切り分けにくい形で出た。
     const expectedAud = dcApiAud(this.origin);
-    await this.store.set(`vp:${transactionId}`, { protocol: 'annex-d', nonce, dcql: dcql_query, transcript, expectedAud, sessionId: sessionId ?? transactionId, linkTo });
+    await this.store.set(`vp:${transactionId}`, { protocol: 'annex-d', nonce, dcql: dcql_query, transcript, expectedAud, encPem, sessionId: sessionId ?? transactionId, linkTo });
 
     const request = {
       protocol: 'openid4vp',
@@ -243,13 +288,9 @@ export class VerifierService {
       nonce,
       origin: this.origin,
       dcql_query,
-      client_metadata: {
-        client_name: this.clientName,
-        jwks: { keys: [{ ...this.encJwk, use: 'enc', alg: 'ECDH-ES' }] },
-        authorization_encrypted_response_alg: 'ECDH-ES',
-        authorization_encrypted_response_enc: 'A128GCM',
-        vp_formats_supported: { 'dc+sd-jwt': { 'sd-jwt_alg_values': ['ES256'], 'kb-jwt_alg_values': ['ES256'] }, mso_mdoc: { alg: ['ES256'] } },
-      },
+      // **2箇所に書かない**——以前ここだけインラインで重複定義していたため、
+      // リダイレクト側を直しても DC API 側が古いままになりうる形だった
+      client_metadata: this.clientMetadata(encJwk),
     };
     return { transactionId, request };
   }
@@ -260,6 +301,12 @@ export class VerifierService {
     const session = await this.store.get(`vp:${transactionId}`);
     if (!session) return { valid: false, errors: ['unknown transaction'] };
     const errors = [];
+    // **復号鍵はその取引のもの**（要求ごとの一時鍵）。`encPem` を持たないのは
+    // この変更より前に作られた取引なので、従来の固定鍵で開く（保有中の提示を壊さない）。
+    const sessEncPem = session.encPem ?? this.encPrivatePem;
+    const sessEncPrivJwk = session.encPem
+      ? createPrivateKey(session.encPem).export({ format: 'jwk' })
+      : this.encPrivJwk;
 
     // ---- Annex C : HPKE-open the org-iso-mdoc DeviceResponse ----
     if (session.protocol === 'annex-c') {
@@ -273,7 +320,7 @@ export class VerifierService {
       let deviceResponse;
       try {
         const suite = hpkeSuite();
-        const recipientKey = await suite.kem.importKey('jwk', { ...this.encPrivJwk, key_ops: ['deriveBits'] }, false);
+        const recipientKey = await suite.kem.importKey('jwk', { ...sessEncPrivJwk, key_ops: ['deriveBits'] }, false);
         deviceResponse = await annexCOpen({ suite, recipientKey, enc: parsed.enc, cipherText: parsed.cipherText, info: session.transcript });
       } catch (e) {
         // 構造は仕様どおり＝残る原因は受信鍵の不一致か SessionTranscript の不一致
@@ -295,7 +342,7 @@ export class VerifierService {
 
     // ---- Annex D : JWE-decrypt the OID4VP vp_token ----
     let payload;
-    try { payload = await decryptResponse(encryptedResponse, this.encPrivatePem); }
+    try { payload = await decryptResponse(encryptedResponse, sessEncPem); }
     catch (e) { return { valid: false, errors: ['response decryption failed: ' + e.message] }; }
 
     const vpToken = payload.vp_token || {};

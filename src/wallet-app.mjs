@@ -22,11 +22,17 @@ import { securityHeaders, csrfGuard, makeSsrfSafeFetch } from './security.mjs';
 // type prefix of a configId (pid_mdoc -> pid) for the issuer-matched icon
 const credType = (configId) => String(configId || '').replace(/_(mdoc|sdjwt)$/, '');
 
-// Human-readable "提示先" label: prefer client_metadata.client_name, else fall
+// Human-readable "提示先" label: prefer the demo-extension `rp_name`, else fall
 // back to the host of the response_uri / a redirect_uri client_id, else client_id.
+//
+// **`client_metadata.client_name` はもう読まない**（2026-08-26・conformance suite）。
+// OID4VP 1.0 §5.1 は client_metadata を閉じた集合として定め「Other metadata parameters
+// MUST be ignored」とする。`client_name` はそこに無いので、**読むこと自体が仕様違反**。
+// 自作の verifier と自作の wallet でだけ噛み合う「自己ループ」になっていた（#13 と同型）。
+// いまは verifier が要求のトップレベルに `rp_name` を載せる（purpose と同じデモ拡張）。
 function verifierLabel(request) {
-  const name = request?.client_metadata?.client_name;
-  if (name) return { name, src: 'client_metadata.client_name' };
+  const name = request?.rp_name;
+  if (name) return { name, src: 'rp_name（デモ拡張・未検証）' };
   const cid = String(request?.client_id || '');
   const uri = request?.response_uri || (cid.startsWith('redirect_uri:') ? cid.slice('redirect_uri:'.length) : '');
   try { if (uri) return { name: new URL(uri).host, src: 'response_uri host' }; } catch {}
@@ -891,7 +897,8 @@ function presentConsent({ request, plan, have, held = [], statusMap = {}, rpAuth
   //   rpAuth.verified === true  → 署名とチェーンが通った
   //   rpAuth.verified === false → 署名済みだが検証に失敗（警告）
   //   rpAuth == null            → unsigned またはトラストリスト未設定（従来の判定）
-  const verified = rpAuth ? rpAuth.verified === true : v.src !== 'client_metadata.client_name';
+  //   （`rp_name` はデモ拡張で誰でも名乗れるので「検証済み」にはしない）
+  const verified = rpAuth ? rpAuth.verified === true : !String(v.src).startsWith('rp_name');
   return shell('提示の確認', `
     <div class="cscrim"></div>
     <div class="csheet">

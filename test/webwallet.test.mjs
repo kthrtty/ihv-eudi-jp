@@ -773,7 +773,11 @@ test('web wallet present: selective-disclosure UX (提示先 label, per-claim ch
     const html = await (await wallet.request('/present?request_uri=' + encodeURIComponent(reqUri), { headers: { cookie } })).text();
 
     assert.match(html, /提示先/);                                  // the new label
-    assert.match(html, /IHV デモ検証者/);                          // client_name surfaced
+    // **提示先は検証できる情報から出す**（2026-08-26）。以前は RP の自己申告名
+    // （client_metadata.client_name）を出していたが、§5.1 はこれを「MUST be ignored」と
+    // 定めており、そもそも誰でも名乗れる。response_uri のホスト名なら TLS が宛先を
+    // 保証するので、名前が出ないことは後退ではない
+    assert.match(html, new RegExp(`127\\.0\\.0\\.1:${VP}`));       // response_uri のホスト
     assert.match(html, /name="disclose:[^"]+" value="family_name"/); // per-claim checkbox
     assert.match(html, /name="disclose:[^"]+" value="given_name"/);
     assert.match(html, /送信内容のプレビュー（開発者向け）/);              // debug preview present

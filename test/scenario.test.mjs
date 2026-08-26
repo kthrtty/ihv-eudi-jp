@@ -208,7 +208,10 @@ test('scenarios: web-wallet step flow — step1 carries purpose+RP name; step2 l
   // step 1
   const b1 = await (await J(v, '/vp/build', { scenario: 'entry', step: 1, target: 'web' })).json();
   assert.equal(b1.request.purpose, SCENARIOS.entry.purpose, 'purpose rides the request (demo extension)');
-  assert.equal(b1.request.client_metadata.client_name, SCENARIOS.entry.rp, 'RP display name for the consent screen');
+  // RP 名は client_metadata でなくトップレベルの `rp_name`（デモ拡張）。
+  // §5.1 は client_metadata を閉じた集合とし client_name を「MUST be ignored」とする
+  assert.equal(b1.request.rp_name, SCENARIOS.entry.rp, 'RP display name for the consent screen');
+  assert.ok(!('client_name' in b1.request.client_metadata));
   assert.equal(b1.request.dcql_query.credentials[0].meta.doctype_value, 'jp.go.pid.1', 'step 1 asks for the PID only');
   const dest1 = await present(b1);
   assert.match(dest1, /\/verifier\/s\/entry\/result\//, 'web flow lands on the scenario step page');

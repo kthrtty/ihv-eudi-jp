@@ -222,13 +222,57 @@ test('Optional claims: required claims are enforced by satisfies; optional ones 
   assert.equal(rb.results[0].claims.given_name, '太郎');
 });
 
-test('Request advertises a human-readable client_name (提示先 label source)', async () => {
+test('client_metadata は OID4VP 1.0 §5.1 の閉じた集合のみ（RP 名はトップレベルのデモ拡張）', async () => {
   const v = new VerifierService({ clientName: '○○クリニック' });
   const { request } = await v.createRequest({
     specs: [{ id: 'pid', configId: 'pid_mdoc', claims: ['family_name'] }],
     transport: 'redirect', responseUriBase: 'https://verifier.example/resp',
   });
-  assert.equal(request.client_metadata.client_name, '○○クリニック');
+  // **値でなく規則を pin する**（ADR-0006）。§5.1 は「Other metadata parameters MUST be
+  // ignored unless a profile ... explicitly defines them」＝定義済みの3つ以外を載せない。
+  const ALLOWED = ['jwks', 'encrypted_response_enc_values_supported', 'vp_formats_supported'];
+  const extra = Object.keys(request.client_metadata).filter((k) => !ALLOWED.includes(k));
+  assert.deepEqual(extra, [], `client_metadata に仕様外のパラメータ: ${extra.join(',')}`);
+  // 1.0 Final で廃止された2つが復活しないこと
+  assert.ok(!('authorization_encrypted_response_alg' in request.client_metadata));
+  assert.ok(!('authorization_encrypted_response_enc' in request.client_metadata));
+  assert.ok(!('client_name' in request.client_metadata));
+  // **既定の RP 名は載せない**——載せると素の要求が常に「未知パラメータあり」になる
+  assert.ok(!('rp_name' in request), '既定の clientName が要求に漏れている');
+
+  // デモ拡張は明示的に要求されたときだけ載る（シナリオの見せ場）
+  const { request: r2 } = await v.createRequest({
+    specs: [{ id: 'pid', configId: 'pid_mdoc', claims: ['family_name'] }],
+    transport: 'redirect', responseUriBase: 'https://verifier.example/resp', rpName: 'あさひ航空',
+  });
+  assert.equal(r2.rp_name, 'あさひ航空');
+});
+
+test('応答暗号鍵は要求ごとの一時鍵（OID4VP 1.0 §8.3 / HAIP §5.5）', async () => {
+  const v = new VerifierService();
+  const mk = () => v.createRequest({
+    specs: [{ id: 'pid', configId: 'pid_mdoc', claims: ['family_name'] }],
+    transport: 'redirect', responseUriBase: 'https://verifier.example/resp',
+  });
+  const a = await mk(); const b = await mk();
+  const key = (r) => r.request.client_metadata.jwks.keys[0];
+  assert.notEqual(key(a).x, key(b).x, '応答暗号の公開鍵を要求間で使い回している');
+  // 秘密鍵はその取引に紐づいて保存され、復号はそこから引く
+  const st = await v.store.get(`vp:${a.transactionId}`);
+  assert.ok(st.encPem?.includes('PRIVATE KEY'), '取引に一時秘密鍵が保存されていない');
+});
+
+test('nonce は suite の Shannon エントロピー閾値（96 bit）を超える', async () => {
+  const v = new VerifierService();
+  const { request } = await v.createRequest({
+    specs: [{ id: 'pid', configId: 'pid_mdoc', claims: ['family_name'] }],
+    transport: 'redirect', responseUriBase: 'https://verifier.example/resp',
+  });
+  // suite は **文字列** の Shannon エントロピーを測る（乱数のビット数ではない）
+  const s = request.nonce, freq = {};
+  for (const ch of s) freq[ch] = (freq[ch] ?? 0) + 1;
+  const bits = -Object.values(freq).reduce((a, n) => a + (n / s.length) * Math.log2(n / s.length), 0) * s.length;
+  assert.ok(bits >= 96, `nonce のエントロピー推定 ${bits.toFixed(1)} bit < 96`);
 });
 
 test('Verifier regression: juminhyo (mdoc) residence_address whose mdoc element differs from key', async () => {
@@ -259,12 +303,18 @@ test('Verifier regression: PID (mdoc) residence_address also maps to resident_ad
 test('Verifier JWE: response is encrypted (not plaintext) and needs the RP key', async () => {
   const wallet = await walletWith(['pid_sdjwt']);
   const v = new VerifierService();
-  const { request } = await v.createRequest({ specs: [{ id: 'pid', configId: 'pid_sdjwt', claims: ['family_name'] }] });
+  const { transactionId, request } = await v.createRequest({ specs: [{ id: 'pid', configId: 'pid_sdjwt', claims: ['family_name'] }] });
   const enc = await wallet.respond(request);
   assert.ok(!enc.includes('山田') && !enc.includes('vp_token'), 'ciphertext must not leak claims/structure');
-  const payload = await decryptResponse(enc, encPriv);
+  // **鍵は要求ごとの一時鍵**なので、その取引に保存されたものでしか開かない
+  const { encPem } = await v.store.get(`vp:${transactionId}`);
+  const payload = await decryptResponse(enc, encPem);
   assert.ok(payload.vp_token.pid, 'decrypts with RP key');
-  await assert.rejects(() => decryptResponse(enc, readFileSync(fileURLToPath(new URL('../pki/verifier/rp.key', import.meta.url)))));
+  // 別の取引の鍵では開けない＝過去の応答を1つの鍵で遡って復号できない
+  const other = await v.createRequest({ specs: [{ id: 'pid', configId: 'pid_sdjwt', claims: ['family_name'] }] });
+  const otherKey = (await v.store.get(`vp:${other.transactionId}`)).encPem;
+  await assert.rejects(() => decryptResponse(enc, otherKey));
+  await assert.rejects(() => decryptResponse(enc, encPriv), 'RP の固定鍵でも開けない（使い回していない証拠）');
 });
 
 test('Verifier scenario C: PID -> EAA sequential, session-linked (same holder)', async () => {
