@@ -29,7 +29,11 @@ test('#28 LoTE は発行者アンカーとリーダーアンカーの両方を�
   // **VICAL では賄えない SD-JWT の信頼根がここにある**——これが LoTE を正本にする理由
   assert.ok(issuers.some((a) => /SD-JWT Issuer CA/.test(a.subject)), 'SD-JWT Issuer CA が載る');
   assert.ok(issuers.some((a) => /IACA/.test(a.subject)), 'mdoc IACA も載る');
-  assert.equal(readers.length, 1, 'Reader CA も同じリストに載る');
+  // **RP のアクセス証明書は経路ごとに複数ある**（2026-08-26）。件数でなく
+  // 「両方の経路の CA が reader ロールで載る」ことを pin する——件数を固定すると
+  // 経路を足したときにテストが先に落ちて、非準拠でない変更を非準拠に見せる
+  assert.ok(readers.some((a) => /Reader CA/.test(a.subject)), 'mdoc readerAuth の CA が載る');
+  assert.ok(readers.some((a) => /RP CA/.test(a.subject)), 'OID4VP の JAR/x509_san_dns の CA が載る');
   assert.ok(r.nextUpdate, 'NextUpdate を持つ');
 });
 
@@ -86,8 +90,13 @@ test('#28 未知・別役割のサービス型はアンカーにしない', asyn
   assert.ok(r.anchors.every((a) => /\/(PID|PubEAA|EAA|QEAA)\/|\/WRPAC\//.test(a.serviceType)),
     '許可した型だけがアンカーになる');
   assert.equal(r.warnings.length, EXTRA.length, '落とした型は warning に残す（黙って捨てない）');
-  // WalletSolution の証明書は Reader CA だが、**リーダーアンカーにも昇格しない**
-  assert.equal(r.readerCas ?? r.anchors.filter((a) => a.role === 'reader').length, 1);
+  // WalletSolution の証明書は Reader CA だが、**リーダーアンカーにも昇格しない**。
+  // **件数を固定せず「増えないこと」を見る**——正規の WRPAC は経路ごとに増えうるので、
+  // 定数で pin すると経路を足しただけでこのテストが落ちる（2026-08-26）
+  const base = await parseLoTE(lote(), { schemeCaDer });
+  const baseReaders = base.anchors.filter((a) => a.role === 'reader').length;
+  assert.equal(r.anchors.filter((a) => a.role === 'reader').length, baseReaders,
+    'WalletSolution / WRPRC / Register / 未知の型はリーダーアンカーに昇格しない');
 });
 
 // **署名済み payload が正**。`lote` メンバーだけ書き換えても効かない（署名を通らないため）。
@@ -367,7 +376,9 @@ test('#28 /dev/endpoints が「信頼と失効」節と対応表を返す', asyn
   // 集計は**自分のパーサを通す**ので、表示件数＝読む側が実際に採るアンカー数（自己適合）。
   // **証明書の種類**を数える——LoTE は1つの CA が複数サービスを担うのでエントリ数だと水増しになる
   const lote = eps.find((e) => e.path === '/trust/lote.json');
-  assert.match(lote.sub, /発行者 3／リーダー 1/, `実測: ${lote.sub}`);
+  // 件数そのものは構成で変わる（RP のアクセス証明書は経路ごとに増える）。
+  // **0 件でないこと**が要点——0 は「検証が全部落ちる」状態で、ここでしか見えない
+  assert.match(lote.sub, /発行者 [1-9]\d*／リーダー [1-9]\d*/, `実測: ${lote.sub}`);
   assert.match(eps.find((e) => e.path === '/trust/vical.cbor').sub, /発行者 2／リーダー 0/);
   assert.match(eps.find((e) => e.path === '/trust/rical.cbor').sub, /発行者 0／リーダー 1/);
   // 日付は ISO へ正規化する（cbor-x は tag 0 を Date に復号するので素だと "Sat Nov 14 …"）

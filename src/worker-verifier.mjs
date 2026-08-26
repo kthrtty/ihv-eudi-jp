@@ -22,6 +22,11 @@ function parseVerifierPki(json) {
     readerKey: raw.verifier?.readerKey ?? null,
     readerCert: raw.verifier?.readerCert ? b64ToDer(raw.verifier.readerCert) : null,
     readerCa: raw.verifier?.readerCa ? b64ToDer(raw.verifier.readerCa) : null,
+    // OID4VP の JAR 署名 / x509_san_dns 用（2026-08-26・reader とは別系統で SAN 付き）。
+    // 旧バンドルには無いので null 許容＝その場合は redirect_uri prefix（unsigned）に落ちる
+    rpKey: raw.verifier?.rpKey ?? null,
+    rpCert: raw.verifier?.rpCert ? b64ToDer(raw.verifier.rpCert) : null,
+    rpCa: raw.verifier?.rpCa ? b64ToDer(raw.verifier.rpCa) : null,
     // トラストリスト自身の署名者アンカー（issue #26/#28）。旧バンドルには無いので null 許容
     trustSchemeCa: raw.trust?.schemeCa ? b64ToDer(raw.trust.schemeCa) : null,
   };

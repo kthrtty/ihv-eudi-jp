@@ -53,10 +53,18 @@ const bundle = {
   },
   verifier: {
     encKey: pem('pki/verifier/rp-enc.key'),
-    // Annex C readerAuth 署名用（issue #20）— 無いと Workers では readerAuth 省略に落ちる
+    // Annex C readerAuth 署名用（issue #20）— 無いと Workers では readerAuth 省略に落ちる。
+    // **mdoc 専用**（EKU 1.0.18013.5.1.6・SAN なし。client_id を使わない経路）
     readerKey: pem('pki/reader/reader.key'),
     readerCert: derB64('pki/reader/reader.crt'),
     readerCa: derB64('pki/reader/reader-ca.crt'),
+    // **OID4VP の JAR 署名＋x509_san_dns の RP**（2026-08-26）。reader とは別系統で、
+    // SAN に提示を受け付けるホスト名が入っている（client_id と完全一致する必要がある）。
+    // 以前は JAR も readerKey で署名していたが、あれは mdoc reader auth 専用の EKU を
+    // 持つ証明書で用途が違ううえ SAN が無く、x509_san_dns へ切り替えられなかった。
+    rpKey: pem('pki/verifier/rp.key'),
+    rpCert: derB64('pki/verifier/rp.crt'),
+    rpCa: derB64('pki/verifier/rp-ca.crt'),
   },
   status: {
     // 後方互換（/status-lists/1 は従来どおり SD-JWT 系の鍵で署名）

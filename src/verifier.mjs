@@ -41,6 +41,14 @@ const newEphemeralEncKey = () => {
 };
 const holderId = (jwk) => `${jwk.x}.${jwk.y}`; // normalize holder key across formats
 
+/** 自己署名＝トラストアンカー。x5c から落とすため（sdjwt.mjs と同じ規則）。 */
+function isSelfSignedDer(der) {
+  try {
+    const c = new X509Certificate(Buffer.from(der));
+    return c.subject === c.issuer && c.verify(c.publicKey);
+  } catch { return false; }
+}
+
 export class VerifierService {
   // encPrivatePem / trustedIacaDer / trustedIssuerCaDer: explicit in Workers (from env);
   // null triggers lazy disk load in Node.js dev via _ensurePki().
@@ -50,10 +58,13 @@ export class VerifierService {
     clientName = 'IHV デモ検証者（RP）',
     encPrivatePem = null, trustedIacaDer = null, trustedIssuerCaDer = null,
     readerKeyPem = null, readerCertDer = null, readerCaDer = null,
+    rpKeyPem = null, rpCertDer = null, rpCaDer = null,
     statusResolver = null, trustResolver = null } = {}) {
     this.store = store; this.clientId = clientId; this.origin = origin;
     this.clientName = clientName;
     this.readerKeyPem = readerKeyPem; this.readerCertDer = readerCertDer; this.readerCaDer = readerCaDer;
+    // JAR 署名／x509_san_dns の RP 証明書（reader とは用途が違う。_ensurePki 参照）
+    this.rpKeyPem = rpKeyPem; this.rpCertDer = rpCertDer; this.rpCaDer = rpCaDer;
     this.statusResolver = statusResolver;
     // トラストリスト由来のアンカー（issue #26/#28）。**有れば正本**——バンドルに焼いた
     // `trustedIacaDer` / `trustedIssuerCaDer` は、リストが引けない環境（テスト・オフライン）
@@ -94,11 +105,21 @@ export class VerifierService {
    * `/dev/endpoints` で見える）。
    */
   async signRequestObject(request) {
-    if (!this.readerKeyPem || !this.readerCertDer) return null;
-    const x5c = [Buffer.from(this.readerCertDer).toString('base64')];
-    if (this.readerCaDer) x5c.push(Buffer.from(this.readerCaDer).toString('base64'));
+    // **署名は RP 証明書で行う**（2026-08-26）。以前は readerAuth の鍵を流用していたが、
+    // あれは ISO 18013-5 の mdoc reader 専用 EKU(1.0.18013.5.1.6) を持つ証明書で用途が違い、
+    // しかも SAN が無いので `x509_san_dns` の client_id と照合できなかった。
+    // **無ければ null を返し、呼び出し側は unsigned（redirect_uri prefix）に落ちる。**
+    if (!this.rpKeyPem || !this.rpCertDer) return null;
+    // **トラストアンカー（自己署名ルート）を x5c に入れない**（2026-08-26・conformance
+    // suite が検出）。SD-JWT VC でまったく同じ規則を守っていたのに JAR で踏み直した——
+    // 理由も同じで、**届いたチェーンだけで検証が完結してしまう**から。ウォレットは
+    // 自分の持つアンカーへ辿れなければ拒否しなければならない。
+    // 中間 CA を挟んでも自動で正しく載るよう、リーフ以外の自己署名だけを落とす。
+    const x5c = [this.rpCertDer, ...(this.rpCaDer ? [this.rpCaDer] : [])]
+      .filter((d, i) => i === 0 || !isSelfSignedDer(d))
+      .map((d) => Buffer.from(d).toString('base64'));
     const key = await importPKCS8(
-      typeof this.readerKeyPem === 'string' ? this.readerKeyPem : this.readerKeyPem.toString('utf8'), 'ES256');
+      typeof this.rpKeyPem === 'string' ? this.rpKeyPem : this.rpKeyPem.toString('utf8'), 'ES256');
     const now = Math.floor(Date.now() / 1000);
     return new SignJWT({ ...request, iss: request.client_id, aud: 'https://self-issued.me/v2' })
       .setProtectedHeader({ alg: 'ES256', typ: 'oauth-authz-req+jwt', x5c })
@@ -172,11 +193,28 @@ export class VerifierService {
       this.readerCertDer ??= der('pki/reader/reader.crt');
       this.readerCaDer ??= der('pki/reader/reader-ca.crt');
     } catch { /* reader PKI 未生成環境では readerAuth を省略 */ }
+    // JAR 署名＋x509_san_dns 用（**reader とは別系統**・SAN 付き）。同じく optional
+    try {
+      this.rpKeyPem ??= readFileSync(root('pki/verifier/rp.key'));
+      this.rpCertDer ??= der('pki/verifier/rp.crt');
+      this.rpCaDer ??= der('pki/verifier/rp-ca.crt');
+    } catch { /* 無ければ signed 要求は作れない＝redirect_uri prefix に落ちる */ }
   }
 
   /** Build a presentation request. protocol: 'annex-d' (OID4VP/HAIP over DC API,
-   *  JWE) or 'annex-c' (org-iso-mdoc, HPKE). Annex C is mdoc-only. */
-  async createRequest({ specs, sessionId, linkTo, protocol = 'annex-d', transport, responseUri, responseUriBase, purpose, rpName, signed = true } = {}) {
+   *  JWE) or 'annex-c' (org-iso-mdoc, HPKE). Annex C is mdoc-only.
+   *
+   * `clientIdPrefix` は **署名の有無と一体**（OID4VP 1.0 §5.9.3・2026-08-26）。
+   * 独立した2つのつまみではない:
+   * - `redirect_uri` … 「Requests using the `redirect_uri` Client Identifier Prefix
+   *   **cannot be signed** because there is no method for the Wallet to obtain a
+   *   trusted key for verification.」＝ RP 認証なし。client_id は response_uri と一致
+   * - `x509_san_dns` … 「The request **MUST be signed** with the private key
+   *   corresponding to the public key in the leaf X.509 certificate」。client_id の
+   *   prefix 以降が証明書の dNSName SAN と一致する必要がある＝ RP を認証できる
+   * 旧 `signed` 引数は後方互換のため残すが、prefix から導出するのが正。
+   */
+  async createRequest({ specs, sessionId, linkTo, protocol = 'annex-d', transport, responseUri, responseUriBase, purpose, rpName, clientIdPrefix = null, signed = null } = {}) {
     await this._ensurePki();
     const nonce = rand();
     const dcql_query = buildDcql(specs);
@@ -228,9 +266,20 @@ export class VerifierService {
     if (transport === 'redirect') {
       // OID4VP over HTTPS redirects (no DC API): mdoc MUST use direct_post.jwt.
       const respUri = responseUri || `${responseUriBase}/${transactionId}`;
-      const clientId = `redirect_uri:${respUri}`;
+      // **prefix を決めてから client_id と署名の有無が決まる**（上の JSDoc 参照）。
+      // 証明書が無ければ x509_san_dns は名乗れないので redirect_uri へ落ちる——
+      // SAN の無い証明書で名乗るとウォレットは client_id と照合できず正しく拒否する。
+      const canSign = !!(this.rpKeyPem && this.rpCertDer);
+      let prefix = clientIdPrefix ?? (signed === false ? 'redirect_uri' : 'x509_san_dns');
+      if (prefix === 'x509_san_dns' && !canSign) prefix = 'redirect_uri';
+      const signedReq = prefix === 'x509_san_dns';
+      // x509_san_dns の client_id は**証明書の dNSName SAN と完全一致**する必要がある。
+      // origin のホスト名を使う（gen-pki.sh が同じ名前を SAN に入れている）
+      const clientId = signedReq
+        ? `x509_san_dns:${new URL(this.origin).hostname}`
+        : `redirect_uri:${respUri}`;
       const transcript = oid4vpRedirectSessionTranscript({ clientId, responseUri: respUri, nonce });
-      await this.store.set(`vp:${transactionId}`, { protocol: 'annex-d', transport: 'redirect', clientId, nonce, dcql: dcql_query, transcript, encPem, sessionId: sessionId ?? transactionId, linkTo, signed });
+      await this.store.set(`vp:${transactionId}`, { protocol: 'annex-d', transport: 'redirect', clientId, nonce, dcql: dcql_query, transcript, encPem, sessionId: sessionId ?? transactionId, linkTo, signed: signedReq, clientIdPrefix: prefix });
       const request = {
         // **リダイレクト経路では署名の有無によらず client_id を必ず載せる**
         // （2026-08-26・conformance suite が2度検出）。

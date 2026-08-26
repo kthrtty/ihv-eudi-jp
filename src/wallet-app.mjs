@@ -30,7 +30,15 @@ const credType = (configId) => String(configId || '').replace(/_(mdoc|sdjwt)$/, 
 // MUST be ignored」とする。`client_name` はそこに無いので、**読むこと自体が仕様違反**。
 // 自作の verifier と自作の wallet でだけ噛み合う「自己ループ」になっていた（#13 と同型）。
 // いまは verifier が要求のトップレベルに `rp_name` を載せる（purpose と同じデモ拡張）。
-function verifierLabel(request) {
+function verifierLabel(request, rpAuth = null) {
+  // **最優先は検証済みの証明書の組織名**（2026-08-26）。署名済み要求（x509_san_dns）の
+  // x5c をトラストアンカーまで辿れたとき、その Subject の `O=` は**誰でも名乗れる
+  // 自己申告ではない**——CA が発行時に確認した名前で、ARF の RPAC（Wallet-Relying
+  // Party Access Certificate）が担う役割にあたる。
+  if (rpAuth?.verified === true && rpAuth.subject) {
+    const org = String(rpAuth.subject).split('\n').find((l) => l.startsWith('O='))?.slice(2).trim();
+    if (org) return { name: org, src: 'RP 証明書の組織名（検証済み）' };
+  }
   const name = request?.rp_name;
   if (name) return { name, src: 'rp_name（デモ拡張・未検証）' };
   const cid = String(request?.client_id || '');
@@ -748,7 +756,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
       // ARF transaction log: WHO was shown WHAT (claim names only — never values)
       const usedCreds = Object.values(selection).map((x) => x.credentialId).filter(Boolean);
       const usedClaims = [...new Set(Object.values(selection).flatMap((x) => x.disclose || []))];
-      s.activity = [{ at: new Date().toISOString(), rp: verifierLabel(request).name, claims: usedClaims, credIds: usedCreds },
+      s.activity = [{ at: new Date().toISOString(), rp: verifierLabel(request, s.present?.rpAuth ?? null).name, claims: usedClaims, credIds: usedCreds },
         ...(s.activity || [])].slice(0, 30);
       s.present = null;
       await saveSession(s); // presentation does NOT consume the credential — it stays in the wallet
@@ -795,7 +803,7 @@ const presentStatChip = (st) => !st?.checked
   : st.revoked ? '<span class="sc bad">● 失効</span>' : '<span class="sc ok">● 有効</span>';
 
 function presentConsent({ request, plan, have, held = [], statusMap = {}, rpAuth = null }) {
-  const v = verifierLabel(request);
+  const v = verifierLabel(request, rpAuth);
   const rpHost = (() => { try { return new URL(request.response_uri).host; } catch { return ''; } })();
   // ---- requested-but-not-held: explain the format/type mismatch
   const reqLine = plan.map((q) => `${esc(q.want || '?')}（${q.isMdoc ? 'mdoc' : 'SD-JWT'}）`).join('、');

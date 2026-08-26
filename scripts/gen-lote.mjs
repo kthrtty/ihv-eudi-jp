@@ -127,9 +127,19 @@ const lote = {
       entity({ ja: 'IHV デモ発行者', en: 'IHV Demo Issuer' }, pidServices),
       entity({ ja: 'IHV デモ検証者', en: 'IHV Demo Relying Party' }, [
         // WRPAC = Wallet Relying Party Access Certificate。ARF も「Access Certificate
-        // Authorities」の LoTE を挙げており、我々の Reader CA はこれにあたる
-        service('検証者アクセス証明書 CA', 'WRP Access Certificate CA',
+        // Authorities」の LoTE を挙げており、我々の Reader CA はこれにあたる。
+        //
+        // **RP のアクセス証明書は経路ごとに2本ある**（2026-08-26）。役割は同じ
+        // 「この RP は本物か」で、**プロトコルが違うだけ**なのでどちらも WRPAC:
+        //   - Reader CA … mdoc の readerAuth（ISO 18013-5・EKU 1.0.18013.5.1.6）
+        //   - RP CA     … OID4VP の JAR 署名と `x509_san_dns`（SAN で client_id と照合）
+        // **形式でラベルしない**（#26 の方針）——ウォレットは束を丸ごと試せばよく、
+        // mdoc の要求が RP CA へ繋がることはあり得ないので取り違えは起きない。
+        // 逆に RP CA を載せ忘れると、署名済み要求の検証が本番でだけ静かに落ちる。
+        service('検証者アクセス証明書 CA（mdoc reader）', 'WRP Access Certificate CA (mdoc reader)',
           SVC('WRPAC', 'Issuance'), 'pki/reader/reader-ca.crt'),
+        service('検証者アクセス証明書 CA（OID4VP）', 'WRP Access Certificate CA (OID4VP)',
+          SVC('WRPAC', 'Issuance'), 'pki/verifier/rp-ca.crt'),
       ]),
     ],
   },

@@ -531,18 +531,23 @@ test('Annex C rejects sd-jwt (mdoc-only)', async () => {
 test('redirect transport (web wallet): mdoc & sd-jwt verify over direct_post.jwt', async () => {
   const app = createApp({ credentialIssuer: ISSUER });
   const v = new VerifierService({ statusResolver: statusResolverFor(app) });
+  // **両方の client_id prefix を回す**（§5.9.3・2026-08-26）。prefix は署名の有無と
+  // 一体で、SessionTranscript も client_id を含むので、片方だけ通っても保証にならない。
   for (const cfg of ['pid_mdoc', 'pid_sdjwt']) {
+   for (const prefix of ['redirect_uri', 'x509_san_dns']) {
     const wallet = await walletWith([cfg]);
     const { transactionId, request } = await v.createRequest({
       specs: [{ id: 'q1', configId: cfg, claims: ['family_name', 'age_over_18'] }],
       transport: 'redirect', responseUri: 'https://verifier.example/oid4vp/response/t1',
+      clientIdPrefix: prefix,
     });
     assert.equal(request.response_mode, 'direct_post.jwt');
-    assert.ok(request.response_uri && request.client_id.startsWith('redirect_uri:'));
+    assert.ok(request.response_uri, `${cfg}/${prefix}: response_uri`);
+    assert.ok(request.client_id.startsWith(`${prefix}:`), `${cfg}: client_id は ${prefix}`);
     const resp = await wallet.respond(request); // wallet computes the same redirect handover
     assert.equal(typeof resp, 'string'); // JWE posted to response_uri
     const out = await v.verifyResponse({ transactionId, encryptedResponse: resp });
-    assert.ok(out.valid, `${cfg}: ${out.errors?.join()}`);
+    assert.ok(out.valid, `${cfg}/${prefix}: ${out.errors?.join()}`);
     assert.equal(out.results[0].claims.family_name, '山田');
 
     // the verifier now also exposes the raw vp_token (signatures incl.) for inspection
@@ -561,5 +566,80 @@ test('redirect transport (web wallet): mdoc & sd-jwt verify over direct_post.jwt
       assert.ok(Array.isArray(raw.json.disclosures), 'disclosures decoded');
       assert.ok(raw.json.kb_jwt?.signature_b64url, 'KB-JWT signature exposed');
     }
+   }
   }
+});
+
+// OID4VP 1.0 §5.9.3: prefix と署名は一体（独立した2つのつまみではない）。
+//   redirect_uri  … 「cannot be signed because there is no method for the Wallet to
+//                     obtain a trusted key for verification」＝ RP 認証なし
+//   x509_san_dns  … 「The request MUST be signed with the private key corresponding to
+//                     the public key in the leaf X.509 certificate」＝ SAN と client_id 一致
+test('client_id prefix が署名の有無と client_id の形を決める', async () => {
+  const v = new VerifierService();
+  const mk = (clientIdPrefix) => v.createRequest({
+    specs: [{ id: 'q1', configId: 'pid_sdjwt', claims: ['family_name'] }],
+    transport: 'redirect', responseUriBase: 'https://verifier.example/resp', clientIdPrefix,
+  });
+
+  const x = await mk('x509_san_dns');
+  assert.ok(x.request.client_id.startsWith('x509_san_dns:'));
+  assert.equal((await v.store.get(`vp:${x.transactionId}`)).signed, true, 'x509_san_dns は署名する');
+  // **client_id の DNS 名は署名証明書の SAN に無ければならない**
+  const jwt = await v.signRequestObject(x.request);
+  assert.ok(jwt, 'RP 証明書があれば署名できる');
+  const hdr = JSON.parse(Buffer.from(jwt.split('.')[0], 'base64url').toString('utf8'));
+  const { X509Certificate } = await import('node:crypto');
+  const leaf = new X509Certificate(Buffer.from(hdr.x5c[0], 'base64'));
+  const dns = x.request.client_id.slice('x509_san_dns:'.length);
+  assert.ok(String(leaf.subjectAltName || '').includes(`DNS:${dns}`),
+    `SAN(${leaf.subjectAltName}) に ${dns} が無い`);
+  // **readerAuth の証明書を流用していないこと**——あれは mdoc 専用 EKU を持ち SAN が無い
+  assert.ok(!String(leaf.keyUsage || '').includes('1.0.18013.5.1.6'));
+
+  const r = await mk('redirect_uri');
+  assert.ok(r.request.client_id.startsWith('redirect_uri:'));
+  assert.equal((await v.store.get(`vp:${r.transactionId}`)).signed, false, 'redirect_uri は署名しない');
+  // client_id は response_uri と一致する（suite の EnsureClientIdMatchesResponseUri）
+  assert.equal(r.request.client_id, `redirect_uri:${r.request.response_uri}`);
+});
+
+test('RP 証明書が無ければ x509_san_dns を名乗らず redirect_uri へ落ちる', async () => {
+  const v = new VerifierService();
+  await v._ensurePki();
+  v.rpKeyPem = null; v.rpCertDer = null;      // Workers で鍵が配れていない状況
+  const { request } = await v.createRequest({
+    specs: [{ id: 'q1', configId: 'pid_sdjwt', claims: ['family_name'] }],
+    transport: 'redirect', responseUriBase: 'https://verifier.example/resp',
+    clientIdPrefix: 'x509_san_dns',
+  });
+  // SAN の無い証明書で名乗るとウォレットは client_id と照合できず正しく拒否する。
+  // 署名を諦めて redirect_uri に落ちるほうが筋が通る
+  assert.ok(request.client_id.startsWith('redirect_uri:'), '名乗れないなら落ちる');
+});
+
+// **x5c にトラストアンカー（自己署名ルート）を入れない**。SD-JWT VC では HAIP §6.1.1 の
+// 明文だが、JAR でも conformance suite が同じことを見る（2026-08-26 に踏み直した）。
+// 理由も同じ——届いたチェーンだけで検証が完結してはならない。
+test('JAR の x5c にトラストアンカーを入れない（届いた鎖で検証が閉じない）', async () => {
+  const { X509Certificate } = await import('node:crypto');
+  const v = new VerifierService();
+  const { request } = await v.createRequest({
+    specs: [{ id: 'q1', configId: 'pid_sdjwt', claims: ['family_name'] }],
+    transport: 'redirect', responseUriBase: 'https://verifier.example/resp',
+    clientIdPrefix: 'x509_san_dns',
+  });
+  const jwt = await v.signRequestObject(request);
+  const hdr = JSON.parse(Buffer.from(jwt.split('.')[0], 'base64url').toString('utf8'));
+  for (const [i, b64] of hdr.x5c.entries()) {
+    const c = new X509Certificate(Buffer.from(b64, 'base64'));
+    const selfSigned = c.subject === c.issuer && c.verify(c.publicKey);
+    assert.ok(!selfSigned || i === 0, `x5c[${i}] が自己署名（アンカー）`);
+  }
+  // それでもウォレットは自分のアンカーへ辿れる（鎖が閉じていないだけで繋がってはいる）
+  const { verifyRequestObject } = await import('../src/request-object.mjs');
+  const { readFileSync } = await import('node:fs');
+  const anchor = new X509Certificate(readFileSync(new URL('../pki/verifier/rp-ca.crt', import.meta.url))).raw;
+  const vr = await verifyRequestObject(jwt, { anchors: [anchor] });
+  assert.equal(vr.verified, true, `アンカー注入で検証できること: ${vr.error}`);
 });

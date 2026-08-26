@@ -1182,7 +1182,14 @@ test('OID4VP: Request URI は署名済み要求オブジェクト（JAR）を返
   assert.equal(h.typ, 'oauth-authz-req+jwt', 'typ は仕様どおり');
   assert.equal(h.alg, 'ES256');
   assert.ok(Array.isArray(h.x5c) && h.x5c.length >= 1, 'x5c で RP を認証できる');
-  assert.ok(String(p.client_id).startsWith('redirect_uri:'), '署名済みなので client_id は正当');
+  // **署名済み要求の client_id は `x509_san_dns:`**（§5.9.3）。`redirect_uri` prefix は
+  // 「cannot be signed」なので、署名するならこちらでなければならない。
+  // しかも prefix 以降は証明書の dNSName SAN と一致していること
+  assert.ok(String(p.client_id).startsWith('x509_san_dns:'), '署名済みなら x509_san_dns');
+  const dns = String(p.client_id).slice('x509_san_dns:'.length);
+  const leaf = new (await import('node:crypto')).X509Certificate(Buffer.from(h.x5c[0], 'base64'));
+  assert.ok(String(leaf.subjectAltName || '').includes(`DNS:${dns}`),
+    `client_id の DNS 名 ${dns} が証明書の SAN(${leaf.subjectAltName}) に無い`);
   assert.equal(p.response_type, 'vp_token');
   assert.ok(p.nonce && p.dcql_query, 'nonce と DCQL を運ぶ');
 });

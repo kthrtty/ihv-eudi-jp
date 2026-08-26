@@ -710,6 +710,13 @@ export function createVerifierApp(opts = {}) {
     readerKeyPem: rest.readerKeyPem ?? verifierPki?.readerKey ?? null,
     readerCertDer: rest.readerCertDer ?? verifierPki?.readerCert ?? null,
     readerCaDer: rest.readerCaDer ?? verifierPki?.readerCa ?? null,
+    // JAR 署名＋x509_san_dns の RP 証明書（reader とは別系統・SAN あり）。
+    // **無ければ reader へフォールバックしない**——SAN が無い証明書で x509_san_dns を
+    // 名乗ると client_id と照合できず、ウォレットは正しく拒否する。署名自体を諦めて
+    // redirect_uri prefix（unsigned）に落ちるほうが筋が通る
+    rpKeyPem: rest.rpKeyPem ?? verifierPki?.rpKey ?? null,
+    rpCertDer: rest.rpCertDer ?? verifierPki?.rpCert ?? null,
+    rpCaDer: rest.rpCaDer ?? verifierPki?.rpCa ?? null,
     // 失効は発行者の Token Status List で判定する。**資格証が指した URI をそのまま辿る**——
     // idx は形式ごとに独立した索引空間で、リストも形式ごとに別（issue #25）。ここを決め打ちすると
     // mdoc の資格証を SD-JWT のリストで判定して取り違える。
@@ -1064,11 +1071,13 @@ export function createVerifierApp(opts = {}) {
       if (target === 'web') {
         if (protocol === 'annex-c') return c.json({ error: 'Annex C はネイティブウォレット（DC API）専用です' }, 400);
         const { transactionId, request } = await v.createRequest({
-          // **署名の有無を選べるようにする**（2026-08-26）。OID4VP 1.0 は Request URI に
-          // 署名済み要求（JAR）を求めるが、**unsigned も現実に使われている**——
-          // Multipaz 実機の DC API 経路がそれで、そちらでは client_id を省略する規定になる。
-          // 既定は signed（仕様に沿う側）。ビルダーで切り替えて挙動の差を見せられる。
-          signed: body.signed !== false,
+          // **Client Identifier Prefix を選べるようにする**（2026-08-26・OID4VP 1.0 §5.9.3）。
+          // prefix は署名の有無と一体で、独立した2つのつまみではない——
+          // `redirect_uri` は「cannot be signed」＝ RP 認証なし／`x509_san_dns` は
+          // 「MUST be signed」＝ x5c で RP を認証できる。ビルダーで見比べられる。
+          // 旧 `signed` も受ける（既存の呼び出し・conformance ドライバ用）。
+          clientIdPrefix: body.clientIdPrefix ?? null,
+          signed: body.signed ?? null,
           specs, transport: 'redirect', responseUriBase: `${verifierOrigin}/oid4vp/response`, ...scnOpts,
         });
         await putRequest(transactionId, request);

@@ -118,9 +118,19 @@ export function renderVerifyConsole(groups = []) {
         <label><input type="radio" name="proto" value="annex-c" id="protoc"> Annex C · org-iso-mdoc（HPKE, mdoc専用・DeviceRequest+readerAuth）— ネイティブのみ</label>
       </div>
       <div class="fs" id="signedbox">
-        <div class="lg">要求の署名（Request Object）</div>
-        <label><input type="radio" name="signed" value="1" checked> 署名する（JAR）— 仕様どおり。x5c で RP を認証でき、client_id を載せられる</label>
-        <label><input type="radio" name="signed" value="0"> 署名しない — client_id は<b>省略必須</b>。Multipaz 実機の DC API 経路はこちら</label>
+        <div class="lg">Client Identifier Prefix（RP の名乗り方）</div>
+        <label><input type="radio" name="cidprefix" value="x509_san_dns" checked>
+          <b>x509_san_dns</b> — 要求に<b>署名必須</b>。client_id は RP 証明書の
+          dNSName SAN と一致し、ウォレットは x5c を辿って<b>RP を認証</b>できる</label>
+        <label><input type="radio" name="cidprefix" value="redirect_uri">
+          <b>redirect_uri</b> — client_id は response_uri そのもの。
+          <b>署名できない</b>（ウォレットが検証鍵を得る手段がないため）＝<b>RP 認証なし</b></label>
+        <div class="hint" style="margin-top:8px">
+          OID4VP 1.0 §5.9.3。<b>署名の有無は prefix から決まる</b>ので別々には選べない
+          （「Requests using the <code>redirect_uri</code> Client Identifier Prefix cannot be
+          signed…」／x509_san_dns は「The request MUST be signed…」）。
+          同意画面の「提示先」の出どころが変わるのを見比べられる。
+        </div>
       </div>
 
       <label class="lbl">提示先（どのウォレットに要求するか）</label>
@@ -233,8 +243,9 @@ export function renderVerifyConsole(groups = []) {
         const body = tgt === 'selftest'
           ? { configId: selCfg, claims, optional, protocol: proto() }
           : { configId: selCfg, claims, optional, protocol: proto(), target: tgt,
-              // 要求の署名（JAR）。既定は署名する側＝仕様どおり
-              signed: (document.querySelector('input[name=signed]:checked') || {}).value !== '0' };
+              // **prefix が署名の有無まで決める**（OID4VP 1.0 §5.9.3）。
+              // 既定は x509_san_dns＝署名あり・RP 認証あり
+              clientIdPrefix: (document.querySelector('input[name=cidprefix]:checked') || {}).value || 'x509_san_dns' };
         const d = await (await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
         if (d.error) { err(d.error); return null; }
         built = { target: tgt, ...d };
