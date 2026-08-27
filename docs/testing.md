@@ -63,3 +63,51 @@ All files     |   99.8  |    79.6  |   98.9  |   99.8
 - **M3 wallet-core（済）**: 提示＋holder binding、I→H→V の薄い貫通を往復テスト化
 - **M5 相互運用（済）**: 決定性監査・golden・突合ハーネス。実バイト突合は M6 実機
 - **M4 Verifier（済）**: 否定テストを厚く。最終的に Multipaz/EUDI 参照実装と外部適合
+
+## 適合テスト（OpenID conformance suite）
+
+セルフホストの suite（`https://localhost:8443`）に対して発行者・検証者を測る。
+**HAIP は独立プランではなく variant**——VCI は `fapi_profile: vci_haip`、VP は `vp_profile: haip`。
+
+```
+npm run conformance:vci-auth <testId>       # 認可待ちのテストを進める
+npm run conformance:vp <planId> [module…]   # VP を回して結果画面を REVIEW に提出
+```
+
+**対象オリジンは `.deploy.env` から解決する**（`scripts/conformance-origins.mjs`）。
+本番ドメインはリポジトリに書かない規約なので、未設定なら `example.test` のまま止まる。
+
+### なぜ補助スクリプトが要るか
+
+- **認可はブラウザが要る**。suite は `/authorize` へリダイレクトして待つので、
+  ログイン → 同意 → コールバック → **暗黙送信 URL**（suite のコールバック画面が JS で
+  POST する先）まで叩かないと `WAITING` から進まない。`conformance-vci-auth.sh` がこれをやる
+- **1テストにつき1回だけ駆動する**。2回叩くと
+  `Illegal test state change: FINISHED -> RUNNING` で落ちる
+- VP の `REVIEW` 項目は「検証に成功した証拠のスクリーンショット」を要求する。
+  `conformance-vp.mjs` が Playwright で結果画面を撮って提出する。
+  **検証が成功していなければ撮らない**——失敗しているものを成功の証拠として上げるのは偽装
+
+### 事前に要る設定
+
+- クライアント（`conformance-1` / `-2`）は **KV の登録表**へ（`npm run clients add`）。
+  `multiple-clients` は `client.redirect_uri` に `?dummy1=lorem&dummy2=ipsum` が要る
+- コールバック `https://localhost:8443/test/a/<alias>/callback` を
+  **リダイレクト許可リストへ一時的に足す**必要がある。
+  **本番の防御を緩めるときは復元手順を先に作る**こと（`.deploy.env` を退避してから足し、
+  測定後に戻して deploy し直す）。戻ったことは**実測で確かめる**
+  （localhost へのリダイレクトが 400 になること）
+- key attestation の試験は `key_attestation` フラグを `required` にし、
+  suite の署名鍵（`client_attestation.key_attestation_jwks`・**x5c 付きが要る**）に対応する
+  証明書を `npm run key-attesters add-cert` で登録する
+- **終わったら全部戻す**（フラグ・クライアント登録・許可リスト）
+
+### 判定を鵜呑みにしない
+
+- **TLS 1.0/1.1 の FAILED は環境要因**——`*.workers.dev` は Cloudflare 所有ゾーンで
+  ゾーン設定が届かない（`docs/deploy.md` に実測付き）。我々の非準拠ではない
+- suite 側の未対応で落ちることもある（`java.lang.UnsupportedOperationException` 等）。
+  **落ちた＝我々が悪い、ではない。必ず仕様原文を引いて仕分ける**
+- 警告メッセージが**どのプロパティかを言わない**ことがある。判定根拠は jar 内の
+  JSON Schema（`json-schemas/oid4vci/*.json`）なので、取り出して手元で検証すると特定できる
+  （`unevaluatedProperties:false` を扱える Draft 2020-12 の検証器が要る）
