@@ -43,9 +43,14 @@ export function coseSign1({ payloadContent, privateKeyPem, x5chain }) {
  * なので発行時に変わりうる。判断の拠り所は interop/multipaz-jvm の適合テスト。
  * 詳細は docs/trust-and-revocation.md。
  */
-export function coseSign1ProtectedChain({ payloadContent, privateKeyPem, x5chain }) {
+export function coseSign1ProtectedChain({ payloadContent, privateKeyPem, x5chain, extraProtected = null }) {
+  // `extraProtected` は protected header に足すラベル（Map）。CWT は
+  // **16 (typ) を protected に置くことが REQUIRED**（Token Status List §5.2 /
+  // RFC 9596）なので、その口として開けてある。**保護対象に入れるのが要点**
+  // ——unprotected に置くと署名で守られず、型を書き換えられる
   const protectedContent = cborEncode(new Map([
     [HDR_ALG, ALG_ES256],
+    ...(extraProtected ? [...extraProtected] : []),
     [HDR_X5CHAIN, x5chain.map((d) => new Uint8Array(d))],
   ]));
   const toSign = sigStructure(protectedContent, payloadContent);

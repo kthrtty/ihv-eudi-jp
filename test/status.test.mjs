@@ -468,3 +468,216 @@ test('Status List Token は x5c と jwk の両方を載せ、同じ鍵を指す'
   assert.equal(h.jwk.y, fromCert.y);
   assert.ok(!h.jwk.d, '秘密鍵成分が漏れていない');
 });
+
+// #30 (B)(C): `:id` を一切見ておらず、**どの id でも `sub` が /status-lists/1 の
+// トークンを 200 で返していた**（`/status-lists/999` も `/status-lists/abc` も）。
+// §13.2 の検証手順 a は「`sub` は資格証の `uri` と等しくなければならない」と MUST で
+// 定めるので、それは「検証したら必ず落ちるもの」を配っているのと同じ。
+test('#30 存在しないリスト id は 404（sub と取得 URL を食い違わせない）', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+
+  const ok = await app.request(`${ISSUER}/status-lists/1`);
+  assert.equal(ok.status, 200);
+  const sub = JSON.parse(Buffer.from((await ok.text()).split('.')[1], 'base64url').toString('utf8')).sub;
+  assert.equal(sub, `${ISSUER}/status-lists/1`, 'sub は取得 URL と一致する');
+
+  for (const id of ['2', '999', 'abc', '1x']) {
+    const res = await app.request(`${ISSUER}/status-lists/${id}`);
+    assert.equal(res.status, 404, `/status-lists/${id} は 404`);
+    const f = await app.request(`${ISSUER}/status-lists/${id}/mdoc`);
+    assert.equal(f.status, 404, `/status-lists/${id}/mdoc は 404`);
+  }
+  // 形式ごとの経路は id=1 でだけ通り、sub も一致する
+  for (const fmt of ['mdoc', 'sdjwt']) {
+    const res = await app.request(`${ISSUER}/status-lists/1/${fmt}`);
+    if (res.status !== 200) continue;   // 署名鍵が無い環境（503）は対象外
+    const s = JSON.parse(Buffer.from((await res.text()).split('.')[1], 'base64url').toString('utf8')).sub;
+    assert.equal(s, `${ISSUER}/status-lists/1/${fmt}`);
+  }
+});
+
+// #30 (B) 検証側: **`sub` を資格証の `uri` と照合する**（§13.2 手順 a・MUST）。
+// 照合しないと「同じ発行者の別のリスト」を掴まされても気づけない——アンカー検証は
+// 「誰が署名したか」しか見ないので取り違えを検出できない。
+test('#30 verifyStatus は sub と uri の食い違いを弾く（§13.2 手順 a）', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { X509Certificate } = await import('node:crypto');
+  const key = readFileSync(new URL('../pki/sdjwt/pid.key', import.meta.url));
+  const certDer = new X509Certificate(readFileSync(new URL('../pki/sdjwt/pid.crt', import.meta.url))).raw;
+  const bits = new Array(64).fill(0);
+  // **別のリストの**トークン（sub が違う）を返すリゾルバ
+  const jwt = await buildStatusListToken({ bits, issuerKeyPem: key, issuerCertDer: certDer,
+    sub: `${ISSUER}/status-lists/OTHER` });
+  const ref = { status_list: { idx: 3, uri: `${ISSUER}/status-lists/1` } };
+  await assert.rejects(() => verifyStatus(ref, async () => jwt),
+    (e) => /sub does not match the referenced uri/.test(e.message));
+
+  // 一致していれば通る（規則が厳しすぎて正常系を壊していないこと）
+  const good = await buildStatusListToken({ bits, issuerKeyPem: key, issuerCertDer: certDer,
+    sub: `${ISSUER}/status-lists/1` });
+  const r = await verifyStatus(ref, async () => good);
+  assert.equal(r.checked, true);
+  assert.equal(r.revoked, false);
+});
+
+// #19: Token Status List の **CWT 形態**（§5.2・`application/statuslist+cwt`）。
+// **JWT 形態と中身は同じで器だけが違う**ので、同じビット列が同じ判定を返すことを見る。
+test('#19 CWT 形態: 同じビット列が JWT と同じ判定を返す（器だけの違い）', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { X509Certificate } = await import('node:crypto');
+  const { buildStatusListCwt, parseStatusListCwt } = await import('../src/status.mjs');
+  const key = readFileSync(new URL('../pki/sdjwt/pid.key', import.meta.url));
+  const certDer = new X509Certificate(readFileSync(new URL('../pki/sdjwt/pid.crt', import.meta.url))).raw;
+  const bits = new Array(256).fill(0);
+  for (const i of [0, 7, 8, 63, 255]) bits[i] = 1;
+  const sub = `${ISSUER}/status-lists/1`;
+
+  const cwt = await buildStatusListCwt({ bits, issuerKeyPem: key, issuerCertDer: certDer, sub });
+  assert.ok(cwt instanceof Uint8Array, 'CWT はバイト列（JWT のような文字列ではない）');
+  assert.equal(cwt[0], 0xd2, 'COSE_Sign1 のタグ 18（仕様の例が d2 で始まる）');
+
+  const jwt = await buildStatusListToken({ bits, issuerKeyPem: key, issuerCertDer: certDer, sub });
+  const c = await parseStatusListCwt(cwt);
+  const j = await parseStatusListToken(jwt);
+  assert.equal(c.sub, sub);
+  assert.equal(c.sub, j.sub, 'sub は器によらず同じ（§13.2 手順 a が器ごとに壊れない）');
+  for (let i = 0; i < 256; i++) {
+    assert.equal(c.getStatus(i), j.getStatus(i), `idx ${i} の判定が器で食い違う`);
+  }
+});
+
+// §5.2: `16 (type)` は **protected header** に置くことが REQUIRED。
+// unprotected に置くと署名で守られず型を書き換えられる。
+test('#19 CWT の型ヘッダは protected に入り、違う型は拒否される', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { X509Certificate } = await import('node:crypto');
+  const { buildStatusListCwt, parseStatusListCwt } = await import('../src/status.mjs');
+  const { cborDecodeMap } = await import('../src/cbor.mjs');
+  const key = readFileSync(new URL('../pki/sdjwt/pid.key', import.meta.url));
+  const certDer = new X509Certificate(readFileSync(new URL('../pki/sdjwt/pid.crt', import.meta.url))).raw;
+  const cwt = await buildStatusListCwt({ bits: new Array(64).fill(0), issuerKeyPem: key,
+    issuerCertDer: certDer, sub: `${ISSUER}/status-lists/1` });
+
+  const arr = cborDecodeMap(cwt).value;
+  const prot = cborDecodeMap(arr[0]);
+  assert.equal(prot.get(16), 'application/statuslist+cwt', '型は protected header の 16');
+  assert.equal(prot.get(1), -7, 'alg も protected（ES256）');
+  assert.equal(arr[1].size ?? 0, 0, 'unprotected は空（x5chain も protected 側）');
+
+  // 他用途の COSE_Sign1 を Status List として読ませない
+  const { coseSign1ProtectedChain } = await import('../src/cose.mjs');
+  const { cborEncode, Tag } = await import('../src/cbor.mjs');
+  const wrong = coseSign1ProtectedChain({ payloadContent: cborEncode(new Map([[2, 'x']])),
+    privateKeyPem: key, x5chain: [certDer], extraProtected: new Map([[16, 'application/other+cwt']]) });
+  await assert.rejects(() => parseStatusListCwt(cborEncode(new Tag(wrong, 18))),
+    (e) => /unexpected CWT type/.test(e.message));
+});
+
+// §5.2 のクレームキーは**整数**（RFC 8392）。status_list は 65533、ttl は 65534。
+// **`lst` は生の byte string**（base64url ではない）。
+test('#19 CWT のクレームキーは整数で lst は生のバイト列', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { X509Certificate } = await import('node:crypto');
+  const { buildStatusListCwt } = await import('../src/status.mjs');
+  const { cborDecodeMap } = await import('../src/cbor.mjs');
+  const key = readFileSync(new URL('../pki/sdjwt/pid.key', import.meta.url));
+  const certDer = new X509Certificate(readFileSync(new URL('../pki/sdjwt/pid.crt', import.meta.url))).raw;
+  const cwt = await buildStatusListCwt({ bits: new Array(64).fill(0), issuerKeyPem: key,
+    issuerCertDer: certDer, sub: `${ISSUER}/status-lists/1`, ttl: 43200 });
+
+  const claims = cborDecodeMap(cborDecodeMap(cwt).value[2]);
+  assert.equal(claims.get(2), `${ISSUER}/status-lists/1`, '2 = subject');
+  assert.equal(typeof claims.get(6), 'number', '6 = issued at');
+  assert.equal(claims.get(65534), 43200, '65534 = time to live');
+  const sl = claims.get(65533);
+  assert.ok(sl instanceof Map, '65533 = status list');
+  assert.equal(sl.get('bits'), 1);
+  const lst = sl.get('lst');
+  assert.ok(lst instanceof Uint8Array, 'lst は byte string（base64url 文字列ではない）');
+  // #36: zlib ヘッダはレベル9（Multipaz が 78da を固定バイト比較する）。器が変わっても同じ
+  assert.equal(lst[0], 0x78);
+  assert.equal(lst[1], 0xda, 'lst の zlib ヘッダが 78da（圧縮レベル9）');
+});
+
+// §8.1: `Accept` で器を出し分ける。**既定は JWT**——発行済みの資格証を持つウォレットが
+// JWT を期待しているので、既定を変えると本番が壊れる。
+test('#19 /status-lists は Accept で JWT / CWT を出し分ける（既定は JWT）', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+
+  const def = await app.request(`${ISSUER}/status-lists/1`);
+  assert.equal(def.headers.get('content-type'), 'application/statuslist+jwt', '既定は JWT');
+  assert.equal(typeof (await def.text()), 'string');
+
+  const cwtRes = await app.request(`${ISSUER}/status-lists/1`,
+    { headers: { accept: 'application/statuslist+cwt' } });
+  assert.equal(cwtRes.headers.get('content-type'), 'application/statuslist+cwt');
+  const bytes = new Uint8Array(await cwtRes.arrayBuffer());
+  assert.equal(bytes[0], 0xd2, 'COSE_Sign1 タグ');
+
+  // **両形態が同じ sub を名乗る**（器で §13.2 手順 a が壊れない）
+  const { parseStatusListCwt } = await import('../src/status.mjs');
+  const c = await parseStatusListCwt(bytes);
+  assert.equal(c.sub, `${ISSUER}/status-lists/1`);
+});
+
+// verifyStatus は**器を意識しない**（リゾルバが返したものの型で判別する）。
+test('#19 verifyStatus は CWT でも JWT でも同じ結果を返す', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { X509Certificate } = await import('node:crypto');
+  const { buildStatusListCwt } = await import('../src/status.mjs');
+  const key = readFileSync(new URL('../pki/sdjwt/pid.key', import.meta.url));
+  const certDer = new X509Certificate(readFileSync(new URL('../pki/sdjwt/pid.crt', import.meta.url))).raw;
+  const bits = new Array(64).fill(0); bits[5] = 1;
+  const sub = `${ISSUER}/status-lists/1`;
+  const ref = (idx) => ({ status_list: { idx, uri: sub } });
+
+  const cwt = await buildStatusListCwt({ bits, issuerKeyPem: key, issuerCertDer: certDer, sub });
+  const jwt = await buildStatusListToken({ bits, issuerKeyPem: key, issuerCertDer: certDer, sub });
+  for (const token of [cwt, jwt]) {
+    assert.equal((await verifyStatus(ref(5), async () => token)).revoked, true);
+    assert.equal((await verifyStatus(ref(6), async () => token)).revoked, false);
+  }
+  // sub の照合は CWT 側でも効く（§13.2 手順 a）
+  const other = await buildStatusListCwt({ bits, issuerKeyPem: key, issuerCertDer: certDer,
+    sub: `${ISSUER}/status-lists/OTHER` });
+  await assert.rejects(() => verifyStatus(ref(5), async () => other),
+    (e) => /sub does not match the referenced uri/.test(e.message));
+});
+
+// #19 **ゴールデンベクタ**: draft-ietf-oauth-status-list §5.2 の非規範例（hex）を
+// **我々のパーサで読む**。自分で作って自分で読む自己ループではない外部適合で、
+// クレームキーの割当・型ヘッダの位置・`lst` が生バイトであることを一度に固定できる。
+test('#19 仕様 §5.2 のゴールデンベクタを読める（外部適合）', async () => {
+  const { cborDecodeMap } = await import('../src/cbor.mjs');
+  const { decompressListRaw } = await import('../src/status.mjs');
+  const hex = `d2845820a2012610781a6170706c69636174696f6e2f7374617475736c6973742b63
+    7774a1044231325850a502782168747470733a2f2f6578616d706c652e636f6d2f73
+    74617475736c697374732f31061a648c5bea041a8898dfea19fffe19a8c019fffda2
+    646269747301636c73744a78dadbb918000217015d584054a98944dbe012e5cdf34f
+    3f808abc8819cd18c461e0d4ae7b155fb7091616ab98e436be5ea6c8e13d29fdaf51
+    1ccfc6dc6ed5b980c7aa8cf45ebdc8a989ee33`.replace(/\s+/g, '');
+  const decoded = cborDecodeMap(new Uint8Array(Buffer.from(hex, 'hex')));
+  assert.ok(!Array.isArray(decoded), 'タグ付き（COSE_Sign1 = tag 18）');
+  const arr = decoded.value;
+  assert.equal(arr.length, 4, 'COSE_Sign1 は4要素');
+
+  const prot = cborDecodeMap(arr[0]);
+  assert.equal(prot.get(16), 'application/statuslist+cwt', '型は protected header の 16');
+  assert.equal(prot.get(1), -7, 'alg = ES256');
+
+  const claims = cborDecodeMap(arr[2]);
+  assert.equal(claims.get(2), 'https://example.com/statuslists/1', '2 = subject');
+  assert.equal(typeof claims.get(6), 'number', '6 = issued at');
+  assert.equal(typeof claims.get(4), 'number', '4 = expiration time');
+  assert.equal(claims.get(65534), 43200, '65534 = time to live');
+  const sl = claims.get(65533);
+  assert.equal(sl.get('bits'), 1, '65533 = status list（1ビット）');
+  const lst = sl.get('lst');
+  assert.ok(lst instanceof Uint8Array, 'lst は byte string（base64url ではない）');
+  // #36: 器が変わっても zlib ヘッダはレベル9（78da）
+  assert.equal(lst[0], 0x78);
+  assert.equal(lst[1], 0xda);
+  // 我々の展開器がそのまま食える＝圧縮の扱いが JWT 側と共通で正しい
+  const list = decompressListRaw(lst);
+  assert.equal(typeof bitAt(list, 0), 'number');
+});

@@ -73,6 +73,41 @@ const pkiRef = (kind, ref) => _pki?.[kind]?.[ref] ?? _pki?.[kind]?.pid ?? null;
  * **トラストアンカーは x5c に入れない**——届いたトークンだけで検証が完結してはならない。
  */
 export async function signedMetadata(md) {
+  return signMetadataJwt({ ...md, sub: md.credential_issuer }, 'openidvci-issuer-metadata+jwt');
+}
+
+/**
+ * **RFC 8414 §2.1 の `signed_metadata`**（AS メタデータ・2026-08-27）。
+ *
+ * > metadata values MAY also be provided as a "signed_metadata" value, which is a
+ * > JSON Web Token (JWT) … MUST contain an "iss" (issuer) claim denoting the party
+ * > attesting to the claims in the signed metadata.
+ *
+ * **Issuer Metadata（§12.2.2）とは運び方が違う**ので同じ関数にはできない:
+ * - Issuer Metadata … **応答そのものを JWT にする**（`Accept: application/jwt` で出し分け・
+ *   payload の識別子は `sub`）
+ * - AS Metadata … **JSON の中に `signed_metadata` メンバとして埋める**（出し分けではない。
+ *   payload の識別子は `iss`）
+ *
+ * **`signed_metadata` 自身を payload に入れない**——RFC 8414 が
+ * 「A "signed_metadata" metadata value SHOULD NOT appear as a claim in the JWT」
+ * と定めている（入れると再帰的に肥大する）。
+ *
+ * 受け取る側は対応していなければ無視してよい（MAY ignore）ので、**平文の値は必ず残す**。
+ * 対応している側では**署名側の値が平文より優先される**ので、両者は必ず同じ内容にする
+ * ——食い違うと「広告と動作が違う」のと同じ種類のバグになる。
+ */
+export async function signedAsMetadata(md) {
+  const { signed_metadata: _drop, ...rest } = md;
+  // **メタデータの `issuer` と JWT クレームの `iss` は別物**（テストで捕まえた）。
+  // RFC 8414 §2 の**メタデータ名は `issuer`**、§2.1 が JWT に要求するのは **`iss`**。
+  // メタデータ値はそのままクレームになる（§2.1「A set of claims that can be used in
+  // signed metadata is defined in Section 2」）ので `issuer` は残し、`iss` を足す。
+  return signMetadataJwt({ ...rest, iss: md.issuer }, 'application/jwt');
+}
+
+/** メタデータを x5c 付き ES256 で署名する共通部。鍵が無ければ null（平文に落とす）。 */
+async function signMetadataJwt(payload, typ) {
   const sdIssuer = pkiRef('sdjwt', 'pid');
   const keyPem = sdIssuer?.key ?? await diskPem('pki/sdjwt/pid.key');
   const certDer = sdIssuer?.cert ?? await diskDer('pki/sdjwt/pid.crt');
@@ -85,8 +120,8 @@ export async function signedMetadata(md) {
     .filter((d, i) => i === 0 || !selfSigned(d))
     .map((d) => Buffer.from(d).toString('base64'));
   const key = await importPKCS8(typeof keyPem === 'string' ? keyPem : keyPem.toString('utf8'), 'ES256');
-  return new SignJWT({ ...md, sub: md.credential_issuer })
-    .setProtectedHeader({ alg: 'ES256', typ: 'openidvci-issuer-metadata+jwt', x5c })
+  return new SignJWT(payload)
+    .setProtectedHeader({ alg: 'ES256', typ, x5c })
     .setIssuedAt()
     .sign(key);
 }

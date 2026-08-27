@@ -1212,7 +1212,7 @@ export class IssuerService {
 
   // ---- Status List (revocation) ----
   // 配布前に必ず永続状態を読み直す — 別 isolate で行われた失効を反映するため
-  async statusListToken(format = null) { await this._loadState(); return this.statusList.token(format); }
+  async statusListToken(format = null, opts = {}) { await this._loadState(); return this.statusList.token(format, opts); }
   /**
    * 形式ごとの失効の要約（開発者コンソールの表示用）。**署名しない**——
    * `statusListToken()` を3回呼ぶと ES256 が3回走る（Workers の CPU 上限は 1リクエスト 10ms）。

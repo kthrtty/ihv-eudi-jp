@@ -36,6 +36,10 @@ export const bitAt = (bytes, idx) => (bytes[idx >> 3] >> (idx & 7)) & 1;
 // 回帰=test/status.test.mjs「lst の zlib ヘッダ」。
 export const compressList = (bits) => b64url(deflateSync(Buffer.from(packBits(bits)), { level: 9 }));
 export const decompressList = (lst) => new Uint8Array(inflateSync(Buffer.from(lst, 'base64url')));
+// **CWT では `lst` は生の CBOR byte string**（base64url ではない・§5.2）。
+// 圧縮そのものは JWT 側と同一（LSB-first で詰めて zlib レベル9）なので分岐はここだけ。
+export const compressListRaw = (bits) => new Uint8Array(deflateSync(Buffer.from(packBits(bits)), { level: 9 }));
+export const decompressListRaw = (lst) => new Uint8Array(inflateSync(Buffer.from(lst)));
 
 /**
  * Build a signed Status List Token (typ: statuslist+jwt).
@@ -95,6 +99,90 @@ export async function parseStatusListToken(jwt, { trustedCas = null } = {}) {
   return { sub: payload.sub, getStatus: (idx) => bitAt(bytes, idx) };
 }
 
+// ---- CWT 形態（issue #19・draft-ietf-oauth-status-list §5.2）--------------
+// CWT のクレームキーは **整数**（RFC 8392）。`status_list` と `ttl` は
+// このドラフトが独自に割り当てた 65533 / 65534。
+const CWT_SUB = 2, CWT_EXP = 4, CWT_IAT = 6, CWT_TTL = 65534, CWT_STATUS_LIST = 65533;
+const CWT_HDR_TYP = 16;                          // RFC 9596: COSE の "typ" ヘッダ
+const CWT_TYP = 'application/statuslist+cwt';
+const COSE_SIGN1_TAG = 18;
+
+/**
+ * Status List Token の **CWT 形態**（`application/statuslist+cwt`）。
+ *
+ * **JWT 形態と中身は同じで、器だけが違う**——ビット詰め（LSB-first）も zlib レベル9も
+ * 共通で、分岐するのは (1) `lst` が base64url でなく**生の byte string**、
+ * (2) クレームキーが文字列でなく**整数**、(3) 型が JOSE の `typ` でなく
+ * **COSE protected header の 16**、の3点だけ。
+ *
+ * **`typ` は protected に入れる**（§5.2 の REQUIRED）。unprotected に置くと
+ * 署名で守られず、型を書き換えられる。
+ *
+ * **タグ 18 を付ける**（COSE_Sign1）。仕様の例（§5.2 の hex）が `d2` で始まるのが根拠。
+ * 付けないと相手のパーサが「どの COSE 構造か」を判定できない。
+ */
+export async function buildStatusListCwt({ bits, issuerKeyPem, issuerCertDer, sub,
+  iat = Math.floor(Date.now() / 1000), exp = null, ttl = null }) {
+  const { coseSign1ProtectedChain } = await import('./cose.mjs');
+  const { cborEncode, Tag } = await import('./cbor.mjs');
+  const claims = new Map([
+    [CWT_SUB, sub],
+    [CWT_IAT, iat],
+    ...(exp != null ? [[CWT_EXP, exp]] : []),
+    ...(ttl != null ? [[CWT_TTL, ttl]] : []),
+    // §4.3 の構造。**キーは文字列のまま**（status_list の中身は JWT と同じ形）
+    [CWT_STATUS_LIST, new Map([['bits', 1], ['lst', compressListRaw(bits)]])],
+  ]);
+  const arr = coseSign1ProtectedChain({
+    payloadContent: cborEncode(claims),
+    privateKeyPem: issuerKeyPem,
+    x5chain: [issuerCertDer],
+    extraProtected: new Map([[CWT_HDR_TYP, CWT_TYP]]),
+  });
+  // **cbor-x の Tag は `(value, tag)` の順**（`tag24` 等の既存の使い方と同じ）。
+  // 逆に書くと素の整数 18 が出て**タグが付かない**（テストが捕まえた）
+  return cborEncode(new Tag(arr, COSE_SIGN1_TAG));
+}
+
+/**
+ * CWT 形態を検証してビット参照を返す。返り値は `parseStatusListToken` と同じ形なので、
+ * 呼び出し側（`verifyStatus`）は器を意識しない。
+ */
+export async function parseStatusListCwt(bytes, { trustedCas = null } = {}) {
+  const { coseVerify } = await import('./cose.mjs');
+  const { cborDecodeMap } = await import('./cbor.mjs');
+  const decoded = cborDecodeMap(bytes);
+  // タグ付き（正）でもむき出しの配列でも読む——受け取りは寛容に、送出は厳格に
+  const arr = Array.isArray(decoded) ? decoded : decoded?.value;
+  if (!Array.isArray(arr) || arr.length !== 4) throw new Error('not a COSE_Sign1 structure');
+  const r = coseVerify(arr);
+  if (!r.valid) throw new Error(`status list CWT signature invalid: ${r.error ?? ''}`);
+
+  // **型を確かめる**（§5.2 の REQUIRED）。他用途の COSE_Sign1 を
+  // Status List として読み込まされないため
+  const prot = cborDecodeMap(arr[0]);
+  const typ = prot.get(CWT_HDR_TYP);
+  if (typ !== CWT_TYP) throw new Error(`unexpected CWT type: ${typ}`);
+
+  if (trustedCas != null) {
+    // JWT 側と同じ規則（#26）——**アンカー0件は fail-closed**
+    const anchors = Array.isArray(trustedCas) ? trustedCas : [trustedCas];
+    if (!anchors.some((d) => { try { return r.leaf.verify(new X509Certificate(Buffer.from(d)).publicKey); } catch { return false; } })) {
+      throw new Error('status list signer does not chain to a trusted anchor');
+    }
+    const now = new Date();
+    if (!(new Date(r.leaf.validFrom) <= now && now <= new Date(r.leaf.validTo))) {
+      throw new Error('status list signer certificate is outside its validity period');
+    }
+  }
+  const claims = cborDecodeMap(arr[2]);
+  const sl = claims.get(CWT_STATUS_LIST);
+  const lst = sl instanceof Map ? sl.get('lst') : sl?.lst;
+  if (!lst) throw new Error('CWT has no status_list claim (65533)');
+  const list = decompressListRaw(lst);
+  return { sub: claims.get(CWT_SUB), getStatus: (idx) => bitAt(list, idx) };
+}
+
 /**
  * Verifier helper: resolve a status reference and report revocation.
  * `trustedCas` は `parseStatusListToken` にそのまま渡す（署名者の信頼根確認・#26）。
@@ -102,8 +190,23 @@ export async function parseStatusListToken(jwt, { trustedCas = null } = {}) {
 export async function verifyStatus(statusRef, resolve, { trustedCas = null } = {}) {
   if (!statusRef) return { checked: false };
   const ref = statusRef.status_list || statusRef; // accept {status_list:{idx,uri}} or {idx,uri}
-  const jwt = await resolve(ref.uri);             // fetch the WHOLE list (unlinkable)
-  const { getStatus } = await parseStatusListToken(jwt, { trustedCas });
+  const fetched = await resolve(ref.uri);         // fetch the WHOLE list (unlinkable)
+  // **器は中身で見分ける**（issue #19）。JWT はコンパクト直列化の ASCII 文字列、
+  // CWT は CBOR のバイト列。**Content-Type に頼らない**——リゾルバは呼び出し側の
+  // 実装（テスト・キャッシュ層）でヘッダを保持しないことがあり、そこで判定が壊れる。
+  const { getStatus, sub } = typeof fetched === 'string'
+    ? await parseStatusListToken(fetched, { trustedCas })
+    : await parseStatusListCwt(fetched, { trustedCas });
+  // **`sub` が資格証の `uri` と一致することを確かめる**（§13.2 の検証手順 a・**MUST**）:
+  // 「The subject claim (sub or 2) of the Status List Token MUST be equal to the uri claim
+  //  in the status_list object of the Referenced Token」。
+  // 照合しないと、**別のリストを掴まされても気づけない**——発行者が
+  // `/status-lists/:id` でどの id にも同じトークンを返していると（issue #30・実際に
+  // そうなっていた）、取得 URL と中身の食い違いが検出できない。アンカー検証は
+  // 「誰が署名したか」しか見ないので、**同じ発行者の別のリスト**とは取り違えうる。
+  if (sub !== ref.uri) {
+    throw new Error(`status list sub does not match the referenced uri (sub=${sub} uri=${ref.uri})`);
+  }
   const status = getStatus(ref.idx);
   return { checked: true, revoked: status === 1, status };
 }
@@ -238,18 +341,24 @@ export class StatusListService {
     return s;
   }
   /** 配布するトークン。形式ごとに署名鍵・sub・ビット列が変わる。 */
-  async token(format = null) {
+  /**
+   * 配布用トークンを作る。`cwt: true` で **CWT 形態**（issue #19・§5.2）。
+   * **`sub` は器によらず同じ**——同じリストの同じ URI を指すので、
+   * ここが分岐すると §13.2 手順 a（sub == uri）が器ごとに壊れる。
+   */
+  async token(format = null, { cwt = false } = {}) {
     // **配布するリストの長さは常に事前確保どおり**でなければならない（発行数を漏らさないため）。
     // 通常は restore が揃えているが、直接 bits を触られた場合の保険（issue #30）
     this.#pad();
     const f = StatusListService.fmt(format);
+    const build = cwt ? buildStatusListCwt : buildStatusListToken;
     // 後方互換: 明示注入された鍵は legacy にだけ使う（旧デプロイと同じ署名者を保つ）
     if (f === 'legacy' && this.issuerKeyPem) {
-      return buildStatusListToken({ bits: this.lists.legacy.bits, issuerKeyPem: this.issuerKeyPem,
+      return build({ bits: this.lists.legacy.bits, issuerKeyPem: this.issuerKeyPem,
         issuerCertDer: this.issuerCertDer, sub: this.uri });
     }
     const s = await this.#signer(f);
-    return buildStatusListToken({ bits: this.#list(f).bits, issuerKeyPem: s.key,
+    return build({ bits: this.#list(f).bits, issuerKeyPem: s.key,
       issuerCertDer: s.cert, sub: this.uriFor(f) });
   }
 }

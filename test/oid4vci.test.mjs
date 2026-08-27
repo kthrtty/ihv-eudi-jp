@@ -569,6 +569,58 @@ test('署名済み Credential Issuer Metadata（§12.2.3）', async () => {
   await jwtVerify(jwt, await importX509(pem, 'ES256'));
 });
 
+// RFC 8414 §2.1: AS メタデータの `signed_metadata`。**Issuer Metadata とは運び方が違う**
+// ——あちらは応答そのものを JWT にする（Accept で出し分け）、こちらは **JSON の中に
+// メンバとして埋める**（出し分けではない）。
+test('AS メタデータに signed_metadata を添える（RFC 8414 §2.1）', async () => {
+  const { X509Certificate } = await import('node:crypto');
+  const app = createApp({ credentialIssuer: ISSUER });
+  const res = await app.request(`${ISSUER}/.well-known/oauth-authorization-server`);
+  assert.match(res.headers.get('content-type') || '', /application\/json/,
+    '**平文が本体**（署名は添えるだけ。受け取る側は無視してよい）');
+  const md = await res.json();
+  assert.equal(typeof md.signed_metadata, 'string', 'signed_metadata は JWT 文字列');
+
+  const [h, p] = md.signed_metadata.split('.').slice(0, 2)
+    .map((x) => JSON.parse(Buffer.from(x, 'base64url').toString('utf8')));
+  assert.notEqual(h.alg, 'none');
+  assert.ok(!/^HS/.test(h.alg), 'MAC 不可');
+  assert.ok(Array.isArray(h.x5c) && h.x5c.length, '鍵解決の手がかり（x5c）');
+  // **トラストアンカーを x5c に入れない**（他の面と同じ規則）
+  for (const [i, b64] of h.x5c.entries()) {
+    const cert = new X509Certificate(Buffer.from(b64, 'base64'));
+    const self = cert.subject === cert.issuer && cert.verify(cert.publicKey);
+    assert.ok(!self || i === 0, `x5c[${i}] が自己署名（アンカー）`);
+  }
+  assert.equal(p.iss, ISSUER, '「MUST contain an "iss" claim denoting the party attesting」');
+  // 「A "signed_metadata" metadata value SHOULD NOT appear as a claim in the JWT」
+  assert.ok(!('signed_metadata' in p), 'signed_metadata 自身を payload に入れない');
+
+  // **平文と署名の中身が一致すること**。対応している側では署名側が優先されるので、
+  // 食い違うと「広告と動作が違う」のと同じ種類のバグになる
+  for (const [k, v] of Object.entries(md)) {
+    if (k === 'signed_metadata') continue;
+    assert.deepEqual(p[k], v, `${k} が平文と署名で食い違う`);
+  }
+
+  const { jwtVerify, importX509 } = await import('jose');
+  const pem = `-----BEGIN CERTIFICATE-----\n${h.x5c[0]}\n-----END CERTIFICATE-----`;
+  await jwtVerify(md.signed_metadata, await importX509(pem, 'ES256'));
+});
+
+// フィーチャーフラグを変えたら**平文も署名も同時に変わる**こと（広告と動作を1つの
+// フラグから導く、という方針が署名側にも及んでいるか）。
+test('signed_metadata はフラグの変更に追随する（平文と乖離しない）', async () => {
+  const { setFeature } = await import('../src/features.mjs');
+  const app = createApp({ credentialIssuer: ISSUER });
+  await setFeature(app.svc.store, 'client_auth', 'attest_jwt_client_auth');
+  const md = await (await app.request(`${ISSUER}/.well-known/oauth-authorization-server`)).json();
+  const p = JSON.parse(Buffer.from(md.signed_metadata.split('.')[1], 'base64url').toString('utf8'));
+  assert.deepEqual(md.token_endpoint_auth_methods_supported, ['attest_jwt_client_auth']);
+  assert.deepEqual(p.token_endpoint_auth_methods_supported, ['attest_jwt_client_auth'],
+    '署名側が古い値のまま固まらない');
+});
+
 // **`/dev/endpoints` が本番で 500 を返していた**（2026-08-27）。#40 で登録表の Map 値の
 // 形を `string[]` から `{redirect_uris, jwks}` へ変えたとき、`clientRegistrySummary()` の
 // `dump()` が旧形（配列）のまま `v.join('|')` していて、新形（オブジェクト）に対して

@@ -15,7 +15,7 @@ import { renderScenarioHome, renderScenarioRun, renderScenarioStep1Done, renderS
 import { captureInbound, getLog, pushLog, buildEntry, createLogRing } from './devlog.mjs';
 import { securityHeaders, csrfGuard, isSafeNext } from './security.mjs';
 import { createWallet } from './wallet.mjs';
-import { allConfigIds, configInfo, jwks as issuerJwks, accountCatalog, signedMetadata } from './issuer.mjs';
+import { allConfigIds, configInfo, jwks as issuerJwks, accountCatalog, signedMetadata, signedAsMetadata } from './issuer.mjs';
 import { getApplicationType, labelOf, subOf, parseHousehold, parseChecks, parseConsents } from './applications.mjs';
 import { validateAttachment, displayName, safeStoredName, validateThumb, ATT_MIME, MAX_FILES, MAX_TOTAL_BYTES, attIdx, reencodeImage } from './upload.mjs';
 import { renderApplyForm, renderMunicipalityPicker, renderDisasterPicker, renderMyApplications, renderMyApplication } from './apply-demo.mjs';
@@ -120,6 +120,17 @@ export function createApp(opts = {}) {
     return c.redirect('/settings?saved=1', 302);
   });
 
+  // **`signed_metadata` を添えた AS メタデータ**（RFC 8414 §2.1）。平文の値は必ず残す
+  // ——受け取る側は対応していなければ無視してよい（MAY ignore）ので、署名だけにすると
+  // 発見が丸ごと壊れる。署名できない環境（鍵が無い）では黙って平文だけを返す。
+  // **平文と署名の中身は必ず同じにする**（対応している側では署名側が優先されるため、
+  // 食い違うと「広告と動作が違う」のと同じ種類のバグになる）
+  const asMetadataBody = async (base) => {
+    const md = svc.asMetadata(base, await svc.features());
+    const jwt = await signedAsMetadata(md).catch(() => null);
+    return jwt ? { ...md, signed_metadata: jwt } : md;
+  };
+
   // Endpoint inventory for the developer console's エンドポイント tab. Metadata-returning
   // endpoints carry their current value; operational ones list method/path/desc only.
   app.get('/dev/endpoints', async (c) => {
@@ -176,7 +187,9 @@ export function createApp(opts = {}) {
     }];
     return c.json({ sections, endpoints: [
       { method: 'GET', path: '/.well-known/openid-credential-issuer', grp: 'メタデータ', desc: 'Issuer Metadata（OID4VCI §12）', value: svc.metadata(base) },
-      { method: 'GET', path: '/.well-known/oauth-authorization-server', grp: 'メタデータ', desc: 'AS Metadata（RFC 8414）', value: svc.asMetadata(base, feats) },
+      { method: 'GET', path: '/.well-known/oauth-authorization-server', grp: 'メタデータ',
+        desc: 'AS Metadata（RFC 8414）— signed_metadata 付き（§2.1・平文の値も残す）',
+        value: await asMetadataBody(base) },
       { method: 'GET', path: '/jwks', grp: 'メタデータ', desc: '署名鍵の JWK Set（trust は x5c）', value: jwksVal },
       // **PAR はクライアント認証の場でもある**（HAIP §4.4.1）。アンカー 0 件＝
       // attest_jwt_client_auth が1件も通らない状態は、ここでしか見えない
@@ -229,13 +242,13 @@ export function createApp(opts = {}) {
     return c.json(md);
   });
   // OAuth AS metadata (RFC 8414) — OID4VCI's normative AS discovery document.
-  app.get('/.well-known/oauth-authorization-server', async (c) => c.json(svc.asMetadata(issuerBase(c), await svc.features())));
+  app.get('/.well-known/oauth-authorization-server', async (c) => c.json(await asMetadataBody(issuerBase(c))));
   // OpenID Configuration — optional superset alias (NOT required by OID4VCI); provided
   // for wallets that fall back to it. Adds the OIDC-only advertised fields on top.
   app.get('/.well-known/openid-configuration', async (c) => {
     const base = issuerBase(c);
     return c.json({
-      ...svc.asMetadata(base, await svc.features()),
+      ...await asMetadataBody(base),
       subject_types_supported: ['public'],
       id_token_signing_alg_values_supported: ['ES256'],
       scopes_supported: ['openid'],
@@ -718,13 +731,33 @@ export function createApp(opts = {}) {
   // Token Status List (revocation): verifiers fetch the WHOLE list (unlinkable)
   // `/status-lists/1` は後方互換（既に発行済みの資格証がこの URI を指している）。
   // `/status-lists/1/{mdoc,sdjwt}` は**その形式の信頼根で検証できる署名**で返す。
+  //
+  // **`:id` は実在するパーティションだけ通す**（issue #30・2026-08-27）。以前は `:id` を
+  // 一切見ておらず、`/status-lists/999` でも `/status-lists/abc` でも
+  // **`sub` が `/status-lists/1` のトークンを 200 で返していた**。
+  // 仕様 §13.2 の検証手順 a は「`sub` は資格証の `uri` と等しくなければならない」と
+  // **MUST** で定めるので、取得 URL と `sub` が食い違うトークンを配るのは
+  // 「検証したら必ず落ちるもの」を配っているのと同じ。**存在しない id は 404**。
+  //
+  // `1` は §13.4 が許すパーティション識別子（分け方は仕様が規定していない）。いまは
+  // 1本だけで、**枠を使い切ったときに `2` を足すのがその拡張点**（切り替え設計は #30 の残件）。
+  const KNOWN_LIST_IDS = new Set(['1']);
+  // **`Accept` で JWT / CWT を出し分ける**（issue #19・§8.1）。**既定は JWT**——
+  // 既に発行済みの資格証を持つウォレットが JWT を期待しているので、既定を変えると壊れる。
+  // CWT は明示的に要求されたときだけ返す（CBOR ネイティブな mdoc 実装向け）。
+  const wantsCwt = (c) => /application\/statuslist\+cwt/i.test(c.req.header('accept') || '');
+  const sendStatusList = async (c, format) => {
+    const cwt = wantsCwt(c);
+    const body = await svc.statusListToken(format, { cwt });
+    c.header('content-type', cwt ? 'application/statuslist+cwt' : 'application/statuslist+jwt');
+    return c.body(cwt ? body : String(body));
+  };
   app.get('/status-lists/:id/:format', async (c) => {
+    if (!KNOWN_LIST_IDS.has(c.req.param('id'))) return c.notFound();
     const format = c.req.param('format');
     if (format !== 'mdoc' && format !== 'sdjwt') return c.notFound();
     try {
-      const jwt = await svc.statusListToken(format);
-      c.header('content-type', 'application/statuslist+jwt');
-      return c.body(jwt);
+      return await sendStatusList(c, format);
     } catch (e) {
       // 署名材料が無いときは**素の 500 でなく理由を返す**。mdoc は IACA 配下の証明書が要り、
       // PKI バンドル（KV `_pki:config`）に signers を入れないと出せない（issue #25/#27）
@@ -734,9 +767,8 @@ export function createApp(opts = {}) {
     }
   });
   app.get('/status-lists/:id', async (c) => {
-    const jwt = await svc.statusListToken();
-    c.header('content-type', 'application/statuslist+jwt');
-    return c.body(jwt);
+    if (!KNOWN_LIST_IDS.has(c.req.param('id'))) return c.notFound();
+    return sendStatusList(c, null);
   });
 
   // ---- トラストリストの配信（issue #26 / #28）--------------------------------
