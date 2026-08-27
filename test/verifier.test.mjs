@@ -11,6 +11,7 @@ import { decryptResponse } from '../src/jwe.mjs';
 import { cborDecode, fromB64url } from '../src/cbor.mjs';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { X509Certificate } from 'node:crypto';
 
 const ISSUER = 'https://issuer.ihv.example';
 const encPriv = readFileSync(fileURLToPath(new URL('../pki/verifier/rp-enc.key', import.meta.url)));
@@ -137,6 +138,31 @@ test('Verifier scenario A2: PID single (SD-JWT)', async () => {
   assert.equal(r.valid, true, r.errors.join(';'));
   assert.equal(r.results[0].claims.family_name, '山田');
   assert.equal(r.results[0].claims.sex, undefined);
+});
+
+// #42: 適合テスト用フラグ（src/features.mjs verifier_trust_presented_jwk）。
+// 誤ったアンカーを敢えて渡し（suite の生 JWK 相当の「アンカーで辿れない」状況を再現）、
+// フラグ ON でだけ verifyResponse が通ることを確かめる。
+test('Verifier scenario A2 + #42: verifier_trust_presented_jwk フラグは trustLeafDirectly をアンカー無視で通す', async () => {
+  const wrongCa = new X509Certificate(readFileSync(fileURLToPath(new URL('../pki/mdoc/iaca/iaca.crt', import.meta.url)))).raw; // わざと mdoc 側の CA を渡す＝SD-JWT 側は絶対に辿れない
+  const wallet = await walletWith(['pid_sdjwt']);
+  const { setFeature } = await import('../src/features.mjs');
+
+  const v = new VerifierService({ trustedIssuerCaDer: wrongCa });
+  const req1 = await v.createRequest({ specs: [{ id: 'pid', configId: 'pid_sdjwt', claims: ['family_name'] }] });
+  const before = await v.verifyResponse({ transactionId: req1.transactionId, encryptedResponse: await wallet.respond(req1.request) });
+  assert.equal(before.valid, false, '既定（フラグ OFF）はアンカー不一致で失敗する');
+
+  await setFeature(v.store, 'verifier_trust_presented_jwk', true);
+  const req2 = await v.createRequest({ specs: [{ id: 'pid', configId: 'pid_sdjwt', claims: ['family_name'] }] });
+  const after = await v.verifyResponse({ transactionId: req2.transactionId, encryptedResponse: await wallet.respond(req2.request) });
+  assert.equal(after.valid, true, after.errors.join(';'));
+  assert.equal(after.results[0].claims.family_name, '山田');
+
+  await setFeature(v.store, 'verifier_trust_presented_jwk', false);
+  const req3 = await v.createRequest({ specs: [{ id: 'pid', configId: 'pid_sdjwt', claims: ['family_name'] }] });
+  const restored = await v.verifyResponse({ transactionId: req3.transactionId, encryptedResponse: await wallet.respond(req3.request) });
+  assert.equal(restored.valid, false, 'フラグを戻せば既定の fail-closed 挙動に戻る');
 });
 
 test('Verifier scenario B: EAA 国家資格 single (mdoc)', async () => {
@@ -642,4 +668,47 @@ test('JAR の x5c にトラストアンカーを入れない（届いた鎖で�
   const anchor = new X509Certificate(readFileSync(new URL('../pki/verifier/rp-ca.crt', import.meta.url))).raw;
   const vr = await verifyRequestObject(jwt, { anchors: [anchor] });
   assert.equal(vr.verified, true, `アンカー注入で検証できること: ${vr.error}`);
+});
+
+// #42: /verifier/settings に迂回路チェックボックスとユーザー指定の注意文言が出て、
+// POST でトグルできること。チェックを外したときに false へ戻ることも見る
+// （チェックボックスは未送信＝黙って前の値が残る、という壊れ方を過去に踏んでいる）。
+test('#42 /verifier/settings: 迂回路チェックボックス＋注意文言の表示とトグル', async () => {
+  const { createVerifierApp } = await import('../src/app.mjs');
+  const vapp = createVerifierApp();
+
+  const page1 = await (await vapp.request('/verifier/settings')).text();
+  assert.match(page1, /verifier_trust_presented_jwk/);
+  assert.match(page1, /※トラストアンカーを利用せず指定されたJWKを信じる方式のため理由がある場合のみ有効化/);
+  assert.doesNotMatch(page1, / checked>\s*<span>SD-JWT VC: 提示された JWK を直接信頼/, '既定は未チェック');
+
+  await vapp.request('/verifier/settings', {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: 'status_ttl_min=5&trust_ttl_min=60&verifier_trust_presented_jwk=on',
+  });
+  const page2 = await (await vapp.request('/verifier/settings')).text();
+  assert.match(page2, /checked>\s*<span>SD-JWT VC: 提示された JWK を直接信頼/, 'ON にした状態が反映される');
+
+  await vapp.request('/verifier/settings', {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: 'status_ttl_min=5&trust_ttl_min=60', // checkbox 未送信＝未チェック
+  });
+  const page3 = await (await vapp.request('/verifier/settings')).text();
+  assert.doesNotMatch(page3, / checked>\s*<span>SD-JWT VC: 提示された JWK を直接信頼/, 'チェックを外すと false に戻る');
+});
+
+// #42: FEATURES は3アプリ共通のオブジェクトなので、Verifier 専用の boolean フラグを足しても
+// 発行者の /settings（enum/number しか描けない generic レンダラ）が壊れないことを確かめる
+// （renderFeatureSettings の input() は type:'boolean' を扱えず f.values.map で落ちる）。
+test('#42 発行者の /settings は Verifier 専用フラグを足しても 500 にならない', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+  const login = await (await app.request('/login', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ user_id: 'u_001' }),
+  })).json();
+  const cookie = `sid=${login.session_id}`;
+  const res = await app.request('/settings', { headers: { cookie } });
+  assert.equal(res.status, 200);
+  const body = await res.text();
+  assert.doesNotMatch(body, /verifier_trust_presented_jwk/, 'Verifier 専用フラグは発行者の画面に出さない');
 });

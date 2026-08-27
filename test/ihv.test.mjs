@@ -84,6 +84,15 @@ test('I→H→V: PID SD-JWT — KB-JWT bound to verifier nonce (replay rejected)
   assert.ok(r.errors.some((e) => /nonce/.test(e)), r.errors.join(';'));
 });
 
+// #42: verifySdJwtPresentation は trustLeafDirectly を verifySdJwtVc へそのまま橋渡しする。
+test('I→H→V: PID SD-JWT — trustLeafDirectly=true はアンカー無しでも提示検証を通す', async () => {
+  const { wallet, id } = await issueInto('pid_sdjwt');
+  const nonce = verifierNonce();
+  const presentation = await wallet.present(id, { disclose: ['family_name'], nonce, aud: VERIFIER });
+  const r = await verifySdJwtPresentation(presentation, { trustLeafDirectly: true, nonce, aud: VERIFIER });
+  assert.equal(r.valid, true, r.errors?.join(';'));
+});
+
 test('I→H→V: EAA 国家資格 mdoc — full slice', async () => {
   const { wallet, id } = await issueInto('qualification_mdoc');
   const nonce = verifierNonce();

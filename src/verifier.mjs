@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { randomBytes, X509Certificate, createPrivateKey, createPublicKey, generateKeyPairSync } from 'node:crypto';
 import { verifyDeviceResponse } from './mdoc.mjs';
 import { verifySdJwtPresentation } from './sdjwt.mjs';
+import { readFeatures } from './features.mjs';
 import { annexDSessionTranscript, annexCSessionTranscript, oid4vpRedirectSessionTranscript, buildEncryptionInfo, hpkeSuite, annexCOpen, decodeAnnexCResponse, dcApiAud, cborEncode, b64url, coseKeyFromJwk } from './handover.mjs';
 import { fromB64url } from './cbor.mjs';
 import { SignJWT, importPKCS8 } from 'jose';
@@ -402,6 +403,8 @@ export class VerifierService {
     // are fine as long as each required set has one fully-presented option.
     errors.push(...missingPresentations(session.dcql, Object.keys(vpToken).filter((id) => vpToken[id]?.[0])));
     const anchors = await this._anchors();
+    // 適合テスト専用の迂回路（#42・src/features.mjs 参照）。既定 false＝従来どおり fail-closed
+    const feats = await readFeatures(this.store);
     for (const q of session.dcql.credentials) {
       const presented = vpToken[q.id]?.[0];
       if (!presented) continue; // required-but-missing already reported above
@@ -411,7 +414,8 @@ export class VerifierService {
           { trustedIacaDer: anchors.issuer, sessionTranscript: session.transcript, expectedDocType: q.meta.doctype_value });
       } else {
         r = await verifySdJwtPresentation(presented,
-          { trustedIssuerCaDer: anchors.sdjwt, nonce: session.nonce,
+          { trustedIssuerCaDer: anchors.sdjwt, trustLeafDirectly: feats.verifier_trust_presented_jwk,
+            nonce: session.nonce,
             // DC API は origin:<origin>（保存済み）／HTTPS リダイレクトは client_id
             aud: session.expectedAud || session.clientId || this.clientId });
         r.holder = r.cnf?.jwk;

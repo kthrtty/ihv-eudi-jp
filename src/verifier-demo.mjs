@@ -439,7 +439,7 @@ export function renderWebVerifyResult(result) {
 /** Global presentation history — one shared log of every presentation this Verifier
  *  verified (no per-holder session). Newest first. */
 /** Verifier 設定画面: Status List のキャッシュ時間（分）。KV 保存・全 isolate 共有。 */
-export function renderVerifierSettings(ttlSec, saved = false, { trustTtlSec = 3600, trustInfo = null } = {}) {
+export function renderVerifierSettings(ttlSec, saved = false, { trustTtlSec = 3600, trustInfo = null, trustJwkDirect = false } = {}) {
   const min = Math.round(ttlSec / 60);
   const tmin = Math.round(trustTtlSec / 60);
   const e = (x) => String(x ?? '').replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
@@ -483,6 +483,25 @@ export function renderVerifierSettings(ttlSec, saved = false, { trustTtlSec = 36
             <b>失効リストより桁で変化が遅い</b>ので既定は 60 分（<b>0 = 毎回取得</b>）。
           </div>
           ${trustBlock}
+        </div>
+        <div style="margin-top:22px;border-top:1px solid var(--line);padding-top:16px">
+          <div style="font-size:16px;font-weight:700;margin-bottom:10px">適合テスト用の迂回路</div>
+          <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer">
+            <input type="checkbox" name="verifier_trust_presented_jwk" value="on"
+              style="margin-top:3px"${trustJwkDirect ? ' checked' : ''}>
+            <span>SD-JWT VC: 提示された JWK を直接信頼する（トラストアンカーへ辿らない）</span>
+          </label>
+          <div class="hint" style="margin:10px 0 4px;color:#B3261E;font-weight:700">
+            ※トラストアンカーを利用せず指定されたJWKを信じる方式のため理由がある場合のみ有効化
+          </div>
+          <div class="hint" style="margin:4px 0 0">
+            対象は SD-JWT VC の提示検証（<code>src/sdjwt.mjs verifySdJwtVc</code>）のみ。
+            JWS ヘッダの <code>x5c[0]</code>（提示された証明書の公開鍵）で署名が通れば、
+            発行者アンカーの有無を見ずに信頼する。<b>正規の鍵解決方式ではない</b>——
+            OpenID conformance suite の <code>credential.signing_jwk</code> のように
+            証明書チェーンも JWT VC Issuer Metadata も持たない鍵を検証するための、
+            適合テスト専用の迂回路。<b>常時は有効化しない</b>。
+          </div>
         </div>
         <button type="submit" class="btn">保存する</button>
       </form>

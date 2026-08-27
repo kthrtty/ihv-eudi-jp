@@ -69,8 +69,23 @@ export function selectDisclosures(sdjwt, revealKeys) {
   return jwt + '~' + kept.join('~') + (kept.length ? '~' : '');
 }
 
-/** Verify issuer signature, x5c chain, and disclosure digests. */
-export async function verifySdJwtVc(sdjwt, { trustedIssuerCaDer } = {}) {
+/**
+ * Verify issuer signature, x5c chain, and disclosure digests.
+ *
+ * @param {boolean} [trustLeafDirectly] **適合テスト専用の迂回路**（既定 false）。
+ *   true のとき、x5c[0]（提示された証明書の公開鍵）で署名が通ればそれだけで信頼し、
+ *   `trustedIssuerCaDer` によるアンカー照合を**行わない**。
+ *
+ *   OpenID conformance suite の `credential.signing_jwk` は生の JWK で、x5c も
+ *   JWT VC Issuer Metadata も持たない——正規の鍵解決方式では検証しようがない
+ *   （fail-closed の設計どおり、アンカー無しを拒否するのが正しい動作）。
+ *   suite の「検証成功のスクリーンショットを見せよ」という REVIEW 項目を通すためだけの
+ *   迂回路で、**常時は有効化しない**。有効にすると「届いたトークンだけで検証が完結する」
+ *   形になり、HAIP §6.1.1 が x5c にトラストアンカーを入れることを禁じているのと同じ穴が
+ *   開く（誰でも自分の証明書で署名すれば通る）。呼び出し側は
+ *   `src/features.mjs` の `verifier_trust_presented_jwk` フラグ経由でのみ true にする。
+ */
+export async function verifySdJwtVc(sdjwt, { trustedIssuerCaDer, trustLeafDirectly = false } = {}) {
   const errors = [];
   const [jwt, ...rest] = sdjwt.split('~');
   const disclosures = rest.filter(Boolean);
@@ -80,19 +95,24 @@ export async function verifySdJwtVc(sdjwt, { trustedIssuerCaDer } = {}) {
   try {
     const leafPub = await importSPKI(der2spkiPem(header.x5c[0]), 'ES256');
     ({ payload } = await jwtVerify(jwt, leafPub));
-    const leaf = new X509Certificate(Buffer.from(header.x5c[0], 'base64'));
-    // **アンカーは複数あり得る**（トラストリスト由来・鍵を失った旧 CA も残す。#27/#28）。
-    // 1つでも通れば信頼できる。
-    // **`x5c` の中の CA へフォールバックしない**——それは「トークン自身が連れてきた CA を
-    // 信じる」＝実質ノーチェックで、自己完結したチェーンなら誰でも通ってしまう（issue #26）。
-    // HAIP §6.1.1 が x5c にアンカーを入れることを禁じているのも同じ理由。**アンカーが無ければ
-    // 検証しない**（fail-closed）
-    const anchors = trustedIssuerCaDer == null ? []
-      : (Array.isArray(trustedIssuerCaDer) ? trustedIssuerCaDer : [trustedIssuerCaDer]);
-    if (!anchors.length) errors.push('no trusted issuer CA anchor available');
-    else if (!anchors.some((d) => { try { return leaf.verify(new X509Certificate(Buffer.from(d)).publicKey); } catch { return false; } })) {
-      errors.push('issuer cert not issued by trusted CA');
+    if (!trustLeafDirectly) {
+      const leaf = new X509Certificate(Buffer.from(header.x5c[0], 'base64'));
+      // **アンカーは複数あり得る**（トラストリスト由来・鍵を失った旧 CA も残す。#27/#28）。
+      // 1つでも通れば信頼できる。
+      // **`x5c` の中の CA へフォールバックしない**——それは「トークン自身が連れてきた CA を
+      // 信じる」＝実質ノーチェックで、自己完結したチェーンなら誰でも通ってしまう（issue #26）。
+      // HAIP §6.1.1 が x5c にアンカーを入れることを禁じているのも同じ理由。**アンカーが無ければ
+      // 検証しない**（fail-closed）
+      const anchors = trustedIssuerCaDer == null ? []
+        : (Array.isArray(trustedIssuerCaDer) ? trustedIssuerCaDer : [trustedIssuerCaDer]);
+      if (!anchors.length) errors.push('no trusted issuer CA anchor available');
+      else if (!anchors.some((d) => { try { return leaf.verify(new X509Certificate(Buffer.from(d)).publicKey); } catch { return false; } })) {
+        errors.push('issuer cert not issued by trusted CA');
+      }
     }
+    // trustLeafDirectly=true のときは jwtVerify（署名検証）が通った時点で信頼を確定する
+    // ——ここでチェーンを一切見ない。呼び出し側が明示的に選んだ迂回路であることを、
+    // 上の JSDoc と呼び出し元（src/features.mjs のフラグ説明）に明記してある。
   } catch (e) { errors.push('issuer JWT verify failed: ' + e.message); return { valid: false, errors }; }
 
   if (payload._sd_alg !== 'sha-256') errors.push(`unsupported _sd_alg ${payload._sd_alg}`);
@@ -138,11 +158,11 @@ export async function presentSdJwt({ sdjwt, disclose, nonce, aud, holderKeyPem }
 }
 
 /** Verify a presentation: issuer SD-JWT + KB-JWT (nonce/aud/sd_hash). */
-export async function verifySdJwtPresentation(presentation, { trustedIssuerCaDer, nonce, aud } = {}) {
+export async function verifySdJwtPresentation(presentation, { trustedIssuerCaDer, trustLeafDirectly, nonce, aud } = {}) {
   const cut = presentation.lastIndexOf('~');
   const sdPart = presentation.slice(0, cut + 1); // includes trailing '~'
   const kbJwt = presentation.slice(cut + 1);
-  const r = await verifySdJwtVc(sdPart, { trustedIssuerCaDer });
+  const r = await verifySdJwtVc(sdPart, { trustedIssuerCaDer, trustLeafDirectly });
   if (!r.valid) return r;
   const kb = await verifyKbJwt({ kbJwt, sdjwtPresented: sdPart, holderJwk: r.cnf.jwk, expectedNonce: nonce, expectedAud: aud });
   return { ...r, valid: r.valid && kb.valid, status: r.status, errors: [...r.errors, ...kb.errors] };

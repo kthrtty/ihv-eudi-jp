@@ -90,6 +90,28 @@ export const FEATURES = {
       + '起きうる。プッシュ型の伝播は Workers に存在しないので、'
       + '短くする以外に揃える手段は無い。',
   },
+
+  verifier_trust_presented_jwk: {
+    group: '適合テスト（Verifier）',
+    label: 'SD-JWT VC: 提示された JWK を直接信頼',
+    spec: 'トラストアンカーへ辿らず、JWS ヘッダの x5c[0]（提示された証明書の公開鍵）で'
+      + '署名検証が通ればそれを信頼する。SD-JWT VC の正規の鍵解決方式ではない',
+    type: 'boolean',
+    default: false,
+    affects: [
+      'Verifier の SD-JWT VC 提示検証（src/sdjwt.mjs verifySdJwtVc）',
+      '`issuer cert not issued by trusted CA` / `no trusted issuer CA anchor available` を'
+        + '出さなくなる（アンカーの有無を見ないため）',
+    ],
+    // ユーザー指定の注意文言（そのまま）。**なぜ必要か**: OpenID conformance suite の
+    // credential.signing_jwk は生の JWK で証明書チェーンを持たず（x5c も
+    // JWT VC Issuer Metadata も無い）、正規の鍵解決方式では検証できない
+    // （#26 の fail-closed 方針どおり、アンカー無しは拒否が正しい動作）。
+    // suite の REVIEW 項目（検証成功のスクリーンショット）を通すためだけの迂回路で、
+    // **常時は絶対に有効化しない**——届いたトークンだけで検証が完結する形になり、
+    // HAIP §6.1.1 が x5c にトラストアンカーを入れることを禁じているのと同じ穴が開く。
+    note: '※トラストアンカーを利用せず指定されたJWKを信じる方式のため理由がある場合のみ有効化',
+  },
 };
 
 const clamp = (name, v) => {

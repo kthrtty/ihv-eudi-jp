@@ -94,12 +94,19 @@ export function createApp(opts = {}) {
   // **デモの最中に切り替えて対比を見せる**ためにあるので、再デプロイを挟まない。
   // 相手（Multipaz）は AS メタデータの広告を読んで挙動を変えるので、
   // ここを変えると実機の振る舞いも変わる——それ自体が見せ場になる。
+  // **FEATURES は3アプリ共通の1つの定義**（KV キーも共有）だが、この画面の
+  // `renderFeatureSettings`/`input()` は enum と number しか描けない。
+  // `verifier_trust_presented_jwk`（boolean・Verifier 専用）を素通しすると
+  // `f.values.map` が undefined で落ちる——**発行者の設定画面が丸ごと 500 になる**。
+  // 対象外は group で除外する（Verifier 専用フラグを発行者の画面に出す意味も無い）
+  const issuerFeatures = (all) => Object.fromEntries(
+    Object.entries(all).filter(([, f]) => f.group !== '適合テスト（Verifier）'));
   app.get('/settings', async (c) => {
     const sid0 = sid(c);
     if (!sid0 || !await svc.sessionUser(sid0)) return c.redirect('/login?next=/settings', 302);
     const { FEATURES } = await import('./features.mjs');
     return c.html(shell('発行者の設定', renderFeatureSettings(
-      FEATURES, await svc.features(), c.req.query('saved') === '1'), { role: 'issuer' }));
+      issuerFeatures(FEATURES), await svc.features(), c.req.query('saved') === '1'), { role: 'issuer' }));
   });
   app.post('/settings', async (c) => {
     const sid0 = sid(c);
@@ -107,7 +114,7 @@ export function createApp(opts = {}) {
     const { FEATURES, setFeature } = await import('./features.mjs');
     const f = await c.req.parseBody();
     // **値域はサーバ側で丸める**（画面で隠すのは防御ではない — 2026-08-09 の教訓）
-    for (const name of Object.keys(FEATURES)) {
+    for (const name of Object.keys(issuerFeatures(FEATURES))) {
       if (f[name] != null) await setFeature(svc.store, name, String(f[name]));
     }
     return c.redirect('/settings?saved=1', 302);
@@ -974,8 +981,10 @@ export function createVerifierApp(opts = {}) {
     if (v.trustResolver) {
       try { trustInfo = await v.trustResolver.resolve(); } catch { /* 画面は出す */ }
     }
+    const { readFeatures } = await import('./features.mjs');
+    const feats = await readFeatures(v.store);
     return c.html(renderVerifierSettings(await getStatusTtlSec(), c.req.query('saved') === '1',
-      { trustTtlSec: await getTrustTtlSec(), trustInfo }));
+      { trustTtlSec: await getTrustTtlSec(), trustInfo, trustJwkDirect: feats.verifier_trust_presented_jwk }));
   });
   app.post('/verifier/settings', async (c) => {
     const f = await c.req.parseBody();
@@ -988,6 +997,11 @@ export function createVerifierApp(opts = {}) {
     if (Number.isFinite(tmin) && tmin >= 0 && tmin <= 10080) {
       await v.store.set('vcfg:trust_ttl_sec', Math.round(tmin * 60), null);
     }
+    // **チェックボックスは未チェックだと送信されない**——`f.x != null` で判定すると
+    // 外したときに false へ戻せない（発行者側の generic ループと同じ罠を踏まないよう、
+    // ここは明示的にブール値を作る）
+    const { setFeature } = await import('./features.mjs');
+    await setFeature(v.store, 'verifier_trust_presented_jwk', f.verifier_trust_presented_jwk === 'on');
     return c.redirect('/verifier/settings?saved=1', 302);
   });
   // scenario correlation record per transaction: {id, step, txn1?, wallet?}.

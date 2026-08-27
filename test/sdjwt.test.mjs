@@ -111,3 +111,34 @@ test('sd-jwt: アンカーを渡さない／0件なら検証しない（fail-clo
     assert.match(r.errors.join(';'), /no trusted issuer CA anchor available/);
   }
 });
+
+// #42: 適合テスト専用の迂回路（src/features.mjs verifier_trust_presented_jwk）。
+// trustLeafDirectly=true のときだけアンカー照合をスキップする。既定は従来どおり fail-closed。
+test('sd-jwt: trustLeafDirectly=true はアンカー無しでも x5c[0] の署名だけで検証を通す', async () => {
+  const { jwk } = holderKeypair();
+  const sdjwt = await issue(jwk);
+  // アンカー未指定でも通る（迂回路が効いている）
+  for (const anchors of [undefined, [], der('pki/mdoc/iaca/iaca.crt')]) {
+    const r = await verifySdJwtVc(sdjwt, { trustedIssuerCaDer: anchors, trustLeafDirectly: true });
+    assert.equal(r.valid, true, `anchors=${JSON.stringify(anchors)}: ${r.errors?.join(';')}`);
+  }
+});
+
+test('sd-jwt: trustLeafDirectly=true でも署名が壊れていれば失敗する（迂回路は署名検証まで免除しない）', async () => {
+  const { jwk } = holderKeypair();
+  const jwt = (await issue(jwk)).split('~')[0];
+  const forged = Buffer.from(JSON.stringify(['xxxxsalt', 'sex', 9]), 'utf8').toString('base64url');
+  const tampered = jwt + '~' + forged + '~';
+  const r = await verifySdJwtVc(tampered, { trustLeafDirectly: true });
+  assert.equal(r.valid, false);
+});
+
+test('sd-jwt: trustLeafDirectly を省略／false のときは従来どおりアンカー照合する（既定の後方互換）', async () => {
+  const { jwk } = holderKeypair();
+  const sdjwt = await issue(jwk);
+  const r1 = await verifySdJwtVc(sdjwt, { trustLeafDirectly: false });
+  assert.equal(r1.valid, false);
+  assert.match(r1.errors.join(';'), /no trusted issuer CA anchor available/);
+  const r2 = await verifySdJwtVc(sdjwt, { trustedIssuerCaDer: issuerCaDer, trustLeafDirectly: false });
+  assert.equal(r2.valid, true, r2.errors.join(';'));
+});
