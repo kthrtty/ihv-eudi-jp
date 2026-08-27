@@ -190,9 +190,9 @@ companion）なので、券面を変えたらアプリを再起動させる。�
 マスク漏れのテストで断片を取るときは**末尾から**取る（先頭だと誤検知する）。
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas+トラストリスト、初回必須・pki/ は gitignore）／`npm test`（473, node:test）／
+`npm run setup`（dev PKI+trust+schemas+トラストリスト、初回必須・pki/ は gitignore）／`npm test`（499, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）／
-`npm run clients`（KV のクライアント登録表）／`npm run wallet-providers`（信頼する Wallet Provider の鍵＝#40 のアンカー）
+`npm run clients`（KV のクライアント登録表）／`npm run wallet-providers`（Wallet Provider の鍵＝#40）／`npm run key-attesters`（鍵証明者の鍵＝#5）
 
 ## アーキ地図（src/）
 - `cbor.mjs` 共有CBOR codec（土台）／`cose.mjs` COSE_Sign1(ES256 raw r‖s)／`handover.mjs` Annex C/D + HPKE
@@ -201,6 +201,7 @@ companion）なので、券面を変えたらアプリを再起動させる。�
 - `issuer.mjs` カタログ駆動 mint/verify + SAMPLE。`personaClaims/configInfo/allConfigIds`。schemas は **JSON バンドル import（import時fsゼロ）**、PKIは mint/verify 内で遅延読込
 - `oid4vci.mjs` IssuerService（offer/token/nonce/credential, proof検証, login/authorize/par, **memoryStore + kvStore**, httpErr）
 - `client-attestation.mjs` **Wallet Attestation 検証**（#40・`attest_jwt_client_auth`。attestation+PoP の2枚）
+- `key-attestation.mjs` **Key Attestation 検証**（#5・Appendix D。proof の鍵が `attested_keys` にあるか）
 - `features.mjs` フィーチャーフラグ（3アプリ共有・KV `vcfg:features`。広告と動作を1つのフラグから導く）
 - `verifier.mjs` VerifierService（`createRequest({protocol})`・`verifyResponse`・statusResolver・linkedSameHolder）
 - `users.mjs` 人物4名+persona写像+CRUD／`municipalities.mjs` **自治体ディレクトリ**（交付者名と管轄の正本）／`disasters.mjs` **災害マスタ**（罹災の対象自治体の正本）／`offer.mjs` Credential Offer配送／`canonical.mjs` 決定性監査
@@ -860,6 +861,39 @@ DADS では意味が分かれるので**一括置換できない**。1件ずつ�
     dev と本番で値が別なだけ。**OID4VCI §15.4.4 はインスタンス固有 ID を禁じている**
     （発行者をまたぐ追跡防止）。一度「動的生成」と誤診断して `*` ワイルドカードを入れ、撤回した
     ——**1回の観測から仕様を推測しない**
+- [x] **#5 Key Attestation**（2026-08-27・`src/key-attestation.mjs`）: **#40 と対象が違う**
+  ——あちらは「このウォレットは何者か」、こちらは「**資格証を束ねる鍵がどう守られているか**」。
+  素性の知れた正規ウォレットでも鍵がソフトウェア保管なら複製できるので片方では足りない。
+  仕様の核心は Appendix D.1 の1文＝**proof の署名鍵が `attested_keys` に含まれることを MUST で検証**
+  （見ないと「無関係な鍵の保証書」を添えているだけになる）。
+  (1) アンカーは KV `_key_attesters:config`（`npm run key-attesters`）。**Wallet Provider の表と
+  混ぜない**——1つにすると片方の信頼で両方が通る。**0 件なら fail-closed**／
+  (2) **`x5c` は鍵の解決に使わない**（#26 と同じ）。届いた証明書で検証すると
+  「ハードウェア保護されている」という**主張そのものを攻撃者が書ける**／
+  (3) フラグ `key_attestation` は off / verify_if_present / required の3段。
+  **`key_attestations_required` は required のときだけ広告する**（§12.2.1 が
+  「要求しないなら MUST NOT be present」と定める。`verify_if_present` は要求していない）／
+  (4) **nonce を消す前に attestation を見る**（attestation の `nonce` は同じ c_nonce を指すので
+  順序を誤ると必ず落ちる）。回帰=test/key-attestation.test.mjs
+- [x] **`signed_metadata`（RFC 8414 §2.1）**（2026-08-27）: AS メタデータに JWT を添える。
+  **Issuer Metadata（§12.2.2）とは運び方が違う**——あちらは応答そのものを JWT にする
+  （`Accept` で出し分け・識別子は `sub`）、こちらは **JSON の中にメンバとして埋める**（識別子は `iss`）。
+  **メタデータ名 `issuer` と JWT クレーム `iss` は別物**（テストが捕まえた）。平文の値は必ず残す
+  ——受け取る側は対応していなければ無視してよい（MAY ignore）ので、署名だけにすると発見が壊れる。
+  **平文と署名の中身は必ず一致させる**（対応側では署名が優先されるため）
+- [x] **#30 の残り (B)(C)**（2026-08-27）: `/status-lists/:id` が **`:id` を一切見ておらず**、
+  `999` でも `abc` でも `sub` が `/status-lists/1` のトークンを 200 で返していた。§13.2 の検証手順 a は
+  「`sub` は資格証の `uri` と等しいこと」を **MUST** とするので、これは**検証したら必ず落ちるものを
+  配っている**のと同じ。存在しない id は 404 にし、**検証側にも `sub` と `uri` の照合を入れた**
+  （未実装＝MUST 未達だった）。`1` は §13.4 のパーティション識別子で、枠を使い切ったとき
+  `2` を足すのが拡張点（切り替え設計は #30 の残件）
+- [x] **#19 Status List の CWT 形態**（2026-08-27・§5.2）: **JWT と中身は同じで器だけが違う**ので
+  分岐は3点だけ——`lst` が **生の byte string**（base64url でない）／クレームキーが**整数**
+  （`2`=sub `6`=iat `4`=exp `65534`=ttl `65533`=status_list）／型が **COSE protected header の `16`**
+  （unprotected に置くと署名で守られず型を書き換えられる）。`Accept` で出し分け（**既定は JWT**
+  ＝発行済みの資格証が期待する側）。`verifyStatus` は返り値の型で器を判別し呼び出し側は器を意識しない。
+  **仕様 §5.2 のゴールデンベクタを我々のパーサで読めることをテストで固定**（自己ループでない外部適合）。
+  `cbor-x` の `Tag` は **`(value, tag)` の順**——逆に書くとタグが付かない
 
 ## 自己改善ハーネス（2026-07-07 導入・正本は AgentVault テンプレ）
 `memory/`=5階層メモリ（L0憲法/L1作業状態/L2議論ログ/L3蒸留知見/L4圧縮）・実体は Vault、リポジトリには symlink（gitignore済み）。
