@@ -106,7 +106,7 @@ export function createApp(opts = {}) {
     if (!sid0 || !await svc.sessionUser(sid0)) return c.redirect('/login?next=/settings', 302);
     const { FEATURES } = await import('./features.mjs');
     return c.html(shell('発行者の設定', renderFeatureSettings(
-      issuerFeatures(FEATURES), await svc.features(), c.req.query('saved') === '1'), { role: 'issuer' }));
+      issuerFeatures(FEATURES), await svc.features(), c.req.query('saved') === '1'), { role: 'issuer', width: 'mid' }));
   });
   app.post('/settings', async (c) => {
     const sid0 = sid(c);

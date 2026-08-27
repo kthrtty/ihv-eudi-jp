@@ -32,15 +32,15 @@ const vars = {
 for (const [k, v] of Object.entries(vars)) {
   if (!v) { console.error(`✗ ${k} が解決できません（WORKERS_SUBDOMAIN か ${k} を .deploy.env に設定）`); process.exit(1); }
 }
-// **Multipaz Wallet（参照実装）の既定 client_id / redirect_uri**（2026-08-27）。
-// `default_configuration.json`（openwallet-foundation/multipaz-wallet）にハードコードされた
-// 値で、我々の秘密ではない——公開されているリファレンスバックエンドの識別子。
-// 実機で毎回 `npm run clients add` するのは運用として脆い（KV が消えれば実機だけ壊れ、
-// しかも気づきにくい）ので、**デプロイのたびに自動で入る既定**にする。
-// 独自ビルド（`MULTIPAZ_WALLET_BACKEND_CLIENT_ID` を上書きしたもの）は別途
-// `npm run clients add` で足す（このデフォルトと共存できる。#38 は複数登録表を
-// 合成せず順に問い合わせるため、file 側のこれと KV 側の追加登録は両方生きる）。
-const MULTIPAZ_CLIENT_ID = 'urn:uuid:c4011939-b5f3-4320-9832-fcebfab91ba5';
+// **Multipaz Wallet（参照実装）の既定 redirect_uri**（2026-08-27・実機の invalid_client で判明）。
+// 当初は `default_configuration.json` の `client_id`（`urn:uuid:c4011939-…`）を固定値として
+// 登録していたが、**実機は自分のバックエンドから毎インストールごとに別の UUID を取得して
+// 送ってくる**（本番 devlog で実測: `urn:uuid:da7e88b8-…`）。固定 UUID の事前登録は無意味——
+// 値を事前に知りようがない。そのため client_id は `*`（ワイルドカード）で登録し、
+// **redirect_uri が一致すれば client_id は問わない**（isRegisteredClient 参照）。
+// 独自ビルド（バックエンドを差し替えたもの）で redirect_uri 自体が変わる場合は
+// `npm run clients add` で個別に足す（file 側のこれと KV 側の追加登録は両方生きる）。
+const MULTIPAZ_CLIENT_ID = '*';
 const MULTIPAZ_REDIRECT_URIS = ['https://wallet.multipaz.org/redirect', 'https://dev.wallet.multipaz.org/redirect'];
 
 // Open-redirector guard: derive the redirect_uri allowlist from the real origins
@@ -58,7 +58,8 @@ vars.SSRF_ALLOWED_ORIGINS = env.SSRF_ALLOWED_ORIGINS
 // 「登録された client_id と redirect_uri の組か」（クエリまで厳密一致）。
 //   ihv-web-wallet … Web ウォレット（別オリジン）
 //   ihv-wallet     … 発行ポータル内のデモ用ウォレット画面
-//   Multipaz       … 実機（上記の既定 UUID。KV 側に別ビルドを追加登録できる）
+//   *              … Multipaz Wallet 実機（client_id はインストールごとに変わるためワイルドカード。
+//                     KV 側に別ビルド・別 redirect_uri を追加登録できる）
 // **未設定なら検証しない**（redirectAllowlist と同じ「未設定＝permissive」）。
 // 外部クライアント（conformance suite など）を通すときは .deploy.env で上書きする。
 // **平文で渡す**（`id=uri[,uri]` の空白区切り）。JSON を `--var` に渡したら値が壊れ、

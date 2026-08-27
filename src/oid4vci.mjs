@@ -145,10 +145,22 @@ export function clientJwks(clientId, registries) {
 /**
  * `client_id` と `redirect_uri` の組が登録どおりか。
  * **登録表が無ければ true**（未設定＝従来どおり検証しない。dev/テスト互換）。
+ *
+ * **`*` はワイルドカード client_id**（2026-08-27・実機で invalid_client 実測）。
+ * Multipaz Wallet はインストールごとに `client_id` を自己生成する（自分のバックエンドの
+ * `getOpenID4VCIBackendUnlocked().getClientId()` から取得）——`default_configuration.json`
+ * の `client_id`（`urn:uuid:c4011939-…`）は固定値に見えて実は使われず、実機は
+ * `urn:uuid:da7e88b8-…` のような**インストールごとに異なる UUID**を送ってきた
+ * （本番 devlog で実測）。固定 UUID を1つ事前登録しても意味がない——事前に
+ * 知りようがない値だから。この種の「公開クライアントで redirect_uri だけが
+ * 恒常的に決まる」相手は `*` キーで登録し、**redirect_uri が一致すれば client_id は問わない**。
+ * 登録済みクライアント同士のなりすまし防止（本来の #38 の狙い）は、コードに
+ * 束ねた実際の client_id を `/token` 側で突き合わせる既存のチェックが引き続き担う
+ * （`isRegisteredClientAny` はここでは通すだけで、コード奪取防止はそちらの役目）。
  */
 export function isRegisteredClient(clientId, redirectUri, clients) {
   if (!clients) return true;
-  const entry = clients.get(String(clientId ?? ''));
+  const entry = clients.get(String(clientId ?? '')) ?? clients.get('*');
   if (!entry) return false;                      // 未登録の client_id
   return entry.redirect_uris.includes(String(redirectUri ?? ''));  // クエリまで含めた厳密一致
 }

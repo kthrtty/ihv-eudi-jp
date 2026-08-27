@@ -105,7 +105,10 @@ export function renderVerifyConsole(groups = []) {
     <div class="card">
       <div class="step" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
         <span><a href="/verifier" style="color:inherit;text-decoration:none">← シナリオデモ</a> ｜ 検証要求ビルダー · OpenID4VP / DCQL</span>
-        <a href="/verifier/history" style="font-weight:700;color:var(--verify);text-decoration:none">提示履歴 →</a></div>
+        <span style="white-space:nowrap">
+          <a href="/verifier/history" style="font-weight:700;color:var(--verify);text-decoration:none">提示履歴 →</a>
+          <a href="/verifier/settings" style="font-weight:700;color:var(--verify);text-decoration:none;margin-left:16px">⚙ 設定</a>
+        </span></div>
       <h1>提示を要求するデジタル資格証・証明書と項目を選ぶ</h1>
       <div class="muted" style="font-size:16px;margin-bottom:4px">開発者向け: プロトコル・提示先・要求項目を自由に組んで実ウォレットへ提示要求できます。一般向けは <a href="/verifier">シナリオデモ</a> へ。</div>
 
@@ -455,7 +458,7 @@ export function renderVerifierSettings(ttlSec, saved = false, { trustTtlSec = 36
           ${trustInfo.lists.map((l) => `<div>${l.stale ? '⚠ ' : ''}${e(l.source ?? '取得失敗')} — ${e(l.uri)}${l.error ? `<br><span style="color:#C8453C">${e(l.error)}</span>` : ''}</div>`).join('')}
         </div>`;
   return shell('検証者設定', `
-    <div class="card" style="max-width:480px;margin:24px auto">
+    <div class="card" style="max-width:760px;margin:24px auto">
       <div class="step">検証者設定</div>
       <h1 style="font-size:18px">Status List キャッシュ</h1>
       ${saved ? '<div class="ok">✓ 保存しました</div>' : ''}
@@ -505,8 +508,12 @@ export function renderVerifierSettings(ttlSec, saved = false, { trustTtlSec = 36
         </div>
         <button type="submit" class="btn">保存する</button>
       </form>
-      <div class="navrow"><a class="btn ghost" href="/verifier">検証ポータルトップへ</a></div>
-    </div>`, { brand: 'デジタル資格証検証ポータル', sub: 'VERIFIER', role: 'verifier' });
+      <div class="navrow" style="display:flex;gap:10px;margin-top:18px">
+        <a class="btn ghost" href="/verifier" style="flex:1;text-align:center">検証ポータルトップへ</a>
+      </div>
+    </div>
+    <style>.btn.ghost{background:#fff;color:var(--civic);border:1px solid var(--line)}.btn.ghost:hover{background:#f7f9fc}</style>`,
+    { brand: 'デジタル資格証検証ポータル', sub: 'VERIFIER', role: 'verifier', width: 'mid' });
 }
 
 export function renderVerifyHistory(entries = [], { page = 1, per = 10 } = {}) {
@@ -588,5 +595,5 @@ export function renderVerifyHistory(entries = [], { page = 1, per = 10 } = {}) {
     .more[open]>summary::before{content:"▾ "}
     .more[open]>summary{color:var(--muted)}
     .navrow{display:flex;gap:10px;margin-top:18px}.navrow .btn{flex:1;text-align:center}${VP_SEG_CSS}</style>${VP_SEG_JS}`,
-    { brand: 'デジタル資格証検証ポータル', sub: 'VERIFIER', role: 'verifier', dev: true });
+    { brand: 'デジタル資格証検証ポータル', sub: 'VERIFIER', role: 'verifier', dev: true, width: 'mid' });
 }

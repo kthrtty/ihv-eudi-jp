@@ -429,6 +429,7 @@ function appHeaderHtml(user, dev = false) {
             <a href="/applications" style="${mItem}"><span>📋</span> 申請状況</a>
             <a href="/history" style="${mItem}"><span>📈</span> 発行履歴</a>
             <a href="/account" style="${mItem}"><span>⚙️</span> アカウント設定</a>
+            <a href="/settings" style="${mItem}"><span>🚩</span> フィーチャーフラグ</a>
             <form method="POST" action="/logout" style="margin:0">
               <button type="submit" style="${mItem};color:#C8453C"><span>⤴</span> サインアウト</button>
             </form>
@@ -1598,7 +1599,7 @@ export function renderFeatureSettings(FEATURES, current, saved = false) {
       ${f.note ? `<div class="hint" style="margin-top:8px">${rich(f.note)}</div>` : ''}
     </div>`;
   return `
-    <div class="card" style="max-width:640px;margin:28px auto">
+    <div class="card" style="max-width:760px;margin:28px auto">
       <div class="step">発行者の設定</div>
       <h1>フィーチャーフラグ</h1>
       <p class="hint">

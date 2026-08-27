@@ -333,6 +333,30 @@ test('#38 登録表は合成せず順に問い合わせる（ファイル側の�
   assert.ok(isRegisteredClientAny('anything', 'https://anywhere.example/cb', []));
 });
 
+// 2026-08-27: Multipaz Wallet 実機は client_id をインストールごとに自己生成して送ってくる
+// （本番 devlog で実測: urn:uuid:c4011939-… という固定値ではなく urn:uuid:da7e88b8-… だった）。
+// 固定 UUID の事前登録は無意味なので、`*` キーで「redirect_uri さえ一致すれば client_id は
+// 問わない」ワイルドカード登録をサポートする。
+test('#42 client_id ワイルドカード（*）: redirect_uri が一致すればどの client_id でも通る（Multipaz 実機対応）', async () => {
+  const { parseClients, isRegisteredClient, isRegisteredClientAny } = await import('../src/oid4vci.mjs');
+  const clients = parseClients('*=https://wallet.multipaz.org/redirect,https://dev.wallet.multipaz.org/redirect');
+  // インストールごとに異なる client_id でも、redirect_uri が一致すれば通る
+  assert.ok(isRegisteredClient('urn:uuid:da7e88b8-2d13-46fa-ac48-0044485832ba',
+    'https://wallet.multipaz.org/redirect', clients));
+  assert.ok(isRegisteredClient('urn:uuid:c4011939-b5f3-4320-9832-fcebfab91ba5',
+    'https://dev.wallet.multipaz.org/redirect', clients));
+  // redirect_uri が一致しなければワイルドカードでも弾く
+  assert.ok(!isRegisteredClient('urn:uuid:da7e88b8-2d13-46fa-ac48-0044485832ba',
+    'https://evil.example/redirect', clients));
+  // 明示的に登録された client_id は引き続きそちらが優先される（ワイルドカードと共存できる）
+  const both = parseClients('ihv-wallet=https://issuer.example/demo/cb '
+    + '*=https://wallet.multipaz.org/redirect');
+  assert.ok(isRegisteredClient('ihv-wallet', 'https://issuer.example/demo/cb', both));
+  assert.ok(!isRegisteredClient('ihv-wallet', 'https://wallet.multipaz.org/redirect', both),
+    '明示登録された client_id はそのエントリの redirect_uri だけに縛られる（ワイルドカードへ横流ししない）');
+  assert.ok(isRegisteredClientAny('urn:uuid:anything-else', 'https://wallet.multipaz.org/redirect', [both]));
+});
+
 test('#38 KV とファイルの両方が発行ゲートとして効く（E2E）', async () => {
   const { createApp } = await import('../src/app.mjs');
   const { memoryStore } = await import('../src/oid4vci.mjs');

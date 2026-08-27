@@ -157,7 +157,10 @@ export function renderScenarioHome(scenarios = []) {
       <div class="sgrid">${cards}</div>
       <div class="hint" style="display:flex;justify-content:space-between;align-items:center">
         <span>ⓘ 2ステップのシナリオでは、両提示が同一の保有者鍵で署名されたこと（別人のウォレットの混用防止）も検証します。登場する組織名はデモ用の架空設定です。</span>
-        <a href="/verifier/history" style="font-weight:700;color:var(--verify);text-decoration:none">提示履歴 →</a>
+        <span style="white-space:nowrap">
+          <a href="/verifier/history" style="font-weight:700;color:var(--verify);text-decoration:none">提示履歴 →</a>
+          <a href="/verifier/settings" style="font-weight:700;color:var(--verify);text-decoration:none;margin-left:16px">⚙ 設定</a>
+        </span>
       </div>
     </div>
     <style>
