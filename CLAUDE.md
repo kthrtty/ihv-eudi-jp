@@ -190,15 +190,18 @@ companion）なので、券面を変えたらアプリを再起動させる。�
 マスク漏れのテストで断片を取るときは**末尾から**取る（先頭だと誤検知する）。
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas+トラストリスト、初回必須・pki/ は gitignore）／`npm test`（413, node:test）／
-`npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）
+`npm run setup`（dev PKI+trust+schemas+トラストリスト、初回必須・pki/ は gitignore）／`npm test`（473, node:test）／
+`npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）／
+`npm run clients`（KV のクライアント登録表）／`npm run wallet-providers`（信頼する Wallet Provider の鍵＝#40 のアンカー）
 
 ## アーキ地図（src/）
 - `cbor.mjs` 共有CBOR codec（土台）／`cose.mjs` COSE_Sign1(ES256 raw r‖s)／`handover.mjs` Annex C/D + HPKE
 - `mdoc.mjs` mdoc発行/検証 + `buildDeviceResponse/verifyDeviceResponse`（提示+deviceAuth）
 - `sdjwt.mjs` SD-JWT発行/検証/選択開示/KB-JWT／`dcql.mjs` DCQL構築/解決/充足／`jwe.mjs` 応答暗号化／`status.mjs` Token Status List
 - `issuer.mjs` カタログ駆動 mint/verify + SAMPLE。`personaClaims/configInfo/allConfigIds`。schemas は **JSON バンドル import（import時fsゼロ）**、PKIは mint/verify 内で遅延読込
-- `oid4vci.mjs` IssuerService（offer/token/nonce/credential, proof検証, login/authorize, **memoryStore + kvStore**, httpErr）
+- `oid4vci.mjs` IssuerService（offer/token/nonce/credential, proof検証, login/authorize/par, **memoryStore + kvStore**, httpErr）
+- `client-attestation.mjs` **Wallet Attestation 検証**（#40・`attest_jwt_client_auth`。attestation+PoP の2枚）
+- `features.mjs` フィーチャーフラグ（3アプリ共有・KV `vcfg:features`。広告と動作を1つのフラグから導く）
 - `verifier.mjs` VerifierService（`createRequest({protocol})`・`verifyResponse`・statusResolver・linkedSameHolder）
 - `users.mjs` 人物4名+persona写像+CRUD／`municipalities.mjs` **自治体ディレクトリ**（交付者名と管轄の正本）／`disasters.mjs` **災害マスタ**（罹災の対象自治体の正本）／`offer.mjs` Credential Offer配送／`canonical.mjs` 決定性監査
 - `app.mjs` Hono（Issuer app + `createVerifierApp`）。`app.request()` でサーバ無しテスト
@@ -831,6 +834,32 @@ DADS では意味が分かれるので**一括置換できない**。1件ずつ�
   Multipaz 固有要求2つ＝(1) AS metadata に `pushed_authorization_request_endpoint`(PAR/RFC 9126) が**文字列必須**（`asMetadata`+`POST /par`）、
   (2) Credential EP はトークンを **`DPoP` スキーム**で提示（`Bearer` 固定だと 401。両受理に修正、DPoP鍵バインド検証は未実装＝issue #4）
 - [x] M7 Workers本番化（4 Workers。本番ドメインは `.deploy.env`→`npm run deploy` 注入・リポジトリはプレースホルダのみ。詳細 `docs/deploy.md`）
+- [x] **#40 クライアント認証（HAIP §4.4.1 の MUST）**（2026-08-27）: `private_key_jwt` に加え
+  **`attest_jwt_client_auth`（Wallet Attestation）を実装**（`src/client-attestation.mjs`）。
+  **client_id の事前登録が要らなくなるのが眼目**——発行者は個々の端末ではなく
+  **Wallet Provider の署名鍵**を信頼し、client_id は attestation JWT の `sub` から受け取る
+  （HAIP §4.4.1「client_id … MUST be the string in the `sub` value in the client attestation JWT」）。
+  守るべき点:
+  (1) **アンカーは KV `_wallet_providers:config`**（`npm run wallet-providers`）。**環境変数に入れない**
+  ——JWK は本質的に JSON で `--var` に渡すと壊れる（2026-08-26 に CLIENT_REGISTRY で本番が止まった）。
+  **0 件なら1件も通らない**（fail-closed）。件数は `/dev/endpoints` の `POST /par` 行にだけ出る／
+  (2) **`x5c` は鍵の解決に使わない**（#26 と同じ規則）。Multipaz は `toX5c(excludeRoot = true)` で
+  アンカーを落として送る（HAIP §6.1.1 と同じ作法）ので**アンカーは元から手元に無ければならない**／
+  (3) **拒否時は `iss` をエラーに含める**——どの Wallet Provider を信頼していないのか分からないと
+  登録すべき値に辿り着けない（client_id のときは実機ログを取るまで1往復した）／
+  (4) **PAR でも認証する**（HAIP は PAR と Token の両方を挙げる）。`/authorize` はリダイレクトで
+  ヘッダを運べないので**認証できる最後の機会が PAR**。結果は PAR レコードの `clientAuthenticated` に
+  載せて `/authorize` が引き継ぐ——**同意フォームの hidden にしない**（画面を書き換えるだけで
+  登録表の検査を迂回できてしまう）／
+  (5) 再送検知は **`jti` 方式**（§12.1）。challenge 方式は往復が増える。窓は KV の TTL がそのまま
+  - **Multipaz は広告を読んで方式を選ぶ**（`AuthorizationConfiguration.kt` で実測）:
+    `none` があれば**無条件に無認証**／`attest_jwt_client_auth` があれば CLIENT_ATTESTATION。
+    つまり**「両方対応」は成立しない**。ヘッダは `OAuth-Client-Attestation` /
+    `OAuth-Client-Attestation-PoP`、PoP の `aud` は **AS メタデータの `issuer`**
+  - **`client_id` はバックエンドのデプロイごとに固定**（インストールごとではない）。
+    dev と本番で値が別なだけ。**OID4VCI §15.4.4 はインスタンス固有 ID を禁じている**
+    （発行者をまたぐ追跡防止）。一度「動的生成」と誤診断して `*` ワイルドカードを入れ、撤回した
+    ——**1回の観測から仕様を推測しない**
 
 ## 自己改善ハーネス（2026-07-07 導入・正本は AgentVault テンプレ）
 `memory/`=5階層メモリ（L0憲法/L1作業状態/L2議論ログ/L3蒸留知見/L4圧縮）・実体は Vault、リポジトリには symlink（gitignore済み）。
