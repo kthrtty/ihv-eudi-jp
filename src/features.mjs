@@ -49,14 +49,17 @@ export const FEATURES = {
     type: 'enum',
     values: ['none', 'private_key_jwt', 'attest_jwt_client_auth'],
     valueLabels: {
-      none: '認証しない（既定・実機がそのまま動く）',
-      private_key_jwt: 'client_assertion の署名を検証（RFC 7523・HAIP の MUST を満たす）',
-      attest_jwt_client_auth: 'Wallet Attestation（HAIP §4.4.1 の SHOULD）',
+      // **valueLabels は esc() でそのまま出る**（rich() を通らない）ので記法を書かない
+      none: '認証しない（既定・実機がそのまま動く。HAIP §4.4.1 の MUST を満たさない）',
+      private_key_jwt: 'client_assertion の署名を検証（RFC 7523。要・登録表への鍵登録）',
+      attest_jwt_client_auth: 'Wallet Attestation（HAIP 推奨・client_id の事前登録が不要になる）',
     },
     default: 'none',
     affects: [
       'AS メタデータ token_endpoint_auth_methods_supported',
-      'Token EP でのクライアント認証の検証',
+      'PAR EP / Token EP でのクライアント認証の検証（HAIP §4.4.1 は両方を挙げる）',
+      'attest_jwt_client_auth のときは client_id の事前登録が不要になる'
+        + '（登録表ではなく Wallet Provider のアンカーで判断する）',
     ],
     // **実機への影響を書く**。切り替えたら何が起きるかを、切り替える前に読ませる
     note: 'Multipaz はこの広告を読んで方式を決める。ただしメタデータをプロセス内メモリに'
@@ -66,6 +69,12 @@ export const FEATURES = {
       + '署名の検証に使う公開鍵を assertion 自身から取ると、誰でも自分の鍵で署名して'
       + '通せてしまう。鍵は KV の `_clients:config` に JSON で登録する'
       + '（平文形式では表せない）。鍵の無いクライアントはこの方式では通せない。'
+      + '\n\n**`attest_jwt_client_auth` は Wallet Provider のアンカーが要る**——'
+      + '登録表ではなく KV の `_wallet_providers:config`（`npm run wallet-providers`）。'
+      + '**0 件なら1件も通らない**（fail-closed）。現在値は開発者コンソールの'
+      + '`POST /par` の行に出る。これを使うと **client_id の事前登録が不要になる**'
+      + '（発行者は端末ではなく Wallet Provider を信じ、client_id は attestation の '
+      + '`sub` から受け取る）。'
       + '\n\n**pre-authorized_code には要求しない**——OID4VCI 1.0 が '
       + '「authentication of the Client is OPTIONAL」と定めており、要求すると'
       + 'オファー経由の発行が壊れる。',

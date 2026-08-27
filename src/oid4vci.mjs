@@ -15,6 +15,7 @@ import { sha256, b64url } from './cbor.mjs';
 import { validateFields } from './validate.mjs';
 import { verifyDpopProof } from './dpop.mjs';
 import { readFeatures } from './features.mjs';
+import { verifyClientAttestation } from './client-attestation.mjs';
 
 const PRE_AUTH_GRANT = 'urn:ietf:params:oauth:grant-type:pre-authorized_code';
 const PROOF_TYP = 'openid4vci-proof+jwt';
@@ -284,6 +285,10 @@ export class IssuerService {
     // 代わりに **KV に足しても古い isolate には反映されない**（数分で入れ替わる）。
     this.clientsKvKey = clientsKvKey;
     this._clientsKv = undefined;
+    // Wallet Provider のトラストアンカー（issue #40）。#clientsKv と同じく
+    // isolate 起動後に1回だけ読む——変更頻度が桁違いに低い
+    this.walletProvidersKvKey = '_wallet_providers:config';
+    this._walletProvidersKv = undefined;
     this.statusList = new StatusListService({
       uri: `${credentialIssuer}/status-lists/1`,
       issuerKeyPem: statusPki?.key ?? null,
@@ -559,7 +564,7 @@ export class IssuerService {
   // ---- 3.4 Authorization Endpoint (authorization_code + PKCE) ----
   async authorize({ sessionId, response_type, redirect_uri, code_challenge, code_challenge_method,
     scope, authorization_details, issuer_state, state, applications: chosen = null,
-    client_id = null } = {}) {
+    client_id = null, clientAuthenticated = false } = {}) {
     if (response_type !== 'code') throw httpErr(400, 'unsupported_response_type', String(response_type));
     const sess = sessionId && await this.store.get(`sess:${sessionId}`);
     if (!sess) throw httpErr(401, 'login_required', 'no active session; user must sign in first');
@@ -572,7 +577,13 @@ export class IssuerService {
     // **登録済みクライアントかを確かめる**（issue #38）。上の isRedirectAllowed とは
     // 関心事が違う——あちらは危険な宛先を弾く、こちらは登録された組合せかを見る。
     // 未登録の client_id / 登録と違う redirect_uri は `invalid_client`（RFC 6749 §5.2）。
-    if (!isRegisteredClientAny(client_id, redirect_uri, await this.#registries())) {
+    // **PAR でクライアント認証を通っていれば登録表は引かない**（issue #40）。
+    // Wallet Attestation は「事前登録なしで相手を確かめる」ための機構なので、
+    // 認証できた相手に登録済みであることまで求めると意味が無くなる。
+    // `clientAuthenticated` は **PAR レコード由来**（`/authorize` のクエリではない）
+    // ＝クライアントが自分で名乗れる値ではない。
+    if (!clientAuthenticated
+        && !isRegisteredClientAny(client_id, redirect_uri, await this.#registries())) {
       throw httpErr(400, 'invalid_client', 'unknown client_id or redirect_uri not registered for it');
     }
     const ids = await this.requestedIds({ scope, authorization_details, issuer_state });
@@ -633,6 +644,26 @@ export class IssuerService {
   }
 
   /**
+   * 信頼している Wallet Provider の公開鍵を `iss` から引く（issue #40）。
+   *
+   * **KV だけに置く**（`_wallet_providers:config`）。**環境変数に入れない**——
+   * JWK は本質的に JSON で、`wrangler deploy --var` に JSON を渡すと値が壊れる
+   * （2026-08-26 に CLIENT_REGISTRY で実際に本番の発行が止まった）。しかも
+   * 信頼するウォレットは運用中に増えるので、再デプロイなしで足せる必要がある。
+   *
+   * 形: `{ "<iss>": { "jwks": { "keys": [...] } } }`。`npm run wallet-providers` で編集する。
+   * **読めなければ null＝1件も信頼しない**（fail-closed）。
+   */
+  async #walletProviderJwks(iss) {
+    if (this._walletProvidersKv === undefined) {
+      try { this._walletProvidersKv = (await this.store.get(this.walletProvidersKvKey)) ?? null; }
+      catch { this._walletProvidersKv = null; }
+    }
+    const entry = this._walletProvidersKv?.[String(iss ?? '')];
+    return entry?.jwks ?? null;
+  }
+
+  /**
    * フィーチャーフラグを解決する。**TTL 付きで isolate 内にキャッシュ**する
    * （src/features.mjs の CACHE_TTL_MS）——無認証で叩ける /token や
    * /.well-known/* が毎回 KV read になるのを避けつつ、デモ中の切り替えは
@@ -684,14 +715,42 @@ export class IssuerService {
       } catch (e) {
         throw httpErr(400, 'invalid_client', `client_assertion verification failed: ${e.message}`);
       }
-      return;
+      return sub;   // 認証できた client_id（RFC 7523 §3: assertion の sub）
     }
     if (method === 'attest_jwt_client_auth') {
-      // Wallet Attestation（HAIP Appendix E）は未実装。**黙って通さない**——
-      // 広告しておいて素通しにすると、広告が嘘になる
-      throw httpErr(400, 'invalid_client',
-        'attest_jwt_client_auth is advertised but not implemented yet (issue #40)');
+      // Wallet Attestation（HAIP §4.4.1・OID4VCI Appendix E・issue #40）。
+      // **2枚の JWT は HTTP ヘッダで届く**ので、フォームではなく ctx から取る
+      const { attestation, pop } = params.__attestationHeaders ?? {};
+      try {
+        const r = await verifyClientAttestation({
+          attestation, pop,
+          // §5.2: `aud` は RFC 8414 の issuer 識別子。我々は AS と Credential Issuer が同一
+          audience: this.credentialIssuer,
+          anchorFor: (iss) => this.#walletProviderJwks(iss),
+          seenJti: (jti) => this.#seenAttestationJti(jti),
+        });
+        return r.clientId;   // **HAIP: client_id は attestation の sub**（事前登録は不要）
+      } catch (e) {
+        // **`iss` を添えて返す**（2026-08-27 の教訓）。どの Wallet Provider を
+        // 信頼していないのかが分からないと、登録すべき値に辿り着けない——
+        // client_id のときは実機ログを取るまで丸1往復かかった。
+        throw httpErr(400, 'invalid_client',
+          e.detail ? `${e.message} (${e.detail})` : e.message);
+      }
     }
+    return null;
+  }
+
+  /**
+   * PoP の `jti` を1回だけ通す（draft-ietf-oauth-attestation-based-client-auth §12.1）。
+   * **KV の TTL がそのまま「見た jti を覚えておく窓」**になる。PoP は要求ごとに
+   * 作られる短命なものなので、窓は attestation の有効期限ではなく数分で足りる。
+   */
+  async #seenAttestationJti(jti) {
+    const key = `caj:${jti}`;
+    if (await this.store.get(key)) return true;
+    await this.store.set(key, 1, this.proofMaxAgeSec);
+    return false;
   }
 
   /**
@@ -731,6 +790,22 @@ export class IssuerService {
         + (v.jwks?.keys?.length ? ` [鍵${v.jwks.keys.length}件]` : '')) : []);
     const rows = [...dump(this.clients, 'file'), ...dump(this._clientsKv, 'kv')];
     return `client_id 検証: 有効（ファイル ${n(this.clients)} 件 / KV ${n(this._clientsKv)} 件）  ${rows.join('  ')}`;
+  }
+
+  /**
+   * 信頼している Wallet Provider の要約（issue #40）。
+   * **0 件＝ `attest_jwt_client_auth` が1件も通らない状態**で、それはここでしか見えない
+   * （トラストリストの設定画面がアンカー件数を出しているのと同じ理由）。
+   */
+  async walletProviderSummary() {
+    await this.#walletProviderJwks(null);   // KV 側を読ませる（未読なら1回だけ）
+    const obj = this._walletProvidersKv ?? {};
+    const ids = Object.keys(obj);
+    if (!ids.length) {
+      return 'Wallet Provider アンカー: 0 件（attest_jwt_client_auth は1件も通りません）';
+    }
+    return `Wallet Provider アンカー: ${ids.length} 件  `
+      + ids.map((k) => `${k}[鍵${obj[k]?.jwks?.keys?.length ?? 0}件]`).join('  ');
   }
 
   /**
@@ -833,11 +908,35 @@ export class IssuerService {
   // ---- 5b. Pushed Authorization Request (RFC 9126) ----
   // Store the pushed authorization params and hand back an opaque request_uri.
   // Not consumed on resolve (a login round-trip re-reads it); TTL handles cleanup.
-  async par(params = {}) {
+  async par(params = {}, ctx = {}) {
     if (params.response_type !== 'code') throw httpErr(400, 'invalid_request', 'response_type=code required');
     const { request_uri, ...rest } = params; // a client MUST NOT push a request_uri
+    // **PAR でもクライアント認証する**（HAIP §4.4.1 が PAR と Token の両方を挙げている）。
+    // ここで認証しておくのが要点——`/authorize` は**ブラウザのリダイレクト**で
+    // ヘッダを運べないので、認証できる最後の機会がここになる。認証が通れば
+    // その結果を PAR レコードに載せ、`/authorize` はそれを引き継ぐ。
+    const feats = await this.features();
+    let authedClientId = null;
+    if (feats.client_auth !== 'none') {
+      authedClientId = await this.#requireClientAuth(
+        { ...rest, __attestationHeaders: ctx.attestation }, feats.client_auth);
+      // §5.1/HAIP §4.4.1: PAR の `client_id` は attestation の `sub` と一致すること。
+      // **食い違ったら弾く**——一致を要求しないと、認証は本物のまま
+      // 別のクライアントを名乗って push できてしまう
+      if (authedClientId && rest.client_id != null && String(rest.client_id) !== String(authedClientId)) {
+        throw httpErr(400, 'invalid_client',
+          'client_id does not match the authenticated client (sub of the client attestation)');
+      }
+      if (authedClientId) rest.client_id = String(authedClientId);
+    }
     const ref = tok();
-    await this.store.set(`par:${ref}`, { ...rest }, 300);
+    await this.store.set(`par:${ref}`, {
+      ...rest,
+      // **認証済みなら登録表を引かない**（issue #40）。これが Wallet Attestation の
+      // 眼目——事前登録なしで「どのウォレットか」を確かめられるので、
+      // client_id を発行者ごとに登録して回るモデルから抜けられる
+      ...(authedClientId ? { clientAuthenticated: true } : {}),
+    }, 300);
     return { request_uri: `urn:ietf:params:oauth:request_uri:${ref}`, expires_in: 300 };
   }
 
@@ -952,10 +1051,15 @@ export class IssuerService {
       // Pre-Authorized Code Grant Type, authentication of the Client is OPTIONAL」と
       // 明記しており、pre-auth に要求するとオファー経由の発行が壊れる。
       const feats = await this.features();
+      let authedClientId = null;
       if (feats.client_auth !== 'none') {
-        await this.#requireClientAuth(params, feats.client_auth);
+        authedClientId = await this.#requireClientAuth(
+          { ...params, __attestationHeaders: ctx.attestation }, feats.client_auth);
       }
-      const presentedClientId = params.client_id ?? assertedClientId(params.client_assertion);
+      // **認証できたならその client_id を使う**——素の `client_id` パラメータは
+      // クライアントが自由に名乗れるので、認証済みの値があればそちらが勝つ
+      const presentedClientId = authedClientId
+        ?? params.client_id ?? assertedClientId(params.client_assertion);
       if ((await this.#registries()).length && rec.client_id != null
           && String(presentedClientId ?? '') !== String(rec.client_id)) {
         throw httpErr(400, 'invalid_grant', 'authorization code was issued to a different client');

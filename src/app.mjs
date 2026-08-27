@@ -178,7 +178,10 @@ export function createApp(opts = {}) {
       { method: 'GET', path: '/.well-known/openid-credential-issuer', grp: 'メタデータ', desc: 'Issuer Metadata（OID4VCI §12）', value: svc.metadata(base) },
       { method: 'GET', path: '/.well-known/oauth-authorization-server', grp: 'メタデータ', desc: 'AS Metadata（RFC 8414）', value: svc.asMetadata(base, feats) },
       { method: 'GET', path: '/jwks', grp: 'メタデータ', desc: '署名鍵の JWK Set（trust は x5c）', value: jwksVal },
-      { method: 'POST', path: '/par', grp: 'OAuth', desc: 'Pushed Authorization Request（RFC 9126）' },
+      // **PAR はクライアント認証の場でもある**（HAIP §4.4.1）。アンカー 0 件＝
+      // attest_jwt_client_auth が1件も通らない状態は、ここでしか見えない
+      { method: 'POST', path: '/par', grp: 'OAuth', desc: 'Pushed Authorization Request（RFC 9126）',
+        sub: await svc.walletProviderSummary() },
       // **登録表は壊れていても画面は正常に見える**（POST で初めて invalid_client になる）。
       // 実際 --var に JSON を渡して壊れたとき、本番の発行が止まるまで気づけなかった。
       // 件数だけ出す（値は出さない）——0 件＝検証していない、が読めることが要点
@@ -498,11 +501,20 @@ export function createApp(opts = {}) {
     return c.body(await offerQrSvg(uri));
   });
 
+  // Wallet Attestation は**ヘッダで届く**（draft-ietf-oauth-attestation-based-client-auth §6.1）。
+  // フォームではないので ctx で運ぶ。ヘッダ名は大文字小文字を区別しない（Hono が正規化する）
+  const attestationHeaders = (c) => ({
+    attestation: c.req.header('oauth-client-attestation') || null,
+    pop: c.req.header('oauth-client-attestation-pop') || null,
+  });
   app.post('/token', async (c) => {
     try {
       const form = await c.req.parseBody();
       // DPoP proof があれば拇印をトークンに束ねる（RFC 9449 §6.1）
-      return c.json(await svc.token(form, { proof: c.req.header('dpop') || null, htu: c.req.url }));
+      return c.json(await svc.token(form, {
+        proof: c.req.header('dpop') || null, htu: c.req.url,
+        attestation: attestationHeaders(c),
+      }));
     } catch (e) { return fail(c, e); }
   });
 
@@ -511,7 +523,7 @@ export function createApp(opts = {}) {
   app.post('/par', async (c) => {
     try {
       const form = await c.req.parseBody();
-      return c.json(await svc.par(form), 201);
+      return c.json(await svc.par(form, { attestation: attestationHeaders(c) }), 201);
     } catch (e) { return fail(c, e); }
   });
 
@@ -597,7 +609,11 @@ export function createApp(opts = {}) {
       const f = await c.req.parseBody();
       // PAR 経由なら**ここで使い捨てにする**（RFC 9126 §4「used only once」）。
       // GET /authorize は描画のために覗くだけ、コードを出すこの経路で消す
-      if (f.request_uri) await svc.resolvePar(f.request_uri, { consume: true });
+      const pushed = f.request_uri ? await svc.resolvePar(f.request_uri, { consume: true }) : null;
+      // **「クライアント認証を通ったか」はフォームではなく PAR レコードから取る**（issue #40）。
+      // hidden に載せると、同意画面の HTML を書き換えるだけで登録表の検査を
+      // 迂回できてしまう（画面で隠すのは防御ではない、の裏返し）
+      const clientAuthenticated = pushed?.clientAuthenticated === true;
       // `app:<configId>` = 同意画面で選ばれた申請。**サーバ側で本人の・交付可能な
       // 申請かを検証する**（画面で隠すのは防御ではない — 2026-08-09 の教訓）
       const applications = {};
@@ -614,7 +630,9 @@ export function createApp(opts = {}) {
         // undefined が渡って全クライアントが invalid_client になる。
         // **単体テストは svc.authorize() を直接呼ぶので永久に気づけない**——
         // 回帰は HTTP の同意 POST を通す（test/oid4vci.test.mjs）
-        client_id: f.client_id || undefined,
+        // 認証済みなら **PAR に記録された client_id** を使う（フォームの値ではなく）
+        client_id: (clientAuthenticated ? pushed.client_id : f.client_id) || undefined,
+        clientAuthenticated,
         applications: Object.keys(applications).length ? applications : null,
       });
       return c.redirect(redirect, 302);

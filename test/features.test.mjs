@@ -105,7 +105,9 @@ test('広告と検証動作が同じフラグから導出される', async () =>
   assert.equal(preAuth.status, 200, 'pre-auth は認証を要求しない（OID4VCI 1.0 §6.1）');
 });
 
-test('広告しておいて素通しにしない（未実装の方式は明示的に拒否）', async () => {
+// #40 で attest_jwt_client_auth を実装した。**広告しておいて素通しにしない**という
+// 元の観点は変わらない——attestation ヘッダが無い要求は拒否されること（素通ししない）を見る。
+test('広告しておいて素通しにしない（attestation 無しの要求は拒否）', async () => {
   const { createHash, randomBytes } = await import('node:crypto');
   const WAL = 'https://wallet.example';
   const app = createApp({ credentialIssuer: ISSUER, redirectAllowlist: `${WAL}/cb` });
@@ -118,7 +120,7 @@ test('広告しておいて素通しにしない（未実装の方式は明示�
     redirect_uri: `${WAL}/cb`, code_challenge: challenge, code_challenge_method: 'S256', scope: 'pid_mdoc' });
   await assert.rejects(
     () => app.svc.token({ grant_type: 'authorization_code', code, code_verifier: verifier, redirect_uri: `${WAL}/cb` }),
-    (e) => e.oauthError === 'invalid_client' && /not implemented/.test(e.message));
+    (e) => e.oauthError === 'invalid_client' && /OAuth-Client-Attestation header is missing/.test(e.message));
 });
 
 test('値域外はサーバ側で既定に丸める（画面で隠すのは防御ではない）', async () => {

@@ -44,7 +44,11 @@ const read = () => {
   }
   // 読めなかった。世代があるなら「初回」ではない＝異常なので触らない
   const hist = spawnSync('node', ['scripts/kv-versioned.mjs', 'list', KEY], { encoding: 'utf8' });
-  if (hist.status === 0 && /v\d+\s/.test(hist.stdout || '')) {
+  // **世代行だけを見る**（`^  v<N> `）。サマリ行の `現行=v0 (未設定)` にも `v0` が
+  // 出るので、素朴に `/v\d+/` で見ると**未設定のキーを「世代あり」と誤判定**して
+  // 初回の登録が永久にできなくなる（`_clients:config` は既に世代があったので
+  // 表面化していなかった。2026-08-27 に wallet-providers.mjs で踏んで発覚）
+  if (hist.status === 0 && /^\s+v\d+\s/m.test(hist.stdout || '')) {
     console.error(`!! ${KEY} を読めませんでした（ただし世代は存在します）。`);
     console.error('   このまま書くと既存の登録を消すので中断します。');
     console.error(`   状態: node scripts/kv-versioned.mjs list ${KEY}`);
