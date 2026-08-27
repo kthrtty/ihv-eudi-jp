@@ -70,7 +70,7 @@ All files     |   99.8  |    79.6  |   98.9  |   99.8
 **HAIP は独立プランではなく variant**——VCI は `fapi_profile: vci_haip`、VP は `vp_profile: haip`。
 
 ```
-npm run conformance:vci-auth <testId>       # 認可待ちのテストを進める
+npm run conformance:vci-auth <testId>       # 認可待ちを（何回でも）進める
 npm run conformance:vp <planId> [module…]   # VP を回して結果画面を REVIEW に提出
 ```
 
