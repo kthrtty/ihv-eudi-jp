@@ -146,21 +146,26 @@ export function clientJwks(clientId, registries) {
  * `client_id` と `redirect_uri` の組が登録どおりか。
  * **登録表が無ければ true**（未設定＝従来どおり検証しない。dev/テスト互換）。
  *
- * **`*` はワイルドカード client_id**（2026-08-27・実機で invalid_client 実測）。
- * Multipaz Wallet はインストールごとに `client_id` を自己生成する（自分のバックエンドの
- * `getOpenID4VCIBackendUnlocked().getClientId()` から取得）——`default_configuration.json`
- * の `client_id`（`urn:uuid:c4011939-…`）は固定値に見えて実は使われず、実機は
- * `urn:uuid:da7e88b8-…` のような**インストールごとに異なる UUID**を送ってきた
- * （本番 devlog で実測）。固定 UUID を1つ事前登録しても意味がない——事前に
- * 知りようがない値だから。この種の「公開クライアントで redirect_uri だけが
- * 恒常的に決まる」相手は `*` キーで登録し、**redirect_uri が一致すれば client_id は問わない**。
- * 登録済みクライアント同士のなりすまし防止（本来の #38 の狙い）は、コードに
- * 束ねた実際の client_id を `/token` 側で突き合わせる既存のチェックが引き続き担う
- * （`isRegisteredClientAny` はここでは通すだけで、コード奪取防止はそちらの役目）。
+ * **ワイルドカード（`*`）は入れない**（2026-08-27・一度入れて撤回した）。
+ * 実機の invalid_client を「Multipaz は client_id をインストールごとに自己生成する」と
+ * 誤診断し、`*` で client_id の識別を実質無効化したことがある。**1回の観測からの推測**で、
+ * 裏を取ると3点とも逆だった——(1) `getClientId()` は `configuration.getValue("client_id")` を
+ * 返すだけでバックエンド設定の**固定値**／(2) 根拠にした「DPoP の kid が client_id と同じ」は
+ * `generateDPoP()` が kid に clientId をそのまま入れているだけで端末固有性とは無関係／
+ * (3) **OID4VCI §15.4.4 はむしろ逆を要求**する（Wallet Attestation の `sub`＝client_id は
+ * 単一クライアント固有の識別子を導入すべきでなく、同じウォレット実装の全インスタンスで
+ * 共有される「ウォレット種別の識別子」であるべき。インスタンス固有だと発行者をまたいで
+ * 追跡できてしまうため）。実際の食い違いは **dev と本番でバックエンドが別＝設定が別**
+ * だっただけで、各バックエンドの中では安定している。
+ *
+ * ウォレットが「任意の発行者に事前登録なしで繋がる」ことを本当に解くのは
+ * **Wallet Attestation**（HAIP §4.4.1・OID4VCI Appendix E・issue #40）——発行者は
+ * 個々のインスタンスではなく **Wallet Provider の署名鍵**を信頼し、client_id は
+ * attestation JWT の `sub` から受け取る。登録表を緩めることではない。
  */
 export function isRegisteredClient(clientId, redirectUri, clients) {
   if (!clients) return true;
-  const entry = clients.get(String(clientId ?? '')) ?? clients.get('*');
+  const entry = clients.get(String(clientId ?? ''));
   if (!entry) return false;                      // 未登録の client_id
   return entry.redirect_uris.includes(String(redirectUri ?? ''));  // クエリまで含めた厳密一致
 }

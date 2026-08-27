@@ -32,15 +32,28 @@ const vars = {
 for (const [k, v] of Object.entries(vars)) {
   if (!v) { console.error(`✗ ${k} が解決できません（WORKERS_SUBDOMAIN か ${k} を .deploy.env に設定）`); process.exit(1); }
 }
-// **Multipaz Wallet（参照実装）の既定 redirect_uri**（2026-08-27・実機の invalid_client で判明）。
-// 当初は `default_configuration.json` の `client_id`（`urn:uuid:c4011939-…`）を固定値として
-// 登録していたが、**実機は自分のバックエンドから毎インストールごとに別の UUID を取得して
-// 送ってくる**（本番 devlog で実測: `urn:uuid:da7e88b8-…`）。固定 UUID の事前登録は無意味——
-// 値を事前に知りようがない。そのため client_id は `*`（ワイルドカード）で登録し、
-// **redirect_uri が一致すれば client_id は問わない**（isRegisteredClient 参照）。
-// 独自ビルド（バックエンドを差し替えたもの）で redirect_uri 自体が変わる場合は
-// `npm run clients add` で個別に足す（file 側のこれと KV 側の追加登録は両方生きる）。
-const MULTIPAZ_CLIENT_ID = '*';
+// **Multipaz Wallet（参照実装）の client_id / redirect_uri**（2026-08-27）。
+// **client_id はバックエンドのデプロイごとに1つで、インストールごとには変わらない**——
+// `getClientId()` は `configuration.getValue("client_id")` を返すだけ（OID4VCI §15.4.4 も
+// 「インスタンス固有の識別子を導入するな」と要求している。発行者をまたぐ追跡を防ぐため）。
+// **dev と本番でバックエンドが別＝設定が別なので client_id も別**:
+//   dev  … `urn:uuid:c4011939-…`（リポジトリの default_configuration.json＝Dev 用の値）
+//   本番 … `urn:uuid:da7e88b8-…`（本番の実機が送ってきた値を devlog で実測）
+// 一度これを「インストールごとに動的生成される」と誤診断してワイルドカード（`*`）を
+// 入れたが撤回した（経緯は isRegisteredClient のコメント）。
+//
+// **redirect_uri は両方を両方の client_id に許す**。`redirectUrl = "${BACKEND_URL}/redirect"`
+// なので本来は dev↔dev / 本番↔本番の対応のはずだが、**その対応付けは実測ではなく推測**で、
+// 外すとまた実機だけ invalid_client になる。どちらも Multipaz 管理下のオリジンなので
+// 交差を許しても実害が無く、推測を外したときのコストのほうが大きい。
+//
+// **これは #40（Wallet Attestation）までの繋ぎ**。HAIP §4.4.1 はクライアント認証を
+// MUST としており、本来は client_id を事前登録するのではなく attestation JWT の `sub`
+// から受け取る（発行者は Wallet Provider の鍵を信頼する）。そこまで行けばこの表は要らない。
+const MULTIPAZ_CLIENT_IDS = [
+  'urn:uuid:c4011939-b5f3-4320-9832-fcebfab91ba5',   // dev バックエンド
+  'urn:uuid:da7e88b8-2d13-46fa-ac48-0044485832ba',   // 本番バックエンド
+];
 const MULTIPAZ_REDIRECT_URIS = ['https://wallet.multipaz.org/redirect', 'https://dev.wallet.multipaz.org/redirect'];
 
 // Open-redirector guard: derive the redirect_uri allowlist from the real origins
@@ -58,8 +71,8 @@ vars.SSRF_ALLOWED_ORIGINS = env.SSRF_ALLOWED_ORIGINS
 // 「登録された client_id と redirect_uri の組か」（クエリまで厳密一致）。
 //   ihv-web-wallet … Web ウォレット（別オリジン）
 //   ihv-wallet     … 発行ポータル内のデモ用ウォレット画面
-//   *              … Multipaz Wallet 実機（client_id はインストールごとに変わるためワイルドカード。
-//                     KV 側に別ビルド・別 redirect_uri を追加登録できる）
+//   urn:uuid:…     … Multipaz Wallet 実機（dev / 本番の2つ。上の定数を参照。
+//                     独自ビルドは `npm run clients add` で KV 側に足せる）
 // **未設定なら検証しない**（redirectAllowlist と同じ「未設定＝permissive」）。
 // 外部クライアント（conformance suite など）を通すときは .deploy.env で上書きする。
 // **平文で渡す**（`id=uri[,uri]` の空白区切り）。JSON を `--var` に渡したら値が壊れ、
@@ -69,8 +82,8 @@ vars.SSRF_ALLOWED_ORIGINS = env.SSRF_ALLOWED_ORIGINS
 // 足す——値がこちらの都合で決まらず運用中に増えるので、再デプロイなしで足せる必要がある。
 // 2つの表は**合成せず順に問い合わせる**（isRegisteredClientAny）。
 vars.CLIENT_REGISTRY = env.CLIENT_REGISTRY
-  || `ihv-web-wallet=${vars.WALLET_ORIGIN}/oidc/cb ihv-wallet=${vars.ISSUER_URL}/demo/cb `
-    + `${MULTIPAZ_CLIENT_ID}=${MULTIPAZ_REDIRECT_URIS.join(',')}`;
+  || [`ihv-web-wallet=${vars.WALLET_ORIGIN}/oidc/cb`, `ihv-wallet=${vars.ISSUER_URL}/demo/cb`,
+    ...MULTIPAZ_CLIENT_IDS.map((id) => `${id}=${MULTIPAZ_REDIRECT_URIS.join(',')}`)].join(' ');
 
 const varArgs = Object.entries(vars).flatMap(([k, v]) => ['--var', `${k}:${v}`]);
 const configs = [null, 'wrangler.verifier.toml', 'wrangler.wallet.toml', 'wrangler.admin.toml'];
