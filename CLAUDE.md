@@ -823,8 +823,12 @@ DADS では意味が分かれるので**一括置換できない**。1件ずつ�
 ## 適合テスト（OpenID conformance suite）で見つけた非準拠
 
 **HAIP プロファイルで VCI / VP を実際に流す**（`fapi_profile=vci_haip` / `vp_profile=haip`）。
-2026-08-27 の実測: **VCI は PASSED 11 / SKIPPED 2 / FAILED 2**（FAILED は TLS と suite 側の
-未対応例外で我々の非準拠ではない）、**VP（HAIP）は PASSED 5 / REVIEW 5 / SKIPPED 1・FAILED 0**。
+2026-08-28 の実測: **VCI（HAIP）は PASSED 13 / SKIPPED 2 / FAILED 1**、
+**VP（HAIP）は PASSED 5 / REVIEW 5 / SKIPPED 1・FAILED 0**。
+**我々の実装に起因する未達は0件**——残る FAILED は TLS 1.0/1.1 だけで、
+`*.workers.dev` が Cloudflare 所有ゾーンでゾーン設定が届かないという環境要因（docs/deploy.md）。
+SKIPPED は機能未実装（batch＝#41 ／ 応答暗号化）で、suite も「許された挙動」と明示する。
+REVIEW は人手確認待ちで自動チェックは全通過。
 
 - **`claims` は `credential_metadata` の下**（§12.2.4）。節 id が入れ子を決定的に示す——
   `credential_metadata`=`§12.2.4-2.11.2.6` に対し `display`=`…6.2.1` / `claims`=`…6.2.2` で
@@ -851,6 +855,15 @@ DADS では意味が分かれるので**一括置換できない**。1件ずつ�
 - **#42 の迂回路は「アンカーを見ない」だけでは足りない**。suite の VC はヘッダが
   `{alg, typ}` だけで **x5c も jwk も kid も無く**、鍵は試験の設定で渡される前提。
   **鍵の運び方**まで面倒を見ないと成立しない（検証者設定に発行者公開鍵の欄がある）
+- **認可を要するテストは「待ちが解消するまで」駆動する**（2026-08-28）。
+  `happy-flow-multiple-clients` は**2クライアントで認可を2回**行い、**2回目だけ
+  `?dummy1=lorem&dummy2=ipsum` 付きの redirect_uri を使う**。1回しか駆動しないと
+  2回目のコールバックが完了せず `CheckMatchingCallbackParameters` が空振りして FAILED になる
+  ——**1回目は SUCCESS** なので「クエリ付き redirect_uri を保持できていない」わけではない。
+  **同じ認可 URL は二度叩かない**（終わったテストに叩くと
+  `Illegal test state change: FINISHED -> RUNNING`）。処理済みを覚えて未処理だけ進める。
+  **この FAILED を「suite 側の UnsupportedOperationException」と記録していたのは誤り**だった
+  ——全実行を横断して初めて分かった。**1回の観測で原因を決めない**
 - **画面の文言を推測で正規表現に書かない**（同日・ドライバで何度も外した）。成功画面は
   「✓ … 提示を検証しました」で、**「検証成功」という語は無い**。`innerText` を実際に見る
 - **suite の実行手順**: 計画は `/api/plan`（variant は `fapi_profile`/`vp_profile`）、
