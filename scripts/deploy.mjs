@@ -32,12 +32,23 @@ const vars = {
 for (const [k, v] of Object.entries(vars)) {
   if (!v) { console.error(`✗ ${k} が解決できません（WORKERS_SUBDOMAIN か ${k} を .deploy.env に設定）`); process.exit(1); }
 }
+// **Multipaz Wallet（参照実装）の既定 client_id / redirect_uri**（2026-08-27）。
+// `default_configuration.json`（openwallet-foundation/multipaz-wallet）にハードコードされた
+// 値で、我々の秘密ではない——公開されているリファレンスバックエンドの識別子。
+// 実機で毎回 `npm run clients add` するのは運用として脆い（KV が消えれば実機だけ壊れ、
+// しかも気づきにくい）ので、**デプロイのたびに自動で入る既定**にする。
+// 独自ビルド（`MULTIPAZ_WALLET_BACKEND_CLIENT_ID` を上書きしたもの）は別途
+// `npm run clients add` で足す（このデフォルトと共存できる。#38 は複数登録表を
+// 合成せず順に問い合わせるため、file 側のこれと KV 側の追加登録は両方生きる）。
+const MULTIPAZ_CLIENT_ID = 'urn:uuid:c4011939-b5f3-4320-9832-fcebfab91ba5';
+const MULTIPAZ_REDIRECT_URIS = ['https://wallet.multipaz.org/redirect', 'https://dev.wallet.multipaz.org/redirect'];
+
 // Open-redirector guard: derive the redirect_uri allowlist from the real origins
 // (issuer /demo/cb + wallet /oidc/cb) unless explicitly overridden in .deploy.env.
 // Closes the open redirector automatically on every deploy — no step to forget.
 // Extra dev/local origins can be appended via the REDIRECT_URI_ALLOWLIST override.
 vars.REDIRECT_URI_ALLOWLIST = env.REDIRECT_URI_ALLOWLIST
-  || `${vars.ISSUER_URL}/demo/cb ${vars.WALLET_ORIGIN}/oidc/cb`;
+  || [`${vars.ISSUER_URL}/demo/cb`, `${vars.WALLET_ORIGIN}/oidc/cb`, ...MULTIPAZ_REDIRECT_URIS].join(' ');
 // R2 SSRF: the wallet Worker may only fetch these origins server-side. Derived
 // from the real origins unless overridden in .deploy.env.
 vars.SSRF_ALLOWED_ORIGINS = env.SSRF_ALLOWED_ORIGINS
@@ -45,19 +56,20 @@ vars.SSRF_ALLOWED_ORIGINS = env.SSRF_ALLOWED_ORIGINS
 // クライアント登録表（issue #38）。**REDIRECT_URI_ALLOWLIST とは目的が違う**——
 // あちらは「危険な宛先へ飛ばさない」（オリジン＋パス前方一致）、こちらは
 // 「登録された client_id と redirect_uri の組か」（クエリまで厳密一致）。
-// 我々のクライアントは2つだけなので実オリジンから導出する。
 //   ihv-web-wallet … Web ウォレット（別オリジン）
 //   ihv-wallet     … 発行ポータル内のデモ用ウォレット画面
+//   Multipaz       … 実機（上記の既定 UUID。KV 側に別ビルドを追加登録できる）
 // **未設定なら検証しない**（redirectAllowlist と同じ「未設定＝permissive」）。
 // 外部クライアント（conformance suite など）を通すときは .deploy.env で上書きする。
 // **平文で渡す**（`id=uri[,uri]` の空白区切り）。JSON を `--var` に渡したら値が壊れ、
 // 登録済みのクライアントまで invalid_client で弾かれて本番の発行が止まった
 // （2026-08-26）。REDIRECT_URI_ALLOWLIST は同じ経路を平文で無事に通っている。
-// 外部クライアント（実機・conformance）は **KV の `_clients:config`** に足す
-// ——値がこちらの都合で決まらず運用中に増えるので、再デプロイなしで足せる必要がある。
+// 外部クライアント（conformance 等・都度変わるもの）は **KV の `_clients:config`** に
+// 足す——値がこちらの都合で決まらず運用中に増えるので、再デプロイなしで足せる必要がある。
 // 2つの表は**合成せず順に問い合わせる**（isRegisteredClientAny）。
 vars.CLIENT_REGISTRY = env.CLIENT_REGISTRY
-  || `ihv-web-wallet=${vars.WALLET_ORIGIN}/oidc/cb ihv-wallet=${vars.ISSUER_URL}/demo/cb`;
+  || `ihv-web-wallet=${vars.WALLET_ORIGIN}/oidc/cb ihv-wallet=${vars.ISSUER_URL}/demo/cb `
+    + `${MULTIPAZ_CLIENT_ID}=${MULTIPAZ_REDIRECT_URIS.join(',')}`;
 
 const varArgs = Object.entries(vars).flatMap(([k, v]) => ['--var', `${k}:${v}`]);
 const configs = [null, 'wrangler.verifier.toml', 'wrangler.wallet.toml', 'wrangler.admin.toml'];

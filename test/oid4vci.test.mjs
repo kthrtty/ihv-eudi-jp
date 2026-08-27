@@ -531,3 +531,34 @@ test('署名済み Credential Issuer Metadata（§12.2.3）', async () => {
   const pem = `-----BEGIN CERTIFICATE-----\n${h.x5c[0]}\n-----END CERTIFICATE-----`;
   await jwtVerify(jwt, await importX509(pem, 'ES256'));
 });
+
+// **`/dev/endpoints` が本番で 500 を返していた**（2026-08-27）。#40 で登録表の Map 値の
+// 形を `string[]` から `{redirect_uris, jwks}` へ変えたとき、`clientRegistrySummary()` の
+// `dump()` が旧形（配列）のまま `v.join('|')` していて、新形（オブジェクト）に対して
+// `TypeError: v.join is not a function` で落ちていた。ユニットテストが1つも無く、
+// デプロイ後に `/dev/endpoints` を実際に叩くまで気づけなかった。
+// **診断用エンドポイントも「読んで落ちない」ことをテストで縛る**——本番でしか踏めない
+// 経路（KV に本物の登録表がある状態）を、テストでも同じ形に作って通す。
+test('#40 clientRegistrySummary は新しい登録表の形（{redirect_uris, jwks}）で落ちない', async () => {
+  const app = createApp({ credentialIssuer: ISSUER, clients: `ihv-web-wallet=${ISSUER}/demo/cb` });
+  // KV 側にも1件（鍵つき）を登録し、file 側・KV 側の両方が summary に載ることを見る
+  await app.svc.store.set('_clients:config', JSON.stringify({
+    'urn:uuid:multipaz-test': { redirect_uris: ['https://wallet.multipaz.org/redirect'],
+      jwks: { keys: [{ kty: 'EC', crv: 'P-256', x: 'a', y: 'b' }] } },
+  }), null);
+  app.svc._clientsKv = undefined; // キャッシュを捨てて読み直させる
+
+  const summary = await app.svc.clientRegistrySummary();
+  assert.doesNotMatch(summary, /is not a function/, '型の不一致で落ちていない');
+  assert.match(summary, /ファイル 1 件 \/ KV 1 件/);
+  assert.match(summary, /file:ihv-web-wallet→.*\/demo\/cb/);
+  assert.match(summary, /kv:urn:uuid:multipaz-test→https:\/\/wallet\.multipaz\.org\/redirect/);
+  assert.match(summary, /\[鍵1件\]/, '鍵の登録件数が読める');
+
+  // /dev/endpoints 経由でも同様に落ちないこと（実際のクラッシュ経路）
+  const res = await app.request(`${ISSUER}/dev/endpoints`);
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  const sec = body.sections.find((s) => s.grp === '信頼と失効' || true);
+  assert.ok(body.endpoints.some((e) => e.path === '/authorize' && /件 \/ KV/.test(e.sub)));
+});

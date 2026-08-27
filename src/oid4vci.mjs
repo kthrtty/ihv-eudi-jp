@@ -703,11 +703,15 @@ export class IssuerService {
     const n = (m) => (m ? m.size : 0);
     const total = n(this._clientsKv) + n(this.clients);
     if (!total) return 'client_id 検証: なし（登録表 0 件＝未設定）';
-    // **登録されている値も出す**（client_id も redirect_uri も公開情報）。
+    // **登録されている値も出す**（client_id も redirect_uri も公開情報。jwks は
+    // 件数だけ——鍵そのものは公開鍵とはいえ、この行に生の JWK を並べる意味はない）。
     // 件数だけだと「2 件ある」のに引けない、という壊れ方を切り分けられない——
-    // 実際それで本番の発行が2度止まった（2026-08-26）
+    // 実際それで本番の発行が2度止まった（2026-08-26）。
+    // **値の形が {redirect_uris, jwks} に変わった**（#40）ので、配列扱いしない
+    // （旧コードは `v.join('|')` で v が配列だった前提のまま壊れて 500 になっていた）
     const dump = (m, label) => (m ? [...m.entries()]
-      .map(([k, v]) => `${label}:${k}→${v.join('|')}`) : []);
+      .map(([k, v]) => `${label}:${k}→${(v.redirect_uris ?? []).join('|')}`
+        + (v.jwks?.keys?.length ? ` [鍵${v.jwks.keys.length}件]` : '')) : []);
     const rows = [...dump(this.clients, 'file'), ...dump(this._clientsKv, 'kv')];
     return `client_id 検証: 有効（ファイル ${n(this.clients)} 件 / KV ${n(this._clientsKv)} 件）  ${rows.join('  ')}`;
   }
