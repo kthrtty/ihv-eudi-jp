@@ -50,7 +50,7 @@ export const FEATURES = {
     values: ['none', 'private_key_jwt', 'attest_jwt_client_auth'],
     valueLabels: {
       none: '認証しない（既定・実機がそのまま動く）',
-      private_key_jwt: 'client_assertion の署名を検証（HAIP の MUST を満たす）',
+      private_key_jwt: 'client_assertion の署名を検証（RFC 7523・HAIP の MUST を満たす）',
       attest_jwt_client_auth: 'Wallet Attestation（HAIP §4.4.1 の SHOULD）',
     },
     default: 'none',
@@ -61,7 +61,14 @@ export const FEATURES = {
     // **実機への影響を書く**。切り替えたら何が起きるかを、切り替える前に読ませる
     note: 'Multipaz はこの広告を読んで方式を決める。ただしメタデータをプロセス内メモリに'
       + 'キャッシュするので、変えたらアプリの再起動が要る。'
-      + '`none` を含めると Multipaz は必ず無認証を選ぶので「両方対応」は成立しない。',
+      + '`none` を含めると Multipaz は必ず無認証を選ぶので「両方対応」は成立しない。'
+      + '\n\n**`private_key_jwt` は登録表に鍵（jwks）が要る**——'
+      + '署名の検証に使う公開鍵を assertion 自身から取ると、誰でも自分の鍵で署名して'
+      + '通せてしまう。鍵は KV の `_clients:config` に JSON で登録する'
+      + '（平文形式では表せない）。鍵の無いクライアントはこの方式では通せない。'
+      + '\n\n**pre-authorized_code には要求しない**——OID4VCI 1.0 が '
+      + '「authentication of the Client is OPTIONAL」と定めており、要求すると'
+      + 'オファー経由の発行が壊れる。',
   },
 
   cache_ttl_sec: {

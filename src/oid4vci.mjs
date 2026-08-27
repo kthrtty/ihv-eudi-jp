@@ -2,7 +2,7 @@
 // Pre-authorized code flow + Nonce Endpoint + jwt key-proof verification.
 // State lives in an injectable store (in-memory here; swap for Workers KV on deploy).
 import { randomBytes, randomInt } from 'node:crypto';
-import { jwtVerify, importJWK, decodeProtectedHeader } from 'jose';
+import { jwtVerify, importJWK, decodeProtectedHeader, createLocalJWKSet } from 'jose';
 import { mint, verify as verifyCredential, catalog, personaClaims } from './issuer.mjs';
 import { StatusListService } from './status.mjs';
 import { createUserStore } from './users.mjs';
@@ -106,14 +106,17 @@ export function parseClients(spec) {
     if (t.startsWith('{')) {
       try { obj = JSON.parse(t); } catch { return null; }
     } else {
-      // 平文形式。空白/改行区切りの `id=uri[,uri]`。同じ id が複数回出たら足す
+      // 平文形式。空白/改行区切りの `id=uri[,uri]`。同じ id が複数回出たら足す。
+      // **平文では鍵（jwks）を表せない**——クライアント認証が要る相手は KV 側に
+      // JSON で登録する。ファイル側は自分たちのクライアント（認証しない）用
       const out = new Map();
       for (const tok of t.split(/[\s]+/).filter(Boolean)) {
         const i = tok.indexOf('=');
         if (i <= 0) continue;                     // `=` が無い/先頭 は捨てる
         const id = tok.slice(0, i);
         const uris = tok.slice(i + 1).split(',').map((s) => s.trim()).filter(Boolean);
-        out.set(id, [...(out.get(id) ?? []), ...uris]);
+        const prev = out.get(id)?.redirect_uris ?? [];
+        out.set(id, { redirect_uris: [...prev, ...uris], jwks: null });
       }
       return out.size ? out : null;
     }
@@ -123,9 +126,20 @@ export function parseClients(spec) {
   for (const [id, v] of Object.entries(obj)) {
     const uris = Array.isArray(v?.redirect_uris) ? v.redirect_uris
       : Array.isArray(v) ? v : (typeof v === 'string' ? [v] : []);
-    out.set(String(id), uris.map(String));
+    // `jwks` はクライアント認証（private_key_jwt）で assertion の署名を検証するための
+    // **公開鍵**。持たないクライアントは認証できない＝その方式では通せない
+    out.set(String(id), { redirect_uris: uris.map(String), jwks: v?.jwks ?? null });
   }
   return out.size ? out : null;
+}
+
+/** 登録表からクライアントの公開鍵（JWKS）を引く。無ければ null。 */
+export function clientJwks(clientId, registries) {
+  for (const r of (registries ?? []).filter(Boolean)) {
+    const e = r.get(String(clientId ?? ''));
+    if (e?.jwks?.keys?.length) return e.jwks;
+  }
+  return null;
 }
 
 /**
@@ -134,9 +148,9 @@ export function parseClients(spec) {
  */
 export function isRegisteredClient(clientId, redirectUri, clients) {
   if (!clients) return true;
-  const uris = clients.get(String(clientId ?? ''));
-  if (!uris) return false;                       // 未登録の client_id
-  return uris.includes(String(redirectUri ?? ''));  // クエリまで含めた厳密一致
+  const entry = clients.get(String(clientId ?? ''));
+  if (!entry) return false;                      // 未登録の client_id
+  return entry.redirect_uris.includes(String(redirectUri ?? ''));  // クエリまで含めた厳密一致
 }
 
 /**
@@ -630,8 +644,28 @@ export class IssuerService {
       if (type && type !== 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer') {
         throw httpErr(400, 'invalid_client', `unsupported client_assertion_type: ${type}`);
       }
-      if (!assertedClientId(params.client_assertion)) {
-        throw httpErr(400, 'invalid_client', 'client_assertion is not a readable JWT with sub');
+      const sub = assertedClientId(params.client_assertion);
+      if (!sub) throw httpErr(400, 'invalid_client', 'client_assertion is not a readable JWT with sub');
+
+      // **鍵は登録表から引く**（KV 側に jwks を持たせる）。assertion 自身が運ぶ鍵は
+      // 使わない——それでは「届いたトークンだけで検証が完結する」形になり、
+      // 誰でも自分の鍵で署名して通せてしまう（x5c にアンカーを入れないのと同じ理屈）。
+      const jwks = clientJwks(sub, await this.#registries());
+      if (!jwks) {
+        throw httpErr(400, 'invalid_client',
+          `no registered key for client "${sub}" (register jwks to authenticate it)`);
+      }
+      // RFC 7523 §3: iss / sub / aud / exp を検証し、署名を確かめる。
+      // `aud` は**この認可サーバを指していること**——他所向けの assertion を
+      // 使い回されないため（cross-audience 攻撃）
+      try {
+        await jwtVerify(params.client_assertion, createLocalJWKSet(jwks), {
+          subject: sub,
+          audience: [this.credentialIssuer, `${this.credentialIssuer}/token`],
+          clockTolerance: 60,
+        });
+      } catch (e) {
+        throw httpErr(400, 'invalid_client', `client_assertion verification failed: ${e.message}`);
       }
       return;
     }

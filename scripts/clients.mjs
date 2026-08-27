@@ -8,13 +8,18 @@
 //
 //   node scripts/clients.mjs list
 //   node scripts/clients.mjs add <client_id> <redirect_uri> [<redirect_uri> …]
+//   node scripts/clients.mjs key <client_id> <jwks.json>     公開鍵を登録
 //   node scripts/clients.mjs rm  <client_id>
+//
+// `key` はクライアント認証（private_key_jwt）で client_assertion の署名を検証する
+// ための公開鍵。**assertion 自身が運ぶ鍵は使わない**——それでは誰でも自分の鍵で
+// 署名して通せてしまう（x5c にトラストアンカーを入れないのと同じ理屈）。
 //
 // 書き込みは scripts/kv-versioned.mjs 経由なので**世代が残る**（消さない）。
 // **反映は即時ではない**——IssuerService は isolate 起動後に1回だけ読むので、
 // 古い isolate が入れ替わるまで（数分）は旧い表で判定される。
 import { spawnSync } from 'node:child_process';
-import { writeFileSync, unlinkSync } from 'node:fs';
+import { writeFileSync, unlinkSync, readFileSync } from 'node:fs';
 
 const KEY = '_clients:config';
 const [cmd, id, ...uris] = process.argv.slice(2);
@@ -66,6 +71,8 @@ const show = (obj) => {
   for (const k of ids) {
     console.log(`  ${k}`);
     for (const u of obj[k]?.redirect_uris ?? []) console.log(`      ${u}`);
+    const n = obj[k]?.jwks?.keys?.length ?? 0;
+    if (n) console.log(`      鍵 ${n} 件（private_key_jwt で検証に使う）`);
   }
 };
 
@@ -83,6 +90,23 @@ if (cmd === 'list') {
   write(obj);
   console.log(`✓ ${id} を登録しました（${cur.size} 件の redirect_uri）`);
   console.log('  ※ 反映は即時ではありません（isolate が入れ替わるまで数分）');
+} else if (cmd === 'key') {
+  const path = uris[0];
+  if (!id || !path) { console.error('usage: clients.mjs key <client_id> <jwks.json>'); process.exit(1); }
+  let jwks;
+  try { jwks = JSON.parse(readFileSync(path, 'utf8')); }
+  catch (e) { console.error(`${path} を読めません: ${e.message}`); process.exit(1); }
+  if (!Array.isArray(jwks?.keys) || !jwks.keys.length) {
+    console.error('JWKS の形ではありません（{"keys":[…]}）'); process.exit(1);
+  }
+  // **秘密鍵成分が混ざっていたら拒否**——受け取ってしまうと、こちらが相手の
+  // 秘密鍵を保持することになる
+  const priv = jwks.keys.find((k) => k.d != null || k.p != null || k.q != null);
+  if (priv) { console.error('秘密鍵成分（d/p/q）が含まれています。公開鍵だけ登録してください'); process.exit(1); }
+  const obj = read();
+  obj[id] = { ...(obj[id] ?? { redirect_uris: [] }), jwks };
+  write(obj);
+  console.log(`✓ ${id} に公開鍵 ${jwks.keys.length} 件を登録しました`);
 } else if (cmd === 'rm') {
   if (!id) { console.error('usage: clients.mjs rm <client_id>'); process.exit(1); }
   const obj = read();
@@ -94,6 +118,7 @@ if (cmd === 'list') {
   console.log(`使い方:
   node scripts/clients.mjs list
   node scripts/clients.mjs add <client_id> <redirect_uri> [<redirect_uri> …]
+  node scripts/clients.mjs key <client_id> <jwks.json>
   node scripts/clients.mjs rm  <client_id>
 
 ファイル側（自分たちのクライアント）は wrangler の CLIENT_REGISTRY にあり、

@@ -294,14 +294,18 @@ test('#38 ファイル側は平文形式で読める（--var に JSON を渡す�
   const ISS = 'https://issuer.example', WAL = 'https://wallet.example';
   // deploy.mjs が組み立てるのと同じ形
   const r = parseClients(`ihv-web-wallet=${WAL}/oidc/cb ihv-wallet=${ISS}/demo/cb`);
-  assert.deepEqual(r.get('ihv-web-wallet'), [`${WAL}/oidc/cb`]);
-  assert.deepEqual(r.get('ihv-wallet'), [`${ISS}/demo/cb`]);
+  assert.deepEqual(r.get('ihv-web-wallet').redirect_uris, [`${WAL}/oidc/cb`]);
+  assert.deepEqual(r.get('ihv-wallet').redirect_uris, [`${ISS}/demo/cb`]);
+  // **平文では鍵を表せない**（クライアント認証が要る相手は KV 側に JSON で登録する）
+  assert.equal(r.get('ihv-web-wallet').jwks, null);
   // 1つの client_id に複数の redirect_uri（実機は dev/prod の2つを持つ）
   const multi = parseClients(`multipaz=${WAL}/a,${WAL}/b`);
-  assert.deepEqual(multi.get('multipaz'), [`${WAL}/a`, `${WAL}/b`]);
-  // JSON も引き続き読める（KV 側はこちら）
-  const j = parseClients(JSON.stringify({ multipaz: { redirect_uris: [`${WAL}/r`] } }));
-  assert.deepEqual(j.get('multipaz'), [`${WAL}/r`]);
+  assert.deepEqual(multi.get('multipaz').redirect_uris, [`${WAL}/a`, `${WAL}/b`]);
+  // JSON も引き続き読める（KV 側はこちら）。**鍵も持てる**
+  const j = parseClients(JSON.stringify({
+    multipaz: { redirect_uris: [`${WAL}/r`], jwks: { keys: [{ kty: 'EC', crv: 'P-256', x: 'a', y: 'b' }] } } }));
+  assert.deepEqual(j.get('multipaz').redirect_uris, [`${WAL}/r`]);
+  assert.equal(j.get('multipaz').jwks.keys.length, 1);
   // 壊れた入力は null（＝検証しない）。**素通しになるので、壊れたら気づけるよう
   // /dev/endpoints に件数を出してある**
   assert.equal(parseClients('   '), null);

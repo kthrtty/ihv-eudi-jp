@@ -1572,7 +1572,9 @@ export function renderFeatureSettings(FEATURES, current, saved = false) {
   // （出力側で文脈ごとに処理する、という src/html.mjs の方針に沿う）。
   const rich = (t) => esc(String(t ?? ''))
     .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>');
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\n\n/g, '</p><p style="margin:8px 0 0">')
+    .replace(/\n/g, '<br>');
   const groups = {};
   for (const [name, f] of Object.entries(FEATURES)) (groups[f.group] ??= []).push([name, f]);
   // 型ごとに入力を出し分ける。**数値は値域を画面にも書く**（サーバ側でも丸める）

@@ -36,16 +36,17 @@ test('広告と検証動作が同じフラグから導出される', async () =>
   const code = async () => {
     const verifier = randomBytes(32).toString('base64url');
     const challenge = createHash('sha256').update(verifier, 'ascii').digest('base64url');
+    // **client_id を渡す**——登録表を入れると #38 の照合が効くため
     const { code } = await app.svc.authorize({ sessionId: session_id, response_type: 'code',
       redirect_uri: `${WAL}/cb`, code_challenge: challenge, code_challenge_method: 'S256',
-      scope: 'pid_mdoc' });
+      scope: 'pid_mdoc', client_id: 'conf-client' });
     return { code, verifier };
   };
   const token = async (params = {}) => {
     const { code: c, verifier } = await code();
     try {
       return { ok: true, res: await app.svc.token({ grant_type: 'authorization_code', code: c,
-        code_verifier: verifier, redirect_uri: `${WAL}/cb`, ...params }) };
+        code_verifier: verifier, redirect_uri: `${WAL}/cb`, client_id: 'conf-client', ...params }) };
     } catch (e) { return { ok: false, err: e.oauthError, msg: e.message }; }
   };
 
@@ -61,13 +62,37 @@ test('広告と検証動作が同じフラグから導出される', async () =>
   assert.equal(without.ok, false, '広告した以上、送らないクライアントは通さない');
   assert.equal(without.err, 'invalid_client');
 
-  // assertion を付ければ通る（**署名は未検証**＝なりすましは防げない。issue #40）
-  const assertion = [
-    Buffer.from(JSON.stringify({ alg: 'ES256', typ: 'JWT' })).toString('base64url'),
-    Buffer.from(JSON.stringify({ sub: 'ihv-wallet', iss: 'ihv-wallet' })).toString('base64url'),
-    'sig',
-  ].join('.');
-  assert.equal((await token({ client_assertion: assertion })).ok, true);
+  // **署名を検証する**（RFC 7523 §3）。鍵は登録表から引く——assertion 自身が運ぶ
+  // 鍵を使うと「届いたトークンだけで検証が完結する」形になり誰でも通せてしまう
+  const { generateKeyPairSync } = await import('node:crypto');
+  const { SignJWT, exportJWK } = await import('jose');
+  const { publicKey, privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+  const jwk = await exportJWK(publicKey);
+  const mkAssertion = (over = {}, key = privateKey) => new SignJWT({
+    iss: 'conf-client', sub: 'conf-client', ...over,
+  }).setProtectedHeader({ alg: 'ES256' })
+    .setAudience(over.aud ?? ISSUER).setExpirationTime('5m').setIssuedAt().sign(key);
+
+  // 鍵を登録していないクライアントは**認証できない**ので通さない
+  const unregistered = await token({ client_assertion: await mkAssertion() });
+  assert.equal(unregistered.ok, false);
+  assert.match(unregistered.msg, /no registered key/);
+
+  // 登録すれば通る
+  await setFeature(app.svc.store, 'cache_ttl_sec', 0);
+  await app.svc.store.set('_clients:config', JSON.stringify({
+    'conf-client': { redirect_uris: [`${WAL}/cb`], jwks: { keys: [jwk] } } }), null);
+  app.svc._clientsKv = undefined;   // 登録表のキャッシュを捨てる
+  assert.equal((await token({ client_assertion: await mkAssertion() })).ok, true);
+
+  // **別の鍵で署名したものは通さない**（なりすまし）
+  const other = generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey;
+  const forged = await token({ client_assertion: await mkAssertion({}, other) });
+  assert.equal(forged.ok, false, '他人の鍵で署名した assertion が通っている');
+
+  // **他所向けの assertion を使い回せない**（aud の検証・RFC 7523 §3）
+  const wrongAud = await token({ client_assertion: await mkAssertion({ aud: 'https://elsewhere.example' }) });
+  assert.equal(wrongAud.ok, false, 'aud が違う assertion が通っている');
 
   // **pre-auth は OPTIONAL なので要求しない**（オファー経由の発行を壊さない）
   const o = await (await app.request(`${ISSUER}/offer`, { method: 'POST',
