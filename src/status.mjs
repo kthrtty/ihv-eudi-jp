@@ -1,4 +1,8 @@
-// IETF Token Status List (draft-ietf-oauth-status-list), minimal 1-bit form.
+// IETF Token Status List, minimal 1-bit form. **参照している版を明記する**（issue #19）:
+// `draft-ietf-oauth-status-list-13`（2025-10・Expires 2026-04-23）。JWT 形態は §5.1、
+// **CWT 形態は §5.2**、検証手順は §8.3、分割は §13.4。RFC 化されたら番号へ更新する
+// ——版を書かないと「どの版に従っているか」が読めず、クレームキー（65533/65534）の
+// ような**まだ動きうる割り当て**を追えなくなる。
 // Format-agnostic revocation for BOTH mdoc and SD-JWT VC: each credential carries
 // a status reference {idx, uri}; the issuer publishes a signed, compressed bit
 // array. The verifier fetches the WHOLE list and checks locally, so the issuer
