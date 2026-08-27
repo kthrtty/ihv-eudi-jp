@@ -190,7 +190,7 @@ companion）なので、券面を変えたらアプリを再起動させる。�
 マスク漏れのテストで断片を取るときは**末尾から**取る（先頭だと誤検知する）。
 
 ## コマンド
-`npm run setup`（dev PKI+trust+schemas+トラストリスト、初回必須・pki/ は gitignore）／`npm test`（499, node:test）／
+`npm run setup`（dev PKI+trust+schemas+トラストリスト、初回必須・pki/ は gitignore）／`npm test`（506, node:test）／
 `npm run coverage`／`npm run interop`／`node scripts/capture-*.mjs`（UIキャプチャ）／
 `npm run clients`（KV のクライアント登録表）／`npm run wallet-providers`（Wallet Provider の鍵＝#40）／`npm run key-attesters`（鍵証明者の鍵＝#5）
 
@@ -819,6 +819,46 @@ DADS では意味が分かれるので**一括置換できない**。1件ずつ�
 - **無課金で開発できる**（iOS=Personal Team・3台・7日で失効・TestFlight/Ad-Hoc 不可・**シミュレータは BLE 不可**／
   Android=サイドロード無制限）。**外部配布が要る段階で $99/年が必須**
 - BLE モードは**仕様（8.2.2.1.1「リーダーが Central」）と Multipaz 既定に従い mdoc=Peripheral Server** から始める
+
+## 適合テスト（OpenID conformance suite）で見つけた非準拠
+
+**HAIP プロファイルで VCI / VP を実際に流す**（`fapi_profile=vci_haip` / `vp_profile=haip`）。
+2026-08-27 の実測: **VCI は PASSED 11 / SKIPPED 2 / FAILED 2**（FAILED は TLS と suite 側の
+未対応例外で我々の非準拠ではない）、**VP（HAIP）は PASSED 5 / REVIEW 5 / SKIPPED 1・FAILED 0**。
+
+- **`claims` は `credential_metadata` の下**（§12.2.4）。節 id が入れ子を決定的に示す——
+  `credential_metadata`=`§12.2.4-2.11.2.6` に対し `display`=`…6.2.1` / `claims`=`…6.2.2` で
+  **`claims` は `display` の兄弟**。構成の直下に出すのは #33（display）と同じ誤り。
+  **suite のスキーマは `dc+sd-jwt` 分岐にだけ直下 `claims` を許す**ので **mdoc でしか警告が
+  出ない**——片側だけ見ていると気づけない
+- **`_sd_alg` は省略できる**（SD-JWT §4.1.1「If the `_sd_alg` claim is not present …
+  a default value of sha-256 **MUST** be used」）。**既定を使うことが MUST** なので、
+  無いことを理由に拒否してはいけない。`!== 'sha-256'` で見ていて正当な VC を落としていた
+- **HAIP §5 は `A128GCM` と `A256GCM` の両方**を `encrypted_response_enc_values_supported`
+  に要求する。**ウォレット側は片方でよい**という非対称な要求。広告を増やすときは
+  復号できることまで確かめる（`decryptResponse` は enc を固定せず JWE ヘッダで復号する）
+- **OID4VP §8.2 の 200 は「正常に処理できた」ときだけ**。検証に失敗した提示に 200 を
+  返すとウォレットは受理されたと解釈できる。**4xx にしつつ `redirect_uri` は添える**——
+  失効を検出する動線を見せるのがデモの主眼で、結果画面へ進めないと何が起きたか示せない
+  （ウォレット側も「4xx でも `redirect_uri` があれば進む」に揃える）
+- **検証の失敗で 500 を出さない**。`jwtVerify` は throw するので、KB-JWT の署名不正が
+  例外のままルートまで上がって 500 になっていた。**この方針は元からあった**
+  （test/verifier.test.mjs の failure paths 節）のに、この1箇所だけ抜けていた
+- **#5 の鍵解決は JOSE ヘッダ**（Appendix D.1「may use **x5c, kid or trust_chain**」）。
+  **本文に `iss` は定義されていない**（例に出るだけ）ので、`iss` を索引にすると
+  `iss` を載せない正当な attestation を拒否する。**Wallet Attestation（#40）とは違う**
+  ——あちらは `iss` が REQUIRED（§5.1）
+- **#42 の迂回路は「アンカーを見ない」だけでは足りない**。suite の VC はヘッダが
+  `{alg, typ}` だけで **x5c も jwk も kid も無く**、鍵は試験の設定で渡される前提。
+  **鍵の運び方**まで面倒を見ないと成立しない（検証者設定に発行者公開鍵の欄がある）
+- **画面の文言を推測で正規表現に書かない**（同日・ドライバで何度も外した）。成功画面は
+  「✓ … 提示を検証しました」で、**「検証成功」という語は無い**。`innerText` を実際に見る
+- **suite の実行手順**: 計画は `/api/plan`（variant は `fapi_profile`/`vp_profile`）、
+  実行は `/api/runner`。**認可はブラウザが要る**ので `scripts/.drive-vci-auth.sh`
+  （ログイン→同意→コールバック→**暗黙送信 URL**まで叩く）。VP は
+  `scripts/.drive-vp-review.mjs`（Playwright で結果画面を撮って REVIEW に提出）。
+  **本番の防御を緩めるときは復元手順を先に作る**（許可リストへの localhost 追加は
+  `/tmp/restore-allowlist.sh` で戻す）。conformance クライアントは KV の登録表へ足す
 
 ## ロードマップ
 - [x] M1–M5（土台/発行/wallet-core/Verifier/相互運用 golden）
