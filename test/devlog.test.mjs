@@ -112,7 +112,9 @@ test('verifier hosted /client-metadata + /jwks expose the RP enc key (matches in
   const v = createVerifierApp({ verifierOrigin: 'https://verifier.example', walletOrigin: 'https://wallet.example', issuerUrl: 'https://issuer.example' });
   const cm = await (await v.request('/client-metadata')).json();
   // 1.0 Final で authorization_encrypted_response_alg/enc は廃止（clientMetadata() 参照）
-  assert.deepEqual(cm.encrypted_response_enc_values_supported, ['A128GCM']);
+  // **HAIP §5 は両方を要求する**（2026-08-27・suite が検出）:「Verifiers MUST list both
+  // `A128GCM` and `A256GCM`」。以前は A128GCM だけを pin していて非準拠を通していた
+  assert.deepEqual(cm.encrypted_response_enc_values_supported, ['A128GCM', 'A256GCM']);
   assert.equal(cm.jwks.keys[0].use, 'enc');
   const jw = await (await v.request('/jwks')).json();
   assert.equal(jw.keys[0].use, 'enc');

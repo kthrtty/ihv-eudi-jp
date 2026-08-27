@@ -1037,7 +1037,10 @@ export function createVerifierApp(opts = {}) {
     const { readFeatures } = await import('./features.mjs');
     const feats = await readFeatures(v.store);
     return c.html(renderVerifierSettings(await getStatusTtlSec(), c.req.query('saved') === '1',
-      { trustTtlSec: await getTrustTtlSec(), trustInfo, trustJwkDirect: feats.verifier_trust_presented_jwk }));
+      { trustTtlSec: await getTrustTtlSec(), trustInfo,
+        trustJwkDirect: feats.verifier_trust_presented_jwk,
+        trustJwkText: JSON.stringify(await v.store.get('vcfg:trust_jwk').catch(() => null) ?? '') === '""'
+          ? '' : JSON.stringify(await v.store.get('vcfg:trust_jwk').catch(() => null)) }));
   });
   app.post('/verifier/settings', async (c) => {
     const f = await c.req.parseBody();
@@ -1055,6 +1058,17 @@ export function createVerifierApp(opts = {}) {
     // ここは明示的にブール値を作る）
     const { setFeature } = await import('./features.mjs');
     await setFeature(v.store, 'verifier_trust_presented_jwk', f.verifier_trust_presented_jwk === 'on');
+    // **迂回路で使う発行者鍵**（資格証に鍵が入っていない相手のため）。空なら消す。
+    // **設定なので無期限**（TTL を付けると更新が途切れただけで消える）
+    const raw = String(f.trust_jwk ?? '').trim();
+    if (!raw) { await v.store.del?.('vcfg:trust_jwk'); }
+    else {
+      try {
+        const jwk = JSON.parse(raw);
+        // 秘密鍵成分を受け取らない（我々が他人の秘密鍵を持つことになる）
+        if (jwk && typeof jwk === 'object' && jwk.d == null) await v.store.set('vcfg:trust_jwk', jwk, null);
+      } catch { /* 壊れた JSON は無視（画面に貼り直してもらう） */ }
+    }
     return c.redirect('/verifier/settings?saved=1', 302);
   });
   // scenario correlation record per transaction: {id, step, txn1?, wallet?}.
@@ -1286,6 +1300,20 @@ export function createVerifierApp(opts = {}) {
       // scenario runs land back on the scenario's step/acceptance page
       const scn = await getScn(txn);
       const dest = scn ? `${verifierOrigin}/verifier/s/${scn.id}/result/${txn}` : `${verifierOrigin}/oid4vp/result/${txn}`;
+      // **200 は「正常に処理できた」ときだけ**（OID4VP 1.0 §8.2・2026-08-27 に suite が検出）:
+      // 「**If** the Response URI has **successfully processed** the Authorization Response
+      //  … it MUST respond with an HTTP status code of 200」。
+      // 検証に失敗した提示に 200 を返していたので、ウォレットは受理されたと解釈できてしまう。
+      //
+      // **`redirect_uri` は失敗時にも返す**——失効した資格証を提示して検証者が検出する、
+      // という動線を見せるのがこのデモの主眼で、ウォレットが結果画面へ進めないと
+      // 「何が起きたか」を利用者に示せない。仕様は追加メンバーを禁じていないので、
+      // 状態は**ステータスコード**で正しく伝えたうえで案内先も添える
+      if (!result.valid) {
+        return c.json({ error: 'invalid_request',
+          error_description: (result.errors || []).join('; ').slice(0, 300),
+          redirect_uri: dest }, 400);
+      }
       return c.json({ redirect_uri: dest }); // direct_post.jwt
     } catch (e) { return fail(c, e); }
   });

@@ -756,8 +756,15 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
       const r = await resp.json().catch(() => ({}));
       // Guard: never c.redirect(undefined) — that yields Location: undefined and the
       // browser lands on /present/undefined (404). Surface a real error instead.
-      if (!resp.ok || !r.redirect_uri) {
-        throw new Error(r.error || `Verifier への提示送信に失敗しました（HTTP ${resp.status}）。要求が期限切れの可能性があります。`);
+      //
+      // **4xx でも `redirect_uri` があれば進む**（2026-08-27）。検証者は OID4VP §8.2 に従い
+      // 「正常に処理できた」ときだけ 200 を返すので、**失効した資格証を提示して検出される**
+      // という正当な結末が 400 で返ってくる。ここで一律に例外にすると、
+      // デモの主眼である「検証者が失効を検出した結果画面」に到達できない。
+      // 送信そのものが失敗した場合（redirect_uri が無い）は従来どおりエラーにする。
+      if (!r.redirect_uri) {
+        throw new Error(r.error_description || r.error
+          || `Verifier への提示送信に失敗しました（HTTP ${resp.status}）。要求が期限切れの可能性があります。`);
       }
       // ARF transaction log: WHO was shown WHAT (claim names only — never values)
       const usedCreds = Object.values(selection).map((x) => x.credentialId).filter(Boolean);

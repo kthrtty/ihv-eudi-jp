@@ -818,12 +818,12 @@ export class IssuerService {
    * 0 件＝ key attestation が1件も通らない状態で、それはここでしか見えない。
    */
   async keyAttesterSummary() {
-    await this.#keyAttesterJwks(null);   // KV 側を読ませる（未読なら1回だけ）
+    const { certs, byId } = await this.#keyAttesterAnchors();
     const obj = this._keyAttestersKv ?? {};
     const ids = Object.keys(obj);
     if (!ids.length) return '鍵証明者アンカー: 0 件（key attestation は1件も通りません）';
-    return `鍵証明者アンカー: ${ids.length} 件  `
-      + ids.map((k) => `${k}[鍵${obj[k]?.jwks?.keys?.length ?? 0}件]`).join('  ');
+    return `鍵証明者アンカー: ${ids.length} 件（証明書 ${certs.length} / 鍵 ${Object.keys(byId).length}）  `
+      + ids.map((k) => `${k}[証明書${(obj[k]?.certs ?? []).length}/鍵${obj[k]?.jwks?.keys?.length ?? 0}]`).join('  ');
   }
 
   /**
@@ -1341,7 +1341,7 @@ export class IssuerService {
     try {
       const { attestedKeys } = await verifyKeyAttestation({
         attestation,
-        anchorFor: (iss) => this.#keyAttesterJwks(iss),
+        anchors: () => this.#keyAttesterAnchors(),
         // **c_nonce を出しているなら必ず照合する**（Appendix F.1）
         expectedNonce: cNonce ?? null,
       });
@@ -1360,14 +1360,26 @@ export class IssuerService {
    * （あちらは「このウォレットは何者か」、こちらは「鍵がどう守られているか」）。
    * 混ぜると片方を信頼しただけで両方が通ってしまう。
    */
-  async #keyAttesterJwks(iss) {
+  async #keyAttesterAnchors() {
     if (this._keyAttestersKv === undefined) {
       try { this._keyAttestersKv = (await this.store.get(this.keyAttestersKvKey)) ?? null; }
       catch { this._keyAttestersKv = null; }
     }
-    // `iss` は OPTIONAL なので null で来うる。**その場合は特定できないので拒否**
-    if (iss == null) return null;
-    return this._keyAttestersKv?.[String(iss)]?.jwks ?? null;
+    const obj = this._keyAttestersKv ?? {};
+    // **証明書と鍵の両方を持つ**——Appendix D.1 は鍵の解決を JOSE ヘッダの
+    // `x5c` / `kid` / `trust_chain` で行うと定めており、**本文に `iss` は無い**。
+    // `x5c` で来る相手には証明書（アンカー）が要り、`kid` で来る相手には JWKS が要る。
+    // 当初 `iss` だけを索引にしていたため、`iss` を載せない正当な attestation を
+    // 拒否していた（2026-08-27・conformance suite が実証）
+    const certs = [];
+    const byId = {};
+    for (const [id, e] of Object.entries(obj)) {
+      if (e?.jwks?.keys?.length) byId[id] = e.jwks;
+      for (const c of (e?.certs ?? [])) {
+        try { certs.push(Buffer.from(String(c), 'base64')); } catch { /* 壊れた値は無視 */ }
+      }
+    }
+    return { certs, byId };
   }
 }
 

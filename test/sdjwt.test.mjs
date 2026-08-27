@@ -142,3 +142,88 @@ test('sd-jwt: trustLeafDirectly を省略／false のときは従来どおりア
   const r2 = await verifySdJwtVc(sdjwt, { trustedIssuerCaDer: issuerCaDer, trustLeafDirectly: false });
   assert.equal(r2.valid, true, r2.errors.join(';'));
 });
+
+// #42（2026-08-27・conformance suite で実測）: suite は `credential.signing_jwk` の
+// **生の JWK** で署名し、証明書を一切載せてこない。`header.x5c[0]` を無条件に読んで
+// いたため `Cannot read properties of undefined` で落ち、**迂回路を有効にしても
+// 通らなかった**——「アンカーを見ない」だけでなく「鍵の運び方が違う」ところまで
+// 面倒を見ないとこの経路は成立しない。
+test('sd-jwt: x5c が無く jwk ヘッダだけの VC — 迂回路のときだけ受け入れる', async () => {
+  const { SignJWT, exportJWK, generateKeyPair } = await import('jose');
+  const { jwk: holderJwk } = holderKeypair();
+  const issuer = await generateKeyPair('ES256', { extractable: true });
+  const pub = await exportJWK(issuer.publicKey);
+  const sdjwt = await new SignJWT({ iss: 'https://suite.example', vct: VCT,
+    cnf: { jwk: holderJwk }, _sd: [], _sd_alg: 'sha-256', family_name: '佐藤' })
+    .setProtectedHeader({ alg: 'ES256', typ: 'dc+sd-jwt', jwk: pub })   // **x5c 無し**
+    .setIssuedAt().sign(issuer.privateKey)
+    .then((j) => j + '~');
+
+  // 既定では拒否する。**「x5c が無い」と分かる文言で落ちる**こと
+  //（`undefined の 0 番目が読めない` のような内部エラーだと原因に辿り着けない）
+  const off = await verifySdJwtVc(sdjwt, { trustedIssuerCaDer: issuerCaDer });
+  assert.equal(off.valid, false);
+  assert.match(off.errors.join(';'), /no x5c in the SD-JWT VC header/);
+  assert.doesNotMatch(off.errors.join(';'), /Cannot read properties/);
+
+  // 迂回路を有効にしたときだけ、ヘッダの jwk で検証して通す
+  const on = await verifySdJwtVc(sdjwt, { trustLeafDirectly: true });
+  assert.equal(on.valid, true, on.errors.join(';'));
+  assert.equal(on.claims.family_name, '佐藤');
+});
+
+// SD-JWT §4.1.1（2026-08-27・conformance suite が検出）:
+// 「If the `_sd_alg` claim is not present at the top level, a default value of sha-256
+//  MUST be used.」——**既定を使うことが MUST**。無いことを理由に拒否してはいけない。
+// 我々は `!== 'sha-256'` で見ていたため、載せてこない正当な VC を全部落としていた。
+test('sd-jwt: _sd_alg は省略できる（既定 sha-256 を使うことが MUST）', async () => {
+  const { SignJWT, exportJWK, generateKeyPair } = await import('jose');
+  const { jwk: holderJwk } = holderKeypair();
+  const issuer = await generateKeyPair('ES256', { extractable: true });
+  const pub = await exportJWK(issuer.publicKey);
+
+  // 開示1件を持つ VC を **`_sd_alg` 無し**で作る
+  const salt = 'saltsaltsaltsalt';
+  const disclosure = Buffer.from(JSON.stringify([salt, 'family_name', '鈴木']), 'utf8').toString('base64url');
+  const { createHash } = await import('node:crypto');
+  const digest = createHash('sha256').update(Buffer.from(disclosure, 'ascii')).digest('base64url');
+  const jwt = await new SignJWT({ iss: 'https://x.example', vct: VCT, cnf: { jwk: holderJwk }, _sd: [digest] })
+    .setProtectedHeader({ alg: 'ES256', typ: 'dc+sd-jwt', jwk: pub })
+    .setIssuedAt().sign(issuer.privateKey);
+
+  const r = await verifySdJwtVc(`${jwt}~${disclosure}~`, { trustLeafDirectly: true });
+  assert.equal(r.valid, true, r.errors.join(';'));
+  assert.equal(r.claims.family_name, '鈴木', '既定のハッシュで開示が解ける');
+
+  // 未対応のハッシュは従来どおり拒否する（緩めすぎていない）
+  const bad = await new SignJWT({ iss: 'https://x.example', vct: VCT, cnf: { jwk: holderJwk },
+    _sd: [], _sd_alg: 'sha-512' })
+    .setProtectedHeader({ alg: 'ES256', typ: 'dc+sd-jwt', jwk: pub })
+    .setIssuedAt().sign(issuer.privateKey);
+  const rb = await verifySdJwtVc(`${bad}~`, { trustLeafDirectly: true });
+  assert.equal(rb.valid, false);
+  assert.match(rb.errors.join(';'), /unsupported _sd_alg sha-512/);
+});
+
+// 2026-08-27（conformance suite が検出）: KB-JWT の署名が壊れた提示は `jwtVerify` の
+// 例外がルートまで上がって **500** になっていた。仕様上そこは 4xx で、しかも
+// **このリポジトリの方針**（検証の失敗は必ず安全に {valid:false} で返す）にも反する。
+test('sd-jwt: KB-JWT の署名不正は例外でなく {valid:false} で返す（500 にしない）', async () => {
+  const { verifySdJwtPresentation } = await import('../src/sdjwt.mjs');
+  const { jwk, pem } = holderKeypair();
+  const presented = selectDisclosures(await issue(jwk), ['family_name']);
+  const kb = await makeKbJwt({ sdjwtPresented: presented, nonce: 'n1', aud: 'rp', holderKeyPem: pem });
+  // 署名部だけ壊す
+  const broken = kb.slice(0, kb.lastIndexOf('.') + 1) + 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+
+  const direct = await verifyKbJwt({ kbJwt: broken, sdjwtPresented: presented,
+    holderJwk: jwk, expectedNonce: 'n1', expectedAud: 'rp' });
+  assert.equal(direct.valid, false);
+  assert.match(direct.errors.join(';'), /KB-JWT verify failed/);
+
+  // 提示全体でも throw せず落ちる
+  const r = await verifySdJwtPresentation(presented + broken,
+    { trustedIssuerCaDer: issuerCaDer, nonce: 'n1', aud: 'rp' });
+  assert.equal(r.valid, false);
+  assert.match(r.errors.join(';'), /KB-JWT verify failed/);
+});

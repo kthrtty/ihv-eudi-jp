@@ -12,7 +12,8 @@
 // > used as a proof is signed by a key contained in the attestation in the JOSE Header.
 // つまり **proof の署名鍵が `attested_keys` に入っていること**。ここを見ないと
 // attestation を「添えてあるだけ」で素通しすることになり、#13 の誇大表示と同じ形になる。
-import { jwtVerify, createLocalJWKSet, decodeProtectedHeader, decodeJwt } from 'jose';
+import { jwtVerify, createLocalJWKSet, decodeProtectedHeader, decodeJwt, importX509 } from 'jose';
+import { X509Certificate, createHash } from 'node:crypto';
 
 const KA_TYP = 'key-attestation+jwt';
 
@@ -38,15 +39,26 @@ export function sameJwk(a, b) {
   return false;
 }
 
+/** 証明書の SHA-256 拇印（アンカーの同一性判定）。 */
+const fp256 = (der) => createHash('sha256').update(Buffer.from(der)).digest('hex');
+
 /**
  * Key Attestation JWT を検証し、`attested_keys` を返す。
  *
+ * **鍵の解決は JOSE ヘッダで行う**（Appendix D.1・2026-08-27 に conformance suite が実証）:
+ * > The key attestation may use **x5c, kid or trust_chain** … to convey the public key and
+ * > the associated trust mechanism to sign the key attestation.
+ * **本文に `iss` は定義されていない**（本文の要素は iat/exp/attested_keys/key_storage/
+ * user_authentication/certification/nonce/status で、`iss` は例に出るだけ）。
+ * 当初 `iss` を索引にしていたため、**`iss` を載せない正当な attestation を拒否していた**
+ * ——suite の実装がまさにそれで、`(no iss)` で落ちて発覚した。
+ * **Wallet Attestation（#40）とはここが違う**：あちらは `iss` が REQUIRED（§5.1）。
+ *
  * @param {object} o
  * @param {string} o.attestation  proof の JOSE ヘッダ `key_attestation` の値
- * @param {(iss: string|null) => Promise<object|null>} o.anchorFor
- *   信頼している鍵保管の証明者（Wallet Provider）の JWKS を引く。**null なら拒否**（fail-closed）。
- *   `iss` は OPTIONAL なので **null で呼ばれうる**——その場合は「発行者を名乗らない
- *   attestation」で、アンカーを特定できないため受け付けない。
+ * @param {() => Promise<{certs: Uint8Array[], byId: object}>} o.anchors
+ *   信頼している鍵証明者。`certs`＝x5c を辿る先の証明書（DER）、
+ *   `byId`＝`iss`/`kid` から引く JWKS。**どちらも空なら拒否**（fail-closed）。
  * @param {string|null} [o.expectedNonce]
  *   c_nonce を出しているなら**必ず渡す**。Appendix F.1:「If the Credential Issuer provided
  *   a c_nonce, the nonce claim in the key attestation MUST be set to a server-provided c_nonce」。
@@ -54,7 +66,7 @@ export function sameJwk(a, b) {
  * @param {string[]|null} [o.requireKeyStorage]  受け入れる `key_storage` の値（いずれか1つ）。
  * @param {string[]|null} [o.requireUserAuth]    受け入れる `user_authentication` の値。
  */
-export async function verifyKeyAttestation({ attestation, anchorFor, expectedNonce = null,
+export async function verifyKeyAttestation({ attestation, anchors, expectedNonce = null,
   requireKeyStorage = null, requireUserAuth = null }) {
   if (!attestation) bad('key_attestation is missing');
 
@@ -68,21 +80,47 @@ export async function verifyKeyAttestation({ attestation, anchorFor, expectedNon
   try { unverified = decodeJwt(attestation); }
   catch (e) { bad(`key_attestation payload is not readable: ${e.message}`); }
 
-  // **`x5c` は鍵の解決に使わない**（#26 と同じ規則）。届いたトークンが連れてきた
-  // 証明書で検証すると「自己完結した鎖なら誰でも通る」——鍵がハードウェア保護されて
-  // いるという**主張そのものを攻撃者が書ける**ことになり、この機構の意味が消える。
-  const jwks = await anchorFor(unverified.iss ?? null);
-  if (!jwks?.keys?.length) {
-    bad('no trusted key-attestation issuer for this attestation', unverified.iss ?? '(no iss)');
+  const { certs = [], byId = {} } = (await anchors()) ?? {};
+  if (!certs.length && !Object.keys(byId).length) {
+    bad('no trusted key-attestation anchors configured', '(fail-closed)');
+  }
+
+  // **鍵は必ず手元のアンカーへ結び付ける**（#26 と同じ規則）。届いた x5c を検証鍵として
+  // 使うこと自体は仕様が定める解決方式だが、**そこで止めてはいけない**——自己完結した
+  // 鎖なら誰でも通り、「鍵がハードウェア保護されている」という**主張そのものを攻撃者が
+  // 書ける**ことになる。だから x5c で検証したうえで、その葉が手元のアンカーに
+  // 一致する（またはアンカーが署名している）ことまで必ず確かめる。
+  let key = null;
+  if (Array.isArray(header.x5c) && header.x5c.length) {
+    let leaf;
+    try { leaf = new X509Certificate(Buffer.from(header.x5c[0], 'base64')); }
+    catch (e) { bad(`key_attestation x5c is not a readable certificate: ${e.message}`); }
+    const trusted = certs.some((d) => {
+      if (fp256(d) === fp256(leaf.raw)) return true;              // アンカーそのもの
+      try { return leaf.verify(new X509Certificate(Buffer.from(d)).publicKey); } catch { return false; }
+    });
+    if (!trusted) bad('key_attestation x5c does not chain to a trusted anchor', leaf.subject);
+    const now = new Date();
+    if (!(new Date(leaf.validFrom) <= now && now <= new Date(leaf.validTo))) {
+      bad('key_attestation signer certificate is outside its validity period', leaf.subject);
+    }
+    try { key = await importX509(leaf.toString(), header.alg); }
+    catch (e) { bad(`key_attestation x5c public key unusable: ${e.message}`); }
+  } else {
+    // x5c が無ければ `kid` または（例に出る）`iss` で引く
+    const id = header.kid ?? unverified.iss ?? null;
+    const jwks = id == null ? null : byId[String(id)];
+    if (!jwks?.keys?.length) {
+      bad('no trusted key for this key_attestation (no x5c, and kid/iss is not registered)',
+        id ?? '(no x5c / kid / iss)');
+    }
+    key = createLocalJWKSet(jwks);
   }
 
   let att;
   try {
-    ({ payload: att } = await jwtVerify(attestation, createLocalJWKSet(jwks), {
-      typ: KA_TYP, clockTolerance: 60,
-      ...(unverified.iss ? { issuer: unverified.iss } : {}),
-    }));
-  } catch (e) { bad(`key_attestation verification failed: ${e.message}`, unverified.iss ?? null); }
+    ({ payload: att } = await jwtVerify(attestation, key, { typ: KA_TYP, clockTolerance: 60 }));
+  } catch (e) { bad(`key_attestation verification failed: ${e.message}`); }
 
   if (typeof att.iat !== 'number') bad('key_attestation has no iat (REQUIRED)');
   // **`exp` は jwt proof と併用するなら MUST**（Appendix D.1）。我々はこの経路でしか

@@ -32,7 +32,19 @@ test('catalog: each config has HAIP binding/alg/proof metadata', () => {
     assert.deepEqual(c.credential_signing_alg_values_supported,
       c.format === 'mso_mdoc' ? [-7] : ['ES256'], `${id} signing alg`);
     assert.ok(c.proof_types_supported.jwt.proof_signing_alg_values_supported.includes('ES256'));
-    assert.ok(Array.isArray(c.claims) && c.claims.length > 0);
+    // **`claims` は `credential_metadata` の下**（§12.2.4・2026-08-27 に suite が検出）。
+    // 節 id が入れ子を決定的に示す——`credential_metadata`=`§12.2.4-2.11.2.6` に対し
+    // `display`=`…6.2.1` / `claims`=`…6.2.2` で、**`claims` は `display` の兄弟**。
+    // **階層を pin する**（値だけ見ていると置き場所が変わっても通る・#33 と同じ観点）
+    assert.ok(Array.isArray(c.credential_metadata?.claims) && c.credential_metadata.claims.length > 0,
+      `${id} claims は credential_metadata の下`);
+    assert.ok(!('claims' in c), `${id} 直下に claims を置かない（draft-13 以前の形）`);
+    // claims description object は path / mandatory / display の3つだけ（Appendix B.2）
+    for (const cl of c.credential_metadata.claims) {
+      assert.deepEqual(Object.keys(cl).filter((k) => !['path', 'mandatory', 'display'].includes(k)), [],
+        `${id} claims に未定義のキー`);
+      assert.ok(Array.isArray(cl.path) && cl.path.length, `${id} path は非空配列`);
+    }
   }
 });
 

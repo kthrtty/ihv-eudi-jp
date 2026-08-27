@@ -13,8 +13,8 @@
 // **0 件なら key attestation は1件も通らない**（fail-closed）。
 //
 //   node scripts/key-attesters.mjs list
-//   node scripts/key-attesters.mjs add <iss> <jwks.json>
-//   node scripts/key-attesters.mjs add-x5c <iss> <cert.pem>   証明書から公開鍵を取り出して登録
+//   node scripts/key-attesters.mjs add <kid|iss> <jwks.json>   kid / iss で引く鍵を登録
+//   node scripts/key-attesters.mjs add-cert <ラベル> <cert.pem>  証明書をアンカーとして登録（x5c 経路）
 //   node scripts/key-attesters.mjs seed-multipaz-dev          Multipaz Wallet Dev を登録
 //   node scripts/key-attesters.mjs rm <iss>
 //
@@ -91,7 +91,7 @@ if (cmd === 'list') {
   } else {
     for (const k of ids) {
       console.log(`  ${k}${obj[k]?.label ? `  — ${obj[k].label}` : ''}`);
-      console.log(`      鍵 ${obj[k]?.jwks?.keys?.length ?? 0} 件`);
+      console.log(`      証明書 ${(obj[k]?.certs ?? []).length} 件 / 鍵 ${obj[k]?.jwks?.keys?.length ?? 0} 件`);
     }
   }
 } else if (cmd === 'add') {
@@ -102,20 +102,23 @@ if (cmd === 'list') {
   catch (e) { console.error(`${path} を読めません: ${e.message}`); process.exit(1); }
   checkPublicOnly(jwks);
   save(iss, jwks);
-} else if (cmd === 'add-x5c') {
-  // 鍵証明者が証明書で鍵を配っている場合（Multipaz はこれ）。
-  // **証明書そのものは保存せず公開鍵（JWK）だけ取り出す**——我々が見るのは
-  // 署名検証に使う鍵で、証明書チェーンの検証はしていない（アンカー＝この鍵そのもの）
+} else if (cmd === 'add-cert') {
+  // **証明書そのものをアンカーとして登録する**。attestation が `x5c` で来る相手は
+  // これが要る（Appendix D.1 の第一の解決方式）——届いた x5c の葉が、この証明書に
+  // 一致するか、この証明書が署名しているときだけ信頼する。
   const path = rest[0];
-  if (!iss || !path) { console.error('usage: key-attesters.mjs add-x5c <iss> <cert.pem>'); process.exit(1); }
-  let jwk;
+  if (!iss || !path) { console.error('usage: key-attesters.mjs add-cert <ラベル> <cert.pem>'); process.exit(1); }
+  let der, subject;
   try {
     const cert = new X509Certificate(readFileSync(path));
-    // **`cert.publicKey` は既に KeyObject**。createPublicKey に通すと
-    // 「public を渡したが private を期待」で落ちる（2026-08-27 に実測）
-    jwk = cert.publicKey.export({ format: 'jwk' });
+    der = Buffer.from(cert.raw).toString('base64');
+    subject = cert.subject.replace(/\n/g, ' ');
   } catch (e) { console.error(`${path} を読めません: ${e.message}`); process.exit(1); }
-  save(iss, { keys: [{ ...jwk, alg: 'ES256', use: 'sig' }] });
+  const obj = read();
+  obj[iss] = { ...(obj[iss] ?? {}), certs: [der] };
+  write(obj);
+  console.log(`✓ ${iss} に証明書アンカーを登録しました（${subject}）`);
+  console.log('  ※ 反映は即時ではありません（isolate が入れ替わるまで数分）');
 } else if (cmd === 'seed-multipaz-dev') {
   // Multipaz Wallet **Dev** の **Key Attestation** 署名鍵。
   // 出どころは openwallet-foundation/multipaz-wallet の
@@ -149,8 +152,8 @@ if (cmd === 'list') {
 } else {
   console.log(`使い方:
   node scripts/key-attesters.mjs list
-  node scripts/key-attesters.mjs add <iss> <jwks.json>
-  node scripts/key-attesters.mjs add-x5c <iss> <cert.pem>
+  node scripts/key-attesters.mjs add <kid|iss> <jwks.json>   kid / iss で引く鍵を登録
+  node scripts/key-attesters.mjs add-cert <ラベル> <cert.pem>
   node scripts/key-attesters.mjs seed-multipaz-dev
   node scripts/key-attesters.mjs rm <iss>
 

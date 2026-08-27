@@ -352,15 +352,22 @@ for (const schema of Object.values(creds)) {
     scope: `${schema.id}_mdoc`,
     ...HAIP,
     credential_signing_alg_values_supported: [ALG_COSE_ES256],   // COSE: ES256 = -7
-    // **`display` は `credential_metadata` の下**（OID4VCI 1.0 Final・issue #33）。
+    // **`display` も `claims` も `credential_metadata` の下**（OID4VCI 1.0 Final §12.2.4）。
     // 直下に置くのは draft-13 以前の形で、Multipaz が両方見る
-    // （`config.objOrNull("credential_metadata") ?: config`）ので動いていただけ
-    credential_metadata: { display: displayFor(schema, 'mdoc') },
-    claims: schema.claims.map((cl) => ({
-      path: [schema.formats.mso_mdoc.namespace, cl.mdoc.element],
-      mandatory: !cl.optional,
-      display: [{ name: cl.display.ja, locale: 'ja-JP' }, { name: cl.display.en, locale: 'en-US' }],
-    })),
+    // （`config.objOrNull("credential_metadata") ?: config`）ので動いていただけ（issue #33）。
+    // **`claims` の置き場所も同じ誤りだった**（2026-08-27・conformance suite が mdoc 側で検出）。
+    // 仕様の節 id が入れ子を決定的に示す——`credential_metadata`=`§12.2.4-2.11.2.6` に対し
+    // `display`=`…6.2.1` / `claims`=`…6.2.2` で、**`claims` は `display` の兄弟**。
+    // suite のスキーマは `dc+sd-jwt` の分岐にだけ直下 `claims` を許していたので
+    // **mdoc でしか警告が出ず**、SD-JWT 側は素通りしていた（片側だけ見ると気づけない）。
+    credential_metadata: {
+      display: displayFor(schema, 'mdoc'),
+      claims: schema.claims.map((cl) => ({
+        path: [schema.formats.mso_mdoc.namespace, cl.mdoc.element],
+        mandatory: !cl.optional,
+        display: [{ name: cl.display.ja, locale: 'ja-JP' }, { name: cl.display.en, locale: 'en-US' }],
+      })),
+    },
   };
   // sd-jwt config
   configs[`${schema.id}_sdjwt`] = {
@@ -369,7 +376,6 @@ for (const schema of Object.values(creds)) {
     scope: `${schema.id}_sdjwt`,
     ...HAIP,
     credential_signing_alg_values_supported: ['ES256'],          // JWS: JWA の文字列
-    credential_metadata: { display: displayFor(schema, 'SD-JWT VC') },
     // **`sd` は出さない**（2026-08-26・OpenID conformance suite が検出）。
     // OID4VCI 1.0 Final Appendix B の claims description object は
     // **path / mandatory / display の3つだけ**（スキーマは additionalProperties:false）。
@@ -378,11 +384,14 @@ for (const schema of Object.values(creds)) {
     // `selective_disclosure` が正本で、これは重複だった。
     // 巻き添えが大きく、unevaluatedProperties:false の下でこの1個が分岐を失敗させ、
     // 同じ分岐が定義するはずの vct と claims まで「未知」に見えていた。
-    claims: schema.claims.map((cl) => ({
-      path: cl.sdjwt.path,
-      mandatory: !cl.optional,
-      display: [{ name: cl.display.ja, locale: 'ja-JP' }, { name: cl.display.en, locale: 'en-US' }],
-    })),
+    credential_metadata: {
+      display: displayFor(schema, 'SD-JWT VC'),
+      claims: schema.claims.map((cl) => ({
+        path: cl.sdjwt.path,
+        mandatory: !cl.optional,
+        display: [{ name: cl.display.ja, locale: 'ja-JP' }, { name: cl.display.en, locale: 'en-US' }],
+      })),
+    },
   };
 }
 

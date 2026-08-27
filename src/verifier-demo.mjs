@@ -442,7 +442,7 @@ export function renderWebVerifyResult(result) {
 /** Global presentation history — one shared log of every presentation this Verifier
  *  verified (no per-holder session). Newest first. */
 /** Verifier 設定画面: Status List のキャッシュ時間（分）。KV 保存・全 isolate 共有。 */
-export function renderVerifierSettings(ttlSec, saved = false, { trustTtlSec = 3600, trustInfo = null, trustJwkDirect = false } = {}) {
+export function renderVerifierSettings(ttlSec, saved = false, { trustTtlSec = 3600, trustInfo = null, trustJwkDirect = false, trustJwkText = '' } = {}) {
   const min = Math.round(ttlSec / 60);
   const tmin = Math.round(trustTtlSec / 60);
   const e = (x) => String(x ?? '').replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
@@ -497,7 +497,20 @@ export function renderVerifierSettings(ttlSec, saved = false, { trustTtlSec = 36
           <div class="hint" style="margin:10px 0 4px;color:#B3261E;font-weight:700">
             ※トラストアンカーを利用せず指定されたJWKを信じる方式のため理由がある場合のみ有効化
           </div>
-          <div class="hint" style="margin:4px 0 0">
+          <label style="display:block;margin-top:12px">
+            <div style="font-size:16px;color:var(--muted);font-weight:700;margin-bottom:6px">
+              発行者の公開鍵（JWK・任意）</div>
+            <textarea name="trust_jwk" rows="3" placeholder='{"kty":"EC","crv":"P-256","x":"…","y":"…"}'
+              style="font:inherit;font-size:14px;width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--line);border-radius:8px">${e(trustJwkText)}</textarea>
+          </label>
+          <div class="hint" style="margin:6px 0 0">
+            <b>資格証に鍵が入っていない相手のため</b>の欄。OpenID conformance suite の SD-JWT VC は
+            ヘッダが <code>{alg, typ}</code> だけで <code>x5c</code> も <code>jwk</code> も
+            <code>kid</code> も無く、鍵は試験の設定（<code>credential.signing_jwk</code>）で
+            渡される前提になっている。ここに入れた鍵は<b>上のチェックが入っているときだけ</b>使う。
+            空にすると使わない。
+          </div>
+          <div class="hint" style="margin:10px 0 0">
             対象は SD-JWT VC の提示検証（<code>src/sdjwt.mjs verifySdJwtVc</code>）のみ。
             JWS ヘッダの <code>x5c[0]</code>（提示された証明書の公開鍵）で署名が通れば、
             発行者アンカーの有無を見ずに信頼する。<b>正規の鍵解決方式ではない</b>——

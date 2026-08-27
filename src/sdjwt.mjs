@@ -1,5 +1,5 @@
 // IETF SD-JWT VC issuance + verification (selective disclosure) and KB-JWT.
-import { SignJWT, jwtVerify, importPKCS8, importSPKI } from 'jose';
+import { SignJWT, jwtVerify, importPKCS8, importSPKI, importJWK } from 'jose';
 import { X509Certificate, randomBytes, createHash } from 'node:crypto';
 
 const b64url = (b) => Buffer.from(b).toString('base64url');
@@ -85,7 +85,7 @@ export function selectDisclosures(sdjwt, revealKeys) {
  *   開く（誰でも自分の証明書で署名すれば通る）。呼び出し側は
  *   `src/features.mjs` の `verifier_trust_presented_jwk` フラグ経由でのみ true にする。
  */
-export async function verifySdJwtVc(sdjwt, { trustedIssuerCaDer, trustLeafDirectly = false } = {}) {
+export async function verifySdJwtVc(sdjwt, { trustedIssuerCaDer, trustLeafDirectly = false, directJwk = null } = {}) {
   const errors = [];
   const [jwt, ...rest] = sdjwt.split('~');
   const disclosures = rest.filter(Boolean);
@@ -93,7 +93,28 @@ export async function verifySdJwtVc(sdjwt, { trustedIssuerCaDer, trustLeafDirect
   const header = JSON.parse(Buffer.from(jwt.split('.')[0], 'base64url').toString('utf8'));
   let payload;
   try {
-    const leafPub = await importSPKI(der2spkiPem(header.x5c[0]), 'ES256');
+    // **`x5c` が無いトークンもある**（2026-08-27・conformance suite で実測）。suite は
+    // `credential.signing_jwk` の**生の JWK** で署名し、証明書を一切載せてこない。
+    // `header.x5c[0]` を無条件に読んでいたため `Cannot read properties of undefined` で
+    // 落ちており、**迂回路を有効にしても通らなかった**——「アンカーを見ない」だけでなく
+    // 「鍵の運び方が違う」ところまで面倒を見ないと、この経路は成立しない。
+    // 正規の解決方式（SD-JWT VC §3.5・HAIP の MUST）は x5c なので、**迂回路のときだけ**
+    // ヘッダの `jwk` を受け入れる。
+    let leafPub;
+    if (Array.isArray(header.x5c) && header.x5c.length) {
+      leafPub = await importSPKI(der2spkiPem(header.x5c[0]), 'ES256');
+    } else if (trustLeafDirectly && header.jwk) {
+      leafPub = await importJWK(header.jwk, header.alg ?? 'ES256');
+    } else if (trustLeafDirectly && directJwk) {
+      // **鍵がトークンのどこにも入っていない場合**（2026-08-27 に実測）。conformance suite の
+      // SD-JWT VC はヘッダが `{alg, typ}` だけで、**x5c も jwk も kid も無い**——鍵は
+      // 試験の設定（`credential.signing_jwk`）で渡される前提になっている。
+      // 正規の鍵解決方式（x5c）で辿れないので、**迂回路のときだけ**外から渡された鍵を使う。
+      leafPub = await importJWK(directJwk, directJwk.alg ?? header.alg ?? 'ES256');
+    } else {
+      throw new Error('no x5c in the SD-JWT VC header (x5c is the key resolution method '
+        + 'required by HAIP §6.1.1 / SD-JWT VC §3.5)');
+    }
     ({ payload } = await jwtVerify(jwt, leafPub));
     if (!trustLeafDirectly) {
       const leaf = new X509Certificate(Buffer.from(header.x5c[0], 'base64'));
@@ -115,7 +136,14 @@ export async function verifySdJwtVc(sdjwt, { trustedIssuerCaDer, trustLeafDirect
     // 上の JSDoc と呼び出し元（src/features.mjs のフラグ説明）に明記してある。
   } catch (e) { errors.push('issuer JWT verify failed: ' + e.message); return { valid: false, errors }; }
 
-  if (payload._sd_alg !== 'sha-256') errors.push(`unsupported _sd_alg ${payload._sd_alg}`);
+  // **`_sd_alg` は省略できる**（SD-JWT §4.1.1・2026-08-27 に conformance suite が検出）:
+  // 「If the `_sd_alg` claim is not present at the top level, a default value of sha-256
+  //  MUST be used.」——**既定を使うことが MUST** なので、無いことを理由に拒否してはいけない。
+  // 我々は `!== 'sha-256'` で見ていたため、載せてこない正当な VC を全部落としていた。
+  // 値があるときだけ検査する（未対応のハッシュは従来どおり拒否）。
+  if (payload._sd_alg != null && payload._sd_alg !== 'sha-256') {
+    errors.push(`unsupported _sd_alg ${payload._sd_alg}`);
+  }
   const sdSet = new Set(payload._sd || []);
   const claims = {};
   for (const d of disclosures) {
@@ -141,8 +169,19 @@ export async function makeKbJwt({ sdjwtPresented, nonce, aud, holderKeyPem,
 
 export async function verifyKbJwt({ kbJwt, sdjwtPresented, holderJwk, expectedNonce, expectedAud }) {
   const errors = [];
-  const pub = await (await import('jose')).importJWK(holderJwk, 'ES256');
-  const { payload } = await jwtVerify(kbJwt, pub, { typ: 'kb+jwt' });
+  // **署名不正は例外にせず `{valid:false}` で返す**（2026-08-27・conformance suite が検出）。
+  // `jwtVerify` は失敗すると throw するので、KB-JWT の署名が壊れた提示は例外のまま
+  // ルートまで上がって **500** になっていた。仕様上そこは 4xx（OID4VP §8.2 の
+  // 「正常に処理できた」ではない）で、しかも**このリポジトリの方針**でもある——
+  // 「検証の失敗は必ず安全に {valid:false} で返す。throw して 500 にしない」
+  // （test/verifier.test.mjs の failure paths 節）。ここだけ抜けていた。
+  let payload;
+  try {
+    const pub = await (await import('jose')).importJWK(holderJwk, 'ES256');
+    ({ payload } = await jwtVerify(kbJwt, pub, { typ: 'kb+jwt' }));
+  } catch (e) {
+    return { valid: false, errors: [`KB-JWT verify failed: ${e.message}`] };
+  }
   if (payload.nonce !== expectedNonce) errors.push('nonce mismatch');
   if (payload.aud !== expectedAud) errors.push('aud mismatch');
   if (payload.sd_hash !== sha256b64(sdjwtPresented)) errors.push('sd_hash mismatch');
@@ -158,11 +197,11 @@ export async function presentSdJwt({ sdjwt, disclose, nonce, aud, holderKeyPem }
 }
 
 /** Verify a presentation: issuer SD-JWT + KB-JWT (nonce/aud/sd_hash). */
-export async function verifySdJwtPresentation(presentation, { trustedIssuerCaDer, trustLeafDirectly, nonce, aud } = {}) {
+export async function verifySdJwtPresentation(presentation, { trustedIssuerCaDer, trustLeafDirectly, directJwk = null, nonce, aud } = {}) {
   const cut = presentation.lastIndexOf('~');
   const sdPart = presentation.slice(0, cut + 1); // includes trailing '~'
   const kbJwt = presentation.slice(cut + 1);
-  const r = await verifySdJwtVc(sdPart, { trustedIssuerCaDer, trustLeafDirectly });
+  const r = await verifySdJwtVc(sdPart, { trustedIssuerCaDer, trustLeafDirectly, directJwk });
   if (!r.valid) return r;
   const kb = await verifyKbJwt({ kbJwt, sdjwtPresented: sdPart, holderJwk: r.cnf.jwk, expectedNonce: nonce, expectedAud: aud });
   return { ...r, valid: r.valid && kb.valid, status: r.status, errors: [...r.errors, ...kb.errors] };

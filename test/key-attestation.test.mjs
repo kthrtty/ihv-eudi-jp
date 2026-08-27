@@ -47,11 +47,17 @@ const mkAttestation = (s, over = {}) => {
     .sign(over.key ?? s.attester.privateKey);
 };
 
-const anchorFor = (s) => async (iss) => (iss === ATTESTER ? s.jwks : null);
+// **鍵の解決は JOSE ヘッダで行う**（Appendix D.1）。`kid` で引く場合は byId、
+// `x5c` で来る場合は certs（アンカー証明書）。**本文の `iss` は仕様の必須要素ではない**
+// ——当初 iss を索引にしていて、iss を載せない正当な attestation を拒否していた。
+const anchors = (s, over = {}) => async () => ({
+  certs: over.certs ?? [],
+  byId: over.byId ?? { 'ka-1': s.jwks, [ATTESTER]: s.jwks },
+});
 
 test('#5 正例: attested_keys を返す', async () => {
   const s = await setup();
-  const r = await verifyKeyAttestation({ attestation: await mkAttestation(s), anchorFor: anchorFor(s) });
+  const r = await verifyKeyAttestation({ attestation: await mkAttestation(s), anchors: anchors(s) });
   assert.equal(r.attestedKeys.length, 1);
   assert.ok(sameJwk(r.attestedKeys[0], s.holderJwk));
   assert.deepEqual(r.keyStorage, ['iso_18045_moderate']);
@@ -60,10 +66,9 @@ test('#5 正例: attested_keys を返す', async () => {
 test('#5 アンカーが引けなければ拒否（fail-closed）', async () => {
   const s = await setup();
   await assert.rejects(
-    async () => verifyKeyAttestation({ attestation: await mkAttestation(s), anchorFor: async () => null }),
+    async () => verifyKeyAttestation({ attestation: await mkAttestation(s), anchors: async () => ({ certs: [], byId: {} }) }),
     (e) => {
-      assert.match(e.message, /no trusted key-attestation issuer/);
-      assert.equal(e.detail, ATTESTER, 'どの iss を信頼していないかを返す');
+      assert.match(e.message, /no trusted key-attestation anchors configured/);
       return true;
     });
 });
@@ -75,32 +80,44 @@ test('#5 別鍵で署名された attestation は拒否（届いた鎖で検証�
   const other = await generateKeyPair('ES256', { extractable: true });
   await assert.rejects(
     async () => verifyKeyAttestation({
-      attestation: await mkAttestation(s, { key: other.privateKey }), anchorFor: anchorFor(s) }),
+      attestation: await mkAttestation(s, { key: other.privateKey }), anchors: anchors(s) }),
     (e) => /key_attestation verification failed/.test(e.message));
 });
 
-test('#5 iss を名乗らない attestation は拒否（アンカーを特定できない）', async () => {
+// **`iss` は Appendix D.1 の本文要素ではない**（鍵の解決は x5c / kid / trust_chain）。
+// iss を載せない attestation も、kid で引ければ正当に通る——ここを拒否していたため
+// conformance suite の attestation が `(no iss)` で落ちていた（2026-08-27）。
+test('#5 iss を名乗らなくても kid で引ければ通る（D.1 は本文に iss を定義しない）', async () => {
+  const s = await setup();
+  const r = await verifyKeyAttestation({
+    attestation: await mkAttestation(s, { iss: null }), anchors: anchors(s) });
+  assert.equal(r.attestedKeys.length, 1);
+  assert.equal(r.issuer, null, 'iss は無くてよい');
+});
+
+test('#5 x5c も kid も iss も引けなければ拒否（fail-closed）', async () => {
   const s = await setup();
   await assert.rejects(
     async () => verifyKeyAttestation({
-      attestation: await mkAttestation(s, { iss: null }), anchorFor: anchorFor(s) }),
-    (e) => /no trusted key-attestation issuer/.test(e.message));
+      attestation: await mkAttestation(s, { iss: null }),
+      anchors: async () => ({ certs: [], byId: { 'someone-else': s.jwks } }) }),
+    (e) => /no trusted key for this key_attestation/.test(e.message));
 });
 
 test('#5 typ / exp / attested_keys の必須を見る', async () => {
   const s = await setup();
   await assert.rejects(
     async () => verifyKeyAttestation({
-      attestation: await mkAttestation(s, { typ: 'JWT' }), anchorFor: anchorFor(s) }),
+      attestation: await mkAttestation(s, { typ: 'JWT' }), anchors: anchors(s) }),
     (e) => /typ must be key-attestation\+jwt/.test(e.message));
   await assert.rejects(
     async () => verifyKeyAttestation({
-      attestation: await mkAttestation(s, { attestedKeys: [] }), anchorFor: anchorFor(s) }),
+      attestation: await mkAttestation(s, { attestedKeys: [] }), anchors: anchors(s) }),
     (e) => /no attested_keys/.test(e.message));
   // exp は「jwt proof と併用するなら MUST」。期限切れは jose が弾く
   await assert.rejects(
     async () => verifyKeyAttestation({
-      attestation: await mkAttestation(s, { exp: '-5m' }), anchorFor: anchorFor(s) }),
+      attestation: await mkAttestation(s, { exp: '-5m' }), anchors: anchors(s) }),
     (e) => /verification failed/.test(e.message));
 });
 
@@ -109,7 +126,7 @@ test('#5 秘密鍵成分を含む attested_keys は拒否', async () => {
   const priv = await exportJWK(s.holder.privateKey);
   await assert.rejects(
     async () => verifyKeyAttestation({
-      attestation: await mkAttestation(s, { attestedKeys: [priv] }), anchorFor: anchorFor(s) }),
+      attestation: await mkAttestation(s, { attestedKeys: [priv] }), anchors: anchors(s) }),
     (e) => /public keys only/.test(e.message));
 });
 
@@ -118,14 +135,14 @@ test('#5 秘密鍵成分を含む attested_keys は拒否', async () => {
 test('#5 c_nonce を出しているなら nonce を照合する（使い回しを止める）', async () => {
   const s = await setup();
   const ok = await mkAttestation(s, { nonce: 'n-abc' });
-  await verifyKeyAttestation({ attestation: ok, anchorFor: anchorFor(s), expectedNonce: 'n-abc' });
+  await verifyKeyAttestation({ attestation: ok, anchors: anchors(s), expectedNonce: 'n-abc' });
   await assert.rejects(
-    () => verifyKeyAttestation({ attestation: ok, anchorFor: anchorFor(s), expectedNonce: 'n-different' }),
+    () => verifyKeyAttestation({ attestation: ok, anchors: anchors(s), expectedNonce: 'n-different' }),
     (e) => /nonce does not match/.test(e.message));
   // nonce を持たない attestation も、要求している以上は通さない
   const none = await mkAttestation(s);
   await assert.rejects(
-    () => verifyKeyAttestation({ attestation: none, anchorFor: anchorFor(s), expectedNonce: 'n-abc' }),
+    () => verifyKeyAttestation({ attestation: none, anchors: anchors(s), expectedNonce: 'n-abc' }),
     (e) => /nonce does not match/.test(e.message));
 });
 
@@ -135,15 +152,15 @@ test('#5 保管強度を要求すると、足りない／無い attestation を�
   const s = await setup();
   const strong = ['iso_18045_high'];
   await assert.rejects(
-    async () => verifyKeyAttestation({ attestation: await mkAttestation(s), anchorFor: anchorFor(s),
+    async () => verifyKeyAttestation({ attestation: await mkAttestation(s), anchors: anchors(s),
       requireKeyStorage: strong }),
     (e) => /key_storage does not meet the required level/.test(e.message));
   await assert.rejects(
     async () => verifyKeyAttestation({ attestation: await mkAttestation(s, { keyStorage: OMIT }),
-      anchorFor: anchorFor(s), requireKeyStorage: strong }),
+      anchors: anchors(s), requireKeyStorage: strong }),
     (e) => /has no key_storage/.test(e.message));
   const okAtt = await mkAttestation(s, { keyStorage: ['iso_18045_high'] });
-  await verifyKeyAttestation({ attestation: okAtt, anchorFor: anchorFor(s), requireKeyStorage: strong });
+  await verifyKeyAttestation({ attestation: okAtt, anchors: anchors(s), requireKeyStorage: strong });
 });
 
 // **これが Appendix D.1 の MUST**。ここを見ないと attestation は
@@ -178,7 +195,9 @@ async function issueWith(app, { proofKey, proofJwk, attestation = null }) {
 const withAttester = async (mode) => {
   const s = await setup();
   const app = createApp({ credentialIssuer: ISSUER });
-  await app.svc.store.set('_key_attesters:config', { [ATTESTER]: { jwks: s.jwks } }, null);
+  // KV の形: `{ "<ラベル>": { jwks?, certs?: [base64der] } }`。
+  // kid で引けるよう jwks を入れる（x5c 経路は certs を入れる）
+  await app.svc.store.set('_key_attesters:config', { 'ka-1': { jwks: s.jwks } }, null);
   app.svc._keyAttestersKv = undefined;
   await setFeature(app.svc.store, 'key_attestation', mode);
   return { s, app };
@@ -228,7 +247,7 @@ test('#5 E2E: 信頼していない鍵証明者の attestation は拒否（ア�
   const res = await issueWith(app, { proofKey: s.holder.privateKey, proofJwk: s.holderJwk,
     attestation: (n) => mkAttestation(s, { nonce: n }) });
   assert.equal(res.status, 400);
-  assert.match(JSON.stringify(await res.json()), /no trusted key-attestation issuer/);
+  assert.match(JSON.stringify(await res.json()), /no trusted key-attestation anchors configured/);
 });
 
 // attestation の nonce は **その要求の c_nonce** でなければならない（Appendix F.1）。
@@ -268,4 +287,43 @@ test('#5 key_attestations_required は required のときだけ広告する', as
     assert.ok(Array.isArray(c.proof_types_supported.jwt.proof_signing_alg_values_supported),
       '既存の必須項目を壊していない');
   }
+});
+
+// **x5c 経路**（Appendix D.1 の第一の解決方式）。届いた証明書で署名を検証したうえで、
+// **その葉が手元のアンカーに一致する／アンカーが署名している**ことまで確かめる。
+// ここで止めると「自己完結した鎖なら誰でも通る」＝ハードウェア保護の主張を
+// 攻撃者が書けることになり、この機構の意味が消える（#26 と同じ規則）。
+test('#5 x5c: アンカーに一致すれば通り、しなければ拒否', async () => {
+  const { generateKeyPairSync, createSign, X509Certificate } = await import('node:crypto');
+  const { execFileSync } = await import('node:child_process');
+  const { mkdtempSync, writeFileSync, readFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+
+  // 自己署名の証明書を1枚作る（鍵証明者を模す）
+  const dir = mkdtempSync(join(tmpdir(), 'ka-'));
+  execFileSync('openssl', ['ecparam', '-name', 'prime256v1', '-genkey', '-noout', '-out', join(dir, 'k.pem')]);
+  execFileSync('openssl', ['req', '-new', '-x509', '-key', join(dir, 'k.pem'), '-out', join(dir, 'c.pem'),
+    '-days', '30', '-subj', '/CN=Test Key Attester']);
+  const certDer = new X509Certificate(readFileSync(join(dir, 'c.pem'))).raw;
+  const { importPKCS8 } = await import('jose');
+  const pkcs8 = execFileSync('openssl', ['pkcs8', '-topk8', '-nocrypt', '-in', join(dir, 'k.pem')]).toString();
+  const signKey = await importPKCS8(pkcs8, 'ES256');
+
+  const s = await setup();
+  const mk = () => new SignJWT({ attested_keys: [s.holderJwk] })
+    .setProtectedHeader({ alg: 'ES256', typ: 'key-attestation+jwt',
+      x5c: [Buffer.from(certDer).toString('base64')] })
+    .setIssuedAt().setExpirationTime('1h').sign(signKey);
+
+  // アンカーに入っていれば通る
+  const ok = await verifyKeyAttestation({ attestation: await mk(),
+    anchors: async () => ({ certs: [certDer], byId: {} }) });
+  assert.ok(sameJwk(ok.attestedKeys[0], s.holderJwk));
+
+  // **アンカーに無ければ拒否**（届いた鎖だけで検証を閉じない）
+  await assert.rejects(
+    async () => verifyKeyAttestation({ attestation: await mk(),
+      anchors: async () => ({ certs: [], byId: { 'ka-1': s.jwks } }) }),
+    (e) => /x5c does not chain to a trusted anchor/.test(e.message));
 });

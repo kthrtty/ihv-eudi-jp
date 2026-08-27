@@ -712,3 +712,76 @@ test('#42 発行者の /settings は Verifier 専用フラグを足しても 500
   const body = await res.text();
   assert.doesNotMatch(body, /verifier_trust_presented_jwk/, 'Verifier 専用フラグは発行者の画面に出さない');
 });
+
+// HAIP §5（2026-08-27・conformance suite が検出）:
+// 「Verifiers MUST list both `A128GCM` and `A256GCM` in
+//  `encrypted_response_enc_values_supported` in their client metadata.」
+// ウォレット側は「どちらか一方または両方」でよく、**要求が非対称**。
+// **広告できるのは実際に復号できるから**——両方で暗号化された応答を復号できることまで見る。
+test('HAIP §5: client_metadata は A128GCM と A256GCM の両方を広告し、両方を復号できる', async () => {
+  const v = new VerifierService();
+  const md = v.clientMetadata();
+  assert.deepEqual(md.encrypted_response_enc_values_supported.slice().sort(),
+    ['A128GCM', 'A256GCM'], 'HAIP §5 の MUST');
+
+  // **広告と実装を一致させる**——広告だけ増やして復号できないのは「対応していると
+  // 言っているのにしていない」（#13 と同じ形）
+  const { CompactEncrypt, importPKCS8 } = await import('jose');
+  const { decryptResponse } = await import('../src/jwe.mjs');
+  const { generateKeyPairSync } = await import('node:crypto');
+  const { publicKey, privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+  const privPem = privateKey.export({ type: 'pkcs8', format: 'pem' });
+  // **`publicKey` は既に KeyObject**。createPublicKey に通すと型エラーになる
+  const pubJwk = publicKey.export({ format: 'jwk' });
+  const { importJWK } = await import('jose');
+  for (const enc of ['A128GCM', 'A256GCM']) {
+    const jwe = await new CompactEncrypt(new TextEncoder().encode(JSON.stringify({ ok: enc })))
+      .setProtectedHeader({ alg: 'ECDH-ES', enc })
+      .encrypt(await importJWK(pubJwk, 'ECDH-ES'));
+    const out = await decryptResponse(jwe, privPem);
+    assert.equal(out.ok, enc, `${enc} で暗号化された応答を復号できる`);
+  }
+});
+
+// OID4VP 1.0 §8.2（2026-08-27・conformance suite が検出）:
+// 「**If** the Response URI has **successfully processed** the Authorization Response
+//  … it MUST respond with an HTTP status code of 200」。
+// **検証に失敗した提示に 200 を返していた**ので、ウォレットは受理されたと解釈できた。
+// ただし `redirect_uri` は失敗時にも返す——失効した資格証を提示して検証者が検出する
+// という動線を見せるのがデモの主眼で、結果画面へ進めないと何が起きたか示せない。
+test('OID4VP §8.2: 検証に失敗した提示には 4xx を返す（redirect_uri は添える）', async () => {
+  const { createVerifierApp } = await import('../src/app.mjs');
+  const wallet = await walletWith(['pid_mdoc']);
+  const vapp = createVerifierApp({ statusResolver: statusResolverFor(wallet.issuerApp) });
+
+  const built = await (await vapp.request('/vp/build', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ configId: 'pid_mdoc', claims: ['family_name', 'given_name'], target: 'web' }),
+  })).json();
+
+  // **必須クレームを欠いた提示**＝検証は失敗する（DCQL not satisfied）
+  const selection = { [built.request.dcql_query.credentials[0].id]:
+    { credentialId: wallet.list()[0].id, disclose: ['family_name'] } };
+  const jwe = await wallet.respond(built.request, selection);
+  const res = await vapp.request(`/oid4vp/response/${built.transactionId}`, {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ response: jwe }).toString(),
+  });
+  assert.equal(res.status, 400, '「正常に処理できた」ときだけ 200');
+  const body = await res.json();
+  assert.equal(body.error, 'invalid_request');
+  assert.ok(body.error_description, '何が起きたかを返す');
+  assert.match(body.redirect_uri || '', /\/oid4vp\/result\//, '結果画面への案内は添える');
+
+  // 正常系は従来どおり 200（厳しくしすぎて成功経路を壊していない）
+  const b2 = await (await vapp.request('/vp/build', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ configId: 'pid_mdoc', claims: ['family_name'], target: 'web' }),
+  })).json();
+  const ok = await vapp.request(`/oid4vp/response/${b2.transactionId}`, {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ response: await wallet.respond(b2.request) }).toString(),
+  });
+  assert.equal(ok.status, 200);
+  assert.match((await ok.json()).redirect_uri || '', /\/oid4vp\/result\//);
+});

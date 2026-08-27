@@ -147,7 +147,13 @@ export class VerifierService {
   clientMetadata(encJwk = this.encJwk) {
     return {
       jwks: { keys: [{ ...encJwk, use: 'enc', alg: 'ECDH-ES', kid: 'rp-enc-1' }] },
-      encrypted_response_enc_values_supported: ['A128GCM'],
+      // **HAIP §5 は A128GCM と A256GCM の両方を要求する**（2026-08-27・suite が検出）:
+      // 「Verifiers MUST list both `A128GCM` and `A256GCM` in
+      //  `encrypted_response_enc_values_supported` in their client metadata.」
+      // ウォレット側は「どちらか一方または両方」でよい（非対称な要求）。
+      // **広告できるのは実際に復号できるから**——`decryptResponse` は `enc` を固定せず
+      // JWE ヘッダの値で復号するので、どちらで暗号化されても受けられる
+      encrypted_response_enc_values_supported: ['A128GCM', 'A256GCM'],
       vp_formats_supported: { 'dc+sd-jwt': { 'sd-jwt_alg_values': ['ES256'], 'kb-jwt_alg_values': ['ES256'] }, mso_mdoc: { alg: ['ES256'] } },
     };
   }
@@ -403,8 +409,18 @@ export class VerifierService {
     // are fine as long as each required set has one fully-presented option.
     errors.push(...missingPresentations(session.dcql, Object.keys(vpToken).filter((id) => vpToken[id]?.[0])));
     const anchors = await this._anchors();
-    // 適合テスト専用の迂回路（#42・src/features.mjs 参照）。既定 false＝従来どおり fail-closed
-    const feats = await readFeatures(this.store);
+    // 適合テスト専用の迂回路（#42・src/features.mjs 参照）。既定 false＝従来どおり fail-closed。
+    // **読めなかったことを黙って「既定」にしない**——`readFeatures` は KV が読めないと
+    // 既定値へ落ちるので、有効にしたつもりの迂回路が無言で無効になる（2026-08-27 に
+    // conformance 実行で実際に「設定画面はチェック済みなのに検証は fail-closed」になり、
+    // 原因の切り分けに時間を使った）。判定に使った値を結果へ載せて見えるようにする
+    const feats = await readFeatures(this.store, { force: true });
+    const trustLeafDirectly = feats.verifier_trust_presented_jwk === true;
+    // **鍵がトークンに入っていない相手のための外部指定鍵**（適合テスト専用）。
+    // conformance suite の SD-JWT VC はヘッダが `{alg, typ}` だけで x5c も jwk も kid も
+    // 無く、鍵は試験の設定で渡される前提になっている。迂回路のときだけ使う
+    const directJwk = trustLeafDirectly
+      ? await this.store.get('vcfg:trust_jwk').catch(() => null) : null;
     for (const q of session.dcql.credentials) {
       const presented = vpToken[q.id]?.[0];
       if (!presented) continue; // required-but-missing already reported above
@@ -414,7 +430,7 @@ export class VerifierService {
           { trustedIacaDer: anchors.issuer, sessionTranscript: session.transcript, expectedDocType: q.meta.doctype_value });
       } else {
         r = await verifySdJwtPresentation(presented,
-          { trustedIssuerCaDer: anchors.sdjwt, trustLeafDirectly: feats.verifier_trust_presented_jwk,
+          { trustedIssuerCaDer: anchors.sdjwt, trustLeafDirectly, directJwk,
             nonce: session.nonce,
             // DC API は origin:<origin>（保存済み）／HTTPS リダイレクトは client_id
             aud: session.expectedAud || session.clientId || this.clientId });
