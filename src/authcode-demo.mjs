@@ -1591,10 +1591,14 @@ export function renderFeatureSettings(FEATURES, current, saved = false) {
   const block = ([name, f]) => `
     <div class="fs" style="margin-top:14px">
       <div class="lg">${esc(f.label)} <span class="mono" style="font-weight:400;color:var(--muted)">${esc(name)}</span></div>
-      <div class="hint" style="margin:4px 0 10px">${esc(f.spec)}</div>
+      ${/* **`spec` と `affects` にも rich() を通す**（2026-08-27）。以前は esc() だったので
+            記法を書くと `**` やバッククォートが生のまま出て、テストが落ちる形になっていた
+            ——「記法を書かないよう気をつける」運用は破綻するので、通す側に揃える。
+            rich() は **必ず esc してから** 変換するので安全性は変わらない */''}
+      <div class="hint" style="margin:4px 0 10px">${rich(f.spec)}</div>
       ${input(name, f)}
       <div class="hint" style="margin-top:10px">
-        <b>連動して変わるもの</b><br>${f.affects.map((a) => `・${esc(a)}`).join('<br>')}
+        <b>連動して変わるもの</b><br>${f.affects.map((a) => `・${rich(a)}`).join('<br>')}
       </div>
       ${f.note ? `<div class="hint" style="margin-top:8px">${rich(f.note)}</div>` : ''}
     </div>`;

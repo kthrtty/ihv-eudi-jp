@@ -34,7 +34,8 @@
     "gen-trustlists": "node scripts/gen-vical.mjs && node scripts/gen-lote.mjs && node scripts/gen-trust-bundle.mjs",
     "kv": "node scripts/kv-versioned.mjs",
     "clients": "node scripts/clients.mjs",
-    "wallet-providers": "node scripts/wallet-providers.mjs"
+    "wallet-providers": "node scripts/wallet-providers.mjs",
+    "key-attesters": "node scripts/key-attesters.mjs"
   },
   "description": "eIDAS2/ARF IHV demo (OID4VCI/OID4VP/HAIP, mdoc+SD-JWT, DC API)",
   "engines": {

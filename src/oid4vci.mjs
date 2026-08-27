@@ -16,6 +16,7 @@ import { validateFields } from './validate.mjs';
 import { verifyDpopProof } from './dpop.mjs';
 import { readFeatures } from './features.mjs';
 import { verifyClientAttestation } from './client-attestation.mjs';
+import { verifyKeyAttestation, assertProofKeyAttested } from './key-attestation.mjs';
 
 const PRE_AUTH_GRANT = 'urn:ietf:params:oauth:grant-type:pre-authorized_code';
 const PROOF_TYP = 'openid4vci-proof+jwt';
@@ -289,6 +290,10 @@ export class IssuerService {
     // isolate 起動後に1回だけ読む——変更頻度が桁違いに低い
     this.walletProvidersKvKey = '_wallet_providers:config';
     this._walletProvidersKv = undefined;
+    // 鍵証明者のアンカー（issue #5）。**Wallet Provider の表とは別**——
+    // 署名する鍵も証明の対象も違うので、混ぜると片方の信頼で両方が通る
+    this.keyAttestersKvKey = '_key_attesters:config';
+    this._keyAttestersKv = undefined;
     this.statusList = new StatusListService({
       uri: `${credentialIssuer}/status-lists/1`,
       issuerKeyPem: statusPki?.key ?? null,
@@ -809,6 +814,19 @@ export class IssuerService {
   }
 
   /**
+   * 信頼している**鍵証明者**の要約（issue #5）。**Wallet Provider の表とは別**——
+   * 0 件＝ key attestation が1件も通らない状態で、それはここでしか見えない。
+   */
+  async keyAttesterSummary() {
+    await this.#keyAttesterJwks(null);   // KV 側を読ませる（未読なら1回だけ）
+    const obj = this._keyAttestersKv ?? {};
+    const ids = Object.keys(obj);
+    if (!ids.length) return '鍵証明者アンカー: 0 件（key attestation は1件も通りません）';
+    return `鍵証明者アンカー: ${ids.length} 件  `
+      + ids.map((k) => `${k}[鍵${obj[k]?.jwks?.keys?.length ?? 0}件]`).join('  ');
+  }
+
+  /**
    * 同意画面で選ばれた申請を検証する（configId → applicationId）。
    * **他人の申請 ID を送られても通さない**——`issuableApplications` は userId で絞るので、
    * そこに無い ID は黙って捨てる（存在も明かさない）。要求されていない configId も捨てる。
@@ -850,9 +868,22 @@ export class IssuerService {
   // resolves base = configured ISSUER_URL (authoritative, e.g. behind an LB) else the
   // live request origin. `authorization_servers` must be overridden too — it would
   // otherwise leak the static catalog placeholder.
-  metadata(base = this.credentialIssuer) {
+  metadata(base = this.credentialIssuer, features = null) {
+    // **`key_attestations_required` は「要求するとき」だけ出す**（§12.2.1・issue #5）:
+    // 「If the Credential Issuer does not require a key attestation, this parameter
+    //  MUST NOT be present in the metadata.」——`verify_if_present`（添えられていれば
+    // 見るだけ）は**要求していない**ので出さない。出すと広告と動作が食い違う。
+    // 値が空オブジェクトなら「制約なしで attestation が要る」の意（同§）。
+    const configs = features?.key_attestation === 'required'
+      ? Object.fromEntries(Object.entries(catalog.credential_configurations_supported ?? {})
+        .map(([id, cfg]) => [id, cfg.proof_types_supported?.jwt
+          ? { ...cfg, proof_types_supported: { ...cfg.proof_types_supported,
+            jwt: { ...cfg.proof_types_supported.jwt, key_attestations_required: {} } } }
+          : cfg]))
+      : catalog.credential_configurations_supported;
     return {
       ...catalog,
+      ...(configs ? { credential_configurations_supported: configs } : {}),
       credential_issuer: base,
       authorization_servers: [base],
       credential_endpoint: `${base}/credential`,
@@ -1284,8 +1315,59 @@ export class IssuerService {
     // `invalid_proof` と区別する意味がある——**nonce が古いだけなら取り直して再試行できる**が、
     // 署名不正は再試行しても無駄。同じコードで返すとウォレットが回復手段を選べない。
     if (!nonceOk) throw httpErr(400, 'invalid_nonce', 'unknown/expired c_nonce');
+    // **鍵の証明**（issue #5・Appendix D）。**nonce を消す前に見る**——
+    // attestation の `nonce` は同じ c_nonce を指すので、先に消すと必ず照合に失敗する
+    await this.#checkKeyAttestation(header, payload.nonce);
     await this.store.del(`nonce:${payload.nonce}`); // one-time use
     return header.jwk; // bind credential to this holder key
+  }
+
+  /**
+   * proof に添えられた `key_attestation` を検証する（issue #5・Appendix D）。
+   * フラグ `key_attestation` が `off` なら何もしない（既定）。
+   */
+  async #checkKeyAttestation(header, cNonce) {
+    const feats = await this.features();
+    const mode = feats.key_attestation;
+    if (mode === 'off') return;
+    const attestation = header.key_attestation;
+    if (!attestation) {
+      if (mode === 'required') {
+        throw httpErr(400, 'invalid_proof',
+          'key_attestation is required by this issuer but the proof does not carry one');
+      }
+      return;   // verify_if_present: 添えられていなければ従来どおり
+    }
+    try {
+      const { attestedKeys } = await verifyKeyAttestation({
+        attestation,
+        anchorFor: (iss) => this.#keyAttesterJwks(iss),
+        // **c_nonce を出しているなら必ず照合する**（Appendix F.1）
+        expectedNonce: cNonce ?? null,
+      });
+      // **これが Appendix D.1 の MUST**——proof の署名鍵が attested_keys に無ければ、
+      // attestation は「無関係な鍵の保証書」を添えているだけになる
+      assertProofKeyAttested(header.jwk, attestedKeys);
+    } catch (e) {
+      throw httpErr(400, 'invalid_proof',
+        e.detail ? `${e.message} (${e.detail})` : e.message);
+    }
+  }
+
+  /**
+   * 信頼している鍵証明者（Wallet Provider の鍵保管コンポーネント）の公開鍵を引く。
+   * **Wallet Attestation のアンカーとは別の表**——署名する鍵も、証明している対象も違う
+   * （あちらは「このウォレットは何者か」、こちらは「鍵がどう守られているか」）。
+   * 混ぜると片方を信頼しただけで両方が通ってしまう。
+   */
+  async #keyAttesterJwks(iss) {
+    if (this._keyAttestersKv === undefined) {
+      try { this._keyAttestersKv = (await this.store.get(this.keyAttestersKvKey)) ?? null; }
+      catch { this._keyAttestersKv = null; }
+    }
+    // `iss` は OPTIONAL なので null で来うる。**その場合は特定できないので拒否**
+    if (iss == null) return null;
+    return this._keyAttestersKv?.[String(iss)]?.jwks ?? null;
   }
 }
 

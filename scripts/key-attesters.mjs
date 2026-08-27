@@ -1,18 +1,22 @@
-// 信頼する Wallet Provider の公開鍵（KV `_wallet_providers:config`）を操作する（issue #40）。
+// 信頼する**鍵証明者**の公開鍵（KV `_key_attesters:config`）を操作する（issue #5）。
 //
-// **これはトラストアンカーで、クライアント登録表とは別物。**
-//   `_clients:config`          … 「この client_id にこの redirect_uri を許す」（識別）
-//   `_wallet_providers:config` … 「この Wallet Provider の署名を信じる」（信頼の底）
-// Wallet Attestation を使うと **client_id の事前登録は要らなくなる**——発行者は
-// 個々の端末ではなく Wallet Provider を信頼し、client_id は attestation の `sub` から来る。
-// だからこちらに足すのは「どのウォレット実装を信じるか」という重い判断で、
-// 登録表に1行足すのとは意味が違う。
+// **3つの表がある。混同しない。**
+//   `_clients:config`          … 「この client_id にこの redirect_uri を許す」（識別・#38）
+//   `_wallet_providers:config` … 「このウォレットは何者か」を証明する鍵（#40・クライアント認証）
+//   `_key_attesters:config`    … 「**資格証を束ねる鍵がどう守られているか**」を証明する鍵（#5・ここ）
 //
-//   node scripts/wallet-providers.mjs list
-//   node scripts/wallet-providers.mjs add <iss> <jwks.json>
-//   node scripts/wallet-providers.mjs add-x5c <iss> <cert.pem>   証明書から公開鍵を取り出して登録
-//   node scripts/wallet-providers.mjs seed-multipaz-dev          Multipaz Wallet Dev を登録
-//   node scripts/wallet-providers.mjs rm <iss>
+// **後ろの2つを混ぜない**——署名する鍵も証明の対象も違うので、1つの表にすると
+// 片方を信頼しただけで両方が通ってしまう。素性の知れた正規ウォレットでも、
+// 鍵がソフトウェア保管なら端末から抜き出して複製できる。だから別の判断として持つ。
+//
+// ここに足すのは「どの鍵保管コンポーネントの主張を信じるか」という重い判断。
+// **0 件なら key attestation は1件も通らない**（fail-closed）。
+//
+//   node scripts/key-attesters.mjs list
+//   node scripts/key-attesters.mjs add <iss> <jwks.json>
+//   node scripts/key-attesters.mjs add-x5c <iss> <cert.pem>   証明書から公開鍵を取り出して登録
+//   node scripts/key-attesters.mjs seed-multipaz-dev          Multipaz Wallet Dev を登録
+//   node scripts/key-attesters.mjs rm <iss>
 //
 // **環境変数には置かない**。JWK は本質的に JSON で、`wrangler deploy --var` に JSON を
 // 渡すと値が壊れる（2026-08-26 に CLIENT_REGISTRY で本番の発行が止まった）。
@@ -23,7 +27,7 @@ import { spawnSync } from 'node:child_process';
 import { writeFileSync, unlinkSync, readFileSync } from 'node:fs';
 import { X509Certificate } from 'node:crypto';
 
-const KEY = '_wallet_providers:config';
+const KEY = '_key_attesters:config';
 const [cmd, iss, ...rest] = process.argv.slice(2);
 
 /**
@@ -51,10 +55,10 @@ const read = () => {
 };
 
 const write = (obj) => {
-  const tmp = `/tmp/wallet-providers-${process.pid}.json`;
+  const tmp = `/tmp/key-attesters-${process.pid}.json`;
   writeFileSync(tmp, JSON.stringify(obj, null, 2));
   try {
-    const r = spawnSync('node', ['scripts/kv-versioned.mjs', 'put', KEY, tmp, 'wallet provider anchors'],
+    const r = spawnSync('node', ['scripts/kv-versioned.mjs', 'put', KEY, tmp, 'key attester anchors'],
       { stdio: 'inherit' });
     if (r.status !== 0) process.exit(r.status ?? 1);
   } finally { unlinkSync(tmp); }
@@ -83,7 +87,7 @@ if (cmd === 'list') {
   console.log(`KV ${KEY}:`);
   const ids = Object.keys(obj);
   if (!ids.length) {
-    console.log('  （空。attest_jwt_client_auth は1件も通りません＝fail-closed）');
+    console.log('  （空。key attestation は1件も通りません＝fail-closed）');
   } else {
     for (const k of ids) {
       console.log(`  ${k}${obj[k]?.label ? `  — ${obj[k].label}` : ''}`);
@@ -92,18 +96,18 @@ if (cmd === 'list') {
   }
 } else if (cmd === 'add') {
   const path = rest[0];
-  if (!iss || !path) { console.error('usage: wallet-providers.mjs add <iss> <jwks.json>'); process.exit(1); }
+  if (!iss || !path) { console.error('usage: key-attesters.mjs add <iss> <jwks.json>'); process.exit(1); }
   let jwks;
   try { jwks = JSON.parse(readFileSync(path, 'utf8')); }
   catch (e) { console.error(`${path} を読めません: ${e.message}`); process.exit(1); }
   checkPublicOnly(jwks);
   save(iss, jwks);
 } else if (cmd === 'add-x5c') {
-  // Wallet Provider が証明書で鍵を配っている場合（Multipaz はこれ）。
+  // 鍵証明者が証明書で鍵を配っている場合（Multipaz はこれ）。
   // **証明書そのものは保存せず公開鍵（JWK）だけ取り出す**——我々が見るのは
   // 署名検証に使う鍵で、証明書チェーンの検証はしていない（アンカー＝この鍵そのもの）
   const path = rest[0];
-  if (!iss || !path) { console.error('usage: wallet-providers.mjs add-x5c <iss> <cert.pem>'); process.exit(1); }
+  if (!iss || !path) { console.error('usage: key-attesters.mjs add-x5c <iss> <cert.pem>'); process.exit(1); }
   let jwk;
   try {
     const cert = new X509Certificate(readFileSync(path));
@@ -113,28 +117,30 @@ if (cmd === 'list') {
   } catch (e) { console.error(`${path} を読めません: ${e.message}`); process.exit(1); }
   save(iss, { keys: [{ ...jwk, alg: 'ES256', use: 'sig' }] });
 } else if (cmd === 'seed-multipaz-dev') {
-  // Multipaz Wallet **Dev** の Wallet Attestation 署名鍵。
+  // Multipaz Wallet **Dev** の **Key Attestation** 署名鍵。
   // 出どころは openwallet-foundation/multipaz-wallet の
   // `backend/src/main/resources/resources/default_configuration.json` の
-  // `server_identities.wallet_attestation`（**公開情報**・秘密ではない）。
+  // `server_identities.**key_attestation**`（**公開情報**・秘密ではない）。
   //
-  // **`iss` は証明書の subject**（`OpenID4VCIBackendImpl` が
-  // `attestationIssuer = walletAttestationKey.subject` としているため）。
+  // **`wallet_attestation` の鍵とは別**（そちらは #40 の wallet-providers.mjs）。
+  // `OpenID4VCIBackendImpl.createJwtKeyAttestation` が
+  // `getServerIdentity(ServerIdentity.KEY_ATTESTATION)` で署名し、
+  // `attestationIssuer = keyAttestationKey.subject` を `iss` に入れる。
   //
   // **本番（wallet.multipaz.org）の鍵はここには無い**——公開されていないので、
-  // 実機を通したいときは一度 attest を送らせ、拒否メッセージに出る `iss` を見てから
+  // 実機を通したいときは一度 attestation を送らせ、拒否メッセージに出る `iss` を見てから
   // 提供元に鍵をもらって `add` する。**推測で埋めない**（2026-08-27 の教訓）。
   const jwk = {
     kty: 'EC', crv: 'P-256',
-    x: 'Th4KWikz1b_Glvu0f7sKRwqMvFKbzDztx-ZH5d7fh2k',
-    y: 'cJRpOculvS8wRljxlI9BW_vLrEOvJLEyOyu8ovlIQr8',
+    x: 'R4zWyNjC5Q9UNt1UsbjE5jMxwq_BK6XZW7Sby58a1Sc',
+    y: 'G1vw5bbkDWLZud3ISL5znZTWSIplQajopI1nmvmIQ6w',
     alg: 'ES256', use: 'sig',
   };
-  save('CN=Multipaz Wallet Dev OpenID4VCI Wallet Attestation Key',
+  save('CN=Multipaz Wallet Dev OpenID4VCI Key Attestation Key',
     { keys: [jwk] }, 'Multipaz Wallet Dev（default_configuration.json の公開値）');
   console.log('  ※ iss が実機の値と違えば拒否メッセージに実際の iss が出ます。それを見て add してください');
 } else if (cmd === 'rm') {
-  if (!iss) { console.error('usage: wallet-providers.mjs rm <iss>'); process.exit(1); }
+  if (!iss) { console.error('usage: key-attesters.mjs rm <iss>'); process.exit(1); }
   const obj = read();
   if (!(iss in obj)) { console.log(`（${iss} は登録されていません）`); process.exit(0); }
   delete obj[iss];
@@ -142,13 +148,14 @@ if (cmd === 'list') {
   console.log(`✓ ${iss} を削除しました`);
 } else {
   console.log(`使い方:
-  node scripts/wallet-providers.mjs list
-  node scripts/wallet-providers.mjs add <iss> <jwks.json>
-  node scripts/wallet-providers.mjs add-x5c <iss> <cert.pem>
-  node scripts/wallet-providers.mjs seed-multipaz-dev
-  node scripts/wallet-providers.mjs rm <iss>
+  node scripts/key-attesters.mjs list
+  node scripts/key-attesters.mjs add <iss> <jwks.json>
+  node scripts/key-attesters.mjs add-x5c <iss> <cert.pem>
+  node scripts/key-attesters.mjs seed-multipaz-dev
+  node scripts/key-attesters.mjs rm <iss>
 
-信頼する Wallet Provider の公開鍵（KV ${KEY}）を編集します。
-これは**トラストアンカー**で、クライアント登録表（clients.mjs）とは別物です。
-空なら attest_jwt_client_auth は1件も通りません（fail-closed）。`);
+信頼する**鍵証明者**の公開鍵（KV ${KEY}）を編集します。
+「資格証を束ねる鍵がどう守られているか」を証明する鍵で、
+「このウォレットは何者か」を証明する wallet-providers.mjs とは**別の表**です。
+空なら key attestation は1件も通りません（fail-closed）。`);
 }

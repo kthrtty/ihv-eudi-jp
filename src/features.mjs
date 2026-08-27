@@ -80,6 +80,39 @@ export const FEATURES = {
       + 'オファー経由の発行が壊れる。',
   },
 
+  key_attestation: {
+    group: 'HAIP',
+    label: '鍵の証明（Key Attestation）',
+    // `spec` / `affects` / `note` は記法（`**` と バッククォート）が使える。
+    // **`valueLabels` だけは esc() でそのまま出る**ので記法を書かない
+    spec: 'OID4VCI 1.0 Appendix D。proof に添えられた key_attestation を検証し、'
+      + '**proof の署名鍵が attested_keys に含まれること**を確かめる（D.1 の MUST）',
+    type: 'enum',
+    values: ['off', 'verify_if_present', 'required'],
+    valueLabels: {
+      off: '見ない（既定・添えられていても無視する）',
+      verify_if_present: '添えられていれば検証する（無ければ従来どおり発行）',
+      required: '必ず要求する（無い proof は拒否＝ソフトウェア鍵を締め出す）',
+    },
+    default: 'off',
+    affects: [
+      'Credential EP の proof 検証（src/key-attestation.mjs）',
+      'credential_configurations_supported の proof_types_supported.jwt'
+        + '（key_attestations_required の広告）',
+      '`required` にすると key attestation を出せないウォレットは発行を受けられない',
+    ],
+    note: '**Wallet Attestation（クライアント認証）とは対象が違う**——あちらは'
+      + '「このウォレットは何者か」、こちらは「資格証を束ねる鍵がどう守られているか」。'
+      + '素性の知れた正規ウォレットでも、鍵がソフトウェア保管なら端末から抜き出して'
+      + '複製できるので、片方だけでは足りない。'
+      + '\n\n**アンカーは KV `_key_attesters:config`**（`npm run key-attesters`）。'
+      + '`x5c` は鍵の解決に使わない——届いたトークンの証明書で検証すると、'
+      + '**ハードウェア保護されているという主張そのものを攻撃者が書ける**。'
+      + '**0 件なら1件も通らない**（fail-closed）ので、`required` の前に必ず登録する。'
+      + '\n\n**`verify_if_present` は「添えられていれば見る」**なので、'
+      + '出さないウォレットは素通りする。締め出したいなら `required` にする。',
+  },
+
   cache_ttl_sec: {
     group: '運用',
     label: '設定のキャッシュ時間',

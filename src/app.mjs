@@ -186,7 +186,7 @@ export function createApp(opts = {}) {
       },
     }];
     return c.json({ sections, endpoints: [
-      { method: 'GET', path: '/.well-known/openid-credential-issuer', grp: 'メタデータ', desc: 'Issuer Metadata（OID4VCI §12）', value: svc.metadata(base) },
+      { method: 'GET', path: '/.well-known/openid-credential-issuer', grp: 'メタデータ', desc: 'Issuer Metadata（OID4VCI §12）', value: svc.metadata(base, feats) },
       { method: 'GET', path: '/.well-known/oauth-authorization-server', grp: 'メタデータ',
         desc: 'AS Metadata（RFC 8414）— signed_metadata 付き（§2.1・平文の値も残す）',
         value: await asMetadataBody(base) },
@@ -202,7 +202,10 @@ export function createApp(opts = {}) {
         sub: await svc.clientRegistrySummary() },
       { method: 'POST', path: '/token', grp: 'OID4VCI', desc: 'Token EP — access_token 発行' },
       { method: 'POST', path: '/nonce', grp: 'OID4VCI', desc: 'Nonce EP — c_nonce 発行' },
-      { method: 'POST', path: '/credential', grp: 'OID4VCI', desc: 'Credential EP — VC 発行' },
+      // **鍵の証明**（issue #5）。アンカー 0 件＝key attestation が1件も通らない状態は
+      // ここでしか見えない（Wallet Provider の表とは別物なので別行に出す）
+      { method: 'POST', path: '/credential', grp: 'OID4VCI', desc: 'Credential EP — VC 発行',
+        sub: await svc.keyAttesterSummary() },
       // 信頼（アンカーの配布）。**生の JWS/CBOR は「現在の値」に出しても読めない**ので集計を出す
       { method: 'GET', path: '/trust/lote.json', grp: '信頼と失効',
         desc: 'LoTE（ETSI TS 119602）— Web の3アプリが読む正本。mdoc・SD-JWT・検証者の信頼根を1本に載せる',
@@ -230,7 +233,7 @@ export function createApp(opts = {}) {
   const httpFail = (status, description) => Object.assign(new Error(description), { status, description, oauthError: 'invalid_request' });
 
   app.get('/.well-known/openid-credential-issuer', async (c) => {
-    const md = svc.metadata(issuerBase(c));
+    const md = svc.metadata(issuerBase(c), await svc.features());
     // §12.2.2: 平文（application/json）が MUST、署名（application/jwt）は MAY。
     // **Accept を見て返す**——「It is RECOMMENDED for Credential Issuers to respond
     // with a Content-Type matching to the Wallet's requested Accept header」。
