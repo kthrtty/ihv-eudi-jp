@@ -15,7 +15,7 @@ import { renderScenarioHome, renderScenarioRun, renderScenarioStep1Done, renderS
 import { captureInbound, getLog, pushLog, buildEntry, createLogRing } from './devlog.mjs';
 import { securityHeaders, csrfGuard, isSafeNext } from './security.mjs';
 import { createWallet } from './wallet.mjs';
-import { allConfigIds, configInfo, jwks as issuerJwks, accountCatalog } from './issuer.mjs';
+import { allConfigIds, configInfo, jwks as issuerJwks, accountCatalog, signedMetadata } from './issuer.mjs';
 import { getApplicationType, labelOf, subOf, parseHousehold, parseChecks, parseConsents } from './applications.mjs';
 import { validateAttachment, displayName, safeStoredName, validateThumb, ATT_MIME, MAX_FILES, MAX_TOTAL_BYTES, attIdx, reencodeImage } from './upload.mjs';
 import { renderApplyForm, renderMunicipalityPicker, renderDisasterPicker, renderMyApplications, renderMyApplication } from './apply-demo.mjs';
@@ -206,7 +206,18 @@ export function createApp(opts = {}) {
   const fail = (c, e) => c.json({ error: e.oauthError || 'server_error', error_description: e.description || e.message }, e.status || 500);
   const httpFail = (status, description) => Object.assign(new Error(description), { status, description, oauthError: 'invalid_request' });
 
-  app.get('/.well-known/openid-credential-issuer', (c) => c.json(svc.metadata(issuerBase(c))));
+  app.get('/.well-known/openid-credential-issuer', async (c) => {
+    const md = svc.metadata(issuerBase(c));
+    // §12.2.2: 平文（application/json）が MUST、署名（application/jwt）は MAY。
+    // **Accept を見て返す**——「It is RECOMMENDED for Credential Issuers to respond
+    // with a Content-Type matching to the Wallet's requested Accept header」。
+    // 署名できないとき（鍵が無い環境）は平文に落とす——発見が丸ごと止まるより動くほうが安全
+    if (/application\/jwt/i.test(c.req.header('accept') || '')) {
+      const jwt = await signedMetadata(md).catch(() => null);
+      if (jwt) return c.body(jwt, 200, { 'content-type': 'application/jwt' });
+    }
+    return c.json(md);
+  });
   // OAuth AS metadata (RFC 8414) — OID4VCI's normative AS discovery document.
   app.get('/.well-known/oauth-authorization-server', async (c) => c.json(svc.asMetadata(issuerBase(c), await svc.features())));
   // OpenID Configuration — optional superset alias (NOT required by OID4VCI); provided

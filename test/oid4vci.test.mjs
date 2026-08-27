@@ -486,3 +486,48 @@ test('#37 scope 経路は従来どおり（credential_identifiers を返さな�
     body: { credential_identifier: 'ds:pid_mdoc', proofs: { jwt: [p2] } } }),
     (e) => e.oauthError === 'unknown_credential_identifier');
 });
+
+// OID4VCI 1.0 §12.2.2 / §12.2.3: 平文が MUST、署名は MAY。**Accept で出し分ける**。
+test('署名済み Credential Issuer Metadata（§12.2.3）', async () => {
+  const { X509Certificate } = await import('node:crypto');
+  const app = createApp({ credentialIssuer: ISSUER });
+
+  // 既定（Accept 無し）は平文＝MUST の側
+  const plain = await app.request(`${ISSUER}/.well-known/openid-credential-issuer`);
+  assert.match(plain.headers.get('content-type') || '', /application\/json/);
+
+  const signed = await app.request(`${ISSUER}/.well-known/openid-credential-issuer`,
+    { headers: { accept: 'application/jwt' } });
+  assert.match(signed.headers.get('content-type') || '', /application\/jwt/,
+    '「respond with a Content-Type matching to the Wallet\'s requested Accept header」');
+  const jwt = (await signed.text()).trim();
+  const [h, p] = jwt.split('.').slice(0, 2)
+    .map((x) => JSON.parse(Buffer.from(x, 'base64url').toString('utf8')));
+
+  // JOSE ヘッダ（§12.2.3）
+  assert.equal(h.typ, 'openidvci-issuer-metadata+jwt', 'typ は仕様どおり');
+  assert.notEqual(h.alg, 'none', 'alg は none 不可');
+  assert.ok(!/^HS/.test(h.alg), 'MAC 不可（非対称であること）');
+  assert.ok(Array.isArray(h.x5c) && h.x5c.length, '鍵解決の手がかり（x5c）');
+  // **トラストアンカーを x5c に入れない**（届いた鎖だけで検証が閉じてはならない）
+  for (const [i, b64] of h.x5c.entries()) {
+    const cert = new X509Certificate(Buffer.from(b64, 'base64'));
+    const self = cert.subject === cert.issuer && cert.verify(cert.publicKey);
+    assert.ok(!self || i === 0, `x5c[${i}] が自己署名（アンカー）`);
+  }
+
+  // payload（§12.2.3）
+  assert.equal(p.sub, ISSUER, 'sub は Credential Issuer Identifier（REQUIRED）');
+  assert.equal(typeof p.iat, 'number', 'iat は REQUIRED');
+  // 「All metadata parameters ... MUST be added as top-level claims」
+  const md = await plain.json();
+  for (const k of Object.keys(md)) {
+    assert.ok(k in p, `メタデータの ${k} が payload のトップレベルに無い`);
+  }
+  assert.deepEqual(p.credential_configurations_supported, md.credential_configurations_supported);
+
+  // **署名が実際に検証できること**（x5c[0] の鍵で）
+  const { jwtVerify, importX509 } = await import('jose');
+  const pem = `-----BEGIN CERTIFICATE-----\n${h.x5c[0]}\n-----END CERTIFICATE-----`;
+  await jwtVerify(jwt, await importX509(pem, 'ES256'));
+});

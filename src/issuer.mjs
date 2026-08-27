@@ -51,6 +51,45 @@ export { catalog };
 // 文書署名者で、mdoc の検証は IACA までの経路と docType しか見ない。SD-JWT も
 // x5c を CA まで辿るだけで iss と証明書は突き合わせないため、代替 DSC で検証は通る。
 const pkiRef = (kind, ref) => _pki?.[kind]?.[ref] ?? _pki?.[kind]?.pid ?? null;
+
+/**
+ * 署名済み Credential Issuer Metadata（OID4VCI 1.0 §12.2.3）。
+ *
+ * **仕様上は MAY**——「The Credential Issuer MUST support returning metadata in an
+ * unsigned form 'application/json' and MAY support returning it in a signed form
+ * 'application/jwt'」。平文が必須で、署名は任意。実装したのは
+ * **メタデータの真正性を TLS 以外でも示せる**ため（発行者の鍵で署名されているので、
+ * 中間者が書き換えれば検証で落ちる）。
+ *
+ * §12.2.3 が定める形:
+ * - JOSE ヘッダ `alg`（**none も MAC も不可**）／`typ` は **openidvci-issuer-metadata+jwt**
+ * - payload に `sub`（= Credential Issuer Identifier・REQUIRED）／`iat`（REQUIRED）
+ * - 「All metadata parameters used by the Credential Issuer MUST be added as
+ *   **top-level claims** in the JWS payload」＝メタデータを丸ごと展開する
+ *
+ * **鍵の解決方法は仕様の対象外**（「The concrete mechanisms for doing this are out of
+ * scope」）で、`x5c` / `kid` / `trust_chain` が例示されている。我々は他の面と同じく
+ * **x5c** で運び、SD-JWT の発行者チェーン（SD-JWT CA 配下）を使う。
+ * **トラストアンカーは x5c に入れない**——届いたトークンだけで検証が完結してはならない。
+ */
+export async function signedMetadata(md) {
+  const sdIssuer = pkiRef('sdjwt', 'pid');
+  const keyPem = sdIssuer?.key ?? await diskPem('pki/sdjwt/pid.key');
+  const certDer = sdIssuer?.cert ?? await diskDer('pki/sdjwt/pid.crt');
+  const caDer = _pki?.sdjwt?.caCert ?? await diskDer('pki/sdjwt/issuer-ca.crt');
+  if (!keyPem || !certDer) return null;   // 鍵が無ければ署名しない（平文で返す）
+  const { SignJWT, importPKCS8 } = await import('jose');
+  const { X509Certificate } = await import('node:crypto');
+  const selfSigned = (der) => { try { const c = new X509Certificate(Buffer.from(der)); return c.subject === c.issuer && c.verify(c.publicKey); } catch { return false; } };
+  const x5c = [certDer, ...(caDer ? [caDer] : [])]
+    .filter((d, i) => i === 0 || !selfSigned(d))
+    .map((d) => Buffer.from(d).toString('base64'));
+  const key = await importPKCS8(typeof keyPem === 'string' ? keyPem : keyPem.toString('utf8'), 'ES256');
+  return new SignJWT({ ...md, sub: md.credential_issuer })
+    .setProtectedHeader({ alg: 'ES256', typ: 'openidvci-issuer-metadata+jwt', x5c })
+    .setIssuedAt()
+    .sign(key);
+}
 const schemas = { pid, juminhyo, qualification, koseki, tax, single, disaster, vaccine, island };
 
 // realistic sample data keyed by the schema canonical claim key
