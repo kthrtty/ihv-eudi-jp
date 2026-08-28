@@ -204,101 +204,114 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
   ${endpoints ? `<div class="dev-pane" data-pane="ep" hidden><div class="dev-legend">この発行者が公開する API。メタデータ系は<b>現在の値</b>を併記（GET は「開く ↗」でログに記録）。</div><div id="devEps" class="dev-rows"></div></div>` : ''}
 </div>
 <style>
-  .dev-hdr-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+  /* **開発者コンソールは DADS の 16px 下限の対象外**（2026-08-28）。DADS が守るのは
+     住民が使う画面で、ここは開発者向けの計測器。1画面にログ・ヘッダ・ボディ・対応表を
+     並べるので、16px を敷くと1件で画面が埋まり**かえって読めなくなる**。
+     **寸法は下の変数だけで決める**——個別に px を散らすと次に詰めるとき全部を触ることになる。
+     なお title 属性のツールチップは**ブラウザが描くので CSS では縮まない**（ネイティブ描画）。 */
+  .dev-drawer,.dev-fab,.dev-toggle{
+    --dv-fs:13px;      /* 本文・パス・コード */
+    --dv-fs-sm:12px;   /* 副次（時刻・グループ・注記・表） */
+    --dv-fs-xs:11px;   /* 極小（メソッド／ステータス／バイト数の箱） */
+    --dv-fs-lg:14px;   /* 見出し・タブ */
+    --dv-pad:10px;     /* 左右の基準余白 */
+    --dv-bar:38px;     /* ミニバー／最小高 */
+  }
+  .dev-hdr-right{margin-left:auto;display:flex;align-items:center;gap:8px}
   .top .dev-hdr-right .role,.dev-hdr-right .role{margin-left:0}
   /* icon-only toggle; active state = inverted (filled), so no switch is needed */
-  .dev-toggle{flex:none;display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;border:1px solid var(--line,#E3E8EF);background:#fff;border-radius:8px;color:var(--muted,#5B6B82);cursor:pointer;transition:background .12s,color .12s}
+  .dev-toggle{flex:none;display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:1px solid var(--line,#E3E8EF);background:#fff;border-radius:7px;color:var(--muted,#5B6B82);cursor:pointer;transition:background .12s,color .12s}
   .dev-toggle:hover{border-color:#b9c4d3}
   .dev-toggle.on{background:#0E1A2B;border-color:#0E1A2B;color:#fff}
-  .dev-fab{position:fixed;right:16px;bottom:16px;z-index:60;background:#0E1A2B;color:#cfe6dd;border:0;border-radius:999px;padding:11px 16px;font-family:ui-monospace,monospace;font-size:16px;font-weight:700;box-shadow:0 6px 18px rgba(0,0,0,.3);cursor:pointer;display:none}
-  .dev-fab.show{display:inline-flex;align-items:center;gap:7px}
-  .dev-drawer{position:fixed;left:0;right:0;bottom:0;z-index:61;background:#fff;border-top:1px solid var(--line,#E3E8EF);border-radius:16px 16px 0 0;box-shadow:0 -10px 30px rgba(0,0,0,.2);height:40vh;min-height:46px;max-height:85vh;display:flex;flex-direction:column;padding-bottom:8px}
+  .dev-fab{position:fixed;right:16px;bottom:16px;z-index:60;background:#0E1A2B;color:#cfe6dd;border:0;border-radius:999px;padding:8px 13px;font-family:ui-monospace,monospace;font-size:var(--dv-fs);font-weight:700;box-shadow:0 6px 18px rgba(0,0,0,.3);cursor:pointer;display:none}
+  .dev-fab.show{display:inline-flex;align-items:center;gap:6px}
+  .dev-drawer{position:fixed;left:0;right:0;bottom:0;z-index:61;background:#fff;border-top:1px solid var(--line,#E3E8EF);border-radius:14px 14px 0 0;box-shadow:0 -10px 30px rgba(0,0,0,.2);height:40vh;min-height:var(--dv-bar);max-height:85vh;display:flex;flex-direction:column;padding-bottom:6px}
   /* resize grip (devtools-style): drag between 15vh and 85vh; height persists */
-  .dev-grip{flex:none;height:14px;display:flex;align-items:center;justify-content:center;cursor:ns-resize;touch-action:none}
-  .dev-grip span{width:48px;height:5px;border-radius:3px;background:#C6D0DC}
+  .dev-grip{flex:none;height:10px;display:flex;align-items:center;justify-content:center;cursor:ns-resize;touch-action:none}
+  .dev-grip span{width:40px;height:4px;border-radius:2px;background:#C6D0DC}
   .dev-grip:hover span{background:#9FB0C4}
   /* one-click height presets in the header */
-  .dev-size{margin-left:auto;display:inline-flex;gap:2px;background:#EEF2F1;border:1px solid var(--line,#E3E8EF);border-radius:8px;padding:2px}
-  .dev-size button{font:inherit;font-size:16px;font-weight:700;border:0;border-radius:6px;padding:3px 7px;color:var(--muted,#5B6B82);background:transparent;cursor:pointer;white-space:nowrap}
+  .dev-size{margin-left:auto;display:inline-flex;gap:2px;background:#EEF2F1;border:1px solid var(--line,#E3E8EF);border-radius:7px;padding:2px}
+  .dev-size button{font:inherit;font-size:var(--dv-fs-sm);font-weight:700;border:0;border-radius:5px;padding:2px 6px;color:var(--muted,#5B6B82);background:transparent;cursor:pointer;white-space:nowrap}
   .dev-size button.on{background:#0E1A2B;color:#fff}
-  /* mini (peek) mode: a 46px ticker showing the latest exchange */
+  /* mini (peek) mode: a --dv-bar ticker showing the latest exchange */
   .dev-minibar{display:none}
-  .dev-drawer.mini{height:46px !important;overflow:hidden}
+  .dev-drawer.mini{height:var(--dv-bar) !important;overflow:hidden}
   .dev-drawer.mini .dev-grip,.dev-drawer.mini .dev-dh,.dev-drawer.mini .dev-tabs,.dev-drawer.mini .dev-pane{display:none}
-  .dev-drawer.mini .dev-minibar{display:flex;align-items:center;gap:9px;padding:0 16px;height:46px;font-family:ui-monospace,monospace;font-size:16px;cursor:pointer}
+  .dev-drawer.mini .dev-minibar{display:flex;align-items:center;gap:7px;padding:0 12px;height:var(--dv-bar);font-family:ui-monospace,monospace;font-size:var(--dv-fs);cursor:pointer}
   .dev-minibar .mb-ic{color:var(--success-2);font-weight:700}
-  .dev-minibar .mb-hint{margin-left:auto;color:var(--muted,#5B6B82);font-size:16px;line-height:1}
-  .dev-minibar .mb-x{border:0;background:none;font-size:16px;color:var(--muted,#5B6B82);cursor:pointer;padding:0 0 0 4px}
+  .dev-minibar .mb-hint{margin-left:auto;color:var(--muted,#5B6B82);font-size:var(--dv-fs-sm);line-height:1}
+  .dev-minibar .mb-x{border:0;background:none;font-size:var(--dv-fs);color:var(--muted,#5B6B82);cursor:pointer;padding:0 0 0 4px}
   .dev-minibar .dev-ep{flex:0 1 auto}
   .dev-drawer[hidden]{display:none}
-  .dev-dh{display:flex;align-items:center;gap:7px;padding:8px 14px;border-bottom:1px solid var(--line,#E3E8EF);font-size:16px}
+  .dev-dh{display:flex;align-items:center;gap:6px;padding:5px var(--dv-pad);border-bottom:1px solid var(--line,#E3E8EF);font-size:var(--dv-fs)}
   .dev-dh b{white-space:nowrap}
-  .dev-dh .dev-x{margin-left:6px;border:0;background:none;font-size:18px;color:var(--muted,#5B6B82);cursor:pointer;padding:0 2px}
-  .dev-tabs{display:flex;gap:4px;padding:8px 14px 0;border-bottom:1px solid var(--line,#E3E8EF)}
-  .dev-tab{font:inherit;font-size:16px;font-weight:700;padding:8px 14px;border:0;border-radius:8px 8px 0 0;color:var(--muted,#5B6B82);background:none;cursor:pointer}
+  .dev-dh .dev-x{margin-left:6px;border:0;background:none;font-size:var(--dv-fs-lg);color:var(--muted,#5B6B82);cursor:pointer;padding:0 2px}
+  .dev-tabs{display:flex;gap:3px;padding:5px var(--dv-pad) 0;border-bottom:1px solid var(--line,#E3E8EF)}
+  .dev-tab{font:inherit;font-size:var(--dv-fs);font-weight:700;padding:5px 10px;border:0;border-radius:7px 7px 0 0;color:var(--muted,#5B6B82);background:none;cursor:pointer}
   .dev-tab.on{background:#0E1A2B;color:#fff}
   .dev-pane{display:flex;flex-direction:column;min-height:0;overflow:auto}
   /* display:flex は hidden 属性の UA display:none を上書きするため明示（非アクティブタブのペインが常時露出するバグ） */
   .dev-pane[hidden]{display:none}
-  .dev-legend{font-size:16px;color:#7a5b13;background:#FFF7E6;border:1px solid #F2D98B;border-radius:8px;padding:4px 9px;margin:8px 14px 0;line-height:1.5}
+  .dev-legend{font-size:var(--dv-fs-sm);color:#7a5b13;background:#FFF7E6;border:1px solid #F2D98B;border-radius:6px;padding:3px 8px;margin:6px var(--dv-pad) 0;line-height:1.45}
   /* エンドポイント一覧タブのカード。ログ行のパス（.dev-head>.dev-ep）と同名クラスが衝突して
      パスに枠・余白が乗り縦センターがずれていたため、#devEps 配下にスコープする */
-  #devEps .dev-ep{border:1px solid var(--line,#E3E8EF);border-radius:10px;padding:10px 12px;margin-top:8px}
+  #devEps .dev-ep{border:1px solid var(--line,#E3E8EF);border-radius:8px;padding:7px 9px;margin-top:6px}
   #devEps .dev-ep.meta{border-color:#F2D98B;background:#FFFDF6}
-  .dev-ep-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-  .dev-ep-path{font-family:ui-monospace,monospace;font-size:16px;color:#0E1A2B}
-  .dev-ep-desc{font-size:16px;color:var(--muted,#5B6B82);margin-top:5px}
-  .dev-ep-go{margin-left:auto;font-size:16px;font-weight:700;color:var(--key-900);cursor:pointer;text-decoration:none}
-  .dev-ep-sub{font-family:ui-monospace,monospace;font-size:16px;color:#0E1A2B;margin-top:4px}
+  .dev-ep-top{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .dev-ep-path{font-family:ui-monospace,monospace;font-size:var(--dv-fs);color:#0E1A2B}
+  .dev-ep-desc{font-size:var(--dv-fs-sm);color:var(--muted,#5B6B82);margin-top:3px}
+  .dev-ep-go{margin-left:auto;font-size:var(--dv-fs-sm);font-weight:700;color:var(--key-900);cursor:pointer;text-decoration:none}
+  .dev-ep-sub{font-family:ui-monospace,monospace;font-size:var(--dv-fs-sm);color:#0E1A2B;margin-top:3px}
   /* grp ごとの見出し。1本目の前だけ上余白を詰める */
-  .dev-ep-h{font-size:16px;font-weight:700;color:#0E1A2B;margin:16px 0 2px;letter-spacing:.02em}
-  #devEps>.dev-ep-h:first-child{margin-top:4px}
-  .dev-ep-note{font-size:16px;color:var(--muted,#5B6B82);line-height:1.7;margin:4px 0 2px}
+  .dev-ep-h{font-size:var(--dv-fs-lg);font-weight:700;color:#0E1A2B;margin:12px 0 2px;letter-spacing:.02em}
+  #devEps>.dev-ep-h:first-child{margin-top:3px}
+  .dev-ep-note{font-size:var(--dv-fs-sm);color:var(--muted,#5B6B82);line-height:1.55;margin:3px 0 2px}
   /* 節の対応表。狭幅では横スクロール（縦に潰すと対応関係が読めなくなる） */
-  .dev-sect-tw{overflow-x:auto;margin:6px 0 2px}
-  .dev-sect-t{border-collapse:collapse;font-size:16px;width:100%;min-width:420px}
-  .dev-sect-t th{text-align:left;font-weight:700;color:var(--muted,#5B6B82);padding:4px 8px 4px 0;border-bottom:1px solid var(--line,#E3E8EF);white-space:nowrap}
-  .dev-sect-t td{padding:6px 8px 6px 0;border-bottom:1px solid #F2F5F9;vertical-align:top;color:#0E1A2B}
-  .dev-tsub{font-family:ui-monospace,monospace;font-size:16px;color:var(--muted,#5B6B82);margin-top:2px}
-  .dev-ep-val{margin-top:8px;border-top:1px dashed #ECD9A0;padding-top:7px}
-  .dev-ep-vh{font-size:16px;font-weight:700;color:#7a5b13;margin-bottom:4px}
-  .dev-filters{display:flex;gap:5px;padding:8px 14px 2px;flex-wrap:wrap}
-  .dev-chip{font:inherit;font-size:16px;font-weight:700;border:1px solid var(--line,#E3E8EF);border-radius:999px;padding:3px 9px;color:var(--muted,#5B6B82);background:#fff;cursor:pointer}
+  .dev-sect-tw{overflow-x:auto;margin:5px 0 2px}
+  .dev-sect-t{border-collapse:collapse;font-size:var(--dv-fs-sm);width:100%;min-width:380px}
+  .dev-sect-t th{text-align:left;font-weight:700;color:var(--muted,#5B6B82);padding:3px 7px 3px 0;border-bottom:1px solid var(--line,#E3E8EF);white-space:nowrap}
+  .dev-sect-t td{padding:4px 7px 4px 0;border-bottom:1px solid #F2F5F9;vertical-align:top;color:#0E1A2B}
+  .dev-tsub{font-family:ui-monospace,monospace;font-size:var(--dv-fs-xs);color:var(--muted,#5B6B82);margin-top:2px}
+  .dev-ep-val{margin-top:6px;border-top:1px dashed #ECD9A0;padding-top:5px}
+  .dev-ep-vh{font-size:var(--dv-fs-sm);font-weight:700;color:#7a5b13;margin-bottom:3px}
+  .dev-filters{display:flex;gap:4px;padding:5px var(--dv-pad) 2px;flex-wrap:wrap}
+  .dev-chip{font:inherit;font-size:var(--dv-fs-sm);font-weight:700;border:1px solid var(--line,#E3E8EF);border-radius:999px;padding:2px 8px;color:var(--muted,#5B6B82);background:#fff;cursor:pointer}
   .dev-chip.on{background:#0E1A2B;color:#fff;border-color:#0E1A2B}
-  .dev-rows{padding:6px 14px 12px;overflow:auto}
-  .dev-tl{border-left:2px solid var(--line,#E3E8EF);padding-left:14px;margin-left:9px}
-  .dev-step{position:relative;padding:4px 0 12px}
-  .dev-num{position:absolute;left:-25px;top:4px;width:20px;height:20px;border-radius:50%;background:#cfd8e3;color:#fff;font-size:16px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .dev-rows{padding:4px var(--dv-pad) 10px;overflow:auto}
+  .dev-tl{border-left:2px solid var(--line,#E3E8EF);padding-left:11px;margin-left:8px}
+  .dev-step{position:relative;padding:2px 0 8px}
+  .dev-num{position:absolute;left:-20px;top:3px;width:16px;height:16px;border-radius:50%;background:#cfd8e3;color:#fff;font-size:var(--dv-fs-xs);font-weight:700;display:flex;align-items:center;justify-content:center}
   .dev-step.open .dev-num{background:var(--role-ink)}
-  .dev-head{display:flex;align-items:center;gap:8px;padding:7px 9px;background:#f7f9fc;border:1px solid var(--line,#E3E8EF);border-radius:9px;cursor:pointer}
-  .dev-dir{font-weight:700;font-size:16px}.dev-dir.out{color:var(--role-ink)}.dev-dir.in{color:var(--role-ink)}
+  .dev-head{display:flex;align-items:center;gap:6px;padding:4px 7px;background:#f7f9fc;border:1px solid var(--line,#E3E8EF);border-radius:7px;cursor:pointer}
+  .dev-dir{font-weight:700;font-size:var(--dv-fs-sm)}.dev-dir.out{color:var(--role-ink)}.dev-dir.in{color:var(--role-ink)}
   /* メソッドチップ: inline-flex 中央揃え + min-width で GET/POST の箱幅と文字位置を揃える */
-  .dev-mp{display:inline-flex;align-items:center;justify-content:center;min-width:42px;flex:none;font-size:16px;font-weight:700;line-height:1;border-radius:5px;padding:4px 7px;box-sizing:border-box;color:#fff;background:#7A52A8}.dev-mp.GET{background:#3B6EA5}
-  .dev-ep{font-family:ui-monospace,monospace;font-size:16px;color:#0E1A2B;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .dev-st{display:inline-flex;align-items:center;flex:none;font-size:16px;font-weight:700;line-height:1;border-radius:999px;padding:4px 8px;background:#E7F3EE;color:#1f7a52}.dev-st.s4,.dev-st.s5{background:#FBE9E7;color:var(--error-2)}
-  .dev-grp{font-size:16px;color:var(--muted,#5B6B82)}
-  .dev-ts{font-size:16px;color:var(--muted,#5B6B82);font-family:ui-monospace,monospace;white-space:nowrap;flex:none}
+  .dev-mp{display:inline-flex;align-items:center;justify-content:center;min-width:34px;flex:none;font-size:var(--dv-fs-xs);font-weight:700;line-height:1;border-radius:4px;padding:3px 5px;box-sizing:border-box;color:#fff;background:#7A52A8}.dev-mp.GET{background:#3B6EA5}
+  .dev-ep{font-family:ui-monospace,monospace;font-size:var(--dv-fs);color:#0E1A2B;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dev-st{display:inline-flex;align-items:center;flex:none;font-size:var(--dv-fs-xs);font-weight:700;line-height:1;border-radius:999px;padding:3px 7px;background:#E7F3EE;color:#1f7a52}.dev-st.s4,.dev-st.s5{background:#FBE9E7;color:var(--error-2)}
+  .dev-grp{font-size:var(--dv-fs-sm);color:var(--muted,#5B6B82)}
+  .dev-ts{font-size:var(--dv-fs-sm);color:var(--muted,#5B6B82);font-family:ui-monospace,monospace;white-space:nowrap;flex:none}
   /* ボディバイト数: 行=レスポンスサイズ（.dev-hsz）・詳細=節見出しの ↑/↓ チップ（.dev-bytes） */
-  .dev-hsz{font-size:16px;color:var(--muted,#5B6B82);font-family:ui-monospace,monospace;white-space:nowrap;flex:none}
-  .dev-bytes{font-size:16px;font-weight:700;color:var(--muted,#5B6B82);font-family:ui-monospace,monospace;background:#f0f3f8;border-radius:5px;padding:2px 6px;vertical-align:1px}
+  .dev-hsz{font-size:var(--dv-fs-sm);color:var(--muted,#5B6B82);font-family:ui-monospace,monospace;white-space:nowrap;flex:none}
+  .dev-bytes{font-size:var(--dv-fs-xs);font-weight:700;color:var(--muted,#5B6B82);font-family:ui-monospace,monospace;background:#f0f3f8;border-radius:4px;padding:1px 5px;vertical-align:1px}
   /* 狭幅: ミリ秒・グループチップ・行サイズを隠してエンドポイント表示に幅を返す（詳細側は残る） */
   @media(max-width:480px){.dev-tsms,.dev-head .dev-grp,.dev-minibar .dev-grp,.dev-hsz{display:none}}
-  .dev-body{margin-top:8px}
-  .dev-sect{font-size:16px;font-weight:700;margin:10px 0 4px}
-  .dev-blab{font-size:16px;font-weight:700;color:var(--muted,#5B6B82);margin:8px 0 0}
-  .dev-code{background:#0E1A2B;color:#cfe6dd;border-radius:9px;padding:9px 11px;margin:4px 0 0;font-family:ui-monospace,monospace;font-size:16px;line-height:1.5;white-space:pre-wrap;word-break:break-all;overflow:auto;max-height:240px}
-  .dev-fold>summary{font-size:16px;font-weight:700;color:var(--role-ink);cursor:pointer;list-style:none;margin-top:4px}
+  .dev-body{margin-top:6px}
+  .dev-sect{font-size:var(--dv-fs-sm);font-weight:700;margin:8px 0 3px}
+  .dev-blab{font-size:var(--dv-fs-sm);font-weight:700;color:var(--muted,#5B6B82);margin:6px 0 0}
+  .dev-code{background:#0E1A2B;color:#cfe6dd;border-radius:7px;padding:7px 9px;margin:3px 0 0;font-family:ui-monospace,monospace;font-size:var(--dv-fs);line-height:1.45;white-space:pre-wrap;word-break:break-all;overflow:auto;max-height:200px}
+  .dev-fold>summary{font-size:var(--dv-fs-sm);font-weight:700;color:var(--role-ink);cursor:pointer;list-style:none;margin-top:3px}
   .dev-fold>summary::-webkit-details-marker{display:none}
-  .dev-hdrs{border:1px solid var(--line,#E3E8EF);border-radius:8px;overflow:hidden;margin-top:5px}
-  .dev-hrow{display:flex;font-size:16px;border-bottom:1px solid #eef2f6}.dev-hrow:last-child{border-bottom:none}
-  .dev-hk{width:128px;flex:none;padding:6px 9px;color:var(--muted,#5B6B82);background:#f7f9fc;font-family:ui-monospace,monospace}
-  .dev-hv{padding:6px 9px;font-family:ui-monospace,monospace;word-break:break-all}.dev-hv.m{color:#9a6a13;background:#FFFBF0}
-  .dev-empty{color:var(--muted,#5B6B82);font-size:16px;padding:14px 2px}
+  .dev-hdrs{border:1px solid var(--line,#E3E8EF);border-radius:6px;overflow:hidden;margin-top:4px}
+  .dev-hrow{display:flex;font-size:var(--dv-fs-sm);border-bottom:1px solid #eef2f6}.dev-hrow:last-child{border-bottom:none}
+  .dev-hk{width:108px;flex:none;padding:4px 7px;color:var(--muted,#5B6B82);background:#f7f9fc;font-family:ui-monospace,monospace}
+  .dev-hv{padding:4px 7px;font-family:ui-monospace,monospace;word-break:break-all}.dev-hv.m{color:#9a6a13;background:#FFFBF0}
+  .dev-empty{color:var(--muted,#5B6B82);font-size:var(--dv-fs-sm);padding:11px 2px}
   /* リクエスト節のフル URL: 折り返し・最大4行で内部縦スクロール（行ヘッダの ellipsis の補完） */
-  .dev-url{font-family:ui-monospace,monospace;font-size:16px;background:#f7f9fc;border:1px solid var(--line,#E3E8EF);border-radius:8px;padding:8px 10px;line-height:1.6;color:#0E1A2B;word-break:break-all;max-height:84px;overflow-y:auto;overscroll-behavior:contain;margin-top:2px}
+  .dev-url{font-family:ui-monospace,monospace;font-size:var(--dv-fs-sm);background:#f7f9fc;border:1px solid var(--line,#E3E8EF);border-radius:6px;padding:6px 8px;line-height:1.55;color:#0E1A2B;word-break:break-all;max-height:72px;overflow-y:auto;overscroll-behavior:contain;margin-top:2px}
   .dev-url .qs{color:#7A52A8}
   .dev-url::-webkit-scrollbar{width:6px}.dev-url::-webkit-scrollbar-thumb{background:#C6D0DC;border-radius:3px}
-  .dev-copy{font:inherit;font-size:16px;font-weight:700;border:1px solid var(--line,#E3E8EF);border-radius:6px;background:#fff;color:var(--role-ink);padding:2px 8px;cursor:pointer}
+  .dev-copy{font:inherit;font-size:var(--dv-fs-xs);font-weight:700;border:1px solid var(--line,#E3E8EF);border-radius:5px;background:#fff;color:var(--role-ink);padding:1px 7px;cursor:pointer}
   .dev-copy.ok{color:#fff;background:var(--role-ink);border-color:var(--role-ink)}
 </style>
 <script>
@@ -440,7 +453,7 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
   function setIcon(open){
     var t=document.getElementById('devToggle');if(t){t.classList.toggle('on',open);t.setAttribute('aria-pressed',open);}
   }
-  // ---- height model: open (15–85vh, persisted) or mini (46px ticker) ----
+  // ---- height model: open (15–85vh, persisted) or mini (--dv-bar ticker) ----
   var drawer=function(){return document.getElementById('devDrawer');};
   var size={mode:localStorage.getItem('ihv-dev-mode')||'open',h:parseFloat(localStorage.getItem('ihv-dev-h'))||40,poll:null};
   function clampH(v){return Math.min(85,Math.max(15,v));}
@@ -454,7 +467,10 @@ export const devWidgetHtml = (origin = '', { endpoints = false } = {}) => `
   function syncBody(){
     var d=drawer();var open=!!d&&!d.hidden;
     document.body.classList.toggle('dev-open',open);
-    if(open)document.body.style.setProperty('--dev-drawer-h',size.mode==='mini'?'46px':size.h+'vh');
+    // ミニの高さは CSS の --dv-bar が正本。**ここに px を書くとズレる**——
+    // 実測して合わせる（変数を変えたときに追随させないと、下部固定 UI が浮くか重なる）
+    var bar=d?getComputedStyle(d).getPropertyValue('--dv-bar').trim():'';
+    if(open)document.body.style.setProperty('--dev-drawer-h',size.mode==='mini'?(bar||'38px'):size.h+'vh');
     else document.body.style.removeProperty('--dev-drawer-h');
   }
   function applySize(){

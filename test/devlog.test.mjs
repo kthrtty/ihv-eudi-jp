@@ -186,3 +186,29 @@ test('pushLog: in-memory ring caps at 40 and entries carry unique merge ids', ()
   assert.ok(ids.every(Boolean), 'every entry has an id');
   assert.equal(new Set(ids).size, ids.length, 'ids are unique');
 });
+
+// ---- 寸法: 開発者コンソールは DADS の 16px 下限の対象外（開発者向けの計測器）------
+// 1画面にログ・ヘッダ・ボディ・対応表を並べるので 16px を敷くと1件で埋まる。
+// **値ではなく規約を pin する**——「変数で決めていること」と「16px が残っていないこと」。
+// 個別の px を直接書くと、次に詰めるとき全部を触ることになる。
+test('開発者コンソールの寸法は変数で決まり、DADS の 16px が紛れ込んでいない', async () => {
+  const { devWidgetHtml } = await import('../src/devlog.mjs');
+  const html = devWidgetHtml({ origin: 'https://issuer.example.test' });
+  for (const v of ['--dv-fs:', '--dv-fs-sm:', '--dv-fs-xs:', '--dv-fs-lg:', '--dv-bar:']) {
+    assert.ok(html.includes(v), `${v} が無い（寸法の正本は変数）`);
+  }
+  assert.doesNotMatch(html, /font-size:16px/, 'DADS 由来の 16px が残っている');
+  // ミニバーの高さは CSS が正本。JS 側に px を書くと変数を変えたときズレる
+  assert.doesNotMatch(html, /'46px'/, 'ミニバー高が JS に直書きされている');
+  assert.match(html, /--dv-bar/, 'JS が --dv-bar を読んでいない');
+});
+
+// インライン CSS/JS はテンプレートリテラルの中にあるので、コメント内のバックティックが
+// リテラルを終端して **CSS と無関係な構文エラー**になる（2026-08-28 に再発させた）。
+test('開発者コンソールの inline CSS コメントにバックティックが無い', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../src/devlog.mjs', import.meta.url), 'utf8');
+  const styles = src.match(/<style>[\s\S]*?<\/style>/g) ?? [];
+  assert.ok(styles.length, '<style> ブロックが見つからない');
+  for (const s of styles) assert.doesNotMatch(s, /`/, 'CSS 内のバックティックはリテラルを終端する');
+});
