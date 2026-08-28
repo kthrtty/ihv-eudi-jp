@@ -11,10 +11,11 @@
 // **同じ認可 URL を二度叩かない**。終わったテストに叩くと suite が
 // `Illegal test state change: FINISHED -> RUNNING` で落ちる。処理済みの URL を覚えておき、
 // **未処理のものが現れたときだけ**進める。
-import { requireOrigins } from './conformance-origins.mjs';
+import { requireOrigins, requireSuite } from './conformance-origins.mjs';
 
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';   // suite は自己署名証明書
-const SUITE = process.env.SUITE_URL ?? 'https://localhost:8443';
+// **セルフホスト（自己署名・TLS 検証オフ）と公式（要 API トークン）の両方**を扱う。
+// TLS の扱いとトークンの有無は `suite()` が決める——ここで切ると公式を叩くときも無防備になる
+const { url: SUITE, headers: AUTH } = requireSuite();
 const { issuer: ISS } = requireOrigins();
 
 const [testId, userId = 'u_001'] = process.argv.slice(2);
@@ -67,7 +68,7 @@ async function drive(url, cookie) {
   // **暗黙送信 URL を叩く**。suite のコールバック画面は JS でここへ POST するので、
   // ブラウザを使わない場合は自分で叩かないと WAITING のまま止まる
   await sleep(1500);
-  const log = await j(`${SUITE}/api/log/${testId}?length=500`);
+  const log = await j(`${SUITE}/api/log/${testId}?length=500`, { headers: AUTH });
   const rows = Array.isArray(log) ? log : (log.data ?? []);
   const submit = rows.map((r) => r.implicit_submit?.fullUrl).filter(Boolean).pop();
   if (submit) await fetch(submit);
@@ -79,13 +80,13 @@ const done = new Set();
 let rounds = 0;
 
 for (let i = 0; i < 40; i++) {
-  const info = await j(`${SUITE}/api/info/${testId}`);
+  const info = await j(`${SUITE}/api/info/${testId}`, { headers: AUTH });
   if (info.status === 'FINISHED' || info.status === 'INTERRUPTED') {
     console.log(`  ${info.status} / ${info.result}（駆動 ${rounds} 回）`);
     process.exit(info.result === 'FAILED' ? 1 : 0);
   }
   if (info.status === 'WAITING') {
-    const b = await j(`${SUITE}/api/runner/browser/${testId}`);
+    const b = await j(`${SUITE}/api/runner/browser/${testId}`, { headers: AUTH });
     const next = (b.urls ?? []).find((u) => !done.has(u));
     if (next) {
       done.add(next);

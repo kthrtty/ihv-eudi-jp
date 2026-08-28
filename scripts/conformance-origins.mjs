@@ -44,3 +44,43 @@ export function requireOrigins() {
   }
   return o;
 }
+
+/**
+ * conformance suite の接続先。**Docker のセルフホストと公式インスタンスの両方**を扱う。
+ *
+ * - セルフホスト（既定）… `https://localhost:8443`。**自己署名証明書**なので TLS 検証を切る
+ * - 公式（https://www.certification.openid.net）… **API トークンが要る**。
+ *   ログイン後 `/tokens` で発行し、`.deploy.env` に `CONFORMANCE_TOKEN=…` を置く
+ *   （**gitignore 済み**。リポジトリにも会話にも出さない）。
+ *   認証は公式 CI スクリプトと同じ **`Authorization: Bearer <token>`**
+ *   （`conformance-suite/scripts/conformance.py`）。401 はトークン失効か再デプロイ
+ *
+ * **公式を使うときは TLS 検証を切らない**——正規の証明書なので切る理由が無く、
+ * 切ったまま外部ホストを叩くのは中間者に対して無防備になる。
+ *
+ * @returns {{url: string, token: string|null, headers: object, official: boolean}}
+ */
+export function suite() {
+  const env = { ...deployEnv(), ...process.env };
+  const url = (env.SUITE_URL || 'https://localhost:8443').replace(/\/+$/, '');
+  const token = env.CONFORMANCE_TOKEN || null;
+  const official = !/^https:\/\/localhost(:|$)/.test(url);
+  if (!official) process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+  return {
+    url, token, official,
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+  };
+}
+
+/** 公式インスタンスなのにトークンが無ければ理由を出して止める（401 を読ませない）。 */
+export function requireSuite() {
+  const s = suite();
+  if (s.official && !s.token) {
+    console.error(`✗ ${s.url} は API トークンが必要です。`);
+    console.error('  1) ブラウザでログイン → https://www.certification.openid.net/tokens で発行');
+    console.error('  2) .deploy.env に CONFORMANCE_TOKEN=<値> を追記（gitignore 済み）');
+    console.error('  ※ トークンは表示しないこと（ログにも会話にも残さない）');
+    process.exit(1);
+  }
+  return s;
+}

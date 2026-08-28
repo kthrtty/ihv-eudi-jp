@@ -2,10 +2,11 @@
 // REVIEW は「検証に成功した証拠を見せよ」という項目で、撮るのは我々の verifier の
 // 実際の結果画面（`/oid4vp/result/<txn>`）。中身が伴わないものは上げない——
 // 検証が valid でなければスキップする。
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 import { chromium } from 'playwright';
-import { requireOrigins } from './conformance-origins.mjs';
-const S = 'https://localhost:8443';
+import { requireOrigins, requireSuite } from './conformance-origins.mjs';
+// **セルフホスト（自己署名・TLS 検証オフ）と公式（要 API トークン）の両方**を扱う。
+// TLS を切るかどうかは `suite()` が接続先から決める——ここで無条件に切ると公式でも無防備になる
+const { url: S, headers: AUTH } = requireSuite();
 // **本番ドメインは書かない**（.deploy.env / 環境変数から解決する）
 const { verifier: V } = requireOrigins();
 const PREFIX = process.env.CID_PREFIX ?? 'x509_san_dns';
@@ -13,7 +14,7 @@ const j = async (u, i) => (await fetch(u, i)).json();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const [planId, ...only] = process.argv.slice(2);
-const plan = await j(`${S}/api/plan/${planId}`);
+const plan = await j(`${S}/api/plan/${planId}`, { headers: AUTH });
 const mods = plan.modules.map((m) => m.testModule).filter((m) => !only.length || only.includes(m));
 const browser = await chromium.launch();
 const rows = [];
@@ -21,11 +22,11 @@ const rows = [];
 for (const mod of mods) {
   let out = { mod, result: '-', note: '' };
   try {
-    const run = await j(`${S}/api/runner?test=${mod}&plan=${planId}`, { method: 'POST' });
+    const run = await j(`${S}/api/runner?test=${mod}&plan=${planId}`, { method: 'POST', headers: AUTH });
     let submit = null;
     for (let i = 0; i < 20 && !submit; i++) {
       await sleep(500);
-      submit = (await j(`${S}/api/runner/${run.id}`))?.browser?.uriInputRequests?.[0]?.submitUrl ?? null;
+      submit = (await j(`${S}/api/runner/${run.id}`, { headers: AUTH }))?.browser?.uriInputRequests?.[0]?.submitUrl ?? null;
     }
     if (!submit) throw new Error('WAITING にならない');
 
@@ -58,12 +59,12 @@ for (const mod of mods) {
       const png = (await page.screenshot({ fullPage: true })).toString('base64');
       await page.close();
       const up = await fetch(`${S}/api/log/${run.id}/images`, { method: 'POST',
-        headers: { 'content-type': 'text/plain' }, body: `data:image/png;base64,${png}` });
+        headers: { ...AUTH, 'content-type': 'text/plain' }, body: `data:image/png;base64,${png}` });
       out.note = up.ok ? '提出済み' : `提出失敗 ${up.status}`;
     }
     for (let i = 0; i < 15; i++) {
       await sleep(1000);
-      const info = await j(`${S}/api/info/${run.id}`);
+      const info = await j(`${S}/api/info/${run.id}`, { headers: AUTH });
       out.result = info.result ?? '-';
       if (['FINISHED', 'INTERRUPTED'].includes(info.status)) break;
     }
