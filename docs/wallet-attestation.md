@@ -125,7 +125,7 @@ WIA（JWT）                        ← 形式・内容・転送は TS3 / OID4VC
 | Wallet Provider アンカーの管理 | **実装済み** | **LoTE が正本**（`WalletSolution/{Issuance,Revocation}`）＋ KV `_wallet_providers:config` が土台 |
 | 再送検知（`jti`） | **実装済み** | KV に `caj:<jti>` を記録 |
 | KA の検証（OID4VCI Appendix D・JWT 形態） | **実装済み** | `src/key-attestation.mjs` |
-| KA のアンカー管理 | **実装済み** | KV `_key_attesters:config`（`npm run key-attesters`） |
+| KA のアンカー管理 | **実装済み** | **LoTE が正本**（`WalletSolution/Issuance`・WIA とは別証明書）＋ KV `_key_attesters:config` が土台 |
 | **WIA の発行側**（Wallet Provider 役） | **未実装** | 我々は検証側のみ。attestation は外部（Multipaz 等）が出す |
 | **プラットフォーム鍵アテステーション** | **未実装** | Android Key Attestation → Google root の検証（#5 の残件） |
 | `attestation` proof type（PoP なし） | **未実装** | Appendix F |
@@ -140,7 +140,7 @@ WIA（JWT）                        ← 形式・内容・転送は TS3 / OID4VC
 ## 4. 何が誰を信頼するのか（信頼の連鎖）
 
 ```
-Wallet Provider の署名鍵            ← 我々が KV に登録した「アンカー」。ここが信頼の底
+Wallet Provider の署名鍵            ← LoTE から引くアンカー（KV は土台）。ここが信頼の底
         │ 署名
         ▼
   WIA（attestation JWT）            iss=Wallet Provider / sub=client_id / cnf.jwk=端末の公開鍵
@@ -404,7 +404,7 @@ Attestation Provider と異なり **CIR 2025/848 に基づく登録をせず、�
 | `typ` | `oauth-client-attestation+jwt` | `key-attestation+jwt` |
 | 鍵の解決 | **`iss`**（REQUIRED） | **`x5c` / `kid` / `trust_chain`**。**本文に `iss` は定義されていない** |
 | 中心の検証 | PoP を `cnf.jwk` で検証 | **proof の署名鍵が `attested_keys` に含まれること**（D.1 の MUST） |
-| アンカー | `_wallet_providers:config` | `_key_attesters:config`（**別の表**） |
+| アンカー | LoTE `WalletSolution` ＋ KV | KV `_key_attesters:config`（**別の表**） |
 
 **アンカーの表を分けているのは意図的。** 署名する鍵も証明の対象も違うので、
 1つにすると片方を信頼しただけで両方が通ってしまう。
@@ -424,13 +424,145 @@ KA の例（proof の JOSE ヘッダに埋まる）:
   "attested_keys": [{ "kty": "EC", "crv": "P-256", "x": "…", "y": "…" }],
   "key_storage": ["iso_18045_moderate"],
   "user_authentication": ["iso_18045_moderate"],
+  "certification": "https://example.org/certification/wscd/GlobalPlatform/",
   "nonce": "<この要求の c_nonce>"
 }
 ```
 
-`key_storage` / `user_authentication` の値は Appendix D.2 の
-attack potential resistance（`iso_18045_basic` < `enhanced-basic` < `moderate` < `high`）。
+### 7.1 WIA の署名鍵と KA の署名鍵は別物
+
+**同じ Wallet Provider でも署名鍵は分かれる。** Multipaz Wallet Dev で実測した値:
+
+| | 主体名 | 公開鍵 `x`（先頭） |
+|---|---|---|
+| WIA 署名鍵 | `CN=… OpenID4VCI **Wallet Attestation** Key` | `Th4KWikz1b_…` |
+| KA 署名鍵 | `CN=… OpenID4VCI **Key Attestation** Key` | `R4zWyNjC5Q9U…` |
+
+どちらも**自己署名・10年有効**で、`server_identities.wallet_attestation` と
+`server_identities.key_attestation` という**独立した identity** として持たれている。
+
+**仕様上も別で構わない。** OID4VCI は KA の署名者をこう定めている:
+
+> Key attestations are issued either by the Wallet's **key storage component itself** or by the Wallet Provider.
+
+つまり KA は**チップ／キーストア自身が署名する**形もあり、その場合の信頼の底は
+ウォレット提供者ではなく**ハードウェアのベンダ**になる。ここが 7.4 の論点に効く。
+
+### 7.2 `key_storage` / `user_authentication` に入る値
+
+**TEE / StrongBox / Secure Enclave / HSM / TPM といったハードウェア名は、値としては
+仕様のどこにも存在しない。** 値は**攻撃耐性の抽象レベル**だけで、Appendix D.2 が定義するのは4つ:
+
+| 値 | ISO/IEC 18045 の attack potential | CC の AVA_VAN |
+|---|---|---|
+| `iso_18045_high` | High | AVA_VAN.5 |
+| `iso_18045_moderate` | Moderate | AVA_VAN.4 |
+| `iso_18045_enhanced-basic` | Enhanced-Basic | AVA_VAN.3 |
+| `iso_18045_basic` | Basic | AVA_VAN.2 |
+
+`user_authentication`（鍵を使うためのユーザー認証方式の耐性）も**同じ値域**を使う。
+どちらも OPTIONAL で、値は**配列**。
+
+**IANA レジストリは無い。** 仕様は「Specifications that extend this list MUST choose
+collision-resistant values」とし、ISO 18045 を使わない場合は「it is RECOMMENDED that the
+value is a URL」と述べるにとどまる（1.0 と 1.1 で本文は完全に同一）。
+**値の集合は中央管理されていない**ので、受け入れ側は知らない値を素通しさせてはいけない。
+
+**ARF は5つ目 `none` を足す**（WIAM_08a・v2.9.0 で新設）:
+
+> the following possible values: `iso_18045_high`, `iso_18045_moderate`,
+> `iso_18045_enhanced-basic`, `iso_18045_basic` or **`none`**, corresponding to the level of
+> resistance for which the keystore was certified (respectively AVA_VAN.5, AVA_VAN.4,
+> AVA_VAN.3, AVA_VAN.2 and **no certification**)
+
+**WSCD なら値は固定**（TS3）:
+
+> For a KA about a WSCD, the `key_storage` and `user_authentication` attributes shall be
+> `iso_18045_high` as the WSCD by definition must ensure LoA High.
+
+WSCD は法令上 LoA High と定義されるので選ぶ余地が無い。**段階が意味を持つのは WSCD ではない
+「keystore」の側だけ**で、そちらは PID の鍵には使えない（ARF: "A keystore cannot be used for
+PID private keys"）。
+
 **要求するなら「無い」も拒否する**——OPTIONAL なクレームなので、省略を通すと要求していないのと同じ。
+
+### 7.3 ではハードウェア名はどこに入るのか
+
+**`certification`**（Appendix D.1 の OPTIONAL な URL）。TS3 はここに載せる内容を規定している:
+
+> providing information about the certification achieved by the WSCD or keystore (e.g., the
+> scheme such as Common Criteria or GlobalPlatform, the evaluated requirements such as the
+> applicable Protection Profile, and the evaluation level).
+> **It shall be possible to determine from this field whether the key storage is a WSCD.**
+
+つまり「これは StrongBox だ」に相当する情報は、**構造化された列挙値ではなく URL の先の
+認証情報**として渡る。ARF §4.4 が keystore の例として挙げる
+「a Secure Element, a TPM, TEE, or secure enclave, or a remote HSM」は**用語の説明であって
+値の一覧ではない**。
+
+**期待に一番近いものは削除されている。** TS3 は以前 `storage_type` を持っていた:
+
+> `storage_type` | RECOMMENDED | *string* | Technical implementation of the WSCD or keystore,
+> one of the following values: `"REMOTE"`, `"LOCAL_EXTERNAL"`, `"LOCAL_INTERNAL"`,
+> `"LOCAL_NATIVE"` or `"HYBRID"` as described in the ARF.
+
+これは ARF の WSCD アーキテクチャ4分類（remote HSM ／ local external＝スマートカード ／
+local internal＝SIM・eSIM・組込み SE ／ local native＝OS の API 経由）に対応するが、
+**TS3 1.5（2026-03-15）で `keys_exportable` とともに削除された**。実装形態は耐性の代理指標に
+すぎず、同じ `LOCAL_NATIVE` でも製品によって耐性が違うので、**直接レベルを言わせるほうが
+正しい**という整理だと読める。
+
+**プラットフォームの列挙値とは層が違う。** Android の Key Attestation は `securityLevel` に
+`Software` / `TrustedEnvironment` / `StrongBox` を持つが、これは OID4VCI の値ではなく
+**Wallet Provider が内部で受け取って `iso_18045_*` に翻訳する入力**である。仕様自身が
+「When the Wallet Provider creates the key attestation, it MUST verify the authenticity of its
+claims about the keys, **possibly using platform-specific key attestations**」と書いている。
+**どの製品がどのレベルになるかは仕様が決めておらず、実際に取得した CC 認証の内容で決まる。**
+
+### 7.4 KA のアンカーも LoTE に載せている（2026-08-28）
+
+**ARF の建て付けどおり LoTE を正本にした。** TS3 1.5 は WIA と KA の両方から `iss` を削除し、
+こう変えている:
+
+> Removed `iss` from both WIA and WUA; Wallet Provider identity is now **inferred from the
+> signing certificate in the `x5c` JOSE header parameter**.
+
+名前で引くのをやめて証明書で辿る、つまり **KA も Wallet Provider のアンカーへ繋がることを
+前提にした**設計になった。
+
+**役割は WIA と共通で `walletProvider`。** ARF §6.2.2 が Wallet Provider LoTE のアンカーの
+用途を「Wallet Unit から受け取る **WIA と KA の**真正性の検証」と**1つの用途にまとめている**
+ためで、リスト上でこの2つを分ける手段も無い（サービス型は `WalletSolution/{Issuance,Revocation}`
+の2つだけ）。**証明書は分けて載せる**——7.1 のとおり署名鍵が別物なので、片方だけ載せると
+実機でどちらかが必ず落ちる。
+
+```
+ウォレット提供者: Multipaz Wallet Dev
+  ├ WalletSolution/Issuance    ← CN=… Wallet Attestation Key   （WIA の検証）
+  ├ WalletSolution/Issuance    ← CN=… Key Attestation Key      （KA の検証）
+  └ WalletSolution/Revocation  ← CN=… Wallet Attestation Key   （WUA 失効の検証）
+```
+
+**KV の表は分けたまま。** リスト側は1つの役割だが、`_wallet_providers:config` と
+`_key_attesters:config` は別テーブルのまま残す——リストに載っていない相手を手で足すときに、
+片方だけ信頼できるほうが安全だから。分離は**局所制御**として残り、リスト上の役割とは別の話。
+
+**当初は「証明書が無いので載せられない」と判断したが、これは誤りだった。**
+Multipaz の `key_attestation` identity は `wallet_attestation` と同じく
+**`x5c`（自己署名・10年）を持つ**。我々が KV に入れた値が素の JWK だったのは
+`default_configuration.json` から `x/y` だけを抜き出したためで、上流には証明書がある。
+
+### 7.5 まだ決まっていないこと
+
+**チップベンダが署名する KA は、ここに載せてはいけない。** 7.1 のとおり OID4VCI は KA の
+署名者を「Wallet Provider **または鍵保管コンポーネント自身**」とする。後者の場合、署名者は
+Wallet Provider ではないので `WalletSolution` は意味的に誤りになる。ARF は WSCD 前提で
+このケースを想定しておらず、LoTE にも該当するサービス型が無い。**いまの Multipaz は前者**
+（自分の backend の `createJwtKeyAttestation` が署名）なので載せてよい。器が要るのは #31 の残件。
+
+**失効の証明書は仮置き。** `WalletSolution/Revocation` に WIA と同じ証明書を登録している
+＝「attestation を署名する鍵と、その失効リストを署名する鍵が同一である」と主張していることに
+なる。TS3 は WIA/KA の失効を Status List で行うと定めており、その署名鍵は**3本目になりうる**。
 
 ---
 
@@ -438,14 +570,28 @@ attack potential resistance（`iso_18045_basic` < `enhanced-basic` < `moderate` 
 
 ### 有効化の手順
 
-```bash
-# 1) Wallet Provider のアンカーを登録（先にやる。0 件だと全部落ちる）
-npm run wallet-providers add "<iss>" ./wp-jwks.json
-npm run wallet-providers list
+**アンカーの追加はリスト側が本筋**（0 件だと全部落ちる。**先にやる**）:
 
-# 2) 発行ポータルの /settings で client_auth を attest_jwt_client_auth に切り替え
-#    （再デプロイ不要。/dev/endpoints の POST /par 行に件数が出る）
+```bash
+# 証明書を置いて再生成 → デプロイ（LoTE は Worker のバンドルに載る）
+cp wp.crt trust/wallet-providers/<name>-wia.crt   # WIA の署名鍵
+cp ka.crt trust/key-attesters/<name>-ka.crt       # KA の署名鍵（別鍵。7.1 参照）
+npm run gen-trustlists && npm run deploy:pki
+
+# 証明書が無い相手／リストが引けない環境では KV に足す（土台）
+npm run wallet-providers add "<iss>" ./wp-jwks.json && npm run wallet-providers list
+npm run key-attesters add-cert "<ラベル>" ./ka.crt && npm run key-attesters list
 ```
+
+```bash
+# 発行ポータルの /settings で client_auth を attest_jwt_client_auth に切り替え
+#   （再デプロイ不要。/dev/endpoints の POST /par 行に件数が出る）
+# KA は同じく /settings の key_attestation を verify_if_present / required に
+```
+
+**件数は「リスト N 件 / KV M 件」で出す**（どちらから来ているか読めないと、リストの
+設定漏れに気づけない）。`gen-trustlists` の出力にもサービス名が並ぶので、
+`Wallet Solution key attestation (…)` が出ていることを見る。
 
 ### 実機（Multipaz）の挙動
 
@@ -473,8 +619,11 @@ npm run wallet-providers list
 | # | 内容 |
 |---|---|
 | #5 | プラットフォーム鍵アテステーション（Android Key Attestation → Google root）。LoA 目標が未決 |
+| #31 | **チップベンダが署名する KA の器**。`WalletSolution` は Wallet Provider 用なので載せられない（7.5） |
+| #31 | `WalletSolution/Revocation` の証明書が仮置き（Status List 署名鍵は3本目になりうる） |
 | #43 | Web ウォレットが広告に追従しない |
 | — | WUA の失効（TS3 §2.5 の Attestation Status List）。未 issue |
+| — | `key_storage` の要求ポリシーが未設定（`requireKeyStorage` は実装済みだが既定は無指定）。ARF の `none` を含む値域は 7.2 |
 | — | Wallet Provider 役の実装（我々は検証側のみ）。デモの範囲外 |
 
 ---
@@ -482,10 +631,21 @@ npm run wallet-providers list
 ## 参照
 
 - ARF Annex 1 — WUA / WIA / KA / Wallet Provider / Wallet Unit / WSCA / WSCD の定義
+- ARF §4.4 — WSCD の4アーキテクチャ（remote / local external / local internal / local native）と
+  **Keystore の定義**（「a Secure Element, a TPM, TEE, or secure enclave, or a remote HSM」は
+  **例示であって値の一覧ではない**）
 - ARF §6.2.2 — Wallet Provider notification と **Wallet Provider LoTE**／§6.6.2.4 — 発行者側の検証
+- ARF Annex 2 **WIAM_08a** — keystore の security level 5値（`iso_18045_*` 4つ ＋ **`none`**）と
+  AVA_VAN.5/4/3/2 の対応
 - **ARF Technical Specification 3**（WUA）— 転送 / 形式 / 内容 / ライフサイクル / 失効。
   **Wallet Provider がどう発行するかは範囲外**と明記（§1.2）。実体は
-  `eudi-doc-standards-and-technical-specifications` リポジトリ側にある
+  `eudi-doc-standards-and-technical-specifications` リポジトリ側にある。
+  **§2.3: WSCD なら `key_storage` / `user_authentication` は `iso_18045_high`**／
+  **`certification` から WSCD か否かを判別できること**／
+  **1.5 で `storage_type`（`REMOTE`/`LOCAL_EXTERNAL`/`LOCAL_INTERNAL`/`LOCAL_NATIVE`/`HYBRID`）と
+  `keys_exportable` を削除**
+- OID4VCI 1.0 **Appendix D.2** — attack potential resistance の4値。**IANA レジストリは無い**
+  （拡張は collision-resistant な値、非 ISO なら URL 推奨）
 - HAIP 1.0 §4.4.1 — クライアント認証（MUST）と `client_id` = attestation の `sub`
 - OID4VCI 1.0 Appendix E — Wallet Attestation（JWT 形態）／Appendix D — Key Attestation
 - draft-ietf-oauth-attestation-based-client-auth-06 §5.1 / §5.2 / §6.1 / §12.1

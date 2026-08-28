@@ -327,3 +327,75 @@ test('#5 x5c: アンカーに一致すれば通り、しなければ拒否', asy
       anchors: async () => ({ certs: [], byId: { 'ka-1': s.jwks } }) }),
     (e) => /x5c does not chain to a trusted anchor/.test(e.message));
 });
+
+// #31: **KA のアンカーもトラストリストから引く**。ARF §6.2.2 は Wallet Provider LoTE の
+// アンカーの用途を「Wallet Unit から受け取る **WIA と KA の**真正性の検証」と1つにまとめて
+// いるので、リスト上の役割は `walletProvider` で共通（サービス型は
+// `WalletSolution/{Issuance,Revocation}` の2つしかなく、この2つを分ける手段が無い）。
+// **KV が空でもリスト側にアンカーがあれば通る**ことを固定する。
+test('#31 KA のアンカーを LoTE から引く（KV が空でも通る）', async () => {
+  const { X509Certificate } = await import('node:crypto');
+  const { execFileSync } = await import('node:child_process');
+  const { mkdtempSync, readFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { importPKCS8 } = await import('jose');
+
+  const dir = mkdtempSync(join(tmpdir(), 'ka31-'));
+  execFileSync('openssl', ['ecparam', '-name', 'prime256v1', '-genkey', '-noout', '-out', join(dir, 'k.pem')]);
+  execFileSync('openssl', ['req', '-new', '-x509', '-key', join(dir, 'k.pem'), '-out', join(dir, 'c.pem'),
+    '-days', '30', '-subj', '/CN=LoTE Key Attester']);
+  const certDer = new X509Certificate(readFileSync(join(dir, 'c.pem'))).raw;
+  const pkcs8 = execFileSync('openssl', ['pkcs8', '-topk8', '-nocrypt', '-in', join(dir, 'k.pem')]).toString();
+  const signKey = await importPKCS8(pkcs8, 'ES256');
+
+  const s = await setup();
+  const attest = (nonce) => new SignJWT({ attested_keys: [s.holderJwk], nonce })
+    .setProtectedHeader({ alg: 'ES256', typ: 'key-attestation+jwt',
+      x5c: [Buffer.from(certDer).toString('base64')] })
+    .setIssuedAt().setExpirationTime('1h').sign(signKey);
+
+  // **KV は空**。アンカーはリスト側だけにある
+  const app = createApp({
+    credentialIssuer: ISSUER,
+    trustResolver: { resolve: async () => ({
+      issuerCas: [], readerCas: [],
+      walletProviderCas: [{ der: new Uint8Array(certDer), role: 'walletProvider' }],
+    }) },
+  });
+  await setFeature(app.svc.store, 'key_attestation', 'required');
+  const ok = await issueWith(app, { proofKey: s.holder.privateKey, proofJwk: s.holderJwk,
+    attestation: attest });
+  assert.equal(ok.status, 200, JSON.stringify(await ok.clone().json()));
+
+  // **役割を混ぜない**——issuer 側のアンカーに置いても鍵証明者としては通らない
+  const wrong = createApp({
+    credentialIssuer: ISSUER,
+    trustResolver: { resolve: async () => ({
+      issuerCas: [{ der: new Uint8Array(certDer), role: 'issuer' }],
+      readerCas: [], walletProviderCas: [],
+    }) },
+  });
+  await setFeature(wrong.svc.store, 'key_attestation', 'required');
+  const bad = await issueWith(wrong, { proofKey: s.holder.privateKey, proofJwk: s.holderJwk,
+    attestation: attest });
+  assert.equal(bad.status, 400);
+  // **issuer 役のアンカーは数にも入らない**ので、x5c を辿る前に「0 件」で落ちる。
+  // 「鎖が繋がらなかった」ではなく **fail-closed** のほうが正しい拒否
+  assert.match(JSON.stringify(await bad.json()), /no trusted key-attestation anchors/);
+});
+
+// 実物の LoTE に Multipaz Wallet Dev の**2枚**（WIA 用と KA 用）が載っていること。
+// **鍵は別物**なので、片方だけ載せると実機でどちらかが必ず落ちる。
+test('#31 生成した LoTE に WIA と KA のアンカーが両方載る', async () => {
+  const { readFileSync, existsSync } = await import('node:fs');
+  if (!existsSync('trust/bundle.json')) return;   // npm run setup 前は飛ばす
+  const { X509Certificate } = await import('node:crypto');
+  const { parseTrustList } = await import('../src/trust.mjs');
+  const b = JSON.parse(readFileSync('trust/bundle.json', 'utf8'));
+  const r = await parseTrustList(b.lote, { schemeCaDer: Buffer.from(b.schemeCa, 'base64') });
+  const subs = r.anchors.filter((a) => a.role === 'walletProvider')
+    .map((a) => new X509Certificate(Buffer.from(a.der, 'base64')).subject);
+  assert.ok(subs.some((x) => /Wallet Attestation Key/.test(x)), 'WIA 署名鍵が載っていない');
+  assert.ok(subs.some((x) => /Key Attestation Key/.test(x)), 'KA 署名鍵が載っていない');
+});

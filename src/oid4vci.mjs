@@ -857,12 +857,25 @@ export class IssuerService {
    * 0 件＝ key attestation が1件も通らない状態で、それはここでしか見えない。
    */
   async keyAttesterSummary() {
+    // **リスト由来と KV 由来を分けて出す**（#31。Wallet Provider の要約と同じ理由）。
+    // **KV が空でもリストにアンカーがあれば通る**ので、KV の件数だけで 0 件と言わない
+    let fromList = 0;
+    if (this.trustResolver) {
+      try { fromList = (await this.trustResolver.resolve()).walletProviderCas?.length ?? 0; }
+      catch { fromList = -1; }   // -1 = 取得失敗（0 件と区別する）
+    }
     const { certs, byId } = await this.#keyAttesterAnchors();
     const obj = this._keyAttestersKv ?? {};
     const ids = Object.keys(obj);
-    if (!ids.length) return '鍵証明者アンカー: 0 件（key attestation は1件も通りません）';
-    return `鍵証明者アンカー: ${ids.length} 件（証明書 ${certs.length} / 鍵 ${Object.keys(byId).length}）  `
-      + ids.map((k) => `${k}[証明書${(obj[k]?.certs ?? []).length}/鍵${obj[k]?.jwks?.keys?.length ?? 0}]`).join('  ');
+    const listPart = this.trustResolver
+      ? (fromList < 0 ? 'リスト取得失敗' : `リスト ${fromList} 件`) : 'リスト未設定';
+    if (!certs.length && !Object.keys(byId).length) {
+      return `鍵証明者アンカー: 0 件（${listPart}／KV 0 件）`
+        + ' — key attestation は1件も通りません';
+    }
+    return `鍵証明者アンカー: ${listPart} / KV ${ids.length} 件`
+      + `（証明書 計${certs.length} / 鍵 ${Object.keys(byId).length}）  `
+      + ids.map((k) => `kv:${k}[証明書${(obj[k]?.certs ?? []).length}/鍵${obj[k]?.jwks?.keys?.length ?? 0}]`).join('  ');
   }
 
   /**
@@ -1394,10 +1407,20 @@ export class IssuerService {
   }
 
   /**
-   * 信頼している鍵証明者（Wallet Provider の鍵保管コンポーネント）の公開鍵を引く。
-   * **Wallet Attestation のアンカーとは別の表**——署名する鍵も、証明している対象も違う
+   * 信頼している鍵証明者の公開鍵を引く。**トラストリスト＋ KV の合成**（#31）。
+   *
+   * **KV の表は Wallet Attestation と分けたまま**——署名する鍵も、証明している対象も違う
    * （あちらは「このウォレットは何者か」、こちらは「鍵がどう守られているか」）。
    * 混ぜると片方を信頼しただけで両方が通ってしまう。
+   *
+   * **一方リスト側は同じ `WalletSolution` の下から引く。** ARF §6.2.2 が Wallet Provider
+   * LoTE のアンカーの用途を「Wallet Unit から受け取る **WIA と KA の**真正性の検証」と
+   * **1つの用途にまとめている**ため、リスト上でこの2つを分ける手段が無い（サービス型は
+   * `WalletSolution/{Issuance,Revocation}` の2つだけ）。分離は KV 側の局所制御に留まる。
+   *
+   * **リストに載せてよいのは Wallet Provider が署名する KA だけ**。OID4VCI は署名者を
+   * 「Wallet Provider **または鍵保管コンポーネント自身**」とするので、チップベンダが
+   * 署名する KA のアンカーはここではなく別の器が要る（#31 の残件）。
    */
   async #keyAttesterAnchors() {
     if (this._keyAttestersKv === undefined) {
@@ -1405,12 +1428,19 @@ export class IssuerService {
       catch { this._keyAttestersKv = null; }
     }
     const obj = this._keyAttestersKv ?? {};
+    const fromList = [];
+    if (this.trustResolver) {
+      try {
+        const r = await this.trustResolver.resolve();
+        for (const a of (r.walletProviderCas ?? [])) if (a?.der) fromList.push(a.der);
+      } catch { /* 取れなければ KV だけで判断する（0 件なら fail-closed） */ }
+    }
     // **証明書と鍵の両方を持つ**——Appendix D.1 は鍵の解決を JOSE ヘッダの
     // `x5c` / `kid` / `trust_chain` で行うと定めており、**本文に `iss` は無い**。
     // `x5c` で来る相手には証明書（アンカー）が要り、`kid` で来る相手には JWKS が要る。
     // 当初 `iss` だけを索引にしていたため、`iss` を載せない正当な attestation を
     // 拒否していた（2026-08-27・conformance suite が実証）
-    const certs = [];
+    const certs = [...fromList];
     const byId = {};
     for (const [id, e] of Object.entries(obj)) {
       if (e?.jwks?.keys?.length) byId[id] = e.jwks;

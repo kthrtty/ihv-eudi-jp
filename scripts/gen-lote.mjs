@@ -122,20 +122,37 @@ for (const p of ['trust/retired/iaca-48253ffd.crt']) {
 // 収録するのは `trust/wallet-providers/*.crt`。**ここに置いた証明書がそのまま
 // 「この Wallet Provider を信じる」という宣言**になるので、足すのは重い判断。
 // Multipaz Wallet Dev の鍵は `default_configuration.json` に x5c 付きで**公開されている**値。
+//
+// **WIA と KA は署名鍵が別**（実測: Multipaz は `wallet_attestation` と `key_attestation` を
+// 独立した identity として持ち、公開鍵が違う）。**どちらも同じ `WalletSolution/Issuance` に
+// 載せる**——ARF §6.2.2 は Wallet Provider LoTE のアンカーの用途を
+// 「Wallet Unit から受け取る **WIA と KA の**真正性の検証」と**1つの用途にまとめている**ため。
+// 我々が KV で表を2つに分けているのは追加の局所制御であって、リスト上の役割は同じ。
 const walletProviderCerts = [
-  { file: 'trust/wallet-providers/multipaz-dev-wia.crt',
-    ja: 'Multipaz Wallet Dev', en: 'Multipaz Wallet Dev' },
+  {
+    ja: 'Multipaz Wallet Dev', en: 'Multipaz Wallet Dev',
+    wia: 'trust/wallet-providers/multipaz-dev-wia.crt',
+    ka: 'trust/key-attesters/multipaz-dev-ka.crt',
+  },
 ];
 const walletProviderEntities = walletProviderCerts
-  .filter((w) => existsSync(root(w.file)))
+  .filter((w) => existsSync(root(w.wia)))
   .map((w) => entity({ ja: `ウォレット提供者: ${w.ja}`, en: `Wallet Provider: ${w.en}` }, [
-    // **WIA / KA の検証に使うアンカー**
+    // **WIA（クライアント認証）の検証に使うアンカー**
     service(`ウォレット提供（${w.ja}）`, `Wallet Solution (${w.en})`,
-      SVC('WalletSolution', 'Issuance'), w.file),
+      SVC('WalletSolution', 'Issuance'), w.wia),
+    // **KA（鍵の素性）の検証に使うアンカー**。鍵が違うので**証明書を分けて載せる**。
+    // なお OID4VCI は KA の署名者を「Wallet Provider **または鍵保管コンポーネント自身**」と
+    // するので、後者（チップベンダ）が署名する KA はここに載せてはいけない
+    // ——それは Wallet Provider ではない。いまの Multipaz は前者（自分の backend が署名）
+    ...(existsSync(root(w.ka)) ? [
+      service(`ウォレット提供・鍵証明（${w.ja}）`, `Wallet Solution key attestation (${w.en})`,
+        SVC('WalletSolution', 'Issuance'), w.ka),
+    ] : []),
     // **WUA の失効確認に使うアンカー**。同じ証明書でよい（別主体へ委託していないため）。
     // 用途が違うので**サービスは分けて載せる**——委託されたら片方だけ差し替えられる
     service(`ウォレット提供・失効（${w.ja}）`, `Wallet Solution revocation (${w.en})`,
-      SVC('WalletSolution', 'Revocation'), w.file),
+      SVC('WalletSolution', 'Revocation'), w.wia),
   ]));
 
 const now = new Date();

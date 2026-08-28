@@ -920,8 +920,16 @@ REVIEW は人手確認待ちで自動チェックは全通過。
   素性の知れた正規ウォレットでも鍵がソフトウェア保管なら複製できるので片方では足りない。
   仕様の核心は Appendix D.1 の1文＝**proof の署名鍵が `attested_keys` に含まれることを MUST で検証**
   （見ないと「無関係な鍵の保証書」を添えているだけになる）。
-  (1) アンカーは KV `_key_attesters:config`（`npm run key-attesters`）。**Wallet Provider の表と
-  混ぜない**——1つにすると片方の信頼で両方が通る。**0 件なら fail-closed**／
+  (1) アンカーは **LoTE `WalletSolution/Issuance` が正本**＋ KV `_key_attesters:config` が土台
+  （`npm run key-attesters`）。**KV の表は Wallet Provider と混ぜない**——1つにすると片方の
+  信頼で両方が通る。ただし**リスト上の役割は WIA と共通の `walletProvider`**——ARF §6.2.2 が
+  Wallet Provider LoTE のアンカーの用途を「**WIA と KA の**真正性の検証」と1つにまとめており、
+  サービス型も `{Issuance,Revocation}` の2つしか無いので分ける手段が無い。
+  **WIA と KA は署名鍵が別物なので証明書は2枚載せる**（Multipaz は
+  `server_identities.wallet_attestation` と `.key_attestation` を独立に持ち公開鍵が違う。
+  片方だけ載せると実機でどちらかが必ず落ちる）。**チップベンダが署名する KA は載せてはいけない**
+  ——OID4VCI は署名者を「Wallet Provider **または鍵保管コンポーネント自身**」とし、後者は
+  Wallet Provider ではない（器は #31 の残件）。**0 件なら fail-closed**／
   (2) **`x5c` は鍵の解決に使わない**（#26 と同じ）。届いた証明書で検証すると
   「ハードウェア保護されている」という**主張そのものを攻撃者が書ける**／
   (3) フラグ `key_attestation` は off / verify_if_present / required の3段。
