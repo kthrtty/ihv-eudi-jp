@@ -66,7 +66,7 @@ All files     |   99.8  |    79.6  |   98.9  |   99.8
 
 ## 適合テスト（OpenID conformance suite）
 
-セルフホストの suite（`https://localhost:8443`）に対して発行者・検証者を測る。
+suite に対して発行者・検証者を測る。
 **HAIP は独立プランではなく variant**——VCI は `fapi_profile: vci_haip`、VP は `vp_profile: haip`。
 
 ```
@@ -76,6 +76,35 @@ npm run conformance:vp <planId> [module…]   # VP を回して結果画面を R
 
 **対象オリジンは `.deploy.env` から解決する**（`scripts/conformance-origins.mjs`）。
 本番ドメインはリポジトリに書かない規約なので、未設定なら `example.test` のまま止まる。
+
+### セルフホストと公式インスタンス
+
+接続先は `SUITE_URL` で切り替える。**既定はセルフホスト**（`https://localhost:8443`）。
+
+| | セルフホスト（Docker） | 公式（certification.openid.net） |
+|---|---|---|
+| `SUITE_URL` | 未指定でよい | `https://www.certification.openid.net` |
+| 認証 | 不要 | **`CONFORMANCE_TOKEN` が必須** |
+| TLS 検証 | **自動で切る**（自己署名） | **切らない**（正規の証明書） |
+| 用途 | 手早く回す | **認証取得の提出先**でもある |
+
+```
+SUITE_URL=https://www.certification.openid.net npm run conformance:vci-auth <testId>
+```
+
+**TLS 検証は接続先から自動で決まる**（`suite()`）。以前はスクリプト冒頭で無条件に
+`NODE_TLS_REJECT_UNAUTHORIZED='0'` を立てていたが、**自己署名なのはセルフホストだけ**で、
+切ったまま外部ホストを叩くのは中間者に対して無防備。
+
+**トークンの置き場所は `.deploy.env` の `CONFORMANCE_TOKEN`**（gitignore 済み・
+雛形は `.deploy.env.example`）。ブラウザでログイン後
+`https://www.certification.openid.net/tokens` で発行する。**クォートで囲まない**
+——読み取りは `=` より後ろを全部値として扱うので `"` ごとトークンになる。
+公式 CI と同じ `Authorization: Bearer <token>` として送られる
+（`conformance-suite/scripts/conformance.py` が同じ環境変数を同じ形で送っている）。
+401 はトークン失効か suite の再デプロイ。**シェルに export しない**
+——履歴やログに残る。公式を指しているのにトークンが無ければ、401 を読ませる前に
+発行手順を出して止まる。
 
 ### なぜ補助スクリプトが要るか
 
@@ -92,10 +121,14 @@ npm run conformance:vp <planId> [module…]   # VP を回して結果画面を R
 
 - クライアント（`conformance-1` / `-2`）は **KV の登録表**へ（`npm run clients add`）。
   `multiple-clients` は `client.redirect_uri` に `?dummy1=lorem&dummy2=ipsum` が要る
-- コールバック `https://localhost:8443/test/a/<alias>/callback` を
-  **リダイレクト許可リストへ一時的に足す**必要がある。
-  **本番の防御を緩めるときは復元手順を先に作る**こと（`.deploy.env` を退避してから足し、
-  測定後に戻して deploy し直す）。戻ったことは**実測で確かめる**
+- コールバックを**リダイレクト許可リストへ足す**必要がある（自動導出されない）。
+  セルフホストは `https://localhost:8443/test/a/<alias>/callback`、
+  公式は `https://www.certification.openid.net/test/a/<alias>/…`。
+  **セルフホストのときは一時的に足して必ず戻す**——`localhost` を許可したまま本番に
+  残すのはオープンリダイレクタの穴になる。**本番の防御を緩めるときは復元手順を先に作る**こと
+  （`.deploy.env` を退避してから足し、測定後に戻して deploy し直す）。
+  戻ったことは**実測で確かめる**。
+  **公式は公開ホストなので恒久的に入れてよい**（戻す手間が要らないぶん事故も減る）
   （localhost へのリダイレクトが 400 になること）
 - key attestation の試験は `key_attestation` フラグを `required` にし、
   suite の署名鍵（`client_attestation.key_attestation_jwks`・**x5c 付きが要る**）に対応する
