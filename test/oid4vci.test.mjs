@@ -82,6 +82,80 @@ test('OID4VCI: AS metadata (RFC 8414) + openid-configuration alias', async () =>
   assert.deepEqual(md.authorization_servers, [ISSUER]);   // 所在はこちらから辿る
 });
 
+// 2026-08-28 の conformance suite 実測（HAIP VCI）が検出した広告漏れ:
+// 「Authorization Server metadata must include client attestation signing algorithm
+// values when token_endpoint_auth_methods_supported includes attest_jwt_client_auth」
+test('OID4VCI: AS metadata は dpop_signing_alg_values_supported を常に広告し、'
+  + 'client_attestation 系は attest_jwt_client_auth を広告するときだけ出す', async () => {
+  const { setFeature } = await import('../src/features.mjs');
+  const a = createApp({ credentialIssuer: ISSUER });
+  const md = async () => (await a.request(`${ISSUER}/.well-known/oauth-authorization-server`)).json();
+
+  // **DPoP は実装済みなので、client_auth の値に関係なく常に出す**
+  const base = await md();
+  assert.deepEqual(base.dpop_signing_alg_values_supported, ['ES256']);
+  assert.equal(base.client_attestation_signing_alg_values_supported, undefined,
+    'attest_jwt_client_auth を広告していないのに出すと嘘になる');
+  assert.equal(base.client_attestation_pop_signing_alg_values_supported, undefined);
+
+  // attest_jwt_client_auth に切り替えると、そのときだけ2つが現れる
+  await setFeature(a.svc.store, 'client_auth', 'attest_jwt_client_auth');
+  const withAttestation = await md();
+  assert.deepEqual(withAttestation.token_endpoint_auth_methods_supported, ['attest_jwt_client_auth']);
+  assert.deepEqual(withAttestation.client_attestation_signing_alg_values_supported, ['ES256']);
+  assert.deepEqual(withAttestation.client_attestation_pop_signing_alg_values_supported, ['ES256']);
+  // DPoP の広告はここでも変わらず出続ける（別軸のフラグなので連動しない）
+  assert.deepEqual(withAttestation.dpop_signing_alg_values_supported, ['ES256']);
+
+  // private_key_jwt では client_attestation 系はやはり出ない
+  await setFeature(a.svc.store, 'client_auth', 'private_key_jwt');
+  const withPkJwt = await md();
+  assert.equal(withPkJwt.client_attestation_signing_alg_values_supported, undefined);
+  assert.equal(withPkJwt.client_attestation_pop_signing_alg_values_supported, undefined);
+});
+
+// **認可コードの寿命は proof の許容時刻ずれ（proofMaxAgeSec）とは独立**（修正2）。
+// 以前は認可コードの TTL にも proofMaxAgeSec（既定300秒）を流用しており、
+// conformance suite の ensure-token-endpoint-fails-with-expired-auth-code が
+// 「Server has incorrectly allowed the use of an expired authorization code」で検出した。
+test('OID4VCI: 認可コードは authCodeMaxAgeSec（既定60秒）で失効する（proofMaxAgeSec とは独立）', async (t) => {
+  const WAL = 'https://wallet.example';
+  // proofMaxAgeSec をわざと大きくする——認可コードの寿命に影響しないことも併せて見る
+  const a = createApp({ credentialIssuer: ISSUER, proofMaxAgeSec: 3600 });
+  assert.equal(a.svc.authCodeMaxAgeSec, 60, '既定値');
+  const { sessionId } = await a.svc.login('u_001');
+  const { code } = await a.svc.authorize({
+    sessionId, response_type: 'code', redirect_uri: `${WAL}/cb`, scope: 'pid_mdoc',
+    code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM', code_challenge_method: 'S256',
+  });
+  const redeem = () => a.svc.token({ grant_type: 'authorization_code', code, redirect_uri: `${WAL}/cb`,
+    code_verifier: 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk' });
+
+  // **`now` を明示しないと mock timers はエポック(0)から動き出す**——実時刻の
+  // タイムスタンプで既に保存済みの TTL と比較が噛み合わなくなる（実測で判明）
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  t.mock.timers.tick(59_000); // authCodeMaxAgeSec(60s) 未満ならまだ生きている
+  const store = a.svc.store;
+  assert.ok(await store.get(`code:${code}`), '59秒後はまだ生きている');
+
+  t.mock.timers.tick(2_000); // 合計61秒——authCodeMaxAgeSec は超えるが proofMaxAgeSec(3600s) は超えない
+  await assert.rejects(() => redeem(), (e) => e.oauthError === 'invalid_grant',
+    'proofMaxAgeSec が大きくても認可コードは救われない（独立した寿命）');
+});
+
+// RFC 9126 §2.1 手順2:「Reject the request if the request_uri authorization request
+// parameter is provided.」PAR で request_uri を送ること自体が仕様違反。
+// conformance suite: EnsurePARInvalidRequestOrInvalidRequestObjectOrRequestUriNotSupportedError
+test('OID4VCI: PAR は request_uri パラメータの混入を拒否する（RFC 9126 §2.1）', async () => {
+  const res = await FORM('/par', {
+    response_type: 'code', client_id: 'wallet-app', redirect_uri: 'https://wallet.example/cb',
+    code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM', code_challenge_method: 'S256',
+    request_uri: 'urn:ietf:params:oauth:request_uri:should-not-be-here',
+  });
+  assert.equal(res.status, 400);
+  assert.equal((await res.json()).error, 'invalid_request');
+});
+
 test('OID4VCI: PAR (RFC 9126) round-trips a pushed request into /authorize → code', async () => {
   // issuer-initiated authorization_code offer supplies the issuer_state
   const off = await (await J('/offer', { credential_configuration_ids: ['pid_mdoc'], grant: 'authorization_code' })).json();
@@ -176,6 +250,9 @@ for (const configId of ['pid_mdoc', 'pid_sdjwt', 'qualification_mdoc', 'juminhyo
 test('OID4VCI: credential endpoint requires access token (401)', async () => {
   const res = await J('/credential', { credential_configuration_id: 'pid_mdoc', proofs: { jwt: ['x'] } });
   assert.equal(res.status, 401);
+  // RFC 9449 §7.1 / RFC 6750 §3: 401 には WWW-Authenticate を添え、error と整合させる
+  assert.equal((await res.json()).error, 'invalid_token');
+  assert.match(res.headers.get('www-authenticate') || '', /DPoP error="invalid_token"/);
 });
 
 // **nonce の不一致は `invalid_nonce`、署名不正は `invalid_proof`**（OID4VCI 1.0 Final。
@@ -650,4 +727,42 @@ test('#40 clientRegistrySummary は新しい登録表の形（{redirect_uris, jw
   const body = await res.json();
   const sec = body.sections.find((s) => s.grp === '信頼と失効' || true);
   assert.ok(body.endpoints.some((e) => e.path === '/authorize' && /件 \/ KV/.test(e.sub)));
+});
+
+// PAR レコードは**同意経路まで届かないと意味が無い**（2026-08-29・conformance が捕まえた）。
+// GET /authorize が `q` を PAR レコードで丸ごと置き換えていたため、同意画面の hidden
+// `request_uri` が**空**になり、同意 POST が PAR を引けなくなっていた。
+// **画面は正常に見えコードも出る**ので、単体テストでも実機でも気づけなかった。
+// 実害は3つ: PAR が使い捨てにならない（RFC 9126 §4）／`clientAuthenticated`（#40）が
+// 届かない／`dpop_jkt`（RFC 9449 §10）が認可コードへ引き継がれない。
+test('PAR: 同意画面の request_uri が空にならず、PAR が使い捨てになる', async () => {
+  const app = createApp({ credentialIssuer: ISSUER, redirectAllowlist: 'https://rp.example/cb' });
+  const par = await app.request(`${ISSUER}/par`, {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ response_type: 'code', client_id: 'c1',
+      redirect_uri: 'https://rp.example/cb', scope: 'pid_sdjwt',
+      code_challenge: 'x'.repeat(43), code_challenge_method: 'S256' }),
+  });
+  const { request_uri } = await par.json();
+  const login = await app.request(`${ISSUER}/login`, { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_001' }) });
+  const cookie = `sid=${(await login.json()).session_id}`;
+
+  const html = await (await app.request(
+    `${ISSUER}/authorize?client_id=c1&request_uri=${encodeURIComponent(request_uri)}`,
+    { headers: { cookie } })).text();
+  const hidden = [...html.matchAll(/<input[^>]*type="hidden"[^>]*>/g)].map((m) => [
+    /name="([^"]*)"/.exec(m[0])?.[1], /value="([^"]*)"/.exec(m[0])?.[1] ?? '']);
+  const ru = hidden.find(([k]) => k === 'request_uri')?.[1];
+  assert.equal(ru, request_uri, '同意画面の hidden request_uri が PAR の値と一致すること');
+
+  // **GET では消えない**（未ログインだとログインへ往復するので、そこで消すと壊れる）
+  assert.ok(await app.svc.resolvePar(request_uri), 'GET /authorize では消費しない');
+
+  const body = new URLSearchParams(hidden.filter(([k]) => k)).toString();
+  const res = await app.request(`${ISSUER}/authorize/consent`, { method: 'POST', redirect: 'manual',
+    headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' }, body });
+  assert.equal(res.status, 302);
+  // **コードを出す経路では消す**（RFC 9126 §4「used only once」）
+  assert.equal(await app.svc.resolvePar(request_uri), null, '同意 POST で PAR を使い捨てにすること');
 });

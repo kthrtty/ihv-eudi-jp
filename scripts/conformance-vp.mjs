@@ -34,7 +34,12 @@ for (const mod of mods) {
       body: JSON.stringify({ configId: 'pid_sdjwt', claims: ['family_name', 'given_name'],
         target: 'web', clientIdPrefix: PREFIX }) });
     const q = new URLSearchParams();
-    if (PREFIX === 'x509_san_dns') {
+    // **署名要求の prefix は request_uri で渡す**（`x509_san_dns` と `x509_hash`)。
+    // HAIP §5.1 は JAR + `request_uri` を MUST とし、公式の HAIP プランも
+    // `request_method: request_uri_signed` に固定している。ここを取り違えると
+    // 要求本体をクエリに展開してしまい、署名が検証されない形で渡ることになる。
+    // `redirect_uri`（unsigned）だけが下の分岐＝パラメータ直渡し。
+    if (PREFIX === 'x509_san_dns' || PREFIX === 'x509_hash') {
       q.set('client_id', b.request.client_id);
       q.set('request_uri', new URL(b.walletPresent).searchParams.get('request_uri'));
     } else {

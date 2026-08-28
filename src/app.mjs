@@ -250,7 +250,13 @@ export function createApp(opts = {}) {
     ] });
   });
 
-  const fail = (c, e) => c.json({ error: e.oauthError || 'server_error', error_description: e.description || e.message }, e.status || 500);
+  // RFC 9449 §7.1: リソースアクセスを拒む 401 は `WWW-Authenticate` を伴う。
+  // `httpErr` が運んできた値をそのままヘッダへ写すだけ——付いていなければ何もしない
+  // （Token EP / PAR の 400 はヘッダ不要。RFC 6749 §5.2 の JSON エラーで足りる）
+  const fail = (c, e) => {
+    if (e.wwwAuthenticate) c.header('WWW-Authenticate', e.wwwAuthenticate);
+    return c.json({ error: e.oauthError || 'server_error', error_description: e.description || e.message }, e.status || 500);
+  };
   const httpFail = (status, description) => Object.assign(new Error(description), { status, description, oauthError: 'invalid_request' });
 
   app.get('/.well-known/openid-credential-issuer', async (c) => {
@@ -560,7 +566,11 @@ export function createApp(opts = {}) {
   app.post('/par', async (c) => {
     try {
       const form = await c.req.parseBody();
-      return c.json(await svc.par(form, { attestation: attestationHeaders(c) }), 201);
+      // DPoP（RFC 9449 §10.1）: PAR 要求自体に付いた proof は `dpop_jkt` の照合に使う
+      return c.json(await svc.par(form, {
+        attestation: attestationHeaders(c),
+        proof: c.req.header('dpop') || null, htu: c.req.url,
+      }), 201);
     } catch (e) { return fail(c, e); }
   });
 
@@ -608,7 +618,14 @@ export function createApp(opts = {}) {
     if (q.request_uri) {
       const pushed = await svc.resolvePar(q.request_uri);
       if (!pushed) return fail(c, { status: 400, oauthError: 'invalid_request', description: 'unknown or expired request_uri' });
-      q = { ...pushed, ...(q.client_id ? { client_id: q.client_id } : {}) };
+      // **`request_uri` を残す**（2026-08-29・conformance が捕まえた）。PAR レコードを
+      // そのまま `q` に置き換えていたため、同意画面の hidden `request_uri` が**空**になり、
+      // 同意 POST が PAR レコードを引けなくなっていた。実害が3つある——
+      // (1) RFC 9126 §4「used only once」に反して PAR が**使い捨てにならない**／
+      // (2) `clientAuthenticated`（#40）が届かず、登録表に頼った判定に落ちる／
+      // (3) `dpop_jkt`（RFC 9449 §10）が認可コードへ引き継がれず、鍵の束縛が消える。
+      // **画面は正常に見え、コードも出るので気づけない**。登録表があると (2) も隠れる
+      q = { ...pushed, request_uri: q.request_uri, ...(q.client_id ? { client_id: q.client_id } : {}) };
     }
     const sessionId = sid(c);
     const user = sessionId ? await svc.sessionUser(sessionId) : null;
@@ -670,6 +687,10 @@ export function createApp(opts = {}) {
         // 認証済みなら **PAR に記録された client_id** を使う（フォームの値ではなく）
         client_id: (clientAuthenticated ? pushed.client_id : f.client_id) || undefined,
         clientAuthenticated,
+        // **`dpop_jkt` も PAR レコードから取る**（フォームの hidden ではなく）。
+        // `clientAuthenticated` と同じ理由——画面の HTML を書き換えるだけで
+        // 鍵の束縛を差し替えられては意味が無い（RFC 9449 §10）
+        dpop_jkt: pushed?.dpop_jkt ?? null,
         applications: Object.keys(applications).length ? applications : null,
       });
       return c.redirect(redirect, 302);

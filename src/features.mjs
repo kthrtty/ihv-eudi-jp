@@ -113,6 +113,31 @@ export const FEATURES = {
       + '出さないウォレットは素通りする。締め出したいなら `required` にする。',
   },
 
+  dpop: {
+    group: 'HAIP',
+    label: 'DPoP（トークンの鍵束縛）',
+    spec: 'RFC 9449。HAIP は `sender_constrain` を `dpop` に固定する（自由記述の一覧扱いだが、'
+      + '実質 DPoP 必須の意）',
+    type: 'enum',
+    values: ['off', 'required'],
+    valueLabels: {
+      off: '要求しない（既定・proof が無ければそのまま Bearer で発行する）',
+      required: '必須にする（Token EP / PAR で proof が無ければ拒否）',
+    },
+    default: 'off',
+    affects: [
+      'Token EP（pre-auth / authorization_code の両方）・PAR での proof 必須化',
+      'PAR の `dpop_jkt` 照合（RFC 9449 §10）——束ねた拇印と Token EP の proof が'
+        + '食い違えば `required` でなくても拒否する（dpop_jkt を使った時点で約束が生じるため）',
+    ],
+    note: '`dpop_signing_alg_values_supported` は**このフラグに関係なく常に広告する**'
+      + '（proof の検証自体は実装済みで、束ねるかどうかが変わるだけ）。'
+      + '\n\n**既定を off のままにしているのは、自前の Web ウォレットが DPoP proof を'
+      + '送らない可能性があるため**——`required` にすると、proof を送れないクライアントは'
+      + '発行を受けられなくなる。HAIP に厳密に従うなら `required` が正しいが、'
+      + 'デモの都合で「実機が動く側」を既定にしている（他の HAIP フラグと同じ方針）。',
+  },
+
   cache_ttl_sec: {
     group: '運用',
     label: '設定のキャッシュ時間',

@@ -265,6 +265,7 @@ export class IssuerService {
   // statusPki: { key, cert } — injected by worker.mjs for Workers env;
   // null lets StatusListService lazy-load from disk in Node.js dev.
   constructor({ store = memoryStore(), credentialIssuer = 'https://issuer.ihv.example', proofMaxAgeSec = 300,
+    authCodeMaxAgeSec = 60,
     trustResolver = null,
     userStore = createUserStore(), statusPki = null, redirectAllowlist = [], clients = null,
     clientsKvKey = '_clients:config',
@@ -272,6 +273,14 @@ export class IssuerService {
     this.store = store;
     this.credentialIssuer = credentialIssuer;
     this.proofMaxAgeSec = proofMaxAgeSec;
+    // **認可コードの寿命は proof の許容時刻ずれ（proofMaxAgeSec）とは用途が違う**——
+    // 前者は「この認可コードを取りに来るまでの猶予」、後者は「proof の iat が
+    // どれだけ時計ずれを許すか」。以前は認可コードの TTL にも proofMaxAgeSec（既定300秒）を
+    // 流用しており、conformance suite の ensure-token-endpoint-fails-with-expired-auth-code が
+    // 「Server has incorrectly allowed the use of an expired authorization code」で検出した。
+    // OAuth 2.0 のベストプラクティスは認可コードを短命（数十秒〜数分）にすることを推奨するので、
+    // 別軸として独立させる（既定60秒）。
+    this.authCodeMaxAgeSec = authCodeMaxAgeSec;
     // 1利用者が24時間に出せる申請の件数（issue #33 ④）。運用で変えられるようにしておく
     this.maxAppsPerDay = maxAppsPerDay;
     // Allowed authorization redirect_uris (open-redirector guard). Empty =
@@ -573,7 +582,7 @@ export class IssuerService {
   // ---- 3.4 Authorization Endpoint (authorization_code + PKCE) ----
   async authorize({ sessionId, response_type, redirect_uri, code_challenge, code_challenge_method,
     scope, authorization_details, issuer_state, state, applications: chosen = null,
-    client_id = null, clientAuthenticated = false } = {}) {
+    client_id = null, clientAuthenticated = false, dpop_jkt = null } = {}) {
     if (response_type !== 'code') throw httpErr(400, 'unsupported_response_type', String(response_type));
     const sess = sessionId && await this.store.get(`sess:${sessionId}`);
     if (!sess) throw httpErr(401, 'login_required', 'no active session; user must sign in first');
@@ -612,9 +621,14 @@ export class IssuerService {
     // scope 経路で返すのは MAY なので、そちらは従来どおり返さない
     // （返さなければウォレットは credential_configuration_id を使う）。
     const usedAuthzDetails = configIdsFromRequest(null, authorization_details).length > 0;
+    // **`dpop_jkt` はここでは検証しない**——値は PAR で確定済み（#resolvePushedDpopJkt）で、
+    // ここは「PAR で決まった鍵拇印を認可コードへ引き継ぐ」だけ。Token EP がこの値と
+    // 実際に提示された DPoP proof の拇印を照合する（RFC 9449 §10）。
+    // **認可コードの TTL は authCodeMaxAgeSec**（proofMaxAgeSec の流用をやめた。上のコンストラクタ参照）
     await this.store.set(`code:${code}`, { userId: sess.userId, ids, redirect_uri, code_challenge, used: false,
       ...(client_id ? { client_id } : {}), ...(applications ? { applications } : {}),
-      ...(usedAuthzDetails ? { authzDetails: true } : {}) }, this.proofMaxAgeSec);
+      ...(usedAuthzDetails ? { authzDetails: true } : {}),
+      ...(dpop_jkt ? { dpop_jkt } : {}) }, this.authCodeMaxAgeSec);
     const u = new URL(redirect_uri);
     u.searchParams.set('code', code);
     if (state != null) u.searchParams.set('state', state);
@@ -787,19 +801,54 @@ export class IssuerService {
   }
 
   /**
-   * Token EP に来た DPoP proof を検証して拇印を返す（RFC 9449 §6.1）。
-   * **proof が無ければ null**＝束ねない（bearer のまま）。
+   * Token EP / PAR に来た DPoP proof を検証して拇印を返す（RFC 9449 §6.1）。
+   * **proof が無く `required` でなければ null**＝束ねない（bearer のまま）。
    * proof はあるが不正なら**投げる**——「送ってきたが壊れている」を黙って
    * bearer に落とすと、攻撃者は proof を壊すだけで束縛を外せる。
+   *
+   * @param {boolean} [required] `true` なら proof が無いこと自体を拒否する
+   *   （フィーチャーフラグ `dpop:'required'`、または `dpop_jkt` の照合に proof が要るとき）。
+   *   HAIP は sender_constrain を dpop に固定するが、既定は現状維持（自前の Web
+   *   ウォレットが proof を送らない可能性があるため）——`src/features.mjs` 参照。
    */
-  async #dpopJkt({ proof, htu } = {}) {
-    if (!proof) return null;
+  async #dpopJkt({ proof, htu } = {}, { required = false } = {}) {
+    if (!proof) {
+      if (required) throw httpErr(400, 'invalid_dpop_proof', 'DPoP proof is required by this issuer');
+      return null;
+    }
     try {
       const { jkt } = await verifyDpopProof(proof, { htm: 'POST', htu });
       return jkt;
     } catch (e) {
       throw httpErr(400, 'invalid_dpop_proof', e.message);
     }
+  }
+
+  /**
+   * PAR に来た `dpop_jkt`（RFC 9449 §10）を解決し、認可コードへ引き継ぐ値を返す。
+   *
+   * §10.1 が定める **2通りの伝え方**:
+   * 1. `dpop_jkt` パラメータ単体——この時点では proof を示さず、値だけを認可コードに
+   *    束ねる（実際の所持証明は Token EP で行う。§10 の基本形）
+   * 2. PAR 要求そのものに `DPoP` ヘッダを添える——「the authorization server MUST
+   *    further behave as if the contained public key's thumbprint was provided
+   *    using dpop_jkt」＝ヘッダの拇印を dpop_jkt が来たのと同じに扱う
+   *
+   * **両方来たら一致必須**——「the authorization server MUST reject the request if
+   * the JWK Thumbprint in dpop_jkt does not match the public key in the DPoP
+   * header」（§10.1）。エラーコードは RFC 9126 §2.3 の既定である `invalid_request`
+   * （PAR は「redirect_uri が悪い」等と同じ枠で 400 を返す。dpop_jkt 専用のコードは無い）。
+   *
+   * `requireProof` は `dpop:'required'` のときだけ真——単体の `dpop_jkt`（ヘッダ無し）は
+   * それ自体が仕様どおりの使い方なので、通常は proof の同時提示を強制しない。
+   */
+  async #resolvePushedDpopJkt(providedJkt, ctx, { requireProof = false } = {}) {
+    const headerJkt = await this.#dpopJkt(ctx, { required: requireProof });
+    if (providedJkt != null && headerJkt != null && String(providedJkt) !== headerJkt) {
+      throw httpErr(400, 'invalid_request',
+        'dpop_jkt does not match the DPoP proof attached to this PAR request (RFC 9449 §10.1)');
+    }
+    return providedJkt != null ? String(providedJkt) : (headerJkt ?? null);
   }
 
   /**
@@ -965,6 +1014,7 @@ export class IssuerService {
    *   渡さないときは既定（`client_auth: none`）で組む。
    */
   asMetadata(base = this.credentialIssuer, features = null) {
+    const authMethods = [features?.client_auth ?? 'none'];
     return {
       issuer: base,
       authorization_endpoint: `${base}/authorize`,
@@ -982,9 +1032,24 @@ export class IssuerService {
       grant_types_supported: ['authorization_code', PRE_AUTH_GRANT],
       // **フラグ1つから広告と検証の両方を導出する**——片方だけ変えられると
       // 「対応していると言っているのにしていない」状態が作れてしまう
-      token_endpoint_auth_methods_supported: [features?.client_auth ?? 'none'],
+      token_endpoint_auth_methods_supported: authMethods,
       code_challenge_methods_supported: ['S256'],
       'pre-authorized_grant_anonymous_access_supported': true,
+      // RFC 9449 §5.1: DPoP proof JWT の署名アルゴリズム広告。**DPoP は実装済み
+      // （Token EP / Credential EP とも proof を検証できる）なので、フラグの状態に
+      // 関係なく常に出す**——`dpop` フラグが off でも proof が来れば束ねる仕様のまま
+      // （src/features.mjs 参照）。conformance suite が広告漏れとして検出した。
+      dpop_signing_alg_values_supported: ['ES256'],
+      // Wallet Attestation（HAIP §4.4.1・OID4VCI Appendix E）のアルゴリズム広告。
+      // **`attest_jwt_client_auth` を広告するとき（token_endpoint_auth_methods_supported
+      // に含まれるとき）だけ**出す——出していない方式のアルゴリズムまで広告すると嘘になる。
+      // suite の検出文言:「Authorization Server metadata must include client
+      // attestation signing algorithm values when token_endpoint_auth_methods_supported
+      // includes attest_jwt_client_auth」
+      ...(authMethods.includes('attest_jwt_client_auth') ? {
+        client_attestation_signing_alg_values_supported: ['ES256'],
+        client_attestation_pop_signing_alg_values_supported: ['ES256'],
+      } : {}),
     };
   }
 
@@ -993,7 +1058,15 @@ export class IssuerService {
   // Not consumed on resolve (a login round-trip re-reads it); TTL handles cleanup.
   async par(params = {}, ctx = {}) {
     if (params.response_type !== 'code') throw httpErr(400, 'invalid_request', 'response_type=code required');
-    const { request_uri, ...rest } = params; // a client MUST NOT push a request_uri
+    // RFC 9126 §2.1 の手順2: 「Reject the request if the request_uri authorization
+    // request parameter is provided.」——PAR で request_uri を送ること自体が仕様違反。
+    // **以前はここで黙って捨てるだけ**（受理も拒否もしない）で、conformance suite の
+    // EnsurePARInvalidRequestOrInvalidRequestObjectOrRequestUriNotSupportedError が
+    // 「拒否すべきなのに 201 が返る」を検出した。§2.3 の既定に従い invalid_request。
+    if (params.request_uri != null) {
+      throw httpErr(400, 'invalid_request', 'request_uri MUST NOT be provided to the PAR endpoint (RFC 9126 §2.1)');
+    }
+    const { request_uri: _requestUri, dpop_jkt: providedJkt, ...rest } = params;
     // **PAR でもクライアント認証する**（HAIP §4.4.1 が PAR と Token の両方を挙げている）。
     // ここで認証しておくのが要点——`/authorize` は**ブラウザのリダイレクト**で
     // ヘッダを運べないので、認証できる最後の機会がここになる。認証が通れば
@@ -1012,6 +1085,18 @@ export class IssuerService {
       }
       if (authedClientId) rest.client_id = String(authedClientId);
     }
+    // **`dpop_jkt`（RFC 9449 §10）をここで確定させる**——`dpop:'required'` のときは
+    // 併せて添えられた DPoP ヘッダの proof 自体も必須にする（#dpopJkt の required）。
+    // 単体の `dpop_jkt`（ヘッダ無し）は仕様どおりの使い方なので、既定では proof を強制しない。
+    // **PAR では proof を必須にしない**（2026-08-29・conformance が捕まえた）。
+    // RFC 9449 §10.1 は PAR での鍵の伝え方を**2通り**定め、「Both mechanisms MUST be
+    // supported by an authorization server that supports PAR and DPoP」とする——
+    //   (1) `dpop_jkt` パラメータ単体（**DPoP ヘッダは付かない**）
+    //   (2) DPoP ヘッダ（付いていれば §4.3 で検証し、dpop_jkt が来たのと同じに扱う）
+    // `dpop:'required'` でも (1) は正当な使い方なので、ここで proof を強制すると
+    // 仕様に適合したクライアントを弾く。**proof が要るのは Token EP**（そこが
+    // proof の定義された宛先で、認可要求には proof を送れないから dpop_jkt がある）
+    const dpop_jkt = await this.#resolvePushedDpopJkt(providedJkt, ctx, { requireProof: false });
     const ref = tok();
     await this.store.set(`par:${ref}`, {
       ...rest,
@@ -1019,6 +1104,9 @@ export class IssuerService {
       // 眼目——事前登録なしで「どのウォレットか」を確かめられるので、
       // client_id を発行者ごとに登録して回るモデルから抜けられる
       ...(authedClientId ? { clientAuthenticated: true } : {}),
+      // **確定した拇印を認可コードへ引き継ぐ**（/authorize が読み、authorize() が
+      // code レコードへ束ねる）。Token EP はこれと実際の proof の拇印を照合する
+      ...(dpop_jkt ? { dpop_jkt } : {}),
     }, 300);
     return { request_uri: `urn:ietf:params:oauth:request_uri:${ref}`, expires_in: 300 };
   }
@@ -1099,7 +1187,10 @@ export class IssuerService {
       if (pac.txCode != null && String(params.tx_code) !== String(pac.txCode)) throw httpErr(400, 'invalid_grant', 'bad tx_code');
       await this.store.set(`pac:${code}`, { ...pac, used: true }); // one-time
       const accessToken = tok();
-      const jkt = await this.#dpopJkt(ctx);
+      // **`dpop:'required'` なら proof を必須にする**（src/features.mjs）。既定 off は
+      // 現状維持——自前の Web ウォレットが proof を送らない可能性があるため
+      const feats = await this.features();
+      const jkt = await this.#dpopJkt(ctx, { required: feats.dpop === 'required' });
       await this.store.set(`at:${accessToken}`, { ids: pac.ids, ...(pac.claims ? { claims: pac.claims } : {}),
         ...(pac.applications ? { applications: pac.applications } : {}), ...(pac.userId ? { userId: pac.userId } : {}),
         ...(jkt ? { jkt } : {}) }, 600);
@@ -1149,6 +1240,16 @@ export class IssuerService {
       }
       const challenge = b64url(sha256(Buffer.from(String(code_verifier), 'ascii')));
       if (!code_verifier || challenge !== rec.code_challenge) throw httpErr(400, 'invalid_grant', 'PKCE verification failed');
+      // **`dpop:'required'` なら proof を必須にする**。加えて、PAR で `dpop_jkt` が
+      // 束ねられているコードは、それ自体が「proof を必ず照合する」約束なので
+      // required を強制する（RFC 9449 §10「If they do not match, it MUST reject」）。
+      // **使い捨てにする前に判定する**——PKCE の検証と同じ理由で、DPoP 鍵の
+      // 取り違えのような「クライアント側のやり直せる間違い」でコードを無駄にしない
+      const jkt = await this.#dpopJkt(ctx, { required: feats.dpop === 'required' || rec.dpop_jkt != null });
+      if (rec.dpop_jkt != null && jkt !== rec.dpop_jkt) {
+        throw httpErr(400, 'invalid_dpop_proof',
+          'DPoP proof key does not match the dpop_jkt committed at the PAR endpoint (RFC 9449 §10)');
+      }
       await this.store.set(`code:${code}`, { ...rec, used: true }); // one-time
       const accessToken = tok();
       // **authorization_details 経路なら dataset の対応表をトークンに束ねる**（#37）。
@@ -1156,7 +1257,6 @@ export class IssuerService {
       // 対応するかをここから引く。**このトークンで認可されたものだけ**が載る
       const datasets = rec.authzDetails
         ? Object.fromEntries(rec.ids.map((id) => [datasetId(id), id])) : null;
-      const jkt = await this.#dpopJkt(ctx);
       await this.store.set(`at:${accessToken}`, { ids: rec.ids, userId: rec.userId,
         ...(rec.applications ? { applications: rec.applications } : {}),
         ...(datasets ? { datasets } : {}), ...(jkt ? { jkt } : {}) }, 600);
@@ -1188,7 +1288,15 @@ export class IssuerService {
    */
   async credential({ accessToken, body, dpop = {} }) {
     const at = accessToken && await this.store.get(`at:${accessToken}`);
-    if (!at) throw httpErr(401, 'invalid_token', 'missing/invalid access token');
+    // RFC 9449 §7.1 / RFC 6750 §3: リソースへのアクセスを拒む 401 には
+    // `WWW-Authenticate` を添える。束ねたトークンかどうかまだ分からない時点なので
+    // スキームは `DPoP`（token_type は常に DPoP か Bearer で、両者を受理する以上
+    // どちらのスキームで来ても DPoP を名乗って構わない——実際に束ねる場合の
+    // チャレンジと同じ形にしておく）
+    if (!at) {
+      throw httpErr(401, 'invalid_token', 'missing/invalid access token',
+        { wwwAuthenticate: 'DPoP error="invalid_token", algs="ES256"' });
+    }
 
     // **束ねたトークンは鍵の照合を必須にする**（§7.1「check that the public key of
     // the DPoP proof matches the public key to which the access token is bound」）。
@@ -1201,9 +1309,20 @@ export class IssuerService {
         proved = await verifyDpopProof(dpop.proof, {
           htm: 'POST', htu: dpop.htu, accessToken,
         });
-      } catch (e) { throw httpErr(401, 'invalid_token', `DPoP proof invalid: ${e.message}`); }
+      } catch (e) {
+        // **proof 自体が§4.3の基準で不正**（署名・htm/htu・iat・jti など）→ `invalid_dpop_proof`
+        // （§7.1「invalid_dpop_proof is used to indicate that the DPoP proof itself was
+        // deemed invalid based on the criteria of Section 4.3」）。以前はここも
+        // `invalid_token` にまとめていて、鍵の束縛違反と proof 自体の不正が区別できなかった
+        throw httpErr(401, 'invalid_dpop_proof', `DPoP proof invalid: ${e.message}`,
+          { wwwAuthenticate: `DPoP error="invalid_dpop_proof", error_description="${e.message}", algs="ES256"` });
+      }
       if (proved.jkt !== at.jkt) {
-        throw httpErr(401, 'invalid_token', 'DPoP proof key does not match the key the token is bound to');
+        // proof 自体は正しいが、束ねた鍵と違う → `invalid_token`
+        // （§7.1 Figure 16 の例文どおり：`error="invalid_token",
+        // error_description="Invalid DPoP key binding"`）
+        throw httpErr(401, 'invalid_token', 'Invalid DPoP key binding',
+          { wwwAuthenticate: 'DPoP error="invalid_token", error_description="Invalid DPoP key binding", algs="ES256"' });
       }
     }
 
@@ -1452,9 +1571,16 @@ export class IssuerService {
   }
 }
 
-export function httpErr(status, error, description) {
+/**
+ * @param {object} [extra]
+ * @param {string} [extra.wwwAuthenticate]  リソースサーバ（Credential EP）の 401 に
+ *   添える `WWW-Authenticate` の値（RFC 9449 §7.1・RFC 6750 §3）。トークン/PAR の
+ *   400 応答には使わない（あちらは RFC 6749 §5.2 の JSON エラーのみで足りる）
+ */
+export function httpErr(status, error, description, extra = {}) {
   const e = new Error(description || error);
   e.status = status; e.oauthError = error; e.description = description;
+  if (extra.wwwAuthenticate) e.wwwAuthenticate = extra.wwwAuthenticate;
   return e;
 }
 
