@@ -128,7 +128,7 @@ WIA（JWT）                        ← 形式・内容・転送は TS3 / OID4VC
 | KA のアンカー管理 | **実装済み** | **LoTE が正本**（`WalletSolution/Issuance`・WIA とは別証明書）＋ KV `_key_attesters:config` が土台 |
 | **WIA の発行側**（Wallet Provider 役） | **未実装** | 我々は検証側のみ。attestation は外部（Multipaz 等）が出す |
 | **プラットフォーム鍵アテステーション** | **未実装** | Android Key Attestation → Google root の検証（#5 の残件） |
-| `attestation` proof type（PoP なし） | **未実装** | Appendix F |
+| `attestation` proof type（PoP なし） | **未実装** | Appendix F。**Multipaz に KA を出させるにはこれが要る**（下記） |
 | Web ウォレットの追従 | **未実装** | 広告を読まない（#43） |
 | **WUA の失効** | **未実装** | attestation の `status` クレームを読んでいない。TS3 §2.5 が Attestation Status List で規定 |
 
@@ -652,6 +652,36 @@ npm run key-attesters add-cert "<ラベル>" ./ka.crt && npm run key-attesters l
 **件数は「リスト N 件 / KV M 件」で出す**（どちらから来ているか読めないと、リストの
 設定漏れに気づけない）。`gen-trustlists` の出力にもサービス名が並ぶので、
 `Wallet Solution key attestation (…)` が出ていることを見る。
+
+### 実機（Multipaz）は KA をどう出すか — `key_attestations_required` は読まれない
+
+**Multipaz のウォレットは `key_attestations_required` を一切読まない**（2026-08-28 実測）。
+SDK 全体で参照しているのは `multipaz-openid4vci`＝**Multipaz 自身の発行者実装（サーバ側）**
+だけで、そこは**出す**側。ウォレット側には読む箇所が無い。
+よって **ISSU_27d に沿って水準を広告しても、Multipaz に対しては無視される**
+——**壊れないが効きもしない**。
+
+**proof の型は `proof_types_supported` だけで決まる**（`IssuerConfiguration.extractKeyProofType`）:
+
+```
+android_keystore_attestation があれば → それ
+なければ attestation があれば       → KeyBindingType.Attestation
+なければ jwt                        → 素の PoP
+```
+
+**我々は `jwt` しか広告していない**ので、Multipaz は常に素の PoP を送る。しかもその
+JWT ヘッダは **`typ` / `alg` / `jwk` だけ**（`ProvisioningModel.openidProofOfPossession`）で、
+**`key_attestation` ヘッダは入らない**。
+
+帰結が2つある:
+
+1. **`key_attestation: required` にすると Multipaz からの発行は全部落ちる**。
+   attestation が付いてこないため。`verify_if_present` なら素通りするので影響は無い
+2. **Multipaz に KA を出させたいなら `proof_types_supported` に `attestation` を広告する**。
+   すると `proofs: { attestation: [jwt] }` で送ってくる——これは **Appendix F の
+   attestation proof type** で、我々が実装しているのは **jwt proof の JOSE ヘッダに
+   `key_attestation` を載せる形**（Appendix D）。**器が違うので受け取れない**。
+   実機で KA を通すには Appendix F の実装が先
 
 ### 実機（Multipaz）の挙動
 
