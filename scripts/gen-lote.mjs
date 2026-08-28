@@ -128,7 +128,19 @@ for (const p of ['trust/retired/iaca-48253ffd.crt']) {
 // 載せる**——ARF §6.2.2 は Wallet Provider LoTE のアンカーの用途を
 // 「Wallet Unit から受け取る **WIA と KA の**真正性の検証」と**1つの用途にまとめている**ため。
 // 我々が KV で表を2つに分けているのは追加の局所制御であって、リスト上の役割は同じ。
+//
+// **dev と本番は別デプロイ＝別鍵**（2026-08-28 実測。`client_id` が dev/本番で違うのと同じ理由）。
+// 通常のアプリ（Play ストア版）は本番を名乗るので、**dev だけ載せると実機で必ず落ちる**。
+// 本番の鍵はリポジトリには無いが、**backend が `/api/keys` で PEM を公開している**
+// （`ApplicationExt.kt` の `get("/api/keys")` が walletAttestation / keyAttestation /
+// readerRoot の証明書を返す）。取得は `npm run fetch-multipaz-keys`。
+// なお **CA 階層は無い**——3つとも自己署名の end-entity で、そのままアンカーになる。
 const walletProviderCerts = [
+  {
+    ja: 'Multipaz Wallet（本番）', en: 'Multipaz Wallet',
+    wia: 'trust/wallet-providers/multipaz-prod-wia.crt',
+    ka: 'trust/key-attesters/multipaz-prod-ka.crt',
+  },
   {
     ja: 'Multipaz Wallet Dev', en: 'Multipaz Wallet Dev',
     wia: 'trust/wallet-providers/multipaz-dev-wia.crt',

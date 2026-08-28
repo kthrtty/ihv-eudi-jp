@@ -14,6 +14,9 @@ function parseVerifierPki(json) {
   const b64ToDer = (s) => new X509Certificate(Buffer.from(s, 'base64')).raw;
   return {
     encKey: raw.verifier?.encKey ?? null,
+    // **検証アンカーは LoTE から引く**（#26/#31）。ここに残しているのは
+    // **リストを設定していない環境**（テスト・オフライン）のためだけで、
+    // リストがあるときは下で null にする——**同じ値を2箇所に持たない**。
     // 複数トラストアンカー（issue #27）。古いバンドル（iacas 無し）でも動く
     iacaCert: raw.mdoc?.iacas?.length ? raw.mdoc.iacas.map(b64ToDer)
       : (raw.mdoc?.iaca ? b64ToDer(raw.mdoc.iaca) : null),
@@ -30,6 +33,19 @@ function parseVerifierPki(json) {
     // トラストリスト自身の署名者アンカー（issue #26/#28）。旧バンドルには無いので null 許容
     trustSchemeCa: raw.trust?.schemeCa ? b64ToDer(raw.trust.schemeCa) : null,
   };
+}
+
+/**
+ * 読むトラストリストの URI。**スキーム CA が無ければ null**——リストの署名者を検証できず
+ * `parseLoTE` が valid を立てないので、アンカー0件＝fail-closed で検証が全滅する。
+ * 「リストを設定していない」と「リストが引けない」は別物で、前者はバンドルのアンカーで
+ * 従来どおり動くのが正しい（デプロイ順序の事故を防ぐ）。
+ */
+function trustListUris(env, verifierPki, issuerUrl) {
+  if (!verifierPki?.trustSchemeCa) return null;
+  const uris = (env.TRUST_LIST_URIS || `${issuerUrl}/trust/lote.json`)
+    .split(/[\s,]+/).filter(Boolean);
+  return uris.length ? uris : null;
 }
 
 let app;
@@ -61,11 +77,15 @@ export default {
         // ので `parseLoTE` は valid を立てず、アンカー0件＝fail-closed で検証が全滅する。
         // 「リストを設定していない」と「リストが引けない」は別物で、前者は
         // バンドルのアンカーで従来どおり動くのが正しい（デプロイ順序の事故を防ぐ）
-        trustListUris: verifierPki?.trustSchemeCa
-          ? (env.TRUST_LIST_URIS || `${issuerUrl}/trust/lote.json`)
-            .split(/[\s,]+/).filter(Boolean)
-          : null,
+        trustListUris: trustListUris(env, verifierPki, issuerUrl),
         trustSchemeCaDer: verifierPki?.trustSchemeCa ?? null,
+        // **リストを設定したら焼き込みのアンカーは使わない**（2026-08-28）。
+        // 解決層は取得失敗時に **KV のキャッシュ（古くても）へフォールバックする**ので、
+        // ここに同じ値を残すと**更新箇所が2つになるだけ**で可用性は上がらない。
+        // 逆に古い焼き込みが残ると、リストから外した（＝信頼をやめた）アンカーで
+        // 検証が通り続ける経路になる。リスト未設定の環境では従来どおり焼き込みを使う
+        ...(trustListUris(env, verifierPki, issuerUrl)
+          ? { trustedIacaDer: null, trustedIssuerCaDer: null } : {}),
       });
     }
     return app.fetch(request, env, ctx);

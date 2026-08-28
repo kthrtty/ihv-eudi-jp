@@ -768,8 +768,19 @@ DADS では意味が分かれるので**一括置換できない**。1件ずつ�
   unprotected ヘッダから x5chain を引けず **VICAL だけ検証不能**（RICAL は protected なので気づかない）／
   (4) **信頼の底＝スキームオペレーターの CA は各アプリに焼き込む**（`_pki.trust.schemeCa`）。
   差し替え可能だとリストごと入れ替えられる。`schemeCaDer` 未指定は `valid` を立てない／
-  (5) **アンカー0件は fail-closed**（引けないときに素通しさせない）。取得失敗時は手元を使い、
-  手元も無ければ0件。同じ証明書は fp256 で畳む。有効期間はリゾルバの時計で見る
+  (5) **アンカー0件は fail-closed**（引けないときに素通しさせない）。
+  同じ証明書は fp256 で畳む。有効期間はリゾルバの時計で見る／
+  (6) **リストと同じ値を KV に持たない**（2026-08-28）。解決層は取得失敗時に
+  **KV のキャッシュ（`vtrust:`/`itrust:`・古くても使う）へフォールバックする**ので、
+  焼き込みを併存させても**更新箇所が2つになるだけで可用性は上がらない**。むしろ
+  **リストから外した＝信頼をやめたアンカーで検証が通り続ける経路**になる。よって
+  **リストを設定している環境では焼き込みを渡さない**（`trustedIacaDer`/`trustedIssuerCaDer`
+  を null に）。リスト未設定（テスト・オフライン）では従来どおり焼き込みを使う
+  ——「リストを設定していない」と「リストが引けない」は別物。
+  **焼き込むのは信頼の底（`trust.schemeCa`）だけ**。**発行の材料は重複ではない**
+  ——`mdoc.iaca` は `issueMdoc` が x5chain を `[DSC, IACA]` で組むのに要る（検証には使わない）。
+  純粋な検証用だった **`mdoc.iacas`（retired 込みの束）と wallet バンドルの
+  `mdoc.iaca`/`sdjwt.caCert` は削除済み**（retired も LoTE に載っている）
 - **SD-JWT VC の x5c にトラストアンカーを入れない**（2026-08-16・HAIP §6.1.1「The X.509 certificate of
   the trust anchor MUST NOT be included in the `x5c` JOSE header of the SD-JWT VC.」）。x5c 自体は
   **SD-JWT VC §3.5 の正規の鍵解決方式で HAIP では MUST**——落とすのはアンカーだけ。禁止の理由は

@@ -38,17 +38,17 @@ const bundle = {
   trust: { schemeCa: derB64('pki/vical/vical-ca.crt') },
   mdoc: {
     dsc: mdocDsc,
+    // **これは発行の材料**（`issueMdoc` が x5chain を `[DSC, IACA]` で組む）。
+    // 検証用のアンカーとしては使わない——そちらは LoTE から引く（#26/#31）
     iaca: derB64('pki/mdoc/iaca/iaca.crt'),
-    // **トラストアンカーは複数あり得る**（issue #27）。retired（秘密鍵を失った旧 IACA）も
-    // 配ることで、**その IACA 配下で発行済みの資格証を無効にせずに新しい鍵へ移行できる**。
-    // ISO 18013-5 の IACA link certificate は旧 IACA の秘密鍵で新 IACA に署名するので、
-    // 失った後では使えない。`iaca`（単数）は古いコードとの後方互換で残す。
-    iacas: [derB64('pki/mdoc/iaca/iaca.crt'),
-      ...['trust/retired/iaca-48253ffd.crt', 'trust/retired/iaca-c5e7a36d.crt']
-        .filter((p) => existsSync(root(p))).map(derB64)],
+    // **`iacas`（検証用アンカーの束）は削除した**（2026-08-28）。retired を含む3枚とも
+    // **LoTE に載っている**ので、KV に同じものを持つと更新箇所が2つになる。
+    // retired（秘密鍵を失った旧 IACA）を配り続ける理由は変わらない——その IACA 配下で
+    // 発行済みの資格証を無効にせず新しい鍵へ移行するため——が、配る器がリストになった
   },
   sdjwt: {
     issuers: sdjwtIssuers,
+    // **発行の材料**（自己署名を落とす判定に使う）。検証アンカーとしては LoTE から引く
     caCert: derB64('pki/sdjwt/issuer-ca.crt'),
   },
   verifier: {
@@ -82,12 +82,12 @@ const bundle = {
 };
 
 if (process.argv.includes('--wallet')) {
-  // Wallet only needs trust anchors (~1 kB, fits in 5 kB secret limit)
+  // **ウォレットは発行しない**ので、焼くのは**信頼の底だけ**（2026-08-28）。
+  // 資格証の検証アンカー（IACA / SD-JWT CA）は **LoTE から引いて KV にキャッシュする**
+  // ので、ここに焼くと同じ値が2箇所に出て更新箇所が増える。
+  // トラストリスト**自身の署名者**を検証するアンカーだけは焼き込む（issue #26/#28）
+  // ——差し替え可能だとリストごと入れ替えられて信頼の底が抜ける
   process.stdout.write(JSON.stringify({
-    mdoc:  { iaca:   bundle.mdoc.iaca },
-    sdjwt: { caCert: bundle.sdjwt.caCert },
-    // トラストリスト**自身の署名者**を検証するアンカー（issue #26/#28）。
-    // ここだけは焼き込む——差し替え可能だとリストごと入れ替えられて信頼の底が抜ける
     trust: { schemeCa: bundle.trust.schemeCa },
   }));
 } else {

@@ -37,7 +37,8 @@
     "wallet-providers": "node scripts/wallet-providers.mjs",
     "key-attesters": "node scripts/key-attesters.mjs",
     "conformance:vci-auth": "node scripts/conformance-vci-auth.mjs",
-    "conformance:vp": "node scripts/conformance-vp.mjs"
+    "conformance:vp": "node scripts/conformance-vp.mjs",
+    "fetch-multipaz-keys": "node scripts/fetch-multipaz-keys.mjs"
   },
   "description": "eIDAS2/ARF IHV demo (OID4VCI/OID4VP/HAIP, mdoc+SD-JWT, DC API)",
   "engines": {
