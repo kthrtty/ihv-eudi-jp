@@ -936,7 +936,18 @@ REVIEW は人手確認待ちで自動チェックは全通過。
   **`key_attestations_required` は required のときだけ広告する**（§12.2.1 が
   「要求しないなら MUST NOT be present」と定める。`verify_if_present` は要求していない）／
   (4) **nonce を消す前に attestation を見る**（attestation の `nonce` は同じ c_nonce を指すので
-  順序を誤ると必ず落ちる）。回帰=test/key-attestation.test.mjs
+  順序を誤ると必ず落ちる）。回帰=test/key-attestation.test.mjs／
+  (5) **`key_storage` にハードウェア名は入らない**（2026-08-28 調査）。TEE/StrongBox/
+  Secure Enclave/HSM/TPM は仕様のどこにも値として無く、入るのは ISO/IEC 18045 の攻撃耐性
+  `iso_18045_{basic,enhanced-basic,moderate,high}`（AVA_VAN.2〜5）＋ **ARF WIAM_08a の `none`**。
+  製品名は **`certification`（URL）**側（TS3 は「この欄から WSCD か否かを判別できること」を要求）。
+  **`storage_type`（REMOTE/LOCAL_EXTERNAL/LOCAL_INTERNAL/LOCAL_NATIVE/HYBRID）は TS3 1.5 で削除**。
+  **IANA レジストリが無く拡張も許される**ので、判定は**ポリシーに列挙した値との集合一致**で行い
+  順序比較はしない（独自値が混ざると「N 以上」を機械的に決められない）。
+  **`iso_18045_high` 一択なのは「WSCD を記述する KA」だけ**——WSCD は PID を持つものという定義
+  ではなく、CIR 2024/2981 が認証の前提に LoA High を課すため。**EAA は下位の `keystore` に
+  束ねてよい**（ARF §4.4。keystore が使えないのは PID の鍵だけ）。水準は **ISSU_27d で発行者が
+  広告し WUA_05a でウォレットが選ぶ**（我々は未広告＝ARF 未達）。詳細=docs/wallet-attestation.md §7.2
 - [x] **`signed_metadata`（RFC 8414 §2.1）**（2026-08-27）: AS メタデータに JWT を添える。
   **Issuer Metadata（§12.2.2）とは運び方が違う**——あちらは応答そのものを JWT にする
   （`Accept` で出し分け・識別子は `sub`）、こちらは **JSON の中にメンバとして埋める**（識別子は `iss`）。

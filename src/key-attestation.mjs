@@ -20,8 +20,23 @@ const KA_TYP = 'key-attestation+jwt';
 /** 対称鍵（MAC）と none は仕様が明示的に禁じている（Appendix D.1）。 */
 const isAsymmetricAlg = (alg) => typeof alg === 'string' && /^(ES|RS|PS|Ed)/.test(alg);
 
-/** Appendix D.2 の値。**強い順**に並べる（順序が比較の意味を持つ）。 */
-export const AAL_ORDER = ['iso_18045_basic', 'iso_18045_enhanced-basic',
+/**
+ * `key_storage` / `user_authentication` に入りうる値。**弱い順**に並べる。
+ *
+ * **ハードウェアの名前は入らない。** TEE / StrongBox / Secure Enclave / HSM / TPM は
+ * 仕様のどこにも値として存在せず、入るのは **ISO/IEC 18045 の攻撃耐性**だけ:
+ *   `iso_18045_basic`(AVA_VAN.2) < `enhanced-basic`(VAN.3) < `moderate`(VAN.4) < `high`(VAN.5)
+ * **`none` は ARF 側（WIAM_08a）で追加された5つ目**で「無認証」を意味する。
+ * OID4VCI Appendix D.2 には無いので、**D.2 の値とだけ書くと ARF 準拠の面では不足**する。
+ *
+ * 具体的な製品名は **`certification`（証明書への URL）**の側に載る。ARF TS3 が
+ * 「この欄から WSCD か否かを判別できること」を要求している。
+ *
+ * **順序比較には使っていない。** `requireKeyStorage` は「受け入れる値の集合」なので
+ * 判定は集合一致で足りる。`iso_18045_*` 以外の値も許される仕様（下記）以上、
+ * 「N 以上」を機械的に決められないため、目盛りは**記録と可読性のため**に置く。
+ */
+export const APR_LEVELS = ['none', 'iso_18045_basic', 'iso_18045_enhanced-basic',
   'iso_18045_moderate', 'iso_18045_high'];
 
 class KeyAttestationError extends Error {
@@ -64,6 +79,13 @@ const fp256 = (der) => createHash('sha256').update(Buffer.from(der)).digest('hex
  *   a c_nonce, the nonce claim in the key attestation MUST be set to a server-provided c_nonce」。
  *   照合しないと**古い attestation を使い回せる**（鍵が既に危殆化していても通る）。
  * @param {string[]|null} [o.requireKeyStorage]  受け入れる `key_storage` の値（いずれか1つ）。
+ *   値域は `APR_LEVELS`。ただし**その5つに閉じていない**——Appendix D.2 は
+ *   「Specifications that extend this list MUST choose collision-resistant values」とし、
+ *   ISO 18045 を使わないなら「it is RECOMMENDED that the value is a URL」と述べる。
+ *   **IANA レジストリは無い**ので、知らない値は素通しさせず、受け入れるなら明示的に列挙する。
+ *   **要求水準は資格証ごとに違ってよい**——LoA High（=`iso_18045_high`）が要るのは PID の鍵
+ *   だけで（ARF: keystore は PID に使えない）、EAA は下位の keystore に束ねてよい。
+ *   ARF ISSU_27d はこの水準を発行者メタデータで広告することを SHALL としている（未実装）。
  * @param {string[]|null} [o.requireUserAuth]    受け入れる `user_authentication` の値。
  */
 export async function verifyKeyAttestation({ attestation, anchors, expectedNonce = null,

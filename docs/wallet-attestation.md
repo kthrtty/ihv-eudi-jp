@@ -475,16 +475,66 @@ value is a URL」と述べるにとどまる（1.0 と 1.1 で本文は完全に
 > resistance for which the keystore was certified (respectively AVA_VAN.5, AVA_VAN.4,
 > AVA_VAN.3, AVA_VAN.2 and **no certification**)
 
-**WSCD なら値は固定**（TS3）:
+**WSCD を記述する KA なら値は固定**（TS3）:
 
-> For a KA about a WSCD, the `key_storage` and `user_authentication` attributes shall be
+> For a KA **about a WSCD**, the `key_storage` and `user_authentication` attributes shall be
 > `iso_18045_high` as the WSCD by definition must ensure LoA High.
 
-WSCD は法令上 LoA High と定義されるので選ぶ余地が無い。**段階が意味を持つのは WSCD ではない
-「keystore」の側だけ**で、そちらは PID の鍵には使えない（ARF: "A keystore cannot be used for
-PID private keys"）。
+**条件がかかっているのは「KA の対象」であって、ウォレットや資格証ではない**（主語は
+"a KA about a WSCD"）。次項のとおり keystore を記述する KA なら、下位の値が入る。
+
+### 7.2.1 WSCD は「PID を持つもの」ではない。EAA には keystore がある
+
+**WSCD の定義に PID は出てこない。** 法令が認証の前提条件として LoA High を課しているだけ:
+
+> [CIR 2024/2981], Annex IV, section 2 (3) states "As a prerequisite to the certification under
+> national certification schemes, the WSCD shall be assessed against the requirements of
+> assurance level high …". Therefore, a WSCD **by legal definition** complies with LoA High.
+
+PID との関係は一方向の含意にすぎない——「PID の鍵は LoA High で守る必要がある → だから WSCD が要る」。
+
+**EAA 向けの器は別にある。ARF はそれを `keystore` と呼ぶ**（§4.4）:
+
+> A keystore is a hardware-backed repository … in which **non-critical** cryptographic assets are
+> generated, stored, and used … Depending on its implementation, a keystore is associated with a
+> certain level of security, classified, for example, according to [ISO/IEC 18045].
+> **A keystore cannot be used for PID private keys**, since these must be managed on Level of
+> Assurance High, which can only be done using a WSCA/WSCD.
+
+**制約は PID にだけかかる。** EAA は keystore に束ねてよく、その `key_storage` は `moderate` でも
+`basic` でも `none` でもよい。**4段階の目盛りが存在する理由がここにある**——全部 `high` なら
+この欄も `key_attestations_required` も要らない。
+
+**水準は EAA の発行者が決め、ウォレットが選ぶ。** ARF が手続きまで規定している:
+
+- **ISSU_27d（SHALL・発行者）**「An Attestation Provider issuing device-bound attestations SHALL
+  **indicate the desired level of security** for the private key storage and for User
+  authentication **in its Credential Issuer metadata**, according to [OpenID4VCI] section 12.2.4
+  and Appendix D.2.」
+- **WUA_05a（SHALL・ウォレット）**「the Wallet Unit SHALL … **determine which of its WSCA/WSCD or
+  keystore(s), if any, comply** with these requirements.」
+
+つまり**発行者が水準を広告 → ウォレットが満たす保管先を選ぶ → その KA を出す**という交渉になる。
+**同じウォレットが、PID は WSCD の鍵で、ある EAA は keystore の鍵で束ねる**のが正常な姿で、
+ARF は「どの資格証がどの保管先に束ねられているか内部で追跡すること」まで求めている。
+
+**我々への含意**: 9書類のうち **PID 以外は PuB-EAA なので `iso_18045_high` を要求する理由は無い**。
+現状は `requireKeyStorage` を未設定にし、`required` のときも `key_attestations_required: {}`
+（制約なし）を広告している。OID4VCI 上は妥当だが（"may be empty, indicating a key attestation is
+needed without additional constraints"）、**ISSU_27d は水準を示すことを SHALL とする**ので
+ARF 準拠の面では未達（残件）。
+
+### 7.2.2 値域は5つに閉じていない
 
 **要求するなら「無い」も拒否する**——OPTIONAL なクレームなので、省略を通すと要求していないのと同じ。
+
+そのうえで、**知らない値を素通しさせてもいけない**。D.2 は拡張を許しており
+（"Specifications that extend this list MUST choose collision-resistant values"／非 ISO なら
+"it is RECOMMENDED that the value is a URL"）、**IANA レジストリが無い**ので「既知の値の集合」を
+機械的に確定できない。よって判定は**ポリシーに明示的に列挙された値との集合一致**で行う
+（`src/key-attestation.mjs` の `requireKeyStorage`）。**順序比較はしていない**——独自値が
+混ざると「N 以上」を機械的に決められないため。`APR_LEVELS` は記録と可読性のための目盛り。
+回帰=test/key-attestation.test.mjs（独自値は列挙すれば通り、しなければ通らない）。
 
 ### 7.3 ではハードウェア名はどこに入るのか
 
@@ -564,6 +614,16 @@ Wallet Provider ではないので `WalletSolution` は意味的に誤りにな�
 ＝「attestation を署名する鍵と、その失効リストを署名する鍵が同一である」と主張していることに
 なる。TS3 は WIA/KA の失効を Status List で行うと定めており、その署名鍵は**3本目になりうる**。
 
+**KV との併用は ARF から見れば逸脱。** ISSU_28 はこう定める:
+
+> an Attestation Provider SHALL accept all Wallet Provider trust anchors published by the
+> Commission in the relevant LoTE, **and only those**.
+
+**"and only those"** なので、KV を土台として併用する構成は厳密には ARF 非準拠。
+デモとして意図した選択（リストが引けない環境と、リストに載っていない相手を手で足す運用）で、
+**本番の EUDI 実装では KV 経路を落とす**のが正しい。件数表示をリスト由来と KV 由来に
+分けてあるのは、この差が運用中に見えるようにするため。
+
 ---
 
 ## 8. 運用
@@ -623,7 +683,8 @@ npm run key-attesters add-cert "<ラベル>" ./ka.crt && npm run key-attesters l
 | #31 | `WalletSolution/Revocation` の証明書が仮置き（Status List 署名鍵は3本目になりうる） |
 | #43 | Web ウォレットが広告に追従しない |
 | — | WUA の失効（TS3 §2.5 の Attestation Status List）。未 issue |
-| — | `key_storage` の要求ポリシーが未設定（`requireKeyStorage` は実装済みだが既定は無指定）。ARF の `none` を含む値域は 7.2 |
+| — | **ARF ISSU_27d 未達**: 要求水準を発行者メタデータで広告していない（`key_attestations_required: {}`）。PID 以外は PuB-EAA なので `high` を要求する理由が無く、水準の決めが要る（7.2.1） |
+| — | **ARF ISSU_28 との差分**: 「LoTE のアンカー**だけ**」に対し KV を併用している（7.5） |
 | — | Wallet Provider 役の実装（我々は検証側のみ）。デモの範囲外 |
 
 ---

@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { SignJWT, exportJWK, generateKeyPair } from 'jose';
 import { createApp } from '../src/app.mjs';
 import { setFeature } from '../src/features.mjs';
-import { verifyKeyAttestation, assertProofKeyAttested, sameJwk } from '../src/key-attestation.mjs';
+import { verifyKeyAttestation, assertProofKeyAttested, sameJwk, APR_LEVELS } from '../src/key-attestation.mjs';
 
 const ISSUER = 'https://issuer.ihv.example';
 const ATTESTER = 'https://wallet-provider.example/key-attester';
@@ -165,6 +165,40 @@ test('#5 保管強度を要求すると、足りない／無い attestation を�
 
 // **これが Appendix D.1 の MUST**。ここを見ないと attestation は
 // 「無関係な鍵の保証書」を添えているだけになる。
+// `key_storage` の値域。**ハードウェア名は値ではない**（TEE / StrongBox / Secure Enclave /
+// HSM / TPM は仕様のどこにも値として存在しない）。目盛りは ISO/IEC 18045 の攻撃耐性で、
+// **`none` は ARF WIAM_08a が足した5つ目**（OID4VCI Appendix D.2 には無い）。
+test('#5 値域: 弱い順に並び、ARF の none を含む', () => {
+  assert.deepEqual(APR_LEVELS, ['none', 'iso_18045_basic', 'iso_18045_enhanced-basic',
+    'iso_18045_moderate', 'iso_18045_high']);
+  // 目盛りの向きを固定する（逆順にすると「N 以上」を書く人が条件を反転して実装する）
+  assert.equal(APR_LEVELS.at(0), 'none', '先頭が最弱');
+  assert.equal(APR_LEVELS.at(-1), 'iso_18045_high', '末尾が最強');
+  // **ハードウェア名は1つも入らない**
+  for (const w of ['TEE', 'StrongBox', 'SecureEnclave', 'HSM', 'TPM']) {
+    assert.ok(!APR_LEVELS.some((v) => v.toLowerCase().includes(w.toLowerCase())), w);
+  }
+});
+
+// **値域は5つに閉じていない**（D.2: 拡張は collision-resistant な値／非 ISO なら URL 推奨。
+// IANA レジストリは無い）。よって「知らない値だから拒否」でも「知らない値でも通す」でもなく、
+// **ポリシーに明示的に列挙されたものだけ通す**のが正しい。
+test('#5 エコシステム独自の値（URL 形式）もポリシーに書けば通り、書かなければ通らない', async () => {
+  const s = await setup();
+  const custom = 'https://scheme.example/apr/jp-level-2';
+  const att = await mkAttestation(s, { keyStorage: [custom] });
+
+  const ok = await verifyKeyAttestation({ attestation: att, anchors: anchors(s),
+    requireKeyStorage: [custom] });
+  assert.deepEqual(ok.keyStorage, [custom]);
+
+  // **知らない値を素通しさせない**（`iso_18045_*` だけを要求しているなら落ちる）
+  await assert.rejects(
+    async () => verifyKeyAttestation({ attestation: att, anchors: anchors(s),
+      requireKeyStorage: ['iso_18045_high'] }),
+    (e) => /key_storage does not meet the required level/.test(e.message));
+});
+
 test('#5 proof の署名鍵が attested_keys に無ければ拒否（D.1 の MUST）', async () => {
   const s = await setup();
   assert.throws(() => assertProofKeyAttested(s.rogueJwk, [s.holderJwk]),
