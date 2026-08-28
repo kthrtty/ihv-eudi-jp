@@ -2,7 +2,7 @@
 // encryption) and verifies the encrypted vp_token. Supports single requests and
 // session-linked sequential requests (PID -> EAA) checking same-holder binding.
 import { fileURLToPath } from 'node:url';
-import { randomBytes, X509Certificate, createPrivateKey, createPublicKey, generateKeyPairSync } from 'node:crypto';
+import { randomBytes, X509Certificate, createPrivateKey, createPublicKey, generateKeyPairSync, createHash } from 'node:crypto';
 import { verifyDeviceResponse } from './mdoc.mjs';
 import { verifySdJwtPresentation } from './sdjwt.mjs';
 import { readFeatures } from './features.mjs';
@@ -219,6 +219,20 @@ export class VerifierService {
    * - `x509_san_dns` … 「The request **MUST be signed** with the private key
    *   corresponding to the public key in the leaf X.509 certificate」。client_id の
    *   prefix 以降が証明書の dNSName SAN と一致する必要がある＝ RP を認証できる
+   * - `x509_hash`（2026-08-29・HAIP 1.0 §5 が MUST。conformance suite の
+   *   `oid4vp-1final-verifier-haip-test-plan` は全モジュールがこの prefix 固定）。
+   *   §5.9.3 原文:「the original Client Identifier (the part without the `x509_hash:`
+   *   prefix) MUST be a hash and match the hash of the leaf certificate passed with
+   *   the request. The request MUST be signed with the private key corresponding to
+   *   the public key in the leaf X.509 certificate of the certificate chain added to
+   *   the request in the `x5c` JOSE header parameter … The value of `x509_hash` is
+   *   the base64url-encoded value of the SHA-256 hash of the DER-encoded X.509
+   *   certificate.」＝ `x509_san_dns` と同じ RP 証明書・同じ署名要件で、
+   *   **client_id の作り方だけが「SAN のホスト名」から「証明書DERのSHA-256」に変わる**。
+   *   x509_san_dns の定義文にある「FQDN of the redirect_uri value MUST match」という
+   *   条項は x509_hash の定義文には無い（redirect_uri との突合は要求しない）。
+   * **既定は変えない**——`clientIdPrefix` 未指定時は従来どおり `x509_san_dns`。実機
+   * Multipaz で通っている提示経路に影響させないため、x509_hash は明示指定でのみ使う。
    * 旧 `signed` 引数は後方互換のため残すが、prefix から導出するのが正。
    */
   async createRequest({ specs, sessionId, linkTo, protocol = 'annex-d', transport, responseUri, responseUriBase, purpose, rpName, clientIdPrefix = null, signed = null } = {}) {
@@ -274,17 +288,23 @@ export class VerifierService {
       // OID4VP over HTTPS redirects (no DC API): mdoc MUST use direct_post.jwt.
       const respUri = responseUri || `${responseUriBase}/${transactionId}`;
       // **prefix を決めてから client_id と署名の有無が決まる**（上の JSDoc 参照）。
-      // 証明書が無ければ x509_san_dns は名乗れないので redirect_uri へ落ちる——
-      // SAN の無い証明書で名乗るとウォレットは client_id と照合できず正しく拒否する。
+      // 証明書が無ければ x509_san_dns/x509_hash は名乗れないので redirect_uri へ落ちる——
+      // 証明書無しで名乗るとウォレットは client_id と照合できず正しく拒否する。
+      // **既定は x509_san_dns のまま**（clientIdPrefix 未指定時。x509_hash は明示指定のみ）。
       const canSign = !!(this.rpKeyPem && this.rpCertDer);
       let prefix = clientIdPrefix ?? (signed === false ? 'redirect_uri' : 'x509_san_dns');
-      if (prefix === 'x509_san_dns' && !canSign) prefix = 'redirect_uri';
-      const signedReq = prefix === 'x509_san_dns';
+      if ((prefix === 'x509_san_dns' || prefix === 'x509_hash') && !canSign) prefix = 'redirect_uri';
+      const signedReq = prefix === 'x509_san_dns' || prefix === 'x509_hash';
       // x509_san_dns の client_id は**証明書の dNSName SAN と完全一致**する必要がある。
-      // origin のホスト名を使う（gen-pki.sh が同じ名前を SAN に入れている）
-      const clientId = signedReq
+      // origin のホスト名を使う（gen-pki.sh が同じ名前を SAN に入れている）。
+      // x509_hash は**同じ RP 証明書**（pki/verifier/rp.crt）を使うが、client_id は
+      // SAN でなく「DER エンコードされた証明書の SHA-256 を base64url エンコードした値」
+      // （§5.9.3 原文・上の JSDoc 参照）。SAN 一致チェックの代わりにハッシュ一致になる。
+      const clientId = prefix === 'x509_san_dns'
         ? `x509_san_dns:${new URL(this.origin).hostname}`
-        : `redirect_uri:${respUri}`;
+        : prefix === 'x509_hash'
+          ? `x509_hash:${createHash('sha256').update(Buffer.from(this.rpCertDer)).digest('base64url')}`
+          : `redirect_uri:${respUri}`;
       const transcript = oid4vpRedirectSessionTranscript({ clientId, responseUri: respUri, nonce });
       await this.store.set(`vp:${transactionId}`, { protocol: 'annex-d', transport: 'redirect', clientId, nonce, dcql: dcql_query, transcript, encPem, sessionId: sessionId ?? transactionId, linkTo, signed: signedReq, clientIdPrefix: prefix });
       const request = {

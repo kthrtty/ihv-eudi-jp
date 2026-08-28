@@ -11,7 +11,7 @@ import { decryptResponse } from '../src/jwe.mjs';
 import { cborDecode, fromB64url } from '../src/cbor.mjs';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { X509Certificate } from 'node:crypto';
+import { X509Certificate, createHash } from 'node:crypto';
 
 const ISSUER = 'https://issuer.ihv.example';
 const encPriv = readFileSync(fileURLToPath(new URL('../pki/verifier/rp-enc.key', import.meta.url)));
@@ -557,10 +557,10 @@ test('Annex C rejects sd-jwt (mdoc-only)', async () => {
 test('redirect transport (web wallet): mdoc & sd-jwt verify over direct_post.jwt', async () => {
   const app = createApp({ credentialIssuer: ISSUER });
   const v = new VerifierService({ statusResolver: statusResolverFor(app) });
-  // **両方の client_id prefix を回す**（§5.9.3・2026-08-26）。prefix は署名の有無と
-  // 一体で、SessionTranscript も client_id を含むので、片方だけ通っても保証にならない。
+  // **prefix を全部回す**（§5.9.3・2026-08-26／x509_hash は2026-08-29）。prefix は署名の
+  // 有無と一体で、SessionTranscript も client_id を含むので、どれか1つだけ通っても保証にならない。
   for (const cfg of ['pid_mdoc', 'pid_sdjwt']) {
-   for (const prefix of ['redirect_uri', 'x509_san_dns']) {
+   for (const prefix of ['redirect_uri', 'x509_san_dns', 'x509_hash']) {
     const wallet = await walletWith([cfg]);
     const { transactionId, request } = await v.createRequest({
       specs: [{ id: 'q1', configId: cfg, claims: ['family_name', 'age_over_18'] }],
@@ -642,6 +642,50 @@ test('RP 証明書が無ければ x509_san_dns を名乗らず redirect_uri へ�
   // SAN の無い証明書で名乗るとウォレットは client_id と照合できず正しく拒否する。
   // 署名を諦めて redirect_uri に落ちるほうが筋が通る
   assert.ok(request.client_id.startsWith('redirect_uri:'), '名乗れないなら落ちる');
+});
+
+// OID4VP 1.0 §5.9.3 原文（x509_hash）:「the original Client Identifier (the part without
+// the `x509_hash:` prefix) MUST be a hash and match the hash of the leaf certificate
+// passed with the request. … The value of `x509_hash` is the base64url-encoded value of
+// the SHA-256 hash of the DER-encoded X.509 certificate.」HAIP 1.0 §5 は signed request で
+// この prefix を MUST とする。x509_san_dns と同じ RP 証明書・同じ署名要件で、client_id の
+// 作り方だけが SAN 一致からハッシュ一致に変わる（2026-08-29）。
+test('x509_hash: client_id は RP 証明書 DER の SHA-256 base64url（golden）', async () => {
+  const v = new VerifierService();
+  const { transactionId, request } = await v.createRequest({
+    specs: [{ id: 'q1', configId: 'pid_sdjwt', claims: ['family_name'] }],
+    transport: 'redirect', responseUriBase: 'https://verifier.example/resp',
+    clientIdPrefix: 'x509_hash',
+  });
+  assert.ok(request.client_id.startsWith('x509_hash:'), `client_id は x509_hash: (${request.client_id})`);
+  // x509_san_dns と同じ RP 証明書を使うこと（pki/verifier/rp.crt。方針#3）
+  const expected = createHash('sha256').update(Buffer.from(v.rpCertDer)).digest('base64url');
+  assert.equal(request.client_id, `x509_hash:${expected}`, 'ハッシュは rp.crt の DER の SHA-256(base64url)');
+  // HAIP 1.0 §5「the Verifier MUST use … the Client Identifier Prefix `x509_hash`」＝signed
+  assert.equal((await v.store.get(`vp:${transactionId}`)).signed, true, 'x509_hash も署名する');
+
+  // 署名済み要求の x5c[0] と client_id のハッシュが一致すること
+  // （ウォレットが§5.9.3で行う検証そのものを自己適合として確認）
+  const jwt = await v.signRequestObject(request);
+  assert.ok(jwt, 'RP 証明書があれば署名できる');
+  const hdr = JSON.parse(Buffer.from(jwt.split('.')[0], 'base64url').toString('utf8'));
+  const leaf = new X509Certificate(Buffer.from(hdr.x5c[0], 'base64'));
+  const hashOfX5c0 = createHash('sha256').update(leaf.raw).digest('base64url');
+  assert.equal(request.client_id, `x509_hash:${hashOfX5c0}`, 'client_id は x5c[0] のハッシュと一致');
+});
+
+// **既定は変えない**（回帰防止）: clientIdPrefix 未指定なら従来どおり x509_san_dns。
+// ここが変わると実機 Multipaz で通っている提示経路に影響する（signed=trueかつ
+// x509_hash と x509_san_dns は同じ署名鍵・同じ x5c だが client_id の形が違うため、
+// 既定を誤ると実機ウォレットの SAN 照合が壊れる）。
+test('既定の client_id prefix は x509_san_dns のまま（回帰防止）', async () => {
+  const v = new VerifierService();
+  const { request } = await v.createRequest({
+    specs: [{ id: 'q1', configId: 'pid_sdjwt', claims: ['family_name'] }],
+    transport: 'redirect', responseUriBase: 'https://verifier.example/resp',
+    // clientIdPrefix 未指定
+  });
+  assert.ok(request.client_id.startsWith('x509_san_dns:'), `既定は x509_san_dns (${request.client_id})`);
 });
 
 // **x5c にトラストアンカー（自己署名ルート）を入れない**。SD-JWT VC では HAIP §6.1.1 の
