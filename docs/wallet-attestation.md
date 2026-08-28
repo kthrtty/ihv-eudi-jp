@@ -54,6 +54,67 @@ client attestation JWT」）。**事前登録が要らなくなるのがこの�
 
 ---
 
+## 2.5 どこまでが標準で、どこからが実装事項か
+
+**「WIA を要求する／受け取る」インターフェースは標準化されていない。** ARF の
+**Technical Specification 3（WUA の仕様）**が §1.2 Scope で明示的に除外している。
+
+TS3 が規定するのは **転送 / 形式 / 内容 / ライフサイクル / 失効機構** の5つで、
+そのうえで「Wallet Provider が Wallet Unit へ WIA・KA を **どうやって発行するか**は
+本仕様の範囲外。**これは Wallet Unit の提供者自身だけが行うことなので、相互運用性のために
+標準を要さない**」と注記する。
+
+| 区間 | 標準 |
+|---|---|
+| **Wallet Unit → 発行者（我々）** | **定義あり**。TS3 §2.2.1「WIA は OID4VCI Appendix E の Wallet Attestation とし、**PAR と Token Request で送る**」（SHALL）。PoP を伴う |
+| **Wallet Unit ↔ Wallet Provider** | **範囲外**。各 Wallet Provider の実装事項 |
+
+「形式だけ」ではなく**転送も定義されている**——ただしそれは「発行者へどう送るか」であって、
+「Wallet Provider からどう受け取るか」ではない。**空白なのは後者。**
+
+### Play Integrity / DeviceCheck の位置づけ
+
+**TS3 には Play Integrity も DeviceCheck も一度も出てこない。**
+代わりに TS3 §2.2.1.1 が**義務のほう**を課す:
+
+- Wallet Provider は **WIA に署名する前に Wallet Instance の完全性を検証しなければならない**（SHALL）
+- WIA の **TTL は 24 時間未満**。`exp` と**完全性を検証した時刻**の差が 24 時間未満であること
+- **同じ WIA を複数の発行者へ送ってはならない**（per-issuer reuse オプションを使う場合を除く）
+  ——unlinkability のため。これはウォレット側の義務
+
+**何をもって完全性を検証するかは書かれていない。** Play Integrity や DeviceCheck は
+その義務を果たすための一手段にすぎない。実際 OID4VCI Appendix E のほうには**実装上の注記**として
+「ネイティブ Wallet App の典型的な構成では、Wallet Provider のバックエンドが iOS の DeviceCheck や
+Android の Play Integrity といった OS 提供のアテステーションを使って、WIA を発行する前に
+アプリの完全性と真正性を検証する」と説明がある。**規範ではなく説明。**
+
+```
+Play Integrity / DeviceCheck      ← OS 依存・標準化されていない
+        │（範囲外の区間で使われる）
+        ▼
+Wallet Provider が完全性を検証     ← TS3 が SHALL で義務づける（手段は不問・TTL<24h）
+        │ 署名
+        ▼
+WIA（JWT）                        ← 形式・内容・転送は TS3 / OID4VCI App.E が規定
+        │ PAR / Token で送る
+        ▼
+発行者（我々）が検証               ← 実装済みの部分
+```
+
+**標準化を避けているのは意図的**で、相互運用が要るのは「発行者が WIA を検証できること」だけ。
+逆に言えば **WIA の信頼性は Wallet Provider の実装品質に依存し、発行者からは検証できない**。
+そこは ARF が**Wallet Solution の認証（第7章）**と**委員会による LoTE への収載**という
+別の仕組みで担保している。
+
+### 我々への含意
+
+**発行者側として実装すべき範囲は全て実装済み**（WIA の受理・検証・PoP・PAR/Token 両方）。
+一方で **Wallet Provider 役を作るなら標準に頼れる部分がほとんど無い**——WIA の JWT を組む
+ところは仕様どおりに作れるが、その手前の「完全性の検証」と「Wallet Unit への配り方」は
+全部自前設計になる。
+
+---
+
 ## 3. 実装状況
 
 | 項目 | 状態 | 実装 |
@@ -69,7 +130,8 @@ client attestation JWT」）。**事前登録が要らなくなるのがこの�
 | **プラットフォーム鍵アテステーション** | **未実装** | Android Key Attestation → Google root の検証（#5 の残件） |
 | `attestation` proof type（PoP なし） | **未実装** | Appendix F |
 | Web ウォレットの追従 | **未実装** | 広告を読まない（#43） |
-| **WUA の失効** | **未実装** | attestation の `status` クレームは読んでいない |
+| **WUA の失効** | **未実装** | attestation の `status` クレームを読んでいない。TS3 §2.5 が Attestation Status List で規定 |
+| **Wallet Provider LoTE** | **未実装** | ARF §6.2.2 の正しい形。いまは KV に手で置いている（§6 の差分表） |
 
 **既定は `client_auth: none`**（実機がそのまま動く側）。発行ポータルの `/settings` から
 再デプロイなしに切り替える。
@@ -266,6 +328,48 @@ response_type=code&client_id=urn%3Auuid%3Ac4011939-…&redirect_uri=…&scope=pi
 `wrangler deploy --var` に JSON を渡すと値が壊れる（実際に本番の発行が止まった前例がある）。
 **0 件なら1件も通らない**（fail-closed）。件数は `/dev/endpoints` の `POST /par` の行に出る。
 
+### ⚠ ARF が定める形は LoTE。ここは簡略化している
+
+**ARF §6.2.2 は Wallet Provider のトラストアンカーを「Wallet Provider LoTE」で配ると定める。**
+Wallet Solution が認証され、加盟国が委員会へ届け出ると、
+**委員会が Wallet Provider のトラストアンカーを Wallet Provider LoTE に載せる**。
+用途は2つで、**我々がやっていることと一致する**:
+
+1. Wallet Unit から受け取る **WIA と KA の真正性の検証**
+2. **Attestation Status List の真正性の検証**（WIA / KA の失効確認に使う）
+
+> この2つのアンカーは同じこともあれば違うこともある——Wallet Provider は失効リストの提供を
+> 第三者に委託できるため。その場合も関連アンカーが LoTE に含まれることを Wallet Provider が保証する。
+
+**Wallet Provider だけ他の主体と扱いが違う。** Relying Party / PID Provider /
+Attestation Provider と異なり **CIR 2025/848 に基づく登録をせず、アクセス証明書も
+登録証明書も受け取らない**。理由は「Wallet Provider と Wallet Unit の間に相互運用性が
+不要だから」——各 Wallet Provider は自分の Wallet Unit とだけ通信すればよい。
+
+また §6.6.2.4.1 に非対称がある: **PID Provider は全 Wallet Provider のアンカーを持つ義務が無い**
+（受け入れる Wallet Solution を選べる）が、**Attestation Provider は全 Wallet Solution を
+受け入れねばならず、全アンカーを持つ必要がある**。**我々の9書類は PID 以外 PuB-EAA 相当なので
+厳密には後者に当たる。**
+
+### 現在の実装との差分（2026-08-28 実測）
+
+| | ARF | 我々 |
+|---|---|---|
+| 入手元 | **Wallet Provider LoTE**（委員会が署名・公開） | **KV `_wallet_providers:config`**（手で登録） |
+| 更新 | LoTE を取得し直す | `npm run wallet-providers` で編集 |
+| 失効 | Attestation Status List | **未実装** |
+
+**現在配っている LoTE（`/trust/lote.json`）に Wallet Provider は入っていない。**
+実測したサービス型は `PID/{Issuance,Revocation}` `PubEAA/{Issuance,Revocation}` `WRPAC/Issuance`
+の5種・計14サービスで、**`WalletSolution` は1件も無い**。
+
+`src/trust.mjs` は LoTE を読む層を持つが、**`WalletSolution` は「どちらの役でもない」として
+明示的に落としている**（`READER_SVC` / `ISSUER_SVC` のどちらにも該当せず、警告を出して無視）。
+**器はあるが Wallet Provider 用の口が開いていない**状態。
+
+つまり **役割が混在した LoTE に紛れているのではなく、そもそも LoTE の外（KV）にある。**
+これは #31（LoTE を役割ごとに分割する）と地続きで、**Wallet Provider LoTE を足すと4本目**になる。
+
 ### ④ 検証が返すもの
 
 ```json
@@ -361,7 +465,8 @@ npm run wallet-providers list
 |---|---|
 | #5 | プラットフォーム鍵アテステーション（Android Key Attestation → Google root）。LoA 目標が未決 |
 | #43 | Web ウォレットが広告に追従しない |
-| — | WUA の失効（attestation の `status` クレーム）。未 issue |
+| — | WUA の失効（TS3 §2.5 の Attestation Status List）。未 issue |
+| — | Wallet Provider アンカーを LoTE から引く（ARF §6.2.2）。#31 と地続き・未 issue |
 | — | Wallet Provider 役の実装（我々は検証側のみ）。デモの範囲外 |
 
 ---
@@ -369,6 +474,10 @@ npm run wallet-providers list
 ## 参照
 
 - ARF Annex 1 — WUA / WIA / KA / Wallet Provider / Wallet Unit / WSCA / WSCD の定義
+- ARF §6.2.2 — Wallet Provider notification と **Wallet Provider LoTE**／§6.6.2.4 — 発行者側の検証
+- **ARF Technical Specification 3**（WUA）— 転送 / 形式 / 内容 / ライフサイクル / 失効。
+  **Wallet Provider がどう発行するかは範囲外**と明記（§1.2）。実体は
+  `eudi-doc-standards-and-technical-specifications` リポジトリ側にある
 - HAIP 1.0 §4.4.1 — クライアント認証（MUST）と `client_id` = attestation の `sub`
 - OID4VCI 1.0 Appendix E — Wallet Attestation（JWT 形態）／Appendix D — Key Attestation
 - draft-ietf-oauth-attestation-based-client-auth-06 §5.1 / §5.2 / §6.1 / §12.1
