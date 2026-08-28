@@ -107,6 +107,37 @@ for (const p of ['trust/retired/iaca-48253ffd.crt']) {
   }
 }
 
+// **Wallet Provider も LoTE の役割**（ARF §6.2.2・issue #31）。Wallet Solution が認証され
+// 加盟国が委員会へ届け出ると、**委員会が Wallet Provider のトラストアンカーを
+// Wallet Provider LoTE に載せる**。発行者はそれを使って
+// (1) Wallet Unit から届く **WIA と KA の真正性**、(2) **Attestation Status List の真正性**
+// を検証する（§6.6.2.4.1）。**この2つのアンカーは同じとは限らない**——Wallet Provider は
+// 失効リストの提供を第三者に委託できるため。委託する場合も関連アンカーを LoTE に載せる責任は
+// Wallet Provider にある。
+//
+// **Wallet Provider だけ他と扱いが違う**: RP / PID Provider / Attestation Provider と異なり
+// CIR 2025/848 の登録をせず、アクセス証明書も登録証明書も受け取らない
+// （Wallet Provider と Wallet Unit の間に相互運用性が要らないため）。
+//
+// 収録するのは `trust/wallet-providers/*.crt`。**ここに置いた証明書がそのまま
+// 「この Wallet Provider を信じる」という宣言**になるので、足すのは重い判断。
+// Multipaz Wallet Dev の鍵は `default_configuration.json` に x5c 付きで**公開されている**値。
+const walletProviderCerts = [
+  { file: 'trust/wallet-providers/multipaz-dev-wia.crt',
+    ja: 'Multipaz Wallet Dev', en: 'Multipaz Wallet Dev' },
+];
+const walletProviderEntities = walletProviderCerts
+  .filter((w) => existsSync(root(w.file)))
+  .map((w) => entity({ ja: `ウォレット提供者: ${w.ja}`, en: `Wallet Provider: ${w.en}` }, [
+    // **WIA / KA の検証に使うアンカー**
+    service(`ウォレット提供（${w.ja}）`, `Wallet Solution (${w.en})`,
+      SVC('WalletSolution', 'Issuance'), w.file),
+    // **WUA の失効確認に使うアンカー**。同じ証明書でよい（別主体へ委託していないため）。
+    // 用途が違うので**サービスは分けて載せる**——委託されたら片方だけ差し替えられる
+    service(`ウォレット提供・失効（${w.ja}）`, `Wallet Solution revocation (${w.en})`,
+      SVC('WalletSolution', 'Revocation'), w.file),
+  ]));
+
 const now = new Date();
 const lote = {
   LoTE: {
@@ -141,6 +172,7 @@ const lote = {
         service('検証者アクセス証明書 CA（OID4VP）', 'WRP Access Certificate CA (OID4VP)',
           SVC('WRPAC', 'Issuance'), 'pki/verifier/rp-ca.crt'),
       ]),
+      ...walletProviderEntities,
     ],
   },
 };

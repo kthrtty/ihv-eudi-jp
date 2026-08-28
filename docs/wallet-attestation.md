@@ -122,7 +122,7 @@ WIA（JWT）                        ← 形式・内容・転送は TS3 / OID4VC
 | WIA の検証（`attest_jwt_client_auth`） | **実装済み** | `src/client-attestation.mjs` |
 | PAR / Token でのクライアント認証 | **実装済み** | `oid4vci.mjs` `par()` / `token()` |
 | `client_id` を attestation の `sub` から取る | **実装済み** | 事前登録が不要になる |
-| Wallet Provider アンカーの管理 | **実装済み** | KV `_wallet_providers:config`（`npm run wallet-providers`） |
+| Wallet Provider アンカーの管理 | **実装済み** | **LoTE が正本**（`WalletSolution/{Issuance,Revocation}`）＋ KV `_wallet_providers:config` が土台 |
 | 再送検知（`jti`） | **実装済み** | KV に `caj:<jti>` を記録 |
 | KA の検証（OID4VCI Appendix D・JWT 形態） | **実装済み** | `src/key-attestation.mjs` |
 | KA のアンカー管理 | **実装済み** | KV `_key_attesters:config`（`npm run key-attesters`） |
@@ -131,7 +131,6 @@ WIA（JWT）                        ← 形式・内容・転送は TS3 / OID4VC
 | `attestation` proof type（PoP なし） | **未実装** | Appendix F |
 | Web ウォレットの追従 | **未実装** | 広告を読まない（#43） |
 | **WUA の失効** | **未実装** | attestation の `status` クレームを読んでいない。TS3 §2.5 が Attestation Status List で規定 |
-| **Wallet Provider LoTE** | **未実装** | ARF §6.2.2 の正しい形。いまは KV に手で置いている（§6 の差分表） |
 
 **既定は `client_auth: none`**（実機がそのまま動く側）。発行ポータルの `/settings` から
 再デプロイなしに切り替える。
@@ -355,20 +354,30 @@ Attestation Provider と異なり **CIR 2025/848 に基づく登録をせず、�
 
 | | ARF | 我々 |
 |---|---|---|
-| 入手元 | **Wallet Provider LoTE**（委員会が署名・公開） | **KV `_wallet_providers:config`**（手で登録） |
-| 更新 | LoTE を取得し直す | `npm run wallet-providers` で編集 |
+| 入手元 | **Wallet Provider LoTE**（委員会が署名・公開） | **LoTE が正本**＋ KV が土台（2026-08-28 に移行） |
+| 更新 | LoTE を取得し直す | `trust/wallet-providers/*.crt` を足して `npm run gen-trustlists` |
 | 失効 | Attestation Status List | **未実装** |
 
-**現在配っている LoTE（`/trust/lote.json`）に Wallet Provider は入っていない。**
-実測したサービス型は `PID/{Issuance,Revocation}` `PubEAA/{Issuance,Revocation}` `WRPAC/Issuance`
-の5種・計14サービスで、**`WalletSolution` は1件も無い**。
+**LoTE に `WalletSolution/{Issuance,Revocation}` として載せた**（#31）。
+`src/trust.mjs` は **`walletProvider` を3つ目の役割**として扱い、`issuer` / `reader` とは
+**混ぜない**——issuer に寄せると「ウォレット提供者の CA が資格証を保証できる」ことになり、
+#26 で潰したのと同じクラスの穴が開く。
 
-`src/trust.mjs` は LoTE を読む層を持つが、**`WalletSolution` は「どちらの役でもない」として
-明示的に落としている**（`READER_SVC` / `ISSUER_SVC` のどちらにも該当せず、警告を出して無視）。
-**器はあるが Wallet Provider 用の口が開いていない**状態。
+**発行と失効を別サービスとして載せている**。ARF が言うとおり2つのアンカーは同じとは限らず
+（Wallet Provider は失効リストの提供を第三者に委託できる）、分けておけば片方だけ差し替えられる。
 
-つまり **役割が混在した LoTE に紛れているのではなく、そもそも LoTE の外（KV）にある。**
-これは #31（LoTE を役割ごとに分割する）と地続きで、**Wallet Provider LoTE を足すと4本目**になる。
+**KV は土台として残す**——リストが引けない環境（テスト・オフライン）と、リストに載っていない
+相手を手で足す運用のため。#26/#28 と同じ「リストが正本・バンドルは土台」の関係。
+現在値は `/dev/endpoints` の `POST /par` の行に**リスト由来と KV 由来を分けて**出る
+（どちらから来ているか読めないと、リストの設定漏れに気づけない）。
+
+### 落とし穴: 発行者は自分の LoTE を HTTP で取れない
+
+**LoTE を配っているのは発行者自身**なので、**Worker が自分の URL を fetch すると失敗する**
+（Cloudflare は自己参照を通さない）。しかも**例外にならず「アンカー0 件」になるだけ**で
+気づきにくい。実際に本番で踏んだ。発行者は `trust/bundle.json` を既に import しているので、
+**取得層を通さず実体をそのまま解決層へ渡す**（`createTrustResolver({ sources: [{ kind:'lote', doc }] })`）。
+読む側（verifier / web-wallet）が HTTP で取るのは従来どおり——あちらは別オリジン。
 
 ### ④ 検証が返すもの
 
@@ -466,7 +475,6 @@ npm run wallet-providers list
 | #5 | プラットフォーム鍵アテステーション（Android Key Attestation → Google root）。LoA 目標が未決 |
 | #43 | Web ウォレットが広告に追従しない |
 | — | WUA の失効（TS3 §2.5 の Attestation Status List）。未 issue |
-| — | Wallet Provider アンカーを LoTE から引く（ARF §6.2.2）。#31 と地続き・未 issue |
 | — | Wallet Provider 役の実装（我々は検証側のみ）。デモの範囲外 |
 
 ---

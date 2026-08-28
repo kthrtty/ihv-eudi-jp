@@ -31,6 +31,10 @@ function parsePki(json) {
     iacaCert: raw.mdoc?.iacas?.length ? raw.mdoc.iacas.map(b64ToDer)
       : (raw.mdoc?.iaca ? b64ToDer(raw.mdoc.iaca) : null),
     sdjwtCaCert: raw.sdjwt?.caCert ? b64ToDer(raw.sdjwt.caCert) : null,
+    // **信頼の底＝スキームオペレーターの CA**（#26/#28）。これが無いと `parseLoTE` は
+    // リストの署名者を検証できず valid を立てない。発行者も **Wallet Provider アンカーを
+    // リストから引く**（#31）ので、verifier と同じくここに載せる
+    trustSchemeCa: raw.trust?.schemeCa ? b64ToDer(raw.trust.schemeCa) : null,
   } : null;
   const statusPki = raw.status ? {
     key: raw.status.key,
@@ -66,6 +70,17 @@ export default {
         images: env.IMAGES || null,
         statusPki: pki?.statusPki ?? null,
         verifierPki: pki?.verifierPki ?? null,
+        // **Wallet Provider アンカーをトラストリストから引く**（ARF §6.2.2・issue #31）。
+        // WIA / KA を検証するのは発行者なので、検証者と同じ解決層をこちらにも通す。
+        // **スキーム CA が無ければリストを使わない**——署名者を検証できないと
+        // `parseLoTE` は valid を立てず、アンカー0件で attest 認証が全滅する。
+        // 「リストを設定していない」と「リストが引けない」は別物で、前者は
+        // KV のアンカーで従来どおり動くのが正しい（デプロイ順序の事故を防ぐ）
+        trustListUris: pki?.verifierPki?.trustSchemeCa
+          ? (env.TRUST_LIST_URIS || `${env.ISSUER_URL || ''}/trust/lote.json`)
+            .split(/[\s,]+/).filter(Boolean)
+          : null,
+        trustSchemeCaDer: pki?.verifierPki?.trustSchemeCa ?? null,
       });
     }
     return app.fetch(request, env, ctx);

@@ -64,8 +64,29 @@ async function loadHtml(rel) {
 
 export function createApp(opts = {}) {
   const { issuerHtml = null, verifierPki = null, statusPki = null, walletOrigin: issuerWalletOrigin = '',
-    images = null, ...svcOpts } = opts;
-  const svc = new IssuerService({ ...svcOpts, statusPki });
+    images = null, trustListUris: issuerTrustListUris = null, trustSchemeCaDer: issuerTrustSchemeCa = null,
+    ...svcOpts } = opts;
+  // **発行者も Wallet Provider アンカーをリストから引く**（ARF §6.2.2・issue #31）。
+  // WIA / KA を検証するのは発行者なので、検証者と同じ解決層をこちら側にも通す。
+  // **設定した URI があるときだけ**有効——無ければ KV のアンカーで従来どおり動く
+  // （テスト・オフライン互換）。**スキーム CA が無ければ使わない**：リストの署名者を
+  // 検証できないと `parseLoTE` は valid を立てず、アンカー0件＝発行が全滅する
+  // **明示的に注入された解決層が最優先**（テスト・埋め込みが差し替えられるように）。
+  //
+  // **発行者は LoTE を HTTP で取らない**——LoTE を配っているのは発行者自身で、
+  // **Worker が自分の URL を fetch すると失敗する**（Cloudflare は自己参照を通さない。
+  // 例外も出ず「0 件」になるだけなので気づきにくい。2026-08-28 に本番で踏んだ）。
+  // 実体は `trust/bundle.json` として既に import 済みなので**そのまま解決層へ渡す**。
+  // 読む側（verifier / web-wallet）が HTTP で取るのは従来どおり——あちらは別オリジン。
+  const issuerTrustResolver = svcOpts.trustResolver
+    ?? (issuerTrustSchemeCa
+      ? createTrustResolver({
+        sources: [{ kind: 'lote', doc: trustBundle.lote }],
+        schemeCaDer: issuerTrustSchemeCa,
+        store: svcOpts.store, keyPrefix: 'itrust:', ttlSec: 3600,
+      })
+      : null);
+  const svc = new IssuerService({ ...svcOpts, statusPki, trustResolver: issuerTrustResolver });
   const app = new Hono();
   // Expose the IssuerService to the embedding runtime / tests (in-process only —
   // NOT an HTTP route). Replaces the removed public /users maintenance API.

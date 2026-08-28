@@ -265,3 +265,81 @@ test('#40 メタデータの広告がフラグと連動する（広告と動作�
   // 「両方対応」は成立しない（AuthorizationConfiguration.kt で実測）
   assert.ok(!md.token_endpoint_auth_methods_supported.includes('none'));
 });
+
+// #31: **Wallet Provider アンカーの正本はトラストリスト**（ARF §6.2.2）。
+// Wallet Solution が認証され加盟国が届け出ると、委員会が Wallet Provider のアンカーを
+// LoTE に載せ、発行者はそれで WIA / KA の真正性を検証する（§6.6.2.4.1）。
+// **KV は土台として残す**——リストが引けない環境と、載っていない相手を手で足す運用のため。
+test('#31 Wallet Provider アンカーを LoTE から引く（KV に無くても通る）', async () => {
+  const { X509Certificate, generateKeyPairSync, createSign } = await import('node:crypto');
+  const { execFileSync } = await import('node:child_process');
+  const { mkdtempSync, readFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { importPKCS8 } = await import('jose');
+
+  // Wallet Provider の自己署名証明書（＝LoTE に載るアンカー）
+  const dir = mkdtempSync(join(tmpdir(), 'wp-'));
+  execFileSync('openssl', ['ecparam', '-name', 'prime256v1', '-genkey', '-noout', '-out', join(dir, 'k.pem')]);
+  execFileSync('openssl', ['req', '-new', '-x509', '-key', join(dir, 'k.pem'), '-out', join(dir, 'c.pem'),
+    '-days', '30', '-subj', '/CN=Test Wallet Provider']);
+  const certDer = new X509Certificate(readFileSync(join(dir, 'c.pem'))).raw;
+  const pkcs8 = execFileSync('openssl', ['pkcs8', '-topk8', '-nocrypt', '-in', join(dir, 'k.pem')]).toString();
+  const wpKey = await importPKCS8(pkcs8, 'ES256');
+
+  const inst = await generateKeyPair('ES256', { extractable: true });
+  const cnfJwk = await exportJWK(inst.publicKey);
+  const WP_ISS = 'https://wp.example/list';
+  const attestation = await new SignJWT({ iss: WP_ISS, sub: CLIENT_ID, cnf: { jwk: cnfJwk } })
+    .setProtectedHeader({ alg: 'ES256', typ: 'oauth-client-attestation+jwt' })
+    .setIssuedAt().setExpirationTime('2h').sign(wpKey);
+  const pop = await new SignJWT({ iss: CLIENT_ID, aud: ISSUER, jti: randomUUID() })
+    .setProtectedHeader({ alg: 'ES256', typ: 'oauth-client-attestation-pop+jwt' })
+    .setIssuedAt().sign(inst.privateKey);
+
+  // **KV は空**。アンカーはトラストリスト側だけにある
+  const app = createApp({
+    credentialIssuer: ISSUER, redirectAllowlist: 'https://wallet.example/cb',
+    trustResolver: { resolve: async () => ({
+      issuerCas: [], readerCas: [],
+      walletProviderCas: [{ der: new Uint8Array(certDer), role: 'walletProvider' }],
+    }) },
+  });
+  await setFeature(app.svc.store, 'client_auth', 'attest_jwt_client_auth');
+
+  const res = await app.request(`${ISSUER}/par`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+      'OAuth-Client-Attestation': attestation,
+      'OAuth-Client-Attestation-PoP': pop,
+    },
+    body: new URLSearchParams({ response_type: 'code', client_id: CLIENT_ID,
+      redirect_uri: 'https://wallet.example/cb', scope: 'pid_mdoc',
+      code_challenge: 'x'.repeat(43), code_challenge_method: 'S256' }),
+  });
+  const body = await res.json();
+  assert.equal(res.status, 201, JSON.stringify(body));
+
+  // **役割を混ぜない**——issuer 側のアンカーに置いても Wallet Provider としては通らない
+  const wrong = createApp({
+    credentialIssuer: ISSUER, redirectAllowlist: 'https://wallet.example/cb',
+    trustResolver: { resolve: async () => ({
+      issuerCas: [{ der: new Uint8Array(certDer), role: 'issuer' }],
+      readerCas: [], walletProviderCas: [],
+    }) },
+  });
+  await setFeature(wrong.svc.store, 'client_auth', 'attest_jwt_client_auth');
+  const bad = await wrong.request(`${ISSUER}/par`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+      'OAuth-Client-Attestation': attestation,
+      'OAuth-Client-Attestation-PoP': pop,
+    },
+    body: new URLSearchParams({ response_type: 'code', client_id: CLIENT_ID,
+      redirect_uri: 'https://wallet.example/cb', scope: 'pid_mdoc',
+      code_challenge: 'x'.repeat(43), code_challenge_method: 'S256' }),
+  });
+  assert.equal(bad.status, 400, '発行者アンカーは Wallet Provider の代わりにならない');
+});

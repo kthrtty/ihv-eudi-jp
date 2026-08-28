@@ -46,7 +46,7 @@ test('#28 LoTE のサービス型は 119602 の形で、PID と PuB-EAA・発行
   assert.equal(r.valid, true, r.errors.join(';'));
   const types = new Set(r.anchors.map((a) => a.serviceType));
   for (const t of types) {
-    assert.match(t, /\/19602\/SvcType\/(PID|PubEAA|WRPAC)\/(Issuance|Revocation)$/, t);
+    assert.match(t, /\/19602\/SvcType\/(PID|PubEAA|WRPAC|WalletSolution)\/(Issuance|Revocation)$/, t);
     // **uri.etsi.org は名乗らない**——EU に届け出たスキームではない（EU–日本 PoC と同じ流儀）
     assert.ok(!t.startsWith('http://uri.etsi.org/'), `EU の名前空間を騙らない: ${t}`);
   }
@@ -54,9 +54,19 @@ test('#28 LoTE のサービス型は 119602 の形で、PID と PuB-EAA・発行
   assert.ok(has('/PID/Issuance') && has('/PID/Revocation'), 'PID の発行と失効');
   assert.ok(has('/PubEAA/Issuance') && has('/PubEAA/Revocation'), '残り8書類は PuB-EAA');
   assert.ok(has('/WRPAC/Issuance'), 'Reader CA は WRPAC');
+  // **Wallet Provider は3つ目の役割**（ARF §6.2.2・#31）。発行者が WIA / KA の
+  // 真正性を確かめるためのアンカーで、資格証を保証する issuer とは用途が違う
+  assert.ok(has('/WalletSolution/Issuance'), 'Wallet Provider は WalletSolution');
+  assert.ok(r.anchors.some((a) => a.role === 'walletProvider'), 'walletProvider 役が立つ');
+  assert.ok(r.anchors.filter((a) => a.role === 'walletProvider')
+    .every((a) => /\/WalletSolution\//.test(a.serviceType)), 'walletProvider は WalletSolution だけ');
   // 失効サービスは Status List の署名者を検証するためのアンカー（issue #26）
   const rev = r.anchors.filter((a) => /\/Revocation$/.test(a.serviceType));
-  assert.ok(rev.length >= 2 && rev.every((a) => a.role === 'issuer'));
+  assert.ok(rev.length >= 2);
+  // **失効サービスは役割ごとに意味が違う**: issuer=Status List の署名者（#26）／
+  // walletProvider=Attestation Status List の署名者（ARF §6.2.2）。reader には無い
+  assert.ok(rev.every((a) => a.role === 'issuer' || a.role === 'walletProvider'),
+    '失効アンカーは issuer か walletProvider');
 });
 
 // 役割の取り違えは実害（Reader CA が資格証を保証できてしまう）。許可リストで判定し、
@@ -74,8 +84,9 @@ test('#28 未知・別役割のサービス型はアンカーにしない', asyn
       ServiceStatus: 'http://trust.ihv.example/19602/IHVDemoProvidersList/SvcStatus/notified',
     },
   });
-  const EXTRA = ['http://trust.ihv.example/19602/SvcType/WalletSolution/Issuance',
-    'http://trust.ihv.example/19602/SvcType/WRPRC/Issuance',
+  // **WalletSolution はもう「未知」ではない**（#31 で3つ目の役割になった）。
+  // 残る未知は登録証明書（WRPRC）・Register・素性不明なもの
+  const EXTRA = ['http://trust.ihv.example/19602/SvcType/WRPRC/Issuance',
     'http://trust.ihv.example/19602/SvcType/Register',
     'https://evil.example/whatever'];
   const doc = JSON.parse(JSON.stringify(lote()));
@@ -87,7 +98,7 @@ test('#28 未知・別役割のサービス型はアンカーにしない', asyn
 
   const r = await parseLoTE({ lote: payload, jws }, { schemeCaDer });
   assert.equal(r.valid, true, r.errors.join(';'));
-  assert.ok(r.anchors.every((a) => /\/(PID|PubEAA|EAA|QEAA)\/|\/WRPAC\//.test(a.serviceType)),
+  assert.ok(r.anchors.every((a) => /\/(PID|PubEAA|EAA|QEAA)\/|\/WRPAC\/|\/WalletSolution\//.test(a.serviceType)),
     '許可した型だけがアンカーになる');
   assert.equal(r.warnings.length, EXTRA.length, '落とした型は warning に残す（黙って捨てない）');
   // WalletSolution の証明書は Reader CA だが、**リーダーアンカーにも昇格しない**。

@@ -265,6 +265,7 @@ export class IssuerService {
   // statusPki: { key, cert } — injected by worker.mjs for Workers env;
   // null lets StatusListService lazy-load from disk in Node.js dev.
   constructor({ store = memoryStore(), credentialIssuer = 'https://issuer.ihv.example', proofMaxAgeSec = 300,
+    trustResolver = null,
     userStore = createUserStore(), statusPki = null, redirectAllowlist = [], clients = null,
     clientsKvKey = '_clients:config',
     maxAppsPerDay = MAX_APPS_PER_DAY } = {}) {
@@ -290,6 +291,9 @@ export class IssuerService {
     // isolate 起動後に1回だけ読む——変更頻度が桁違いに低い
     this.walletProvidersKvKey = '_wallet_providers:config';
     this._walletProvidersKv = undefined;
+    // **Wallet Provider アンカーの正本**（ARF §6.2.2・#31）。無ければ KV だけで判定する
+    // （テスト・オフライン互換。#26/#28 と同じ「リストが正本・バンドルは土台」の関係）
+    this.trustResolver = trustResolver;
     // 鍵証明者のアンカー（issue #5）。**Wallet Provider の表とは別**——
     // 署名する鍵も証明の対象も違うので、混ぜると片方の信頼で両方が通る
     this.keyAttestersKvKey = '_key_attesters:config';
@@ -660,12 +664,36 @@ export class IssuerService {
    * **読めなければ null＝1件も信頼しない**（fail-closed）。
    */
   async #walletProviderJwks(iss) {
+    // **正本はトラストリスト**（ARF §6.2.2・issue #31）。Wallet Solution が認証され
+    // 加盟国が届け出ると、委員会が Wallet Provider のアンカーを LoTE に載せる。
+    // 発行者はそれで **WIA / KA の真正性**を検証する（§6.6.2.4.1）。
+    // **KV は土台として残す**——リストが引けない環境（テスト・オフライン）と、
+    // リストに載っていない相手を手で足す運用のため（#26/#28 と同じ関係）。
+    //
+    // **LoTE のアンカーは証明書で、`iss` では引けない**。ARF も「Trusted List から得た
+    // Wallet Provider トラストアンカーを使って署名を検証する」＝**束を試す**モデルなので、
+    // 全アンカーの公開鍵を1つの JWKS にまとめて返す。**役割が違うアンカーは混ぜない**
+    // （`walletProviderCas` だけを使う。issuer/reader を混ぜると #26 と同じ穴が開く）。
+    const keys = [];
+    if (this.trustResolver) {
+      try {
+        const r = await this.trustResolver.resolve();
+        for (const a of (r.walletProviderCas ?? [])) {
+          try {
+            const { X509Certificate } = await import('node:crypto');
+            keys.push({ ...new X509Certificate(Buffer.from(a.der)).publicKey.export({ format: 'jwk' }),
+              alg: 'ES256', use: 'sig' });
+          } catch { /* 読めない証明書は飛ばす（リスト全体は落とさない） */ }
+        }
+      } catch { /* 取得できなければ KV だけで判定する */ }
+    }
     if (this._walletProvidersKv === undefined) {
       try { this._walletProvidersKv = (await this.store.get(this.walletProvidersKvKey)) ?? null; }
       catch { this._walletProvidersKv = null; }
     }
     const entry = this._walletProvidersKv?.[String(iss ?? '')];
-    return entry?.jwks ?? null;
+    for (const k of (entry?.jwks?.keys ?? [])) keys.push(k);
+    return keys.length ? { keys } : null;
   }
 
   /**
@@ -803,14 +831,25 @@ export class IssuerService {
    * （トラストリストの設定画面がアンカー件数を出しているのと同じ理由）。
    */
   async walletProviderSummary() {
+    // **リスト由来と KV 由来を分けて出す**（issue #31）。ARF §6.2.2 はリストが正本で、
+    // KV は土台。**どちらから来ているかが読めないと、リストの設定漏れに気づけない**
+    let fromList = 0;
+    if (this.trustResolver) {
+      try { fromList = (await this.trustResolver.resolve()).walletProviderCas?.length ?? 0; }
+      catch { fromList = -1; }   // -1 = 取得失敗（0 件と区別する）
+    }
     await this.#walletProviderJwks(null);   // KV 側を読ませる（未読なら1回だけ）
     const obj = this._walletProvidersKv ?? {};
     const ids = Object.keys(obj);
-    if (!ids.length) {
-      return 'Wallet Provider アンカー: 0 件（attest_jwt_client_auth は1件も通りません）';
+    const kvKeys = ids.reduce((n, k) => n + (obj[k]?.jwks?.keys?.length ?? 0), 0);
+    const listPart = this.trustResolver
+      ? (fromList < 0 ? 'リスト取得失敗' : `リスト ${fromList} 件`) : 'リスト未設定';
+    if (fromList <= 0 && !kvKeys) {
+      return `Wallet Provider アンカー: 0 件（${listPart}／KV 0 件）`
+        + ' — attest_jwt_client_auth は1件も通りません';
     }
-    return `Wallet Provider アンカー: ${ids.length} 件  `
-      + ids.map((k) => `${k}[鍵${obj[k]?.jwks?.keys?.length ?? 0}件]`).join('  ');
+    return `Wallet Provider アンカー: ${listPart} / KV ${kvKeys} 件  `
+      + ids.map((k) => `kv:${k}[鍵${obj[k]?.jwks?.keys?.length ?? 0}件]`).join('  ');
   }
 
   /**

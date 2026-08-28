@@ -30,7 +30,7 @@ const fp = (der) => new X509Certificate(b(der)).fingerprint256.replace(/:/g, '')
 function anchorOf(der, { role, name = null, source, docTypes = null, status = null, serviceType = null }) {
   const c = new X509Certificate(b(der));
   return {
-    role,                                     // 'issuer' | 'reader'
+    role,                                     // 'issuer' | 'reader' | 'walletProvider'
     der: new Uint8Array(b(der)),
     subject: c.subject.replace(/\n/g, ','),
     fp256: fp(der),
@@ -53,10 +53,16 @@ const inValidity = (a, at = new Date()) =>
 // 旧 TL 形式（.../TrstSvc/Svctype/...）も受ける——外部のリストが 119612 で来ることがある。
 //
 // **役割の取り違えは実害**（Reader CA が資格証を保証できてしまう）なので許可リストで判定し、
-// **知らない型は発行者に寄せない**。WalletSolution / WRPRC / Register は
-// どちらの役でもないので落とす（ウォレット本体や登録証明書のアンカー）。
+// **知らない型はどの役にも寄せない**。WRPRC / Register は落とす（登録証明書のアンカー）。
+//
+// **`walletProvider` は3つ目の役割**（ARF §6.2.2・issue #31）。発行者が
+// **Wallet Unit から届く WIA / KA の真正性**を確かめるためのアンカーで、
+// 資格証を保証する `issuer` とも RP を認証する `reader` とも用途が違う。
+// **混ぜてはいけない**——issuer に寄せると「ウォレット提供者の CA が資格証を保証できる」
+// ことになり、#26 で潰したのと同じクラスの穴が開く。
 const READER_SVC = /\/SvcType\/WRPAC\/(Issuance|Revocation)$|\/Svctype\/(RPAccessCA|RPRegistrar)$/;
 const ISSUER_SVC = /\/SvcType\/(PID|PubEAA|EAA|QEAA)\/(Issuance|Revocation)$|\/Svctype\/(PID|EAA|QEAA)(\/(Pub-EAA|Q))?$/;
+const WALLET_SVC = /\/SvcType\/WalletSolution\/(Issuance|Revocation)$/;
 // 119602 は `<list>/SvcStatus/notified`、119612 は `Svcstatus/granted`。両方受ける
 const GRANTED = /\/Svcstatus\/(granted|recognisedatnationallevel)$|\/SvcStatus\/notified$/i;
 
@@ -99,7 +105,9 @@ export async function parseLoTE(doc, { schemeCaDer = null, at = new Date() } = {
     for (const s of (te?.TrustedEntityServices ?? [])) {
       const si = s?.ServiceInformation; if (!si) continue;
       const type = si.ServiceTypeIdentifier ?? '';
-      const role = READER_SVC.test(type) ? 'reader' : (ISSUER_SVC.test(type) ? 'issuer' : null);
+      const role = READER_SVC.test(type) ? 'reader'
+        : ISSUER_SVC.test(type) ? 'issuer'
+          : WALLET_SVC.test(type) ? 'walletProvider' : null;
       // **知らない役割は捨てる**（発行者に寄せない）。リスト全体は落とさない
       if (!role) { warnings.push(`LoTE: 未知の ServiceTypeIdentifier を無視 — ${type}`); continue; }
       // **granted 以外（withdrawn/revoked）は載っていても採らない**
@@ -250,7 +258,22 @@ export function createTrustResolver({
   const mem = new Map();        // uri -> { parsed, at }
   const inflight = new Map();   // uri -> Promise
 
-  const load = (uri, { force = false, ttl } = {}) => {
+  const load = (src, { force = false, ttl } = {}) => {
+    // **手元にある文書をそのまま渡せる**（issue #31・2026-08-28）。
+    // 発行者は LoTE を自分で配っているので **HTTP で取れない**——Worker が自分の URL を
+    // fetch すると失敗し、しかも例外にならず「アンカー0件」になるだけで気づきにくい。
+    // 取得層を通さないので鮮度管理もキャッシュも要らない（配っている実体そのもの）。
+    if (src && typeof src === 'object' && src.doc) {
+      const t = now();
+      return (async () => {
+        try {
+          const parsed = await parseTrustList(src.doc, { schemeCaDer, at: new Date(t) });
+          if (!parsed.valid) throw new Error(parsed.errors.join('; ') || 'アンカー0件');
+          return { parsed: serialize(parsed), at: t, uri: src.uri ?? '(embedded)' };
+        } catch (e) { return { parsed: null, at: t, uri: src.uri ?? '(embedded)', error: e.message }; }
+      })();
+    }
+    const uri = src;
     const key = `${keyPrefix}${uri}`;
     if (inflight.has(key)) return inflight.get(key);
     const p = (async () => {
@@ -305,6 +328,8 @@ export function createTrustResolver({
     return {
       issuerCas: all.filter((a) => a.role === 'issuer'),
       readerCas: all.filter((a) => a.role === 'reader'),
+      // **WIA / KA の検証に使うアンカー**（ARF §6.2.2・#31）。issuer/reader とは用途が違う
+      walletProviderCas: all.filter((a) => a.role === 'walletProvider'),
       lists, errors, at: now(),
     };
   };
@@ -314,6 +339,7 @@ export function createTrustResolver({
     /** 検証面が直接使う DER の配列（mdoc.mjs / sdjwt.mjs はこれを受ける）。 */
     async issuerAnchorDers(opts) { return (await resolve(opts)).issuerCas.map((a) => a.der); },
     async readerAnchorDers(opts) { return (await resolve(opts)).readerCas.map((a) => a.der); },
+    async walletProviderAnchorDers(opts) { return (await resolve(opts)).walletProviderCas.map((a) => a.der); },
   };
 }
 
