@@ -766,3 +766,36 @@ test('PAR: 同意画面の request_uri が空にならず、PAR が使い捨て�
   // **コードを出す経路では消す**（RFC 9126 §4「used only once」）
   assert.equal(await app.svc.resolvePar(request_uri), null, '同意 POST で PAR を使い捨てにすること');
 });
+
+// RFC 6749 §4.1.2「If an authorization code is used more than once, the authorization
+// server MUST deny the request and **SHOULD revoke (when possible) all tokens previously
+// issued based on that authorization code**」。**拒否だけでは足りない**——コードが
+// 再利用された時点で、正規のクライアントが持つトークンも危殆化しているとみなす。
+// conformance の `attempt-reuse-authorization-code-after-one-second` が
+// 「resource endpoint returned a different http status」で捕まえた。
+test('認可コードを再利用されたら、そのコードで出したトークンも失効する', async () => {
+  const app = createApp({ credentialIssuer: ISSUER, redirectAllowlist: 'https://rp.example/cb' });
+  const login = await app.request(`${ISSUER}/login`, { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_001' }) });
+  const sessionId = (await login.json()).session_id;
+  // PKCE は S256 なので challenge は verifier の SHA-256（base64url）
+  const { createHash } = await import('node:crypto');
+  const verifier = 'v'.repeat(43);
+  const challenge = createHash('sha256').update(verifier).digest('base64url');
+  const { redirect } = await app.svc.authorize({ sessionId, response_type: 'code',
+    redirect_uri: 'https://rp.example/cb', scope: 'pid_sdjwt',
+    code_challenge: challenge, code_challenge_method: 'S256' });
+  const code = new URL(redirect).searchParams.get('code');
+
+  const t1 = await app.svc.token({ grant_type: 'authorization_code', code,
+    redirect_uri: 'https://rp.example/cb', code_verifier: verifier });
+  assert.ok(t1.access_token, '1回目は成功する');
+  assert.ok(await app.svc.store.get(`at:${t1.access_token}`), 'トークンが存在する');
+
+  await assert.rejects(async () => app.svc.token({ grant_type: 'authorization_code', code,
+    redirect_uri: 'https://rp.example/cb', code_verifier: verifier }),
+  (e) => /already been used/.test(e.message), '2回目は拒否される');
+
+  assert.equal(await app.svc.store.get(`at:${t1.access_token}`), null,
+    '再利用を検出したら、先に出したトークンも消えていること');
+});

@@ -761,7 +761,12 @@ export function createApp(opts = {}) {
       // **どちらのスキームでも値を取る**——束縛の有無はトークン側（at.jkt）で決まり、
       // スキーム名では決まらない。ヘッダだけ DPoP と名乗って proof を送らない、
       // という抜け道を作らないため
-      const m = /^(?:Bearer|DPoP) +(.+)$/.exec(auth);
+      // **スキーム名は大文字小文字を区別しない**（2026-08-29・conformance が捕まえた）。
+      // RFC 9110 §11.1「the authentication scheme … is case-insensitive」。
+      // `i` が無かったため `dpop <token>` を 401 で拒否していた。**エラー本文を返すので
+      // suite には「200 でない」「credentials も transaction_id も無い」「未知のキーがある」
+      // の3つに見え、原因が資格証応答の問題に化けていた**——症状から真因が遠い例
+      const m = /^(?:Bearer|DPoP) +(.+)$/i.exec(auth);
       const accessToken = m ? m[1].trim() : null;
       const body = await c.req.json();
       const res = await svc.credential({ accessToken, body,

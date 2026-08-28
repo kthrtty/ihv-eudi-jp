@@ -314,3 +314,24 @@ test('§7.1: proof 自体の不正は invalid_dpop_proof、鍵の束縛違反は
   assert.match(res2.headers.get('www-authenticate') || '',
     /DPoP error="invalid_token", error_description="Invalid DPoP key binding"/);
 });
+
+// RFC 9449 §11.1「the jti … can be used to detect and prevent replay」。
+// **`seenJti` は dpop.mjs に実装済みだったのに、呼び出し側が渡し忘れていた**
+// （2026-08-29・conformance の `dpop-negative-tests` が
+// 「DPoP reuse, Second use of the same jti, this 'should' fail」で捕まえた）。
+// 機能があることと、経路に繋がっていることは別。
+test('§11.1: 同じ jti の DPoP proof は2度目が拒否される（PAR）', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+  const key = await keypair();
+  const proof = await proofFor(key, { htm: 'POST', htu: `${ISSUER}/par` });
+  const send = () => app.request(`${ISSUER}/par`, { method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', dpop: proof },
+    body: new URLSearchParams({ response_type: 'code', client_id: 'wallet-app',
+      redirect_uri: 'https://wallet.example/cb', scope: 'pid_mdoc',
+      code_challenge: 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM', code_challenge_method: 'S256' }) });
+
+  assert.equal((await send()).status, 201, '1回目は通る');
+  const second = await send();
+  assert.equal(second.status, 400, '同じ jti の2回目は拒否される');
+  assert.equal((await second.json()).error, 'invalid_dpop_proof');
+});

@@ -431,7 +431,7 @@ test('token rejects redirect_uri mismatch and reuse of code', async () => {
   // reuse fails
   await assert.rejects(
     svc.token({ grant_type: 'authorization_code', code, code_verifier: verifier, redirect_uri: redirect }),
-    /used authorization code/);
+    /already been used/);
 });
 
 test('login rejects unknown user', async () => {

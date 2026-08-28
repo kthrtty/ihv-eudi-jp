@@ -801,6 +801,20 @@ export class IssuerService {
   }
 
   /**
+   * DPoP proof の `jti` 再利用を検出する（RFC 9449 §11.1「the jti … can be used to
+   * detect and prevent replay」・§4.3 の検証項目）。**attestation とは名前空間を分ける**
+   * ——同じ値がたまたま両方に現れたときに、片方が他方を弾いてしまわないため。
+   * 2026-08-29: `seenJti` は実装済みだったのに **DPoP の検証に渡し忘れていた**
+   * （conformance の `dpop-negative-tests` が「二度目の jti が通る」で捕まえた）。
+   */
+  async #seenDpopJti(jti) {
+    const key = `dpj:${jti}`;
+    if (await this.store.get(key)) return true;
+    await this.store.set(key, 1, this.proofMaxAgeSec);
+    return false;
+  }
+
+  /**
    * Token EP / PAR に来た DPoP proof を検証して拇印を返す（RFC 9449 §6.1）。
    * **proof が無く `required` でなければ null**＝束ねない（bearer のまま）。
    * proof はあるが不正なら**投げる**——「送ってきたが壊れている」を黙って
@@ -817,7 +831,8 @@ export class IssuerService {
       return null;
     }
     try {
-      const { jkt } = await verifyDpopProof(proof, { htm: 'POST', htu });
+      const { jkt } = await verifyDpopProof(proof, { htm: 'POST', htu,
+        seenJti: (jti) => this.#seenDpopJti(jti) });
       return jkt;
     } catch (e) {
       throw httpErr(400, 'invalid_dpop_proof', e.message);
@@ -1201,7 +1216,17 @@ export class IssuerService {
     if (grant_type === 'authorization_code') {
       const { code, code_verifier, redirect_uri } = params;
       const rec = code && await this.store.get(`code:${code}`);
-      if (!rec || rec.used) throw httpErr(400, 'invalid_grant', 'unknown or used authorization code');
+      if (!rec) throw httpErr(400, 'invalid_grant', 'unknown authorization code');
+      if (rec.used) {
+        // **再利用されたら、そのコードで出したトークンも失効させる**
+        // （2026-08-29・conformance が捕まえた）。RFC 6749 §4.1.2「If an authorization
+        // code is used more than once, the authorization server MUST deny the request
+        // and SHOULD revoke (when possible) all tokens previously issued based on that
+        // authorization code」。**拒否だけでは足りない**——コードを盗んで再利用された
+        // 時点で、正規のクライアントが持つトークンも危殆化しているとみなす
+        for (const t of rec.issued ?? []) await this.store.del?.(`at:${t}`);
+        throw httpErr(400, 'invalid_grant', 'authorization code has already been used');
+      }
       if (rec.redirect_uri !== redirect_uri) throw httpErr(400, 'invalid_grant', 'redirect_uri mismatch');
       // **コードを発行したクライアント以外は交換できない**（issue #38）。
       // **照合するのは登録表があるときだけ**——無いときに要求すると、client_id を
@@ -1250,8 +1275,11 @@ export class IssuerService {
         throw httpErr(400, 'invalid_dpop_proof',
           'DPoP proof key does not match the dpop_jkt committed at the PAR endpoint (RFC 9449 §10)');
       }
-      await this.store.set(`code:${code}`, { ...rec, used: true }); // one-time
       const accessToken = tok();
+      // **どのトークンを出したかを覚える**——再利用が来たときに失効させる対象（上の §4.1.2）。
+      // `used` と同じ書き込みで残す（別々に書くと片方だけ残る窓ができる）
+      await this.store.set(`code:${code}`,
+        { ...rec, used: true, issued: [...(rec.issued ?? []), accessToken] }, this.authCodeMaxAgeSec);
       // **authorization_details 経路なら dataset の対応表をトークンに束ねる**（#37）。
       // Credential Request が `credential_identifier` で来たとき、どの configuration に
       // 対応するかをここから引く。**このトークンで認可されたものだけ**が載る
@@ -1308,6 +1336,7 @@ export class IssuerService {
       try {
         proved = await verifyDpopProof(dpop.proof, {
           htm: 'POST', htu: dpop.htu, accessToken,
+          seenJti: (jti) => this.#seenDpopJti(jti),
         });
       } catch (e) {
         // **proof 自体が§4.3の基準で不正**（署名・htm/htu・iat・jti など）→ `invalid_dpop_proof`
