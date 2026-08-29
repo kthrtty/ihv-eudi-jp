@@ -579,16 +579,29 @@ export class IssuerService {
     return u;
   }
 
-  // ---- 3.4 Authorization Endpoint (authorization_code + PKCE) ----
-  async authorize({ sessionId, response_type, redirect_uri, code_challenge, code_challenge_method,
-    scope, authorization_details, issuer_state, state, applications: chosen = null,
-    client_id = null, clientAuthenticated = false, dpop_jkt = null } = {}) {
-    if (response_type !== 'code') throw httpErr(400, 'unsupported_response_type', String(response_type));
-    const sess = sessionId && await this.store.get(`sess:${sessionId}`);
-    if (!sess) throw httpErr(401, 'login_required', 'no active session; user must sign in first');
-    if (code_challenge_method !== 'S256' || !code_challenge) throw httpErr(400, 'invalid_request', 'PKCE S256 required');
+  /**
+   * PKCE・redirect_uri・登録クライアントの3点だけを見る（session/コード発行とは無関係）。
+   * `authorize()`（コード発行）と `checkAuthorizeRequest()`（GET /authorize の事前検証・
+   * 修正1/2/3）の**両方から呼ぶ共有の1本**——2箇所に書き分けると「画面はエラーなのに
+   * コードは出る」（またはその逆）という食い違いが起きる。
+   */
+  async #validateClientBasics({ redirect_uri, code_challenge, code_challenge_method, client_id, clientAuthenticated }) {
+    // FAPI 2.0 Security Profile（Final）§5.3.2.2 Authorization server: 「shall require
+    // the request to include the code_challenge parameter with the code_challenge_method
+    // parameter's value set to S256」。**`plain` も含め S256 以外は同じ扱いで拒否する**
+    // ——conformance suite の par-plain-pkce-rejected は method 自体は届いていても
+    // 値が S256 でなければ弾くことを求める（par-ensure-pkce-required は不在そのもの）。
+    if (code_challenge_method !== 'S256' || !code_challenge) {
+      throw httpErr(400, 'invalid_request', 'PKCE (code_challenge / code_challenge_method=S256) is required');
+    }
     // Open-redirector guard: only hand an auth code to a registered redirect_uri.
     // Skipped when no allowlist is configured (dev); prod always carries one.
+    //
+    // RFC 6749 §4.1.2.1: 「If the request fails due to a missing, invalid, or
+    // mismatching redirection URI, the authorization server SHOULD inform the
+    // resource owner of the error and MUST NOT automatically redirect the
+    // user-agent to the invalid redirection URI.」——ここで弾いた要求は
+    // 絶対に redirect_uri へ返さない（呼び出し側=app.mjs は画面を返す。リダイレクトしない）。
     if (!redirect_uri || !isRedirectAllowed(redirect_uri, this.redirectAllowlist)) {
       throw httpErr(400, 'invalid_request', 'redirect_uri not allowed');
     }
@@ -604,6 +617,30 @@ export class IssuerService {
         && !isRegisteredClientAny(client_id, redirect_uri, await this.#registries())) {
       throw httpErr(400, 'invalid_client', 'unknown client_id or redirect_uri not registered for it');
     }
+  }
+
+  /**
+   * `/authorize` の入力検証だけを行う（session 不要・副作用なし。修正1）。
+   *
+   * **`GET /authorize` は同意画面を出す前にこれを通す**——conformance suite の
+   * REVIEW ステップ（ExpectPkceMissingErrorPage 等）は「認可エンドポイントが
+   * エラー画面を返すこと」を求めており、いったん正常な同意画面を見せてから
+   * 次の POST（`/authorize/consent`）で初めて弾くのでは要求を満たさない。
+   */
+  async checkAuthorizeRequest({ response_type, redirect_uri, code_challenge, code_challenge_method,
+    client_id = null, clientAuthenticated = false } = {}) {
+    if (response_type !== 'code') throw httpErr(400, 'unsupported_response_type', String(response_type));
+    await this.#validateClientBasics({ redirect_uri, code_challenge, code_challenge_method, client_id, clientAuthenticated });
+  }
+
+  // ---- 3.4 Authorization Endpoint (authorization_code + PKCE) ----
+  async authorize({ sessionId, response_type, redirect_uri, code_challenge, code_challenge_method,
+    scope, authorization_details, issuer_state, state, applications: chosen = null,
+    client_id = null, clientAuthenticated = false, dpop_jkt = null } = {}) {
+    if (response_type !== 'code') throw httpErr(400, 'unsupported_response_type', String(response_type));
+    const sess = sessionId && await this.store.get(`sess:${sessionId}`);
+    if (!sess) throw httpErr(401, 'login_required', 'no active session; user must sign in first');
+    await this.#validateClientBasics({ redirect_uri, code_challenge, code_challenge_method, client_id, clientAuthenticated });
     const ids = await this.requestedIds({ scope, authorization_details, issuer_state });
     if (!ids.length) throw httpErr(400, 'invalid_scope', 'no credential configuration requested');
     const code = tok();

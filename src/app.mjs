@@ -8,7 +8,7 @@ import { IssuerService } from './oid4vci.mjs';
 import { VerifierService } from './verifier.mjs';
 import { buildDelivery, offerByValueUri, offerByReferenceUri, offerQrSvg } from './offer.mjs';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
-import { shell, renderAuthStart, renderCallback, renderOfferAuthcode, completeIssuance, pkce, authorizeUrl, renderLogin, appShell, renderConsentScreen, renderVcSelect, groupCatalog, renderHistory, renderAccount, renderFeatureSettings } from './authcode-demo.mjs';
+import { shell, renderAuthStart, renderCallback, renderOfferAuthcode, completeIssuance, pkce, authorizeUrl, renderLogin, appShell, renderConsentScreen, renderVcSelect, groupCatalog, renderHistory, renderAccount, renderFeatureSettings, renderAuthorizeError } from './authcode-demo.mjs';
 import { renderVerifyConsole, renderWebVerify, renderWebVerifyResult, renderVerifyHistory, renderVerifierSettings } from './verifier-demo.mjs';
 import { scenarioList, getScenario, evaluateScenario, scenarioConfigIds } from './scenarios.mjs';
 import { renderScenarioHome, renderScenarioRun, renderScenarioStep1Done, renderScenarioAccept, renderScenarioGone } from './scenario-demo.mjs';
@@ -258,6 +258,13 @@ export function createApp(opts = {}) {
     return c.json({ error: e.oauthError || 'server_error', error_description: e.description || e.message }, e.status || 500);
   };
   const httpFail = (status, description) => Object.assign(new Error(description), { status, description, oauthError: 'invalid_request' });
+
+  // **`/authorize` だけは JSON でなく HTML のエラー画面を返す**——ブラウザ向けの
+  // エンドポイントで、`/token` `/par` `/credential` のような機械向けの API とは
+  // 読み手が違う（修正1）。conformance suite の *ErrorPage 系 REVIEW ステップは
+  // 「認可エンドポイントがエラー画面を表示すること」を求める
+  const authorizeFail = (c, e) => c.html(
+    renderAuthorizeError(e.oauthError || 'invalid_request', e.description || e.message), e.status || 400);
 
   app.get('/.well-known/openid-credential-issuer', async (c) => {
     const md = svc.metadata(issuerBase(c), await svc.features());
@@ -617,7 +624,26 @@ export function createApp(opts = {}) {
     let q = c.req.query();
     if (q.request_uri) {
       const pushed = await svc.resolvePar(q.request_uri);
-      if (!pushed) return fail(c, { status: 400, oauthError: 'invalid_request', description: 'unknown or expired request_uri' });
+      // **再利用済み・期限切れの request_uri**（RFC 9126 §4「the request_uri value …
+      // MUST be used only once」＋既定 300 秒の TTL）。使い捨て後・失効後は KV から
+      // 引けなくなるので `!pushed` に落ちる。
+      // conformance: par-attempt-reuse-request_uri / par-attempt-to-use-expired-request_uri
+      if (!pushed) {
+        return authorizeFail(c, { status: 400, oauthError: 'invalid_request',
+          description: 'request_uri が無効です（存在しない・使用済み、または有効期限切れ）。'
+            + 'RFC 9126 §4: request_uri は使い捨てで、既定 300 秒を過ぎると使えません。' });
+      }
+      // **別クライアントの request_uri**（issue 対応・2026-08-29）。RFC 9126 §4
+      // 「The client only needs to send the request_uri and client_id back to the
+      // authorization server.」——push 時に登録した client_id と異なる client_id を
+      // 添えて同じ request_uri を使おうとする要求は拒否する。**以前はここで
+      // `q.client_id` が `pushed.client_id` を黙って上書きしていたため、この
+      // なりすましがそのまま通っていた**（下のマージで q.client_id が勝つ実装だった）。
+      // conformance: par-attempt-to-use-request_uri-for-different-client
+      if (q.client_id != null && pushed.client_id != null && String(q.client_id) !== String(pushed.client_id)) {
+        return authorizeFail(c, { status: 400, oauthError: 'invalid_request',
+          description: 'この request_uri は別の client_id で push されたものです（client_id が一致しません）。' });
+      }
       // **`request_uri` を残す**（2026-08-29・conformance が捕まえた）。PAR レコードを
       // そのまま `q` に置き換えていたため、同意画面の hidden `request_uri` が**空**になり、
       // 同意 POST が PAR レコードを引けなくなっていた。実害が3つある——
@@ -626,7 +652,27 @@ export function createApp(opts = {}) {
       // (3) `dpop_jkt`（RFC 9449 §10）が認可コードへ引き継がれず、鍵の束縛が消える。
       // **画面は正常に見え、コードも出るので気づけない**。登録表があると (2) も隠れる
       q = { ...pushed, request_uri: q.request_uri, ...(q.client_id ? { client_id: q.client_id } : {}) };
+    } else {
+      // **PAR 必須フラグ**（修正4・既定 off）。FAPI 2.0 Security Profile / HAIP は
+      // PAR（RFC 9126）の利用を前提にしており、request_uri を伴わない素の認可要求は
+      // conformance suite（ensure-unsigned-authorization-request-without-using-par-fails）が
+      // 失敗を期待する。**既定では締めない**——`/demo/authcode` 等の自前の動線や
+      // Web ウォレットの一部の入口が PAR を経由せずに `/authorize` を直接叩く可能性が
+      // あり、既定で塞ぐと気づかない形で壊れる（src/features.mjs の note 参照）
+      const feats = await svc.features();
+      if (feats.require_par === 'required') {
+        return authorizeFail(c, { status: 400, oauthError: 'invalid_request',
+          description: 'この発行者は PAR（RFC 9126）の利用を必須にしています。'
+            + 'まず POST /par で認可要求を pushed し、その request_uri を使ってください。' });
+      }
     }
+    // **PKCE・redirect_uri・登録クライアントは同意画面より前に検証する**（修正1/2）。
+    // ここを通さずに同意画面を出してしまうと、PKCE 抜け・redirect_uri 不正でも
+    // 「同意できる正常な要求」に見えてしまい、conformance suite の *ErrorPage 系
+    // REVIEW ステップ（認可エンドポイントそのものがエラー画面を返すこと）を満たせない
+    try {
+      await svc.checkAuthorizeRequest(q);
+    } catch (e) { return authorizeFail(c, e); }
     const sessionId = sid(c);
     const user = sessionId ? await svc.sessionUser(sessionId) : null;
     if (!user) {

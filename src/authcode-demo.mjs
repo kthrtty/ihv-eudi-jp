@@ -239,6 +239,36 @@ export const shell = (title, body, { brand = 'デジタル資格証発行ポー�
 <body class="role-${role}">${SENTINEL}<div class="topwrap"><header class="top ${role}"><span class="tag"></span><a class="brandlink" href="/"><b>${esc(brand)}</b><small>${esc(sub)}</small></a>${right}</header>${DEMO_BAND}</div><div class="${cls}">${body}</div>${dev ? devWidgetHtml() : ''}${STICKY_JS}</body></html>`;
 };
 
+/**
+ * `/authorize` のエラー画面（conformance の *ErrorPage 系 REVIEW ステップ対応）。
+ *
+ * **`/authorize` はブラウザ向けのエンドポイント**なので、機械可読な JSON ではなく
+ * 人が読める画面を返す（`/token` `/par` `/credential` は機械向けなので JSON のまま
+ * ——ここだけの方針転換）。OAuth のエラーコード（`error`/`error_description`）も
+ * 画面に出す——機械可読な値が画面から読み取れたほうが切り分けが速い。
+ *
+ * RFC 6749 §4.1.2.1: 「If the request fails due to a missing, invalid, or
+ * mismatching redirection URI, the authorization server SHOULD inform the
+ * resource owner of the error and MUST NOT automatically redirect the
+ * user-agent to the invalid redirection URI.」——この画面はどんな理由の
+ * エラーでも redirect_uri へは戻らない（app.mjs が常にこの画面を直接返す）。
+ */
+export function renderAuthorizeError(error, description) {
+  return shell('認可エラー', `
+    <div class="card" style="margin-top:28px;max-width:560px;margin-left:auto;margin-right:auto">
+      <div class="step" style="color:var(--seal);border-color:var(--seal-soft)">認可エラー</div>
+      <h1 style="color:var(--seal)">この認可要求は処理できません</h1>
+      <p style="font-size:16px;color:var(--ink)">${esc(description)}</p>
+      <div class="req mono" style="font-size:16px;margin-top:14px">
+        <div class="k">error</div><b>${esc(error)}</b>
+        <div class="k" style="margin-top:8px">error_description</div><span>${esc(description)}</span>
+      </div>
+      <p style="font-size:16px;color:var(--muted);margin-top:16px">
+        ウォレット（クライアント）側の認可要求を見直してください。この画面のままではデジタル資格証の発行には進めません。
+      </p>
+    </div>`, { role: 'issuer' });
+}
+
 /** Wallet-start page: build the authorization request URL (+QR) the wallet opens. */
 export async function renderAuthStart({ issuer, configId, redirectUri, verifier, state }) {
   const url = `${issuer}/authorize?` + new URLSearchParams({

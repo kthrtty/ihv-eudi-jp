@@ -208,3 +208,47 @@ test('設定画面の説明文が記法のまま出ない', async () => {
   assert.match(body, /<b>0 なら毎回 KV を読む<\/b>/, '強調が <b> になっている');
   assert.match(body, /<code>none<\/code>/, 'コードが <code> になっている');
 });
+
+// `require_par`（修正4）。**既定 off では従来どおりの動線を壊さない**——自前のデモ動線
+// （/demo/authcode 等）や Web ウォレットの一部が PAR を経由せずに /authorize を直接
+// 叩く可能性があるため、既定を締めると気づかない形で壊れる。
+test('require_par: 既定 off では PAR 無しの認可要求がそのまま通る（既定の回帰防止）', async () => {
+  const WAL = 'https://wallet.example';
+  const app = createApp({ credentialIssuer: ISSUER, redirectAllowlist: `${WAL}/cb` });
+  const login2 = await (await app.request(`${ISSUER}/login`, { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_001' }) })).json();
+  assert.equal((await readFeatures(app.svc.store)).require_par, 'off', '既定は off');
+  const q = new URLSearchParams({ response_type: 'code', client_id: 'w', redirect_uri: `${WAL}/cb`,
+    code_challenge: 'x'.repeat(43), code_challenge_method: 'S256', scope: 'pid_mdoc' });
+  const res = await app.request(`${ISSUER}/authorize?${q}`, { headers: { 'x-session-id': login2.session_id } });
+  assert.equal(res.status, 302, 'request_uri が無くても既定では拒否しない');
+});
+
+// FAPI 2.0 Security Profile / HAIP は PAR（RFC 9126）の利用を前提にする。
+// conformance: ensure-unsigned-authorization-request-without-using-par-fails
+test('require_par: required にすると PAR 無しの認可要求はエラー画面で拒否される', async () => {
+  const WAL = 'https://wallet.example';
+  const app = createApp({ credentialIssuer: ISSUER, redirectAllowlist: `${WAL}/cb` });
+  const login2 = await (await app.request(`${ISSUER}/login`, { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_001' }) })).json();
+  await setFeature(app.svc.store, 'require_par', 'required');
+  const q = new URLSearchParams({ response_type: 'code', client_id: 'w', redirect_uri: `${WAL}/cb`,
+    code_challenge: 'x'.repeat(43), code_challenge_method: 'S256', scope: 'pid_mdoc' });
+  const res = await app.request(`${ISSUER}/authorize?${q}`, { headers: { 'x-session-id': login2.session_id } });
+  assert.equal(res.status, 400);
+  assert.match(res.headers.get('content-type') || '', /text\/html/, 'ブラウザ向けなので HTML');
+  const html = await res.text();
+  assert.match(html, /invalid_request/);
+  assert.match(html, /PAR/);
+
+  // **PAR を経由すれば `required` でも通る**——締めているのは「経由しないこと」だけ
+  const par = await app.request(`${ISSUER}/par`, { method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ response_type: 'code', client_id: 'w', redirect_uri: `${WAL}/cb`,
+      code_challenge: 'x'.repeat(43), code_challenge_method: 'S256', scope: 'pid_mdoc' }) });
+  assert.equal(par.status, 201);
+  const { request_uri } = await par.json();
+  const ok = await app.request(`${ISSUER}/authorize?` + new URLSearchParams({ client_id: 'w', request_uri }),
+    { headers: { 'x-session-id': login2.session_id } });
+  assert.equal(ok.status, 302, 'request_uri 経由なら required でも通る');
+});

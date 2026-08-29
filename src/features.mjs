@@ -138,6 +138,31 @@ export const FEATURES = {
       + 'デモの都合で「実機が動く側」を既定にしている（他の HAIP フラグと同じ方針）。',
   },
 
+  require_par: {
+    group: 'HAIP',
+    label: 'PAR の利用を必須にする',
+    spec: 'FAPI 2.0 Security Profile §5.3.2.2 / HAIP は PAR（RFC 9126）を前提にする。'
+      + 'conformance suite: ensure-unsigned-authorization-request-without-using-par-fails',
+    type: 'enum',
+    values: ['off', 'required'],
+    valueLabels: {
+      off: '必須にしない（既定・request_uri が無い /authorize もそのまま処理する）',
+      required: '必須にする（request_uri が無い /authorize をエラー画面で拒否する）',
+    },
+    default: 'off',
+    affects: [
+      'GET /authorize — request_uri（PAR の押し出し結果）が無い認可要求を'
+        + 'エラー画面で拒否する（修正4）',
+    ],
+    // **既定を off のままにしているのは、自前の動線が PAR を経由しない可能性があるため**
+    // ——`/demo/authcode`（ブラウザ実演）や Web ウォレットの一部の入口は PAR を使わずに
+    // `/authorize` を直接叩く。`required` にすると、それらの動線が気づかない形で壊れる。
+    // conformance suite（HAIP/FAPI2）を通すときだけ明示的に有効化する。
+    note: '**PAR 自体は元から使える**（`/par` は常時受け付ける）。ここが変えるのは'
+      + '「PAR を経由しない認可要求を拒否するかどうか」だけ——PAR で push した'
+      + 'request_uri を使う経路は `off` のままでも常に通る。',
+  },
+
   cache_ttl_sec: {
     group: '運用',
     label: '設定のキャッシュ時間',

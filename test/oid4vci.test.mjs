@@ -192,6 +192,164 @@ test('OID4VCI: /authorize rejects an unknown request_uri', async () => {
   assert.equal(res.status, 400);
 });
 
+// ── conformance suite: *ErrorPage 系 REVIEW ステップ（修正1〜4） ──────────────
+
+// 修正1: `/authorize` はブラウザ向けのエンドポイントなので JSON でなく HTML の
+// エラー画面を返す（`/token` `/par` `/credential` は機械向けなので JSON のまま）。
+// OAuth のエラーコード（error/error_description）も画面から読めること。
+test('修正1: /authorize のエラーは JSON でなく HTML の画面で返り、error/error_description が読める', async () => {
+  const login = await (await J('/login', { user_id: 'u_001' })).json();
+  const res = await app.request('/authorize?' + new URLSearchParams({
+    request_uri: 'urn:ietf:params:oauth:request_uri:nope-for-html-test' }).toString(),
+  { headers: { 'x-session-id': login.session_id } });
+  assert.equal(res.status, 400);
+  assert.match(res.headers.get('content-type') || '', /text\/html/, 'JSON でなく HTML であること');
+  const html = await res.text();
+  assert.match(html, /invalid_request/, 'error コードが画面から読める');
+  assert.match(html, /request_uri/, '原因の文言が画面から読める');
+});
+
+// 修正2: FAPI 2.0 Security Profile（Final）§5.3.2.2 Authorization server は
+// 「shall require the request to include the code_challenge parameter with the
+// code_challenge_method parameter's value set to S256」——PKCE(S256) を必須にする。
+// conformance: par-ensure-pkce-required
+test('修正2: /authorize は code_challenge が無いとエラー画面を返す（PKCE 必須）', async () => {
+  const login = await (await J('/login', { user_id: 'u_001' })).json();
+  const q = new URLSearchParams({ response_type: 'code', client_id: 'w',
+    redirect_uri: 'https://wallet.example/cb', scope: 'pid_mdoc' }); // code_challenge 無し
+  const res = await app.request('/authorize?' + q.toString(), { headers: { 'x-session-id': login.session_id } });
+  assert.equal(res.status, 400);
+  assert.match(res.headers.get('content-type') || '', /text\/html/);
+  const html = await res.text();
+  assert.match(html, /invalid_request/);
+  assert.match(html, /PKCE/);
+});
+
+// conformance: par-plain-pkce-rejected（`plain` も S256 以外として拒否する）
+test('修正2: /authorize は code_challenge_method=plain も拒否する', async () => {
+  const login = await (await J('/login', { user_id: 'u_001' })).json();
+  const q = new URLSearchParams({ response_type: 'code', client_id: 'w',
+    redirect_uri: 'https://wallet.example/cb', scope: 'pid_mdoc',
+    code_challenge: 'x'.repeat(43), code_challenge_method: 'plain' });
+  const res = await app.request('/authorize?' + q.toString(), { headers: { 'x-session-id': login.session_id } });
+  assert.equal(res.status, 400);
+  const html = await res.text();
+  assert.match(html, /invalid_request/);
+  assert.match(html, /S256/);
+});
+
+// **既存の code_verifier 照合は壊さない**（ensure-pkce-code-verifier-required /
+// incorrect-pkce-code-verifier-rejected は既に PASSED しているので回帰させない）
+test('修正2: 正しい PKCE（S256）は従来どおり通り、code_verifier の照合も効き続ける', async () => {
+  const { createHash, randomBytes } = await import('node:crypto');
+  const WAL = 'https://wallet.example';
+  const a = createApp({ credentialIssuer: ISSUER, redirectAllowlist: `${WAL}/cb` });
+  const login = await (await a.request('/login', { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_001' }) })).json();
+  const verifier = randomBytes(32).toString('base64url');
+  const challenge = createHash('sha256').update(verifier, 'ascii').digest('base64url');
+  const q = new URLSearchParams({ response_type: 'code', client_id: 'w', redirect_uri: `${WAL}/cb`,
+    code_challenge: challenge, code_challenge_method: 'S256', scope: 'pid_mdoc' });
+  const authRes = await a.request(`/authorize?${q}`, { headers: { 'x-session-id': login.session_id } });
+  assert.equal(authRes.status, 302);
+  const code = new URL(authRes.headers.get('location')).searchParams.get('code');
+  // 間違った code_verifier は拒否される（従来どおり）
+  await assert.rejects(() => a.svc.token({ grant_type: 'authorization_code', code,
+    redirect_uri: `${WAL}/cb`, code_verifier: 'wrong-verifier'.padEnd(43, '0') }),
+  (e) => e.oauthError === 'invalid_grant');
+});
+
+// RFC 6749 §4.1.2.1: 「If the request fails due to a missing, invalid, or
+// mismatching redirection URI, the authorization server SHOULD inform the
+// resource owner of the error and MUST NOT automatically redirect the
+// user-agent to the invalid redirection URI.」
+test('修正1: 無効な redirect_uri のときは redirect_uri へ絶対にリダイレクトしない（RFC 6749 §4.1.2.1）', async () => {
+  const a = createApp({ credentialIssuer: ISSUER, redirectAllowlist: 'https://wallet.example/cb' });
+  const login = await (await a.request('/login', { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_001' }) })).json();
+  const q = new URLSearchParams({ response_type: 'code', client_id: 'w',
+    redirect_uri: 'https://attacker.example/cb', code_challenge: 'x'.repeat(43),
+    code_challenge_method: 'S256', scope: 'pid_mdoc' });
+  const res = await a.request(`/authorize?${q}`, { headers: { 'x-session-id': login.session_id } });
+  assert.equal(res.status, 400);
+  assert.equal(res.headers.get('location'), null, '不正な redirect_uri へは絶対に返さない');
+  assert.match(res.headers.get('content-type') || '', /text\/html/);
+  const html = await res.text();
+  assert.match(html, /redirect_uri/);
+});
+
+// 修正3: request_uri は push した client_id とだけ紐づく（別クライアントのなりすまし対策）。
+// RFC 9126 §4「The client only needs to send the request_uri and client_id back to
+// the authorization server.」——以前は問い合わせ側の client_id が PAR レコードの
+// client_id を黙って上書きしていたため、このなりすましがそのまま通っていた。
+// conformance: par-attempt-to-use-request_uri-for-different-client
+test('修正3: request_uri は別の client_id では使えない（PAR なりすまし対策）', async () => {
+  const WAL = 'https://wallet.example';
+  const a = createApp({ credentialIssuer: ISSUER, redirectAllowlist: `${WAL}/cb` });
+  const parRes = await a.request('/par', { method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ response_type: 'code', client_id: 'client-a',
+      redirect_uri: `${WAL}/cb`, code_challenge: 'x'.repeat(43), code_challenge_method: 'S256', scope: 'pid_mdoc' }) });
+  const { request_uri } = await parRes.json();
+  const login = await (await a.request('/login', { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_001' }) })).json();
+
+  // 攻撃側: push した client-a と違う client-b を名乗って同じ request_uri を使う
+  const bad = await a.request('/authorize?' + new URLSearchParams({ client_id: 'client-b', request_uri }),
+    { headers: { 'x-session-id': login.session_id } });
+  assert.equal(bad.status, 400);
+  assert.match(bad.headers.get('content-type') || '', /text\/html/);
+  const html = await bad.text();
+  assert.match(html, /invalid_request/);
+  assert.match(html, /client_id/);
+
+  // 対照: push したのと同じ client-a なら通る（かつ request_uri を消費する）
+  const ok = await a.request('/authorize?' + new URLSearchParams({ client_id: 'client-a', request_uri }),
+    { headers: { 'x-session-id': login.session_id } });
+  assert.equal(ok.status, 302, '正しい client_id なら通る');
+});
+
+// 修正3: request_uri の再利用（RFC 9126 §4「the request_uri value … MUST be used
+// only once」）。conformance: par-attempt-reuse-request_uri
+test('修正3: 使用済みの request_uri を再利用するとエラー画面になる（RFC 9126 §4 used only once）', async () => {
+  const WAL = 'https://wallet.example';
+  const a = createApp({ credentialIssuer: ISSUER, redirectAllowlist: `${WAL}/cb` });
+  const parRes = await a.request('/par', { method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ response_type: 'code', client_id: 'w',
+      redirect_uri: `${WAL}/cb`, code_challenge: 'x'.repeat(43), code_challenge_method: 'S256', scope: 'pid_mdoc' }) });
+  const { request_uri } = await parRes.json();
+  const login = await (await a.request('/login', { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_001' }) })).json();
+  const q = new URLSearchParams({ client_id: 'w', request_uri });
+  const first = await a.request(`/authorize?${q}`, { headers: { 'x-session-id': login.session_id } });
+  assert.equal(first.status, 302, '1回目は成功する（コード発行と同時に使い捨てになる）');
+  const second = await a.request(`/authorize?${q}`, { headers: { 'x-session-id': login.session_id } });
+  assert.equal(second.status, 400, '2回目は拒否される');
+  assert.match(second.headers.get('content-type') || '', /text\/html/);
+  assert.match(await second.text(), /invalid_request/);
+});
+
+// 修正3: request_uri の TTL 超過（既定300秒）。conformance: par-attempt-to-use-expired-request_uri
+test('修正3: 期限切れの request_uri もエラー画面になる（TTL 既定300秒）', async (t) => {
+  const WAL = 'https://wallet.example';
+  const a = createApp({ credentialIssuer: ISSUER, redirectAllowlist: `${WAL}/cb` });
+  const parRes = await a.request('/par', { method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ response_type: 'code', client_id: 'w',
+      redirect_uri: `${WAL}/cb`, code_challenge: 'x'.repeat(43), code_challenge_method: 'S256', scope: 'pid_mdoc' }) });
+  const { request_uri } = await parRes.json();
+  const login = await (await a.request('/login', { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_001' }) })).json();
+
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  t.mock.timers.tick(301_000); // PAR の TTL(300秒) を超える
+  const res = await a.request('/authorize?' + new URLSearchParams({ client_id: 'w', request_uri }),
+    { headers: { 'x-session-id': login.session_id } });
+  assert.equal(res.status, 400);
+  assert.match(await res.text(), /invalid_request/);
+});
+
 test('OID4VCI: /jwks publishes issuer signing public keys (kid + x5c; trust stays x5c)', async () => {
   const jw = await (await app.request('/jwks')).json();
   assert.ok(jw.keys.length >= 2, 'has keys');
