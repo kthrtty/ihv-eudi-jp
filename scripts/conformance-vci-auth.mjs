@@ -18,6 +18,7 @@
 // 返らない）ので、**証拠のスクリーンショットを提出する**必要がある——手口は
 // scripts/conformance-vp.mjs と同じ（Playwright で撮って `POST /api/log/<testId>/images`）。
 import { chromium } from 'playwright';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { requireOrigins, requireSuite } from './conformance-origins.mjs';
 
 // **セルフホスト（自己署名・TLS 検証オフ）と公式（要 API トークン）の両方**を扱う。
@@ -34,12 +35,31 @@ if (!testId) {
 const j = async (u, i) => (await fetch(u, i)).json();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** 発行ポータルにログインしてセッションを得る（ラウンド間で使い回す）。 */
+/**
+ * 発行ポータルのセッションを得る。**プロセスをまたいで使い回す**（2026-08-29）。
+ *
+ * **KV の書き込み無料枠（1,000/日）を守るため**。1モジュール＝1プロセスなので、
+ * 毎回ログインすると 63 モジュールで 63 回 `sess:` を書く。実測では認可コードの1周で
+ * KV 書き込みが 9 回（sess 1 / par 2 / code 2 / at 1 / nonce 2 / _persist 1）あり、
+ * 全件を1回流すだけで約 570 回——**再測を重ねると枯渇する**。
+ *
+ * セッション ID は `.conformance-session`（gitignore 済み）に置き、**まだ生きていれば
+ * 再利用する**。死んでいれば取り直す。`SUITE_URL` や利用者を変えたら手で消せばよい。
+ */
 async function login() {
+  const cacheFile = new URL('../.conformance-session', import.meta.url);
+  const cached = existsSync(cacheFile) ? readFileSync(cacheFile, 'utf8').trim() : null;
+  if (cached) {
+    // **生きているか確かめてから使う**——死んだセッションを使い回すと、
+    // 同意画面が出ずに「同意画面が出ない」で全モジュールが落ちる
+    const probe = await fetch(`${ISS}/account`, { headers: { cookie: `sid=${cached}` }, redirect: 'manual' });
+    if (probe.status === 200) return `sid=${cached}`;
+  }
   const r = await j(`${ISS}/login`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ user_id: userId }),
   });
+  writeFileSync(cacheFile, r.session_id);
   return `sid=${r.session_id}`;
 }
 

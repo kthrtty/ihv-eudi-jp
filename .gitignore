@@ -26,3 +26,4 @@ patches/
 # VICAL の生成物と retired アンカーは追跡する（秘密鍵ではなく、世代を辿るための記録）。
 # interop のテスト資源だけは生成物なので除外。
 interop/multipaz-jvm/src/test/resources/
+.conformance-session
