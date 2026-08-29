@@ -7,6 +7,18 @@ import { coseSign1, coseVerify, decodePayload24, coseSign1Detached, coseVerifyDe
 const entries = (x) => (x instanceof Map ? [...x.entries()] : Object.entries(x ?? {}));
 const get = (x, k) => (x instanceof Map ? x.get(k) : x?.[k]);
 
+const DAY_MS = 86400e3;
+/**
+ * UTC の日の始まりへ切り下げる（RFC 9901 §10.1「rounded down to the beginning of the
+ * day」）。conformance suite の指摘（VCIEnsureCredentialTimeClaimsNotLinkable）は
+ * mdoc の MSO validityInfo `signed`/`validFrom`/`validUntil` を名指ししている——
+ * バッチ発行（issue #41）で複数枚を1レスポンスで返すとき、ここが丸まっていないと
+ * ミリ秒単位のずれが「同じバッチで発行された」ことの相関シグナルになる。
+ * **既定でのみ効かせる**——呼び出し側が明示的に signed/validFrom/validUntil を渡す
+ * （例えば有効期限切れの検証テスト）ときはそのまま使う。
+ */
+const dayStart = (d) => new Date(Math.floor(d.getTime() / DAY_MS) * DAY_MS);
+
 // One IssuerSignedItem -> { tag: Tag(24,inner) for nameSpaces, bytes: digest input }
 function issuerSignedItem(digestID, elementIdentifier, elementValue) {
   const isi = new Map([
@@ -24,7 +36,10 @@ function issuerSignedItem(digestID, elementIdentifier, elementValue) {
  * Returns CBOR bytes of IssuerSigned.
  */
 export function issueMdoc({ docType, namespace, claims, holderJwk, dscKeyPem, dscCertDer, iacaCertDer,
-  signed = new Date(), validFrom = new Date(), validUntil, status }) {
+  // **既定は丸めた「いま」**（明示的に signed/validFrom/validUntil を渡す呼び出しは
+  // そのまま使う——丸めるのは「言われなかったとき」の値だけ）。`validFrom` の既定は
+  // `signed`（丸め済み）を引き継ぐので、両方 undefined のときは常に同じ値になる
+  signed = dayStart(new Date()), validFrom = signed, validUntil, status }) {
   const items = [];
   const digests = new Map();
   claims.forEach((c, i) => {
@@ -33,7 +48,10 @@ export function issueMdoc({ docType, namespace, claims, holderJwk, dscKeyPem, ds
     digests.set(i, sha256(bytes));
   });
 
-  const validUntilDate = validUntil ?? new Date(Date.now() + 365 * 864e5);
+  // `validUntil` は**丸めた `validFrom` から**期間を足して算出する——`validUntil` を
+  // 単独で切り下げると有効期間そのものが縮む（RFC 9901 §10.1「calculate exp accordingly」
+  // と同じ理屈。mdoc には `exp` が無いので `validUntil` がその役)
+  const validUntilDate = validUntil ?? new Date(validFrom.getTime() + 365 * 864e5);
   const mso = new Map([
     ['version', '1.0'],
     ['digestAlgorithm', 'SHA-256'],

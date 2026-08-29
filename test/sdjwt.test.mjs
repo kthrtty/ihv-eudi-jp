@@ -227,3 +227,52 @@ test('sd-jwt: KB-JWT の署名不正は例外でなく {valid:false} で返す�
   assert.equal(r.valid, false);
   assert.match(r.errors.join(';'), /KB-JWT verify failed/);
 });
+
+// issue #41（発行者側）・RFC 9901 §10.1「claims carrying time information, like iat, exp,
+// and nbf, MUST either be randomized … or rounded (e.g., rounded down to the beginning
+// of the day)」。既定は常に丸める（フラグにしない）——ここが崩れると、バッチ発行で
+// 出す複数枚の時刻がミリ秒単位でずれ、そのずれ自体が相関シグナルになる。
+test('sd-jwt: iat/exp は既定で UTC の日の始まりへ丸まる（RFC 9901 §10.1）', async () => {
+  const { jwk } = holderKeypair();
+  const sdjwt = await issue(jwk);
+  const jwt = sdjwt.split('~')[0];
+  const payload = JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url').toString('utf8'));
+  const todayStart = Math.floor(new Date().setUTCHours(0, 0, 0, 0) / 1000);
+  assert.equal(payload.iat, todayStart, 'iat は今日の UTC 0時（切り下げ）と一致する');
+  assert.equal(payload.iat % 86400, 0, 'iat は日境界ちょうど');
+  // exp は「丸めた iat」から期間を足して算出する——exp を単独で切り下げると
+  // 有効期間そのものが縮んでしまうため（同§「calculate exp accordingly」）
+  assert.equal(payload.exp, payload.iat + 365 * 86400);
+});
+
+// 丸めるのは「言われなかったとき」の値だけ——明示的に iat/exp を渡す呼び出し
+// （有効期限テストなど）はそのまま使う。既定を上書きするとこの規則が壊れて
+// 「常に今日」になってしまう回帰を防ぐ。
+test('sd-jwt: 明示的に渡した iat/exp は丸めない（呼び出し側の指定を尊重する）', async () => {
+  const { jwk } = holderKeypair();
+  const explicitIat = Math.floor(new Date('2020-06-15T13:45:30Z').getTime() / 1000);
+  const explicitExp = explicitIat + 3600;
+  const sdjwt = await issueSdJwtVc({ vct: VCT, iss: 'https://issuer-pid.ihv.example', claims, sdKeys,
+    holderJwk: jwk, issuerKeyPem, issuerCertDer, issuerCaDer, iat: explicitIat, exp: explicitExp });
+  const jwt = sdjwt.split('~')[0];
+  const payload = JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url').toString('utf8'));
+  assert.equal(payload.iat, explicitIat);
+  assert.equal(payload.exp, explicitExp);
+});
+
+// これが本質（同日発行の不連結化・conformance の VCIEnsureCredentialTimeClaimsNotLinkable
+// が見ているのはここ）: 独立した2回の発行呼び出しでも、同じ UTC 日なら iat/exp が
+// **完全に一致**する。ミリ秒のずれが残っていれば、それだけで「同時期に発行された」を示す
+// 相関シグナルになる。
+test('sd-jwt: 同じ日に発行した2枚は iat/exp が完全に一致する（不連結化）', async () => {
+  const { jwk: jwk1 } = holderKeypair();
+  const { jwk: jwk2 } = holderKeypair();
+  const a = await issue(jwk1);
+  await new Promise((r) => setTimeout(r, 5)); // 実時刻をわずかにずらしても丸めれば同じになる
+  const b = await issue(jwk2);
+  const pa = JSON.parse(Buffer.from(a.split('~')[0].split('.')[1], 'base64url').toString('utf8'));
+  const pb = JSON.parse(Buffer.from(b.split('~')[0].split('.')[1], 'base64url').toString('utf8'));
+  assert.equal(pa.iat, pb.iat, '同じ保有者鍵でなくても iat は一致する');
+  assert.equal(pa.exp, pb.exp);
+  assert.notEqual(pa.cnf.jwk.x, pb.cnf.jwk.x, '一致するのは時刻だけ——保有者鍵は別');
+});

@@ -957,3 +957,159 @@ test('認可コードを再利用されたら、そのコードで出したト�
   assert.equal(await app.svc.store.get(`at:${t1.access_token}`), null,
     '再利用を検出したら、先に出したトークンも消えていること');
 });
+
+// ---- issue #41: バッチ発行（**発行者側のみ**。ウォレット側の複数枚保管/usageCount/
+// 補充は第2段階の別作業で、ここではまだ実装しない）---------------------------------
+// OID4VCI 1.0 §12.2.1「batch_credential_issuance」:
+//   > batch_size: REQUIRED. Integer value specifying the maximum array size for the
+//   > proofs parameter in a Credential Request. It MUST be 2 or greater.
+test('#41 batch_credential_issuance を advertise する（batch_size は2以上・Multipaz は1だと壊れる）', async () => {
+  const md = await (await app.request('/.well-known/openid-credential-issuer')).json();
+  assert.ok(md.batch_credential_issuance, 'メタデータに batch_credential_issuance がある');
+  const size = md.batch_credential_issuance.batch_size;
+  assert.equal(typeof size, 'number');
+  // Multipaz は batch_size を読み、用途 domain ごとに maxBatchSize/2 に割る実装
+  // （コード注記 "NB: if maxBatchSize = 1, this will be zero"）——1 だと 0 枚になって壊れる
+  assert.ok(size >= 2, `batch_size は2以上でなければならない（実際: ${size}）`);
+});
+
+test('#41 proofs.jwt を複数送ると同じ枚数の SD-JWT が返り、3枚とも別物（鍵・salt・索引）', async () => {
+  const { IssuerService } = await import('../src/oid4vci.mjs');
+  const svc = new IssuerService({ credentialIssuer: ISSUER });
+  const at = 'tok-batch-sdjwt';
+  await svc.store.set(`at:${at}`, { ids: ['pid_sdjwt'], userId: 'u_001' }, 600);
+
+  const N = 3;
+  const proofs = [];
+  for (let i = 0; i < N; i++) {
+    const h = holder();
+    const { c_nonce } = await svc.nonce();
+    proofs.push(await makeProof(h, { nonce: c_nonce }));
+  }
+  const out = await svc.credential({ accessToken: at,
+    body: { credential_configuration_id: 'pid_sdjwt', proofs: { jwt: proofs } } });
+  assert.equal(out.credentials.length, N, `${N}個の proof で${N}枚返る`);
+
+  const jwts = out.credentials.map((c) => c.credential);
+  assert.equal(new Set(jwts).size, N, '3枚とも完全に異なるトークン文字列');
+
+  const payloads = jwts.map((j) =>
+    JSON.parse(Buffer.from(j.split('~')[0].split('.')[1], 'base64url').toString('utf8')));
+
+  // 保有者鍵はそれぞれ別（proof ごとに違う鍵で mint した）
+  assert.equal(new Set(payloads.map((p) => p.cnf.jwk.x)).size, N, '保有者鍵がそれぞれ別');
+
+  // 選択的開示の salt も別（issueSdJwtVc がランダム salt を毎回振る）
+  const firstDisclosures = jwts.map((j) => j.split('~')[1]);
+  const salts = firstDisclosures.map((d) => JSON.parse(Buffer.from(d, 'base64url').toString('utf8'))[0]);
+  assert.equal(new Set(salts).size, N, 'salt もそれぞれ別');
+
+  // Status List の索引は1枚ごとに払い出す——同じだと1枚の失効が残り2枚にも波及する
+  const idxs = payloads.map((p) => p.status.status_list.idx);
+  assert.equal(new Set(idxs).size, N, 'Status List の索引がそれぞれ別');
+
+  // これが本質（RFC 9901 §10.1・不連結化）: 同じ日に発行した3枚は iat/exp が完全に一致する
+  assert.equal(new Set(payloads.map((p) => p.iat)).size, 1, '同日発行の iat は全部一致');
+  assert.equal(new Set(payloads.map((p) => p.exp)).size, 1, '同日発行の exp も全部一致');
+});
+
+test('#41 mdoc でもバッチ発行が成立する（Status List索引は別・validityInfo は同日なら一致）', async () => {
+  const { IssuerService } = await import('../src/oid4vci.mjs');
+  const { cborDecodeMap } = await import('../src/cbor.mjs');
+  const { coseVerify, decodePayload24 } = await import('../src/cose.mjs');
+  const svc = new IssuerService({ credentialIssuer: ISSUER });
+  const at = 'tok-batch-mdoc';
+  await svc.store.set(`at:${at}`, { ids: ['pid_mdoc'], userId: 'u_001' }, 600);
+
+  const N = 3;
+  const holders = [];
+  const proofs = [];
+  for (let i = 0; i < N; i++) {
+    const h = holder(); holders.push(h);
+    const { c_nonce } = await svc.nonce();
+    proofs.push(await makeProof(h, { nonce: c_nonce }));
+  }
+  const out = await svc.credential({ accessToken: at,
+    body: { credential_configuration_id: 'pid_mdoc', proofs: { jwt: proofs } } });
+  assert.equal(out.credentials.length, N);
+
+  const wires = out.credentials.map((c) => c.credential);
+  assert.equal(new Set(wires).size, N, '3枚とも完全に異なるワイヤ表現（保有者鍵・salt が別なので）');
+
+  const msos = wires.map((w) => {
+    const is = cborDecodeMap(fromB64url(w));
+    const cose = coseVerify(is.get('issuerAuth'));
+    return decodePayload24(cose.payloadContent);
+  });
+  const idxs = msos.map((m) => m.get('status').get('status_list').get('idx'));
+  assert.equal(new Set(idxs).size, N, 'Status List の索引がそれぞれ別');
+
+  // 同じ日に発行した3枚は validityInfo の signed が完全に一致する（不連結化）
+  const iso = (t) => (t instanceof Date ? t.toISOString() : t?.value ?? t);
+  const signedTimes = msos.map((m) => iso(m.get('validityInfo').get('signed')));
+  assert.equal(new Set(signedTimes).size, 1, '同日発行の signed は全部一致');
+});
+
+test('#41 batch_size を超える proofs.jwt は 400 invalid_proof（広告している以上、超過は要求が壊れている）', async () => {
+  const { IssuerService, BATCH_SIZE } = await import('../src/oid4vci.mjs');
+  const svc = new IssuerService({ credentialIssuer: ISSUER });
+  const at = 'tok-batch-over';
+  await svc.store.set(`at:${at}`, { ids: ['pid_sdjwt'], userId: 'u_001' }, 600);
+
+  const makeProofs = async (n) => {
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const h = holder();
+      const { c_nonce } = await svc.nonce();
+      out.push(await makeProof(h, { nonce: c_nonce }));
+    }
+    return out;
+  };
+
+  // 境界値: ちょうど batch_size なら通る
+  const okProofs = await makeProofs(BATCH_SIZE);
+  const ok = await svc.credential({ accessToken: at,
+    body: { credential_configuration_id: 'pid_sdjwt', proofs: { jwt: okProofs } } });
+  assert.equal(ok.credentials.length, BATCH_SIZE);
+
+  // 超過: batch_size + 1 は拒否される
+  const overProofs = await makeProofs(BATCH_SIZE + 1);
+  await assert.rejects(() => svc.credential({ accessToken: at,
+    body: { credential_configuration_id: 'pid_sdjwt', proofs: { jwt: overProofs } } }),
+  (e) => e.status === 400 && e.oauthError === 'invalid_proof');
+});
+
+// **バッチ内の proof は同じ c_nonce を共有する**（2026-08-29・実測で発覚した本番相当のバグ）。
+// §8.2「The proof(s) in the `proofs` parameter MUST incorporate the Credential Issuer
+// Identifier (audience) and, if the Credential Issuer has a Nonce Endpoint, a `c_nonce`
+// value」＝**1つの要求に1つの c_nonce**。ウォレットは `/nonce` を1回叩いて全 proof に
+// 同じ値を入れる（Multipaz もそうする）。
+//
+// `#verifyProof` が proof ごとに nonce を使い捨てていたため、**2枚目以降が必ず
+// `invalid_nonce`** で落ちていた。**1枚なら通る**ので単体テストでは気づけず、
+// 先に書いたバッチのテストも **proof ごとに別 nonce を取っていたため空振り**していた。
+// 使い捨ては「要求ごと」が正しい。
+test('#41 バッチの全 proof が同じ c_nonce を共有しても発行できる（実際のウォレットの使い方）', async () => {
+  const { IssuerService } = await import('../src/oid4vci.mjs');
+  const svc = new IssuerService({ credentialIssuer: ISSUER });
+  const at = 'tok-batch-shared-nonce';
+  await svc.store.set(`at:${at}`, { ids: ['pid_sdjwt'], userId: 'u_001' }, 600);
+
+  // **nonce は1回だけ取る**（ここが本番と同じ形）
+  const { c_nonce } = await svc.nonce();
+  const N = 3;
+  const proofs = [];
+  for (let i = 0; i < N; i++) proofs.push(await makeProof(holder(), { nonce: c_nonce }));
+
+  const out = await svc.credential({ accessToken: at,
+    body: { credential_configuration_id: 'pid_sdjwt', proofs: { jwt: proofs } } });
+  assert.equal(out.credentials.length, N, '共有 nonce でも N 枚返る');
+  assert.equal(new Set(out.credentials.map((c) => c.credential)).size, N, 'N 枚とも別物');
+
+  // **使い捨ては要求ごと**——同じ nonce で二度目の要求は通らない
+  const again = await Promise.resolve(svc.credential({ accessToken: at,
+    body: { credential_configuration_id: 'pid_sdjwt', proofs: { jwt: proofs } } })).then(
+    () => null, (e) => e);
+  assert.ok(again, '同じ c_nonce の再利用は拒否される');
+  assert.match(String(again.message ?? again), /nonce/i);
+});

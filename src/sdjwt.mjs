@@ -6,6 +6,18 @@ const b64url = (b) => Buffer.from(b).toString('base64url');
 const sha256b64 = (s) => b64url(createHash('sha256').update(Buffer.from(s, 'ascii')).digest());
 const der2spkiPem = (b64der) => new X509Certificate(Buffer.from(b64der, 'base64')).publicKey.export({ format: 'pem', type: 'spki' });
 
+const DAY_SEC = 86400;
+/**
+ * UTC の日の始まりへ切り下げる（RFC 9901 §10.1 が挙げる例そのもの:
+ * "rounded down to the beginning of the day"）。**既定で常に丸める**（フラグにしない）——
+ * バッチ発行（issue #41）で複数枚を1レスポンスで返すとき、丸めが無いと `iat`/`exp` が
+ * ミリ秒単位でずれ、そのずれ自体が「同じバッチで発行された」ことを示す相関シグナルに
+ * なってしまう（同 §10.1「Likewise, claims carrying time information … MUST either be
+ * randomized … or rounded」）。ランダム化でなく丸めを選ぶのは、丸めのほうが決定的で
+ * テストしやすいから——「同じ日に発行した2枚は完全に一致する」ことをそのまま pin できる。
+ */
+const roundToDayStart = (epochSec) => Math.floor(epochSec / DAY_SEC) * DAY_SEC;
+
 /** 自己署名＝トラストアンカー。x5c から落とすため（HAIP §6.1.1）。 */
 function isSelfSigned(der) {
   try {
@@ -25,7 +37,12 @@ function makeDisclosure(key, value) {
  * other claims are embedded in the JWT directly. Returns compact `jwt~d1~d2~`.
  */
 export async function issueSdJwtVc({ vct, iss, claims, sdKeys, holderJwk, issuerKeyPem, issuerCertDer, issuerCaDer,
-  status, iat = Math.floor(Date.now() / 1000), exp = Math.floor(Date.now() / 1000) + 365 * 86400 }) {
+  status,
+  // **既定は丸めた `iat` から**（呼び出し側が明示的に iat/exp を渡すとき——例えば有効期限
+  // 検証のテスト——はそのまま使う。丸めるのは「言われなかったとき」の値だけ）。
+  // `exp` は丸めた `iat` から期間を足して算出する——`exp` を単独で切り下げると
+  // 有効期間そのものが縮んでしまう（RFC 9901 §10.1「calculate exp accordingly」）
+  iat = roundToDayStart(Math.floor(Date.now() / 1000)), exp = iat + 365 * DAY_SEC }) {
   const disclosures = [];
   const _sd = [];
   const flat = {};

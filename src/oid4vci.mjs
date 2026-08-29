@@ -24,6 +24,24 @@ const tok = () => randomBytes(24).toString('base64url');
 /** 1利用者あたり24時間で受け付ける申請の件数（issue #33 ④）。 */
 export const MAX_APPS_PER_DAY = 10;
 
+/**
+ * バッチ発行（issue #41・**発行者側だけ**。Web ウォレット側の複数枚保管/usageCount/
+ * 補充は第2段階で別作業）の `batch_size`（OID4VCI 1.0 §12.2.1）。
+ *
+ * > `batch_size`: REQUIRED. Integer value specifying the maximum array size for the
+ * > `proofs` parameter in a Credential Request. It **MUST be 2 or greater**.
+ *
+ * **1 は不可**——仕様の MUST に反するだけでなく、**Multipaz が壊れる**。Multipaz は
+ * `batch_size` を読み、用途 domain ごとに `maxBatchSize / 2` へ割る実装で、コードに
+ * `NB: if maxBatchSize = 1, this will be zero` とある（0 枚になり発行が成立しない）。
+ *
+ * 値を 5 にしたのは実測に基づく——1枚あたり SD-JWT 0.90ms / mdoc 0.57ms、
+ * **Workers の CPU 上限は 1リクエスト 10ms** なので、5枚で 4.5ms、残り（DPoP/proof検証・
+ * KV 読み書き等）に半分以上を残せる。7枚を超えたあたりから上限に近づくため、
+ * 安全側に倒して 5 とした。
+ */
+export const BATCH_SIZE = 5;
+
 /** Derive requested credential_configuration_ids from scope or authorization_details. */
 function configIdsFromRequest(scope, authorization_details) {
   const cfgs = catalog.credential_configurations_supported;
@@ -1041,6 +1059,10 @@ export class IssuerService {
       authorization_servers: [base],
       credential_endpoint: `${base}/credential`,
       nonce_endpoint: `${base}/nonce`,
+      // **バッチ発行の広告**（OID4VCI 1.0 §12.2.1・issue #41 発行者側）。「Credential
+      // Endpoint で複数の proof を受け、同じ Credential Dataset に対して複数枚を
+      // 一度に発行できる」ことの告知。値の根拠は BATCH_SIZE の JSDoc 参照
+      batch_credential_issuance: { batch_size: BATCH_SIZE },
       // **`authorization_endpoint` と `token_endpoint` はここに置かない**
       // （2026-08-26・OpenID conformance suite が検出）。Credential Issuer メタデータの
       // スキーマは additionalProperties:false で、認められるのは credential_issuer /
@@ -1421,12 +1443,37 @@ export class IssuerService {
     const jwtProofs = body?.proofs?.jwt;
     if (!Array.isArray(jwtProofs) || jwtProofs.length === 0) throw httpErr(400, 'invalid_proof', 'proofs.jwt required');
 
-    // single-credential issuance (batch = multiple proofs -> multiple creds, future)
+    // **バッチ発行（issue #41・発行者側のみ）**: OID4VCI 1.0 §12.2.1「the issuer supports
+    // more than one key proof in the proofs parameter … so can issue more than one
+    // Verifiable Credential for the same Credential Dataset in a single request/response」。
+    // `batch_size` は「広告した上限」なので、超過は要求そのものが壊れている扱いにする
+    // ——広告している以上、超えた要求を受理すると広告と動作が食い違う
+    if (jwtProofs.length > BATCH_SIZE) {
+      throw httpErr(400, 'invalid_proof',
+        `proofs.jwt exceeds the advertised batch_size (${jwtProofs.length} > ${BATCH_SIZE})`);
+    }
+
     await this._loadState();
-    const holderJwk = await this.#verifyProof(jwtProofs[0]);
+    // **proof は1つずつ、保有者鍵ごとに検証する**——nonce は使い捨て（`#verifyProof` が
+    // **c_nonce は要求ごとに1つ**（§8.2「The proof(s) in the `proofs` parameter MUST
+    // incorporate … a `c_nonce` value」＝バッチ内の全 proof が同じ値を持つ）。
+    // proof ごとに使い捨てにすると**2枚目以降が必ず `invalid_nonce`** で落ちる
+    // ——1枚なら通るので単体テストでは気づけない（2026-08-29 に実測で発覚）。
+    // key attestation（#5）は `#verifyProof` が proof ごとのヘッダを見て確認するので、
+    // 1枚目だけ見て残りを素通しする穴は無い。
+    // **全 proof を検証し終えてから発行に入る**——途中の proof が不正なら、まだ何も
+    // 発行していない状態で拒否できる（Status List の枠を消費しない）
+    const holderJwks = [];
+    const usedNonces = new Set();
+    for (const p of jwtProofs) {
+      const { holderJwk, nonce } = await this.#verifyProof(p);
+      holderJwks.push(holderJwk);
+      usedNonces.add(nonce);
+    }
+    // **消すのは全 proof を通してから1回**（要求単位の使い捨て）
+    for (const n of usedNonces) await this.store.del(`nonce:${n}`);
     // 形式で配布 URI が変わる（mdoc は IACA 配下、SD-JWT は SD-JWT CA 配下の鍵で署名する）
     const statusFormat = catalog.credential_configurations_supported[configId]?.format === 'mso_mdoc' ? 'mdoc' : 'sdjwt';
-    const status = { ...this.statusList.allocate(statusFormat), format: statusFormat };
     if (at.userId) await this._loadUsers(); // persona edits must survive isolate switches
     const persona = at.userId ? this.users.get(at.userId) : null; // session-bound data switch
 
@@ -1449,33 +1496,45 @@ export class IssuerService {
     }
 
     // subject data precedence: offer override > 認定内容 > persona > SAMPLE (in mint)
+    // **クレーム自体はバッチ内の全枚で同じ**——RFC 9901 §10.1 が求めるのは鍵・salt・時刻の
+    // 不連結化であって、同じ Credential Dataset を指す以上クレーム値は同一であるべき
     const claims = at.claims?.[configId]
       ?? (application ? claimsFor(application, persona) : personaClaims(configId, persona));
-    const minted = await mint(configId, { holderJwk, status, claims });
-    this.issuanceLog.push({
-      // **idx は形式ごとに独立した索引空間**（issue #25）。台帳に形式を残さないと
-      // 後から失効させるときにどのリストの idx か分からなくなる
-      idx: status.idx, statusFormat: status.format, configId, format: minted.format,
-      docType: minted.docType, vct: minted.vct,
-      user: at.userId || null,
-      // どの申請から出たVCかを残す。これが無いと「熊本の罹災証明だけ失効」が撃てず、
-      // 同じ人の別の申請から出たVCまで巻き添えで失効させてしまう。
-      applicationId: application?.id ?? null,
-      holder: `${holderJwk.x}.${holderJwk.y}`,
-      issued_at: new Date().toISOString(),
-      expires_at: new Date(Date.now() + 365 * 864e5).toISOString(),
-    });
+    // **Status List の索引は1枚ごとに払い出す**——`{uri, idx}` を使い回すと、1枚を
+    // 失効させたときバッチ内の残りも道連れで失効してしまう（idx が同じ＝同じビットを指すため）
+    const minted = [];
+    for (const holderJwk of holderJwks) {
+      const status = { ...this.statusList.allocate(statusFormat), format: statusFormat };
+      const m = await mint(configId, { holderJwk, status, claims });
+      this.issuanceLog.push({
+        // **idx は形式ごとに独立した索引空間**（issue #25）。台帳に形式を残さないと
+        // 後から失効させるときにどのリストの idx か分からなくなる
+        idx: status.idx, statusFormat: status.format, configId, format: m.format,
+        docType: m.docType, vct: m.vct,
+        user: at.userId || null,
+        // どの申請から出たVCかを残す。これが無いと「熊本の罹災証明だけ失効」が撃てず、
+        // 同じ人の別の申請から出たVCまで巻き添えで失効させてしまう。
+        applicationId: application?.id ?? null,
+        holder: `${holderJwk.x}.${holderJwk.y}`,
+        issued_at: new Date().toISOString(),
+        expires_at: new Date(Date.now() + 365 * 864e5).toISOString(),
+      });
+      minted.push(m);
+    }
     await this._saveState();
-    // 交付済みの内容を申請側にも刻む（再判定で差分が出たかを比べる基準）
+    // 交付済みの内容を申請側にも刻む（再判定で差分が出たかを比べる基準）。
+    // バッチ内の全枚が同じ claims から出ているので、指紋は1回書けば足りる
     if (application) {
       await this._loadApps();
       const a = this.applications.find((x) => x.id === application.id);
       if (a) { a.issuedFingerprint = claimsFingerprint(claims); await this._saveApps(); }
     }
-    const wire = minted.format === 'mso_mdoc'
-      ? Buffer.from(minted.credential).toString('base64url') // binary -> base64url JSON string
-      : minted.credential;                                    // SD-JWT compact string
-    return { credentials: [{ credential: wire }] };
+    const credentials = minted.map((m) => ({
+      credential: m.format === 'mso_mdoc'
+        ? Buffer.from(m.credential).toString('base64url') // binary -> base64url JSON string
+        : m.credential,                                     // SD-JWT compact string
+    }));
+    return { credentials };
   }
 
   // ---- Status List (revocation) ----
@@ -1555,8 +1614,12 @@ export class IssuerService {
     // **鍵の証明**（issue #5・Appendix D）。**nonce を消す前に見る**——
     // attestation の `nonce` は同じ c_nonce を指すので、先に消すと必ず照合に失敗する
     await this.#checkKeyAttestation(header, payload.nonce);
-    await this.store.del(`nonce:${payload.nonce}`); // one-time use
-    return header.jwk; // bind credential to this holder key
+    // **nonce はここでは消さない**（2026-08-29・バッチ発行の実測で発覚）。
+    // §8.2「The proof(s) in the `proofs` parameter MUST incorporate … a `c_nonce` value」
+    // ＝**1つの要求に入る proof は全部同じ c_nonce を持つ**。proof ごとに使い捨てにすると
+    // **2枚目以降が必ず `invalid_nonce` で落ちる**（1枚なら通るので気づきにくい）。
+    // 使い捨ては「要求ごと」が正しいので、消すのは呼び出し側（`credential()`）にまとめる。
+    return { holderJwk: header.jwk, nonce: payload.nonce };
   }
 
   /**
