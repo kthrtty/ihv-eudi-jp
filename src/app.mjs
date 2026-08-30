@@ -714,6 +714,20 @@ export function createApp(opts = {}) {
       // hidden に載せると、同意画面の HTML を書き換えるだけで登録表の検査を
       // 迂回できてしまう（画面で隠すのは防御ではない、の裏返し）
       const clientAuthenticated = pushed?.clientAuthenticated === true;
+      // **拒否**（RFC 6749 §4.1.2.1）。`deny` は同意フォームの submit ボタン名で、
+      // 押されたときだけ載る。**PAR の使い捨ては上で済ませてある**——拒否も
+      // request_uri の1回の利用なので、残しておくと同じ uri で再度同意させられる。
+      // 検証は成功経路と同じ（`denyAuthorize` が `#validateClientBasics` を通す）
+      if (f.deny) {
+        const { redirect } = await svc.denyAuthorize({
+          response_type: f.response_type, redirect_uri: f.redirect_uri,
+          code_challenge: f.code_challenge, code_challenge_method: f.code_challenge_method,
+          state: f.state,
+          client_id: (clientAuthenticated ? pushed.client_id : f.client_id) || undefined,
+          clientAuthenticated,
+        });
+        return c.redirect(redirect, 302);
+      }
       // `app:<configId>` = 同意画面で選ばれた申請。**サーバ側で本人の・交付可能な
       // 申請かを検証する**（画面で隠すのは防御ではない — 2026-08-09 の教訓）
       const applications = {};
@@ -835,8 +849,13 @@ export function createApp(opts = {}) {
   // **MUST** で定めるので、取得 URL と `sub` が食い違うトークンを配るのは
   // 「検証したら必ず落ちるもの」を配っているのと同じ。**存在しない id は 404**。
   //
-  // `1` は §13.4 が許すパーティション識別子（分け方は仕様が規定していない）。いまは
-  // 1本だけで、**枠を使い切ったときに `2` を足すのがその拡張点**（切り替え設計は #30 の残件）。
+  // `1` は §13.4 が許すパーティション識別子（分け方は仕様が規定していない）。
+  // **ADR-0007（索引を等差数列にしない）で `2` を新パーティションとして足した**——
+  // ただし本番の mdoc/sdjwt は既に連番で数百件払い出し済みなので、新方式は
+  // 「`1` を拡張する」のではなく「新しいリスト（`mdoc2`/`sdjwt2`）を並べて始める」形を取る
+  // （src/status.mjs・src/oid4vci.mjs 参照）。id は `svc.statusPartitionInfo()` から
+  // 動的に確認する——**開いていない環境では 000002 も存在しない id として 404**にする
+  // （鍵が無い環境で新パーティションを騙って配ることになってはいけない）。
   const KNOWN_LIST_IDS = new Set(['1']);
   // **`Accept` で JWT / CWT を出し分ける**（issue #19・§8.1）。**既定は JWT**——
   // 既に発行済みの資格証を持つウォレットが JWT を期待しているので、既定を変えると壊れる。
@@ -849,11 +868,19 @@ export function createApp(opts = {}) {
     return c.body(cwt ? body : String(body));
   };
   app.get('/status-lists/:id/:format', async (c) => {
-    if (!KNOWN_LIST_IDS.has(c.req.param('id'))) return c.notFound();
+    const id = c.req.param('id');
     const format = c.req.param('format');
     if (format !== 'mdoc' && format !== 'sdjwt') return c.notFound();
+    // `1` は旧パーティション（後方互換）。それ以外は新パーティションが実際に開いていて、
+    // かつ id が一致するときだけ通す——存在しない/一致しない id はそのまま 404（#30 (B)(C)）
+    let listName = format;
+    if (id !== '1') {
+      const info = await svc.statusPartitionInfo();
+      if (!info.opened || id !== info.id) return c.notFound();
+      listName = `${format}2`;
+    }
     try {
-      return await sendStatusList(c, format);
+      return await sendStatusList(c, listName);
     } catch (e) {
       // 署名材料が無いときは**素の 500 でなく理由を返す**。mdoc は IACA 配下の証明書が要り、
       // PKI バンドル（KV `_pki:config`）に signers を入れないと出せない（issue #25/#27）

@@ -325,6 +325,15 @@ export class IssuerService {
     // 署名する鍵も証明の対象も違うので、混ぜると片方の信頼で両方が通る
     this.keyAttestersKvKey = '_key_attesters:config';
     this._keyAttestersKv = undefined;
+    // Status List 索引の FPE 鍵（ADR-0007）。#clientsKv 等と同じ「isolate 起動後に1回だけ
+    // 読む」パターン。**無ければ新パーティションは開かない**——自動生成はしない
+    // （isolate が2つ同時に鍵を作ると別の鍵になり、索引が衝突する。運用は「先に KV へ置く」
+    // ——`npm run status-key -- --init`）。`undefined`=未読込・`null`=確認済み未設定。
+    this.statusIndexKeyKvKey = '_status:index_key';
+    this._statusIndexKey = undefined;
+    // 新パーティションの識別子は当面固定値でよい（ADR-0007「複数パーティションは次段階」）
+    this.statusPartition = '000002';
+    this.statusPki = statusPki; // _loadState() が新パーティション用に再構築するときに要る
     this.statusList = new StatusListService({
       uri: `${credentialIssuer}/status-lists/1`,
       issuerKeyPem: statusPki?.key ?? null,
@@ -539,6 +548,28 @@ export class IssuerService {
   // 毎回 KV から読み直す（メモリは KV のキャッシュ）。once ガードにすると、isolate A の
   // 失効が isolate B の配る status list / 発行履歴に永遠に反映されない（本番で実害）。
   async _loadState() {
+    // ADR-0007: `_status:index_key` が読めたときだけ新パーティション（mdoc2/sdjwt2）を開く。
+    // **isolate 起動後に1回だけ**（他の KV 設定表と同じキャッシュ方式）。ここで作り直しても
+    // 直後に下の `restore()` が保存済みの next/reasons を読み直すので状態は失われない
+    // ——**この if の中で最初にやる**のが肝心（保存状態を読む前に新リストを開いておかないと、
+    // 保存済みの mdoc2 の分が「まだ無いリスト」として restore() に読み捨てられる）
+    if (this._statusIndexKey === undefined) {
+      try {
+        const rec = await this.store.get(this.statusIndexKeyKvKey);
+        this._statusIndexKey = rec?.key ? Buffer.from(rec.key, 'base64url') : null;
+      } catch { this._statusIndexKey = null; }
+      if (this._statusIndexKey) {
+        this.statusList = new StatusListService({
+          uri: this.statusList.uri,
+          issuerKeyPem: this.statusList.issuerKeyPem,
+          issuerCertDer: this.statusList.issuerCertDer,
+          signers: this.statusList.signers,
+          size: this.statusList.size,
+          partition: this.statusPartition,
+          indexKey: this._statusIndexKey,
+        });
+      }
+    }
     const saved = await this.store.get('_persist:state');
     if (!saved) return;
     if (saved.issuanceLog) this.issuanceLog = saved.issuanceLog;
@@ -649,6 +680,35 @@ export class IssuerService {
     client_id = null, clientAuthenticated = false } = {}) {
     if (response_type !== 'code') throw httpErr(400, 'unsupported_response_type', String(response_type));
     await this.#validateClientBasics({ redirect_uri, code_challenge, code_challenge_method, client_id, clientAuthenticated });
+  }
+
+  /**
+   * 同意画面で利用者が**拒否**したときの応答（RFC 6749 §4.1.2.1）。
+   *
+   * 「If the resource owner denies the access request … the authorization server
+   * informs the client by adding the following parameters … error=access_denied」
+   * ＝**拒否も redirect_uri へ返す**のが規定の動作で、画面上で戻るだけでは
+   * クライアントは待たされたまま何も知らされない。
+   * conformance の `user-rejects-authentication` が求めているのはこれ
+   * （2026-08-30 の測定で `access_denied` が src/ のどこにも無いことが判明した）。
+   *
+   * **成功経路と同じ `#validateClientBasics` を通す**——同条 §4.1.2.1 は
+   * 「If the request fails due to a missing, invalid, or mismatching redirection URI …
+   * MUST NOT automatically redirect the user-agent to the invalid redirection URI」
+   * とも定めるので、**エラーだからと検査を省くとオープンリダイレクタになる**。
+   * 弾かれた要求はここで例外になり、呼び出し側が画面を返す（リダイレクトしない）。
+   */
+  async denyAuthorize({ response_type, redirect_uri, code_challenge, code_challenge_method,
+    state, client_id = null, clientAuthenticated = false } = {}) {
+    if (response_type !== 'code') throw httpErr(400, 'unsupported_response_type', String(response_type));
+    await this.#validateClientBasics({ redirect_uri, code_challenge, code_challenge_method, client_id, clientAuthenticated });
+    const u = new URL(redirect_uri);
+    u.searchParams.set('error', 'access_denied');
+    u.searchParams.set('error_description', 'The resource owner denied the request');
+    // `state` は受け取っていたときだけ返す（§4.1.2.1「REQUIRED if the "state" parameter
+    // was present in the client authorization request」）
+    if (state != null && state !== '') u.searchParams.set('state', String(state));
+    return { redirect: u.toString() };
   }
 
   // ---- 3.4 Authorization Endpoint (authorization_code + PKCE) ----
@@ -1502,9 +1562,14 @@ export class IssuerService {
       ?? (application ? claimsFor(application, persona) : personaClaims(configId, persona));
     // **Status List の索引は1枚ごとに払い出す**——`{uri, idx}` を使い回すと、1枚を
     // 失効させたときバッチ内の残りも道連れで失効してしまう（idx が同じ＝同じビットを指すため）
+    // ADR-0007: 新パーティション（mdoc2/sdjwt2）が開いていれば新規発行はそちらへ送る
+    // （旧 `/status-lists/1/...` は温存し、能動的な移行はしない＝既発行分は自然減に任せる）。
+    // **台帳の `statusFormat` には実際に使ったリスト名を残す**（`mdoc2` 等）——
+    // `/revoke` は台帳からリスト名を引くので、ここで実名を書いておけば従来どおり動く
+    const activeFormat = this.statusList.activeFor(statusFormat);
     const minted = [];
     for (const holderJwk of holderJwks) {
-      const status = { ...this.statusList.allocate(statusFormat), format: statusFormat };
+      const status = { ...this.statusList.allocate(activeFormat), format: activeFormat };
       const m = await mint(configId, { holderJwk, status, claims });
       this.issuanceLog.push({
         // **idx は形式ごとに独立した索引空間**（issue #25）。台帳に形式を残さないと
@@ -1540,6 +1605,15 @@ export class IssuerService {
   // ---- Status List (revocation) ----
   // 配布前に必ず永続状態を読み直す — 別 isolate で行われた失効を反映するため
   async statusListToken(format = null, opts = {}) { await this._loadState(); return this.statusList.token(format, opts); }
+  /**
+   * 新パーティションが開いているか、開いていればその id（`this.statusPartition`）を返す。
+   * `/status-lists/:id/:format` のルーティング（app.mjs）が「実在する id だけ通す」ため
+   * （issue #30 (B)(C) の検証を新パーティションにも及ぼす）。**鍵の値そのものは返さない**。
+   */
+  async statusPartitionInfo() {
+    await this._loadState();
+    return { id: this.statusPartition, opened: !!this.statusList.lists.mdoc2 };
+  }
   /**
    * 形式ごとの失効の要約（開発者コンソールの表示用）。**署名しない**——
    * `statusListToken()` を3回呼ぶと ES256 が3回走る（Workers の CPU 上限は 1リクエスト 10ms）。

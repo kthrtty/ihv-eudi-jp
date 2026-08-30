@@ -1113,3 +1113,85 @@ test('#41 バッチの全 proof が同じ c_nonce を共有しても発行でき
   assert.ok(again, '同じ c_nonce の再利用は拒否される');
   assert.match(String(again.message ?? again), /nonce/i);
 });
+
+// ---- RFC 6749 §4.1.2.1: 利用者が拒否したら access_denied を返す（2026-08-30） ----
+// 「If the resource owner denies the access request … the authorization server informs
+// the client by adding the following parameters … error=access_denied」。
+// **画面上で戻るだけではクライアントは何も知らされない**——同意画面のキャンセルは
+// `history.back()` で、`access_denied` は src/ のどこにも無かった。
+// conformance の `user-rejects-authentication` が捕まえた
+// （「the tester MUST press 'cancel' … so that an error is returned to the relying party」）。
+// **テストは HTTP の同意 POST を通す**——svc を直接呼ぶ形だと、画面からの
+// 受け渡し漏れ（過去に client_id で本番を2度落とした穴）を永久に見逃す。
+
+/** ログイン → 同意画面を出して hidden を集める（成功/拒否の両経路で使う）。 */
+async function consentFields(app, { clientId = 'c1', state = null } = {}) {
+  const login = await app.request(`${ISSUER}/login`, { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_001' }) });
+  const cookie = `sid=${(await login.json()).session_id}`;
+  const q = new URLSearchParams({ response_type: 'code', client_id: clientId,
+    redirect_uri: 'https://rp.example/cb', scope: 'pid_sdjwt',
+    code_challenge: 'x'.repeat(43), code_challenge_method: 'S256' });
+  if (state) q.set('state', state);
+  const html = await (await app.request(`${ISSUER}/authorize?${q}`, { headers: { cookie } })).text();
+  const hidden = [...html.matchAll(/<input[^>]*type="hidden"[^>]*>/g)].map((m) => [
+    /name="([^"]*)"/.exec(m[0])?.[1], /value="([^"]*)"/.exec(m[0])?.[1] ?? '']);
+  return { cookie, hidden: hidden.filter(([k]) => k), html };
+}
+
+test('同意画面で拒否すると redirect_uri へ access_denied で戻る', async () => {
+  const app = createApp({ credentialIssuer: ISSUER, redirectAllowlist: 'https://rp.example/cb' });
+  const { cookie, hidden, html } = await consentFields(app, { state: 'st-123' });
+  // 拒否は**フォームの submit**でなければならない（form の外の button では送られない）
+  assert.match(html, /<button[^>]*type="submit"[^>]*name="deny"/, '拒否ボタンがフォーム内の submit であること');
+
+  const body = new URLSearchParams([...hidden, ['deny', '1']]).toString();
+  const res = await app.request(`${ISSUER}/authorize/consent`, { method: 'POST', redirect: 'manual',
+    headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' }, body });
+  assert.equal(res.status, 302);
+  const loc = new URL(res.headers.get('location'));
+  assert.equal(loc.origin + loc.pathname, 'https://rp.example/cb');
+  assert.equal(loc.searchParams.get('error'), 'access_denied');
+  assert.equal(loc.searchParams.get('state'), 'st-123', 'state を受け取っていたら返す');
+  assert.equal(loc.searchParams.get('code'), null, '拒否なのにコードを出さない');
+});
+
+test('拒否でも redirect_uri が許可外ならリダイレクトしない（オープンリダイレクタ防止）', async () => {
+  // §4.1.2.1「If the request fails due to a missing, invalid, or mismatching redirection
+  // URI … MUST NOT automatically redirect the user-agent to the invalid redirection URI」
+  // ——**エラー応答だからと検査を省くと、拒否ボタンが素通しの踏み台になる**
+  const app = createApp({ credentialIssuer: ISSUER, redirectAllowlist: 'https://rp.example/cb' });
+  const { cookie, hidden } = await consentFields(app);
+  const body = new URLSearchParams([
+    ...hidden.filter(([k]) => k !== 'redirect_uri'),
+    ['redirect_uri', 'https://evil.example/steal'], ['deny', '1'],
+  ]).toString();
+  const res = await app.request(`${ISSUER}/authorize/consent`, { method: 'POST', redirect: 'manual',
+    headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' }, body });
+  assert.notEqual(res.status, 302, '許可外の宛先へは飛ばさない');
+  assert.equal(res.headers.get('location'), null);
+});
+
+test('拒否でも PAR の request_uri は使い捨てになる', async () => {
+  // 残すと同じ request_uri で再度同意画面を出せる（RFC 9126 §4「used only once」）
+  const app = createApp({ credentialIssuer: ISSUER, redirectAllowlist: 'https://rp.example/cb' });
+  const par = await app.request(`${ISSUER}/par`, { method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ response_type: 'code', client_id: 'c1',
+      redirect_uri: 'https://rp.example/cb', scope: 'pid_sdjwt',
+      code_challenge: 'x'.repeat(43), code_challenge_method: 'S256' }) });
+  const { request_uri } = await par.json();
+  const login = await app.request(`${ISSUER}/login`, { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_001' }) });
+  const cookie = `sid=${(await login.json()).session_id}`;
+  const html = await (await app.request(
+    `${ISSUER}/authorize?client_id=c1&request_uri=${encodeURIComponent(request_uri)}`,
+    { headers: { cookie } })).text();
+  const hidden = [...html.matchAll(/<input[^>]*type="hidden"[^>]*>/g)].map((m) => [
+    /name="([^"]*)"/.exec(m[0])?.[1], /value="([^"]*)"/.exec(m[0])?.[1] ?? '']).filter(([k]) => k);
+  const res = await app.request(`${ISSUER}/authorize/consent`, { method: 'POST', redirect: 'manual',
+    headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams([...hidden, ['deny', '1']]).toString() });
+  assert.equal(res.status, 302);
+  assert.equal(await app.svc.resolvePar(request_uri), null, '拒否も request_uri の1回の利用');
+});

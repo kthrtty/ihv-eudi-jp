@@ -258,34 +258,68 @@ export class StatusListService {
   // （issue #30。以前は 256 で、超えると黙って伸びて「256〜280 件くらい発行した」と分かった）。
   // 65536 にしても配布は 1.3 KB のまま（zlib が効く）・署名 0.9 ms（Workers 無料枠は 10 ms）・
   // 保存 128 KB（KV の1値上限 25 MiB）。**匿名集合が 256 → 65536 に広がる**のでプライバシーも改善。
-  constructor({ uri, issuerKeyPem = null, issuerCertDer = null, signers = null, size = 65536, indexKey = null } = {}) {
+  //
+  // partition/indexKey: ADR-0007「既発行分の扱い」。**新方式は新しいパーティションで始める**——
+  // 本番の mdoc/sdjwt は既に連番で数百件払い出し済みなので、そこへ後から FPE を入れると
+  // `feistel(N)` が既発行の索引に当たり二重割り当てになる（「実装で見つけた罠」節）。
+  // だから legacy/mdoc/sdjwt は**常に連番のまま**とし、`partition` と `indexKey` が
+  // 両方揃ったときだけ `mdoc2`/`sdjwt2` という**新しいリスト**を足して、そちらだけ FPE にする。
+  constructor({ uri, issuerKeyPem = null, issuerCertDer = null, signers = null, size = 65536,
+    indexKey = null, partition = null } = {}) {
     this.uri = uri;                      // 既定（後方互換: 発行済みの資格証が指す /status-lists/1）
+    // `<origin>/status-lists/<partition>/<format>` を組むための origin。
+    // 呼び出し側は `uri = '<origin>/status-lists/1'` を渡す既存の慣習に合わせているので、
+    // 末尾だけ落とせば origin が求まる（origin を別引数で渡す形にはしない——二重に持つと食い違いうる）
+    this.origin = typeof uri === 'string' ? uri.replace(/\/status-lists\/1$/, '') : uri;
     this.issuerKeyPem = issuerKeyPem;    // 同上（SD-JWT 系の鍵）
     this.issuerCertDer = issuerCertDer;
     this.signers = signers;
     this.size = size;
     // ADR-0007: 索引の払い出しを連番から鍵つき全単射（FPE）へ変える鍵。
-    // **未指定なら従来どおり連番**（既定の挙動を変えない・既存デプロイ/テストの回帰防止）。
-    // 本番への注入は今回のスコープ外（次の段階）
+    // **リスト単位でしか効かない**（下記 `fpe` フラグ）——ここに値があっても
+    // legacy/mdoc/sdjwt には一切適用しない。新パーティションを開くときの鍵の元にするだけ
     this.indexKey = indexKey;
-    // 形式ごとの独立したリスト。`legacy` は分割前に発行した資格証のためのもの
+    this.partition = partition;
+    // 形式ごとの独立したリスト。`legacy` は分割前に発行した資格証のためのもの。
+    // **`fpe` は各リストが「自分の索引をどう払い出すか」を持つ属性**（ADR-0007）——
+    // サービス全体の `indexKey` の有無で判定すると、新パーティションを足した途端に
+    // 既存3本にも FPE がかかったように restore() のガードが誤判定する
     this.lists = {
-      legacy: { bits: new Array(size).fill(0), next: 0, reasons: new Map() },
-      mdoc: { bits: new Array(size).fill(0), next: 0, reasons: new Map() },
-      sdjwt: { bits: new Array(size).fill(0), next: 0, reasons: new Map() },
+      legacy: { bits: new Array(size).fill(0), next: 0, reasons: new Map(), fpe: false },
+      mdoc: { bits: new Array(size).fill(0), next: 0, reasons: new Map(), fpe: false },
+      sdjwt: { bits: new Array(size).fill(0), next: 0, reasons: new Map(), fpe: false },
     };
+    // **鍵が無いのに新リストを開けない**——partition/indexKey のどちらか欠けたら従来どおり
+    if (partition && indexKey) {
+      this.lists.mdoc2 = { bits: new Array(size).fill(0), next: 0, reasons: new Map(), fpe: true };
+      this.lists.sdjwt2 = { bits: new Array(size).fill(0), next: 0, reasons: new Map(), fpe: true };
+    }
   }
-  /** 形式名を正規化する。未知は legacy（後方互換）。 */
-  static fmt(format) { return (format === 'mdoc' || format === 'sdjwt') ? format : 'legacy'; }
-  /** 形式ごとの配布 URI。 */
+  /** 形式名を正規化する。未知は legacy（後方互換）。`mdoc2`/`sdjwt2` は新パーティションの
+   *  リスト名で、これも正規化せずそのまま通す（そうしないと fmt() が legacy に潰してしまう）。 */
+  static fmt(format) {
+    return (format === 'mdoc' || format === 'sdjwt' || format === 'mdoc2' || format === 'sdjwt2') ? format : 'legacy';
+  }
+  /** 形式ごとの配布 URI。`mdoc2`/`sdjwt2` は新パーティションの URI
+   *  （`<origin>/status-lists/<partition>/mdoc` 等・末尾は `2` を落とした素の形式名）。 */
   uriFor(format) {
     const f = StatusListService.fmt(format);
-    return f === 'legacy' ? this.uri : `${this.uri}/${f}`;
+    if (f === 'legacy') return this.uri;
+    if (f === 'mdoc2' || f === 'sdjwt2') return `${this.origin}/status-lists/${this.partition}/${f.slice(0, -1)}`;
+    return `${this.uri}/${f}`;
   }
-  /** URI から形式を逆引きする（旧レコードの失効に使う）。 */
+  /** URI から形式を逆引きする（旧レコードの失効に使う）。新パーティションの URI も引ける。 */
   formatForUri(uri) {
-    for (const f of ['mdoc', 'sdjwt']) if (uri === this.uriFor(f)) return f;
+    for (const f of ['mdoc', 'sdjwt', 'mdoc2', 'sdjwt2']) if (uri === this.uriFor(f)) return f;
     return 'legacy';
+  }
+  /** 新パーティション（`<format>2`）が開いていればそちらを、無ければ従来のリスト名を返す。
+   *  新規発行はここを通して**常に開いている中で最も新しいリスト**へ送る
+   *  （ADR-0007「既発行分の扱い」＝旧 `/1/` は温存し新規発行だけ新パーティションへ）。 */
+  activeFor(format) {
+    const f = (format === 'mdoc' || format === 'sdjwt') ? format : 'legacy';
+    const v2 = `${f}2`;
+    return this.lists[v2] ? v2 : f;
   }
   #list(format) { return this.lists[StatusListService.fmt(format)]; }
 
@@ -311,15 +345,19 @@ export class StatusListService {
     return { idx, uri: this.uriFor(format) };
   }
   /** カウンタ `n` から公開する `idx` を導出する。
-   *  `indexKey` 未指定、または `size` が FPE の対象外（2のべき乗かつ偶数ビットでない）
-   *  のときは**従来どおり連番**にフォールバックする（ADR-0007 §5 決定1。
-   *  cycle-walking で任意サイズへ拡張する話は今回のスコープ外）。 */
+   *  **そのリストの `fpe` が true のときだけ** FPE を適用する（ADR-0007）——
+   *  サービス全体の `indexKey` の有無で判定すると、新パーティション追加後に
+   *  既存の legacy/mdoc/sdjwt にまで適用されてしまう（restore() のガードが誤って発火する）。
+   *  `size` が FPE の対象外（2のべき乗かつ偶数ビットでない）のときも連番にフォールバックする
+   *  （ADR-0007 §5 決定1。cycle-walking で任意サイズへ拡張する話は今回のスコープ外）。 */
   #idxFor(format, n) {
-    if (!this.indexKey) return n;
+    const key = StatusListService.fmt(format);
+    const l = this.lists[key];
+    if (!l?.fpe || !this.indexKey) return n;
     const bits = fpeBitsFor(this.size);
     if (bits == null) return n;
-    const key = deriveIndexKey(this.indexKey, StatusListService.fmt(format));
-    return feistelEncrypt(bits, key, n);
+    const k = deriveIndexKey(this.indexKey, key);
+    return feistelEncrypt(bits, k, n);
   }
   revoke(idx, reason = 'unspecified', format = null) {
     const l = this.#list(format);
@@ -343,9 +381,11 @@ export class StatusListService {
   snapshot() {
     return Object.fromEntries(Object.entries(this.lists).map(([f, l]) =>
       [f, { packed: b64url(packBits(l.bits)), size: l.bits.length, next: l.next, reasons: [...l.reasons],
-            // **どの採番方式でこのリストを埋めてきたか**を残す（ADR-0007）。
+            // **どの採番方式でこのリストを埋めてきたか**を残す（ADR-0007）。**リスト単位**——
+            // サービス全体の `indexKey` の有無ではなく、そのリスト自身の `fpe` を書く
+            // （legacy/mdoc/sdjwt は常に false、mdoc2/sdjwt2 だけ true）。
             // 途中で方式を変えると二重割り当てが起きるので、`restore()` が食い違いを断る
-            fpe: !!this.indexKey }]));
+            fpe: !!l.fpe }]));
   }
   restore(saved) {
     if (!saved) return;
@@ -366,8 +406,11 @@ export class StatusListService {
       // 逆向き（FPE で埋めたリストを連番で続ける）も同じ理由で危険。
       // 安全な状態は「最初から FPE」か「ずっと連番」の2つだけなので、
       // **食い違ったら黙って倒れず理由を出して断る**——新方式は新しいリストで始める
-      // （ADR-0007「既発行分の扱い」＝旧 /1/ は温存し、新規発行を新リストへ）
-      const wasFpe = !!v.fpe, nowFpe = !!this.indexKey && fpeBitsFor(this.size) != null;
+      // （ADR-0007「既発行分の扱い」＝旧 /1/ は温存し、新規発行を新リストへ）。
+      // **比較は「このリスト自身の `fpe`」で行う**（サービス全体の `indexKey` の有無ではない）。
+      // 既存3本（legacy/mdoc/sdjwt）は常に `fpe:false` なので、新パーティションを足しても
+      // 保存済みの false と現在の false が一致し続け、誤って発火しない
+      const wasFpe = !!v.fpe, nowFpe = !!this.lists[f].fpe && fpeBitsFor(this.size) != null;
       if ((v.next ?? 0) > 0 && wasFpe !== nowFpe) {
         throw new Error(`status list "${f}" の採番方式が食い違います`
           + `（保存時=${wasFpe ? 'FPE' : '連番'} / 現在=${nowFpe ? 'FPE' : '連番'}・払い出し済み ${v.next} 件）。`
@@ -388,25 +431,29 @@ export class StatusListService {
     }
   }
 
-  /** 形式ごとの署名材料。無ければ Node.js 開発時に pki/ から読む（Workers では注入済み）。 */
+  /** 形式ごとの署名材料。無ければ Node.js 開発時に pki/ から読む（Workers では注入済み）。
+   *  **`mdoc2`/`sdjwt2` は base（`mdoc`/`sdjwt`）と同じ署名鍵を使う**——新パーティションは
+   *  索引の払い出し方だけを変えるもので、信頼根（IACA / SD-JWT CA）は変わらない。
+   *  専用の鍵を別途用意する必要は無い（PKI バンドルを増やさずに済む）。 */
   async #signer(format) {
     const f = StatusListService.fmt(format);
-    if (this.signers?.[f]) return this.signers[f];
+    const base = (f === 'mdoc2') ? 'mdoc' : (f === 'sdjwt2') ? 'sdjwt' : f;
+    if (this.signers?.[base]) return this.signers[base];
     // **注入済みの鍵は SD-JWT 系**（従来 /status-lists/1 を署名していたもの）。
     // signers を持たない古い PKI バンドルでも sdjwt は賄える。mdoc は IACA 配下の
     // 証明書が要るので賄えず、下の fs 読みが Workers で失敗する＝**明示的に失敗させる**
     // （黙って SD-JWT 系の鍵で署名すると、mdoc の資格証から検証できない list を配ってしまう）。
-    if ((f === 'sdjwt' || f === 'legacy') && this.issuerKeyPem) {
+    if ((base === 'sdjwt' || base === 'legacy') && this.issuerKeyPem) {
       return { key: this.issuerKeyPem, cert: this.issuerCertDer };
     }
     const { readFileSync } = await import('node:fs');
     const root = (rel) => fileURLToPath(new URL('../' + rel, import.meta.url));
     // mdoc は IACA 直下の Status List 署名証明書（DSC は MSO 署名用 EKU なので流用しない）。
     // SD-JWT と legacy は SD-JWT CA 配下。
-    const p = f === 'mdoc' ? 'pki/mdoc/status/status' : 'pki/sdjwt/pid';
+    const p = base === 'mdoc' ? 'pki/mdoc/status/status' : 'pki/sdjwt/pid';
     const s = { key: readFileSync(root(`${p}.key`)),
       cert: new X509Certificate(readFileSync(root(`${p}.crt`))).raw };
-    this.signers = { ...(this.signers || {}), [f]: s };
+    this.signers = { ...(this.signers || {}), [base]: s };
     return s;
   }
   /** 配布するトークン。形式ごとに署名鍵・sub・ビット列が変わる。 */

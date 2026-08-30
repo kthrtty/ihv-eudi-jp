@@ -48,7 +48,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  */
 async function login() {
   const cacheFile = new URL('../.conformance-session', import.meta.url);
-  const cached = existsSync(cacheFile) ? readFileSync(cacheFile, 'utf8').trim() : null;
+  // **使い回してはいけないテストがある**（2026-08-30 の測定で判明）。
+  // `par-ensure-reused-request-uri-prior-to-auth-completion-succeeds` は
+  // 「The user was authenticated on the initial visit to login page. This must not be
+  // attempted until the second visit.」＝**1回目の訪問では未認証でなければならない**。
+  // KV 節約のために入れたセッション再利用が、そのままこのテストを落としていた
+  // （こちらが持ち込んだ退行）。`CONFORMANCE_FRESH_SESSION=1` で毎回取り直す
+  const cached = process.env.CONFORMANCE_FRESH_SESSION
+    ? null : (existsSync(cacheFile) ? readFileSync(cacheFile, 'utf8').trim() : null);
   if (cached) {
     // **生きているか確かめてから使う**——死んだセッションを使い回すと、
     // 同意画面が出ずに「同意画面が出ない」で全モジュールが落ちる
@@ -128,8 +135,18 @@ async function reviewPending() {
   return rows.length > 0 && rows[rows.length - 1]?.result === 'REVIEW';
 }
 
+// **1回目の訪問では認証しない**モード（PAR の request_uri 再利用テスト）。
+// 「2回目の訪問まで認証してはならない」ので、最初の認可 URL は **Cookie 無し**で
+// 読むだけにして、ログイン画面のまま戻る。2回目以降は通常どおり進める
+let deferredOnce = !process.env.CONFORMANCE_DEFER_LOGIN;
+
 /** 認可 URL を1つ処理する（ログイン→同意→コールバック→暗黙送信、またはエラー画面の証拠提出）。 */
 async function drive(url, cookie) {
+  if (!deferredOnce) {
+    deferredOnce = true;
+    await fetch(url);          // Cookie を送らない＝未認証のままログイン画面を見る
+    return { ok: true, loc: '(1回目は未認証のまま・2回目を待つ)' };
+  }
   const res0 = await fetch(url, { headers: { cookie } });
   const html = await res0.text();
   if (!/name="code_challenge"/.test(html)) {
@@ -144,10 +161,15 @@ async function drive(url, cookie) {
     }
     return { ok: false, why: `同意画面が出ない: ${html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 100)}` };
   }
+  // **拒否の経路**（`user-rejects-authentication`）。suite は
+  // 「the tester MUST press 'cancel' on the login screen or deny consent so that an
+  // error is returned to the relying party」を求める。同意画面の拒否ボタンと同じ
+  // `deny=1` を送る（RFC 6749 §4.1.2.1 の access_denied が redirect_uri へ返る）
+  const form = consentBody(html) + (process.env.CONFORMANCE_MODE === 'deny' ? '&deny=1' : '');
   const res = await fetch(`${ISS}/authorize/consent`, {
     method: 'POST', redirect: 'manual',
     headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
-    body: consentBody(html),
+    body: form,
   });
   const loc = res.headers.get('location');
   if (!loc) return { ok: false, why: `リダイレクトが返らない（HTTP ${res.status}）` };
@@ -170,10 +192,21 @@ async function finish(code) {
 }
 
 const cookie = await login();
-const done = new Set();
+// **処理済みの認可 URL**。既定は1回だけ（終わったテストに再度叩くと suite が
+// `Illegal test state change: FINISHED -> RUNNING` で落ちる）。
+// **ただし DEFER_LOGIN のときだけ 2 回まで許す**——PAR の request_uri 再利用テストは
+// **同じ認可 URL を2回訪問**させ、1回目は未認証・2回目で認証させる。
+// 1回に制限したままだと2回目が来ず、待ちが解消せずタイムアウトする（2026-08-30 実測）
+const MAX_VISITS = process.env.CONFORMANCE_DEFER_LOGIN ? 2 : 1;
+const done = new Map();
 let rounds = 0;
 
-for (let i = 0; i < 40; i++) {
+// **打ち切りは次のテストを壊す**（2026-08-30 実測）。suite は plan ごとに1つの alias
+// （`ihv-vci-haip4`）を使うので、終わっていないテストを残したまま次を起動すると
+// `Alias has now been claimed by another test` で**前のテストが INTERRUPTED になる**。
+// 2往復する PAR のテストは既定の 40 回（約80秒）では足りないことがあるので延ばせるようにする
+const MAX_POLLS = Number(process.env.CONFORMANCE_MAX_POLLS ?? 40);
+for (let i = 0; i < MAX_POLLS; i++) {
   const info = await j(`${SUITE}/api/info/${testId}`, { headers: AUTH });
   if (info.status === 'FINISHED' || info.status === 'INTERRUPTED') {
     console.log(`  ${info.status} / ${info.result}（駆動 ${rounds} 回）`);
@@ -181,9 +214,9 @@ for (let i = 0; i < 40; i++) {
   }
   if (info.status === 'WAITING') {
     const b = await j(`${SUITE}/api/runner/browser/${testId}`, { headers: AUTH });
-    const next = (b.urls ?? []).find((u) => !done.has(u));
+    const next = (b.urls ?? []).find((u) => (done.get(u) ?? 0) < MAX_VISITS);
     if (next) {
-      done.add(next);
+      done.set(next, (done.get(next) ?? 0) + 1);
       rounds++;
       const r = await drive(next, cookie);
       console.log(`  [${rounds}] ${r.ok ? '→ ' + String(r.loc).slice(0, 76) + '…' : '✗ ' + r.why}`);
@@ -193,5 +226,5 @@ for (let i = 0; i < 40; i++) {
   }
   await sleep(2000);
 }
-console.log('  タイムアウト（40 回ポーリングしても終わらなかった）');
+console.log(`  タイムアウト（${MAX_POLLS} 回ポーリングしても終わらなかった）`);
 await finish(1);

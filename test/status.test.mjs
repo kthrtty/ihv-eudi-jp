@@ -685,72 +685,118 @@ test('#19 仕様 §5.2 のゴールデンベクタを読める（外部適合）
 // ---- ADR-0007: 索引の払い出し（連番 → 鍵つき全単射） -----------------------
 // conformance `VCIEnsureBatchStatusListIndicesAreUnpredictable` が、バッチ発行の
 // 索引が等差数列＝連番であることから同一バッチ/同一保有者を推測できると指摘した。
-// `indexKey` を渡すと `allocate()` の idx が FPE で払い出されることを確かめる。
+//
+// **FPE がかかるのは新パーティション（`mdoc2`/`sdjwt2`）だけ**——`partition` と
+// `indexKey` が両方揃ったときにだけ足される。**legacy/mdoc/sdjwt は常に連番のまま**
+// （本番の mdoc/sdjwt は既に連番で数百件払い出し済みなので、そこへ後から FPE を
+// 入れると `feistel(N)` が既発行の索引に当たる——「既発行分の扱い」「実装で見つけた罠」節）。
+// 新方式は新しいリストで始め、旧リストは温存する。
 
-test('ADR-0007 indexKey 未指定なら従来どおり連番（既定の回帰防止）', () => {
+const withKey = () => new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536,
+  partition: '000002', indexKey: Buffer.from('adr0007-master-key') });
+
+test('ADR-0007 partition/indexKey が両方無ければ従来どおり連番（既定の回帰防止）', () => {
   const s = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536 });
   const idxs = Array.from({ length: 5 }, () => s.allocate('mdoc').idx);
-  assert.deepEqual(idxs, [0, 1, 2, 3, 4], 'indexKey 無しは連番のまま');
+  assert.deepEqual(idxs, [0, 1, 2, 3, 4], 'indexKey 無しは連番のまま（新パーティションは開かない）');
+  assert.equal(s.lists.mdoc2, undefined, 'partition/indexKey が無ければ mdoc2 は作られない');
 });
 
-test('ADR-0007 indexKey を渡すと allocate() が連番にならない', () => {
-  const s = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536, indexKey: Buffer.from('adr0007-master-key') });
-  const idxs = Array.from({ length: 10 }, () => s.allocate('mdoc').idx);
+test('ADR-0007 indexKey だけ・partition だけでは新リストを開かない（両方揃って初めて開く）', () => {
+  // **鍵が無いのに新リストを開けない**（片方だけでも同じ扱い）
+  const onlyKey = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536, indexKey: Buffer.from('k') });
+  assert.equal(onlyKey.lists.mdoc2, undefined, 'indexKey だけでは開かない');
+  const onlyPartition = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536, partition: '000002' });
+  assert.equal(onlyPartition.lists.mdoc2, undefined, 'partition だけでは開かない');
+});
+
+test('ADR-0007 partition と indexKey が両方揃うと mdoc2/sdjwt2 が開き、fpe:true を持つ', () => {
+  const s = withKey();
+  assert.ok(s.lists.mdoc2 && s.lists.sdjwt2, 'mdoc2/sdjwt2 が両方作られる');
+  assert.equal(s.lists.mdoc2.fpe, true);
+  assert.equal(s.lists.sdjwt2.fpe, true);
+  // **既存3本は常に fpe:false のまま**——サービス全体ではなくリスト単位で判定する、が今回の要点
+  assert.equal(s.lists.legacy.fpe, false);
+  assert.equal(s.lists.mdoc.fpe, false);
+  assert.equal(s.lists.sdjwt.fpe, false);
+});
+
+test('ADR-0007 activeFor: 新リストが開いていればそちらを、無ければ従来のリスト名を返す', () => {
+  const s = withKey();
+  assert.equal(s.activeFor('mdoc'), 'mdoc2');
+  assert.equal(s.activeFor('sdjwt'), 'sdjwt2');
+  const plain = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536 });
+  assert.equal(plain.activeFor('mdoc'), 'mdoc');
+  assert.equal(plain.activeFor('sdjwt'), 'sdjwt');
+});
+
+test('ADR-0007 uriFor(mdoc2)/formatForUri: 新パーティションの URI は <origin>/status-lists/<partition>/<format>', () => {
+  const s = withKey();
+  assert.equal(s.uriFor('mdoc2'), `${ISSUER}/status-lists/000002/mdoc`);
+  assert.equal(s.uriFor('sdjwt2'), `${ISSUER}/status-lists/000002/sdjwt`);
+  assert.equal(s.formatForUri(`${ISSUER}/status-lists/000002/mdoc`), 'mdoc2');
+  assert.equal(s.formatForUri(`${ISSUER}/status-lists/000002/sdjwt`), 'sdjwt2');
+  // 従来の URI もそのまま引ける
+  assert.equal(s.formatForUri(`${ISSUER}/status-lists/1/mdoc`), 'mdoc');
+  assert.equal(s.formatForUri(`${ISSUER}/status-lists/1`), 'legacy');
+});
+
+test('ADR-0007 mdoc2 では allocate() が連番にならない（等差数列にならない）', () => {
+  const s = withKey();
+  const idxs = Array.from({ length: 10 }, () => s.allocate('mdoc2').idx);
   // 等差（一定のストライド）にならないこと——conformance が指摘した性質そのものを検査する
   const diffs = new Set(idxs.slice(1).map((v, i) => v - idxs[i]));
   assert.ok(diffs.size > 1, `等差数列のまま: ${idxs}`);
   // すべて枠内・すべて相異なる（全単射なので二重割り当ては起きない）
   for (const i of idxs) assert.ok(i >= 0 && i < 65536);
   assert.equal(new Set(idxs).size, idxs.length, '重複が無い');
-  // 連番 0..9 そのままでもない
   assert.notDeepEqual(idxs, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
 });
 
 test('ADR-0007 形式ごとに鍵が変わる（同じ n が同じ idx にならない）', () => {
-  const s = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536, indexKey: Buffer.from('adr0007-master-key') });
-  const mdocIdx = s.allocate('mdoc').idx;
-  const sdjwtIdx = s.allocate('sdjwt').idx;
+  const s = withKey();
+  const mdocIdx = s.allocate('mdoc2').idx;
+  const sdjwtIdx = s.allocate('sdjwt2').idx;
   // 両方とも n=0 から払い出すが、形式ごとに鍵を KDF で分けているので一致しないはず
   assert.notEqual(mdocIdx, sdjwtIdx);
 });
 
-test('ADR-0007 size が FPE 対象外（2のべき乗×偶数ビットでない）なら連番へフォールバック', () => {
+test('ADR-0007 size が FPE 対象外（2のべき乗×偶数ビットでない）なら新リストでも連番へフォールバック', () => {
   // 8 は 2^3（奇数ビット）なので FPE の対象外——コメントどおり連番にフォールバックする
-  const s = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 8, indexKey: Buffer.from('k') });
-  const idxs = Array.from({ length: 5 }, () => s.allocate('mdoc').idx);
+  const s = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 8, partition: '000002', indexKey: Buffer.from('k') });
+  const idxs = Array.from({ length: 5 }, () => s.allocate('mdoc2').idx);
   assert.deepEqual(idxs, [0, 1, 2, 3, 4]);
 });
 
-test('ADR-0007 indexKey ありでも #30 の不変条件（枠を使い切ったら失敗）は保たれる', () => {
-  const s = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536, indexKey: Buffer.from('k') });
+test('ADR-0007 mdoc2 でも #30 の不変条件（枠を使い切ったら失敗）は保たれる', () => {
+  const s = withKey();
   // カウンタで判定しているので、size 回 allocate すれば必ず尽きる（idx の見た目の値によらない）
-  for (let i = 0; i < 65536; i++) s.allocate('mdoc');
-  assert.throws(() => s.allocate('mdoc'), /status list full/);
+  for (let i = 0; i < 65536; i++) s.allocate('mdoc2');
+  assert.throws(() => s.allocate('mdoc2'), /status list full/);
 });
 
-test('ADR-0007 indexKey ありでも revoke/isRevoked は公開された idx をそのまま使える', async () => {
-  const s = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536, indexKey: Buffer.from('adr0007-key') });
-  const { idx } = s.allocate('mdoc');
-  s.revoke(idx, 'key_compromise', 'mdoc');
-  assert.equal(s.isRevoked(idx, 'mdoc'), true);
-  const { getStatus } = await parseStatusListToken(await s.token('mdoc'));
+test('ADR-0007 mdoc2 の revoke/isRevoked は公開された idx をそのまま使える', async () => {
+  const s = withKey();
+  const { idx } = s.allocate('mdoc2');
+  s.revoke(idx, 'key_compromise', 'mdoc2');
+  assert.equal(s.isRevoked(idx, 'mdoc2'), true);
+  const { getStatus } = await parseStatusListToken(await s.token('mdoc2'));
   assert.equal(getStatus(idx), 1, '配布されたリストでも同じ idx で失効が見える');
 });
 
-test('ADR-0007 snapshot()/restore() は indexKey を含まなくても往復する（状態はカウンタのみ）', () => {
-  const s = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536, indexKey: Buffer.from('adr0007-key') });
-  const first = s.allocate('mdoc');
+test('ADR-0007 snapshot()/restore(): mdoc2 は indexKey を含まなくても往復する（状態はカウンタのみ）', () => {
+  const s = withKey();
+  const first = s.allocate('mdoc2');
   const snap = s.snapshot();
 
-  // 同じ indexKey を渡した別インスタンスで復元すると、次に払い出す idx は
+  // 同じ partition/indexKey を渡した別インスタンスで復元すると、次に払い出す idx は
   // 「同じ n=1 から FPE した値」になる（カウンタだけを保存/復元している証拠）
-  const restored = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536, indexKey: Buffer.from('adr0007-key') });
+  const restored = withKey();
   restored.restore(snap);
-  const second = restored.allocate('mdoc');
+  const second = restored.allocate('mdoc2');
   assert.notEqual(second.idx, first.idx);
 
-  // indexKey を渡さない全く同じ手順を、鍵無しの2インスタンスで再現すると
-  // 連番 0→1 になる（フォールバック側の往復も確認）
+  // 旧リスト（mdoc）は partition/indexKey の有無に関わらず常に連番のまま往復する
   const plainA = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536 });
   const plainFirst = plainA.allocate('mdoc');
   const plainSnap = plainA.snapshot();
@@ -766,35 +812,67 @@ test('ADR-0007 snapshot()/restore() は indexKey を含まなくても往復す�
 // どこにでも落ちる＝**既発行の索引に当たりうる**。当たると1つのビットを2枚が共有し、
 // 片方の失効でもう片方も失効する（§13.3 は索引の一意性を MUST とする）。
 // **発行時には壊れず、失効させた日に初めて壊れる**ので、restore の時点で断る。
+//
+// **判定はリスト単位**（ADR-0007・2026-08-30 の修正）。legacy/mdoc/sdjwt は
+// partition/indexKey の有無に関わらず常に fpe:false なので、本番で実際に起こる
+// 「既発行の mdoc/sdjwt に新パーティションを足す」操作では衝突しようが無い
+// （下の「同居できる」テストが本題）。ここでは保存データを手で細工して、
+// ガードそのものがリスト単位で機能していることを直接確かめる。
 
-test('ADR-0007 連番で払い出したリストに FPE を後入れすると restore が断る', () => {
-  const plain = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536 });
-  plain.allocate('mdoc'); plain.allocate('mdoc');      // 連番で 0, 1 を消費
-  const snap = plain.snapshot();
+test('ADR-0007 保存データが fpe:false・現在の mdoc2 が fpe:true だと restore が断る', () => {
+  const s = withKey();
+  s.allocate('mdoc2'); s.allocate('mdoc2');            // next=2 まで進める
+  const snap = s.snapshot();
+  snap.mdoc2.fpe = false;                              // 細工: 「実は連番だった」ことにする
 
-  const withKey = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536, indexKey: Buffer.from('k') });
-  assert.throws(() => withKey.restore(snap), /採番方式が食い違います/);
+  const target = withKey();
+  assert.throws(() => target.restore(snap), /採番方式が食い違います/);
 });
 
-test('ADR-0007 FPE で払い出したリストを連番で続けるのも断る（逆向き）', () => {
-  const withKey = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536, indexKey: Buffer.from('k') });
-  withKey.allocate('mdoc');
-  const snap = withKey.snapshot();
-
+test('ADR-0007 保存データが fpe:true・現在の mdoc（常に fpe:false）だと restore が断る（逆向き）', () => {
+  // legacy/mdoc/sdjwt は仕組み上ずっと fpe:false。保存データが true と主張していたら
+  // 食い違い——「サービス全体の indexKey の有無で見ていた頃のバグ」（partition を足しただけで
+  // 既存3本まで FPE 扱いされる）が再発しないことの直接証拠にもなる
   const plain = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536 });
-  assert.throws(() => plain.restore(snap), /採番方式が食い違います/);
+  plain.allocate('mdoc'); plain.allocate('mdoc');
+  const snap = plain.snapshot();
+  snap.mdoc.fpe = true;                                 // 細工: 「実は FPE だった」ことにする
+
+  const target = withKey();                             // partition/indexKey ありでも mdoc.fpe は false のまま
+  assert.throws(() => target.restore(snap), /採番方式が食い違います/);
 });
 
 test('ADR-0007 未使用（next=0）のリストなら方式を変えてよい', () => {
   const plain = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536 });
-  const snap = plain.snapshot();                        // 1件も払い出していない
-  const withKey = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536, indexKey: Buffer.from('k') });
-  withKey.restore(snap);                                // 衝突しようが無いので通る
-  assert.ok(withKey.allocate('mdoc').idx >= 0);
+  const snap = plain.snapshot();
+  snap.mdoc.fpe = true;                                 // 未使用なら食い違っていても衝突しようが無い
+  const target = withKey();
+  target.restore(snap);
+  assert.ok(target.allocate('mdoc').idx >= 0);
+});
+
+test('ADR-0007 partition を足しても既存の legacy/mdoc/sdjwt は fpe:false のまま同居できる（本番の回帰防止・最重要）', () => {
+  // 本番は mdoc/sdjwt が既に連番で数百件払い出し済み。ここへ partition/indexKey を
+  // 投入したときに誤って例外が飛んだら発行が止まる——それを防ぐのがこのテスト
+  const plain = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536 });
+  plain.allocate('mdoc'); plain.allocate('mdoc'); plain.allocate('mdoc'); // next=3（本番を模した既発行分）
+  plain.allocate('sdjwt');
+  const snap = plain.snapshot();
+
+  const withPartition = withKey();
+  assert.doesNotThrow(() => withPartition.restore(snap), '同居していても断らない');
+  assert.equal(withPartition.lists.mdoc.next, 3, '旧リストの払い出し済み件数は保たれる');
+  assert.equal(withPartition.lists.sdjwt.next, 1);
+  assert.equal(withPartition.lists.mdoc2.next, 0, '新リストは未使用のまま開く');
+
+  // 新リストへ払い出しても旧リストの next は動かない（新旧が独立）
+  withPartition.allocate('mdoc2');
+  assert.equal(withPartition.lists.mdoc.next, 3, '新リストへの割り当てが旧リストの next を動かさない');
+  assert.equal(withPartition.lists.mdoc2.next, 1);
 });
 
 test('ADR-0007 同じ方式どうしの往復は従来どおり通る（本番の回帰防止）', () => {
-  // 本番は indexKey 未設定＝連番。**このガードで既存デプロイが倒れないこと**を固定する
+  // 本番は partition/indexKey 未設定＝連番。**このガードで既存デプロイが倒れないこと**を固定する
   const a = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536 });
   a.allocate('mdoc'); a.allocate('sdjwt');
   const b = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536 });

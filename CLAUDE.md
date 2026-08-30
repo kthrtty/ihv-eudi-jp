@@ -906,6 +906,32 @@ REVIEW は人手確認待ちで自動チェックは全通過。
   （`.deploy.env` に上書きを書く→`npm run deploy`）。フラグやアンカーは KV で完結するのに
   ここだけ経路が違う。測定後は**その行を消してもう一度デプロイするまでが手順**
 
+- **VCI を測るときは `require_par: required` にする**（2026-08-30）。既定 `off` のままだと
+  `ensure-unsigned-authorization-request-without-using-par-fails` が
+  「Authorization server was expected to return an error but did not」で FAILED になる。
+  **実装は正しく、測定時のフラグが足りていないだけ**（`required` にしたら REVIEW に変わった）。
+  本番の既定を `off` に戻す運用なので**毎回忘れる**——測定用フラグは
+  `client_auth: attest_jwt_client_auth` / `key_attestation: required` / `dpop: required` /
+  **`require_par: required`** の4点セットで覚える
+- **「測定ハーネスの都合」で片付ける前に、実装の欠落でないか確かめる**（2026-08-30・
+  `user-rejects-authentication`）。suite は「the tester MUST press 'cancel' … so that an
+  error is returned to the relying party」と言い、これを**人手でしか出せない項目**だと
+  読んで測定側の限界に分類しかけた。実際は **`access_denied` が `src/` のどこにも無く**、
+  同意画面のキャンセルは `history.back()` だけ＝**RFC 6749 §4.1.2.1 の未実装**だった。
+  「テスターが押す」は**押した先にサーバの経路があること**を前提にしている。
+  **拒否も `redirect_uri` へ返すのが規定**で、画面上で戻るだけではクライアントは
+  待たされたまま何も知らされない。**エラー応答でも `redirect_uri` の検査は省かない**
+  ——同条は「mismatching redirection URI … MUST NOT automatically redirect」とも言うので、
+  省くと拒否ボタンがオープンリダイレクタの踏み台になる（`denyAuthorize` は成功経路と
+  同じ `#validateClientBasics` を通す）。回帰=test/oid4vci.test.mjs（**HTTP の同意 POST を通す**）
+- **KV 節約のために入れたセッション再利用が、テストを1件落としていた**（2026-08-30）。
+  `par-ensure-reused-request-uri-prior-to-auth-completion-succeeds` は
+  「The user was authenticated on the initial visit to login page. **This must not be
+  attempted until the second visit.**」＝**1回目の訪問では未認証でなければならない**。
+  `.conformance-session` を使い回すと最初から認証済みになる。**最適化が前提を壊す**類なので、
+  ドライバに `CONFORMANCE_FRESH_SESSION` / `CONFORMANCE_DEFER_LOGIN` を置いて
+  モジュールごとに出し分ける（`.run-vci.mjs` の `SPECIAL`）
+
 ## ロードマップ
 - [x] M1–M5（土台/発行/wallet-core/Verifier/相互運用 golden）
 - [x] POST-M5: Offer配送・失効・16構成・auth-code/セッション/persona・役割ヘッダ・Annex C/D ディスパッチ・検証者コンソール

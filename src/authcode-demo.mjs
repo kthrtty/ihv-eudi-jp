@@ -628,8 +628,8 @@ export function renderConsentScreen(q, user, infos = [], { choices = {} } = {}) 
       </details>
       <form method="POST" action="/authorize/consent" style="margin-top:16px">${hidden}
         <button type="submit" class="btn" style="display:block;width:100%;text-align:center">同意して ${n} 件を発行する</button>
+        <button type="submit" name="deny" value="1" class="btn" style="display:block;width:100%;text-align:center;margin-top:8px;background:#fff;color:var(--ink);border:1px solid var(--line)">許可しない</button>
       </form>
-      <button type="button" class="btn" onclick="history.back()" style="display:block;width:100%;text-align:center;margin-top:8px;background:#fff;color:var(--ink);border:1px solid var(--line)">キャンセル（戻る）</button>
     </div>
     <style>
       .reqrow{display:flex;gap:11px;align-items:center;border:1px solid var(--line);border-radius:11px;padding:10px 12px;margin-top:8px}
