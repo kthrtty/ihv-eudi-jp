@@ -681,3 +681,134 @@ test('#19 仕様 §5.2 のゴールデンベクタを読める（外部適合）
   const list = decompressListRaw(lst);
   assert.equal(typeof bitAt(list, 0), 'number');
 });
+
+// ---- ADR-0007: 索引の払い出し（連番 → 鍵つき全単射） -----------------------
+// conformance `VCIEnsureBatchStatusListIndicesAreUnpredictable` が、バッチ発行の
+// 索引が等差数列＝連番であることから同一バッチ/同一保有者を推測できると指摘した。
+// `indexKey` を渡すと `allocate()` の idx が FPE で払い出されることを確かめる。
+
+test('ADR-0007 indexKey 未指定なら従来どおり連番（既定の回帰防止）', () => {
+  const s = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536 });
+  const idxs = Array.from({ length: 5 }, () => s.allocate('mdoc').idx);
+  assert.deepEqual(idxs, [0, 1, 2, 3, 4], 'indexKey 無しは連番のまま');
+});
+
+test('ADR-0007 indexKey を渡すと allocate() が連番にならない', () => {
+  const s = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536, indexKey: Buffer.from('adr0007-master-key') });
+  const idxs = Array.from({ length: 10 }, () => s.allocate('mdoc').idx);
+  // 等差（一定のストライド）にならないこと——conformance が指摘した性質そのものを検査する
+  const diffs = new Set(idxs.slice(1).map((v, i) => v - idxs[i]));
+  assert.ok(diffs.size > 1, `等差数列のまま: ${idxs}`);
+  // すべて枠内・すべて相異なる（全単射なので二重割り当ては起きない）
+  for (const i of idxs) assert.ok(i >= 0 && i < 65536);
+  assert.equal(new Set(idxs).size, idxs.length, '重複が無い');
+  // 連番 0..9 そのままでもない
+  assert.notDeepEqual(idxs, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+});
+
+test('ADR-0007 形式ごとに鍵が変わる（同じ n が同じ idx にならない）', () => {
+  const s = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536, indexKey: Buffer.from('adr0007-master-key') });
+  const mdocIdx = s.allocate('mdoc').idx;
+  const sdjwtIdx = s.allocate('sdjwt').idx;
+  // 両方とも n=0 から払い出すが、形式ごとに鍵を KDF で分けているので一致しないはず
+  assert.notEqual(mdocIdx, sdjwtIdx);
+});
+
+test('ADR-0007 size が FPE 対象外（2のべき乗×偶数ビットでない）なら連番へフォールバック', () => {
+  // 8 は 2^3（奇数ビット）なので FPE の対象外——コメントどおり連番にフォールバックする
+  const s = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 8, indexKey: Buffer.from('k') });
+  const idxs = Array.from({ length: 5 }, () => s.allocate('mdoc').idx);
+  assert.deepEqual(idxs, [0, 1, 2, 3, 4]);
+});
+
+test('ADR-0007 indexKey ありでも #30 の不変条件（枠を使い切ったら失敗）は保たれる', () => {
+  const s = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536, indexKey: Buffer.from('k') });
+  // カウンタで判定しているので、size 回 allocate すれば必ず尽きる（idx の見た目の値によらない）
+  for (let i = 0; i < 65536; i++) s.allocate('mdoc');
+  assert.throws(() => s.allocate('mdoc'), /status list full/);
+});
+
+test('ADR-0007 indexKey ありでも revoke/isRevoked は公開された idx をそのまま使える', async () => {
+  const s = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536, indexKey: Buffer.from('adr0007-key') });
+  const { idx } = s.allocate('mdoc');
+  s.revoke(idx, 'key_compromise', 'mdoc');
+  assert.equal(s.isRevoked(idx, 'mdoc'), true);
+  const { getStatus } = await parseStatusListToken(await s.token('mdoc'));
+  assert.equal(getStatus(idx), 1, '配布されたリストでも同じ idx で失効が見える');
+});
+
+test('ADR-0007 snapshot()/restore() は indexKey を含まなくても往復する（状態はカウンタのみ）', () => {
+  const s = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536, indexKey: Buffer.from('adr0007-key') });
+  const first = s.allocate('mdoc');
+  const snap = s.snapshot();
+
+  // 同じ indexKey を渡した別インスタンスで復元すると、次に払い出す idx は
+  // 「同じ n=1 から FPE した値」になる（カウンタだけを保存/復元している証拠）
+  const restored = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536, indexKey: Buffer.from('adr0007-key') });
+  restored.restore(snap);
+  const second = restored.allocate('mdoc');
+  assert.notEqual(second.idx, first.idx);
+
+  // indexKey を渡さない全く同じ手順を、鍵無しの2インスタンスで再現すると
+  // 連番 0→1 になる（フォールバック側の往復も確認）
+  const plainA = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536 });
+  const plainFirst = plainA.allocate('mdoc');
+  const plainSnap = plainA.snapshot();
+  const plainB = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536 });
+  plainB.restore(plainSnap);
+  const plainSecond = plainB.allocate('mdoc');
+  assert.equal(plainFirst.idx, 0);
+  assert.equal(plainSecond.idx, 1);
+});
+
+// ---- ADR-0007: 採番方式を途中で切り替えさせない（2026-08-30） -----------------
+// 連番で N 件払い出したリストに後から FPE を入れると、`feistel(N)` が空間全体の
+// どこにでも落ちる＝**既発行の索引に当たりうる**。当たると1つのビットを2枚が共有し、
+// 片方の失効でもう片方も失効する（§13.3 は索引の一意性を MUST とする）。
+// **発行時には壊れず、失効させた日に初めて壊れる**ので、restore の時点で断る。
+
+test('ADR-0007 連番で払い出したリストに FPE を後入れすると restore が断る', () => {
+  const plain = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536 });
+  plain.allocate('mdoc'); plain.allocate('mdoc');      // 連番で 0, 1 を消費
+  const snap = plain.snapshot();
+
+  const withKey = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536, indexKey: Buffer.from('k') });
+  assert.throws(() => withKey.restore(snap), /採番方式が食い違います/);
+});
+
+test('ADR-0007 FPE で払い出したリストを連番で続けるのも断る（逆向き）', () => {
+  const withKey = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536, indexKey: Buffer.from('k') });
+  withKey.allocate('mdoc');
+  const snap = withKey.snapshot();
+
+  const plain = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536 });
+  assert.throws(() => plain.restore(snap), /採番方式が食い違います/);
+});
+
+test('ADR-0007 未使用（next=0）のリストなら方式を変えてよい', () => {
+  const plain = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536 });
+  const snap = plain.snapshot();                        // 1件も払い出していない
+  const withKey = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536, indexKey: Buffer.from('k') });
+  withKey.restore(snap);                                // 衝突しようが無いので通る
+  assert.ok(withKey.allocate('mdoc').idx >= 0);
+});
+
+test('ADR-0007 同じ方式どうしの往復は従来どおり通る（本番の回帰防止）', () => {
+  // 本番は indexKey 未設定＝連番。**このガードで既存デプロイが倒れないこと**を固定する
+  const a = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536 });
+  a.allocate('mdoc'); a.allocate('sdjwt');
+  const b = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536 });
+  b.restore(a.snapshot());
+  assert.equal(b.allocate('mdoc').idx, 1);
+});
+
+test('ADR-0007 fpe マーカーを持たない旧スナップショットは連番として読める', () => {
+  // 本番 KV にあるのは `fpe` が無いレコード。連番の現行デプロイでは素通しになること
+  const a = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536 });
+  a.allocate('mdoc');
+  const snap = a.snapshot();
+  for (const v of Object.values(snap)) delete v.fpe;    // 旧形式に戻す
+  const b = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536 });
+  b.restore(snap);
+  assert.equal(b.allocate('mdoc').idx, 1);
+});
