@@ -9,9 +9,29 @@
 // never learns which credential was checked (issuer-verifier unlinkability).
 import { fileURLToPath } from 'node:url';
 import { deflateSync, inflateSync } from 'node:zlib';
-import { X509Certificate } from 'node:crypto';
+import { X509Certificate, createHmac } from 'node:crypto';
 import { SignJWT, jwtVerify, importPKCS8, importSPKI } from 'jose';
+import { feistelEncrypt } from './fpe.mjs';
 const b64url = (b) => Buffer.from(b).toString('base64url');
+
+/**
+ * `size` から Feistel に渡すビット幅を決める。**2のべき乗かつ偶数ビットのときだけ**
+ * FPE を使い、それ以外（ADR-0007 §5 決定1が触れる cycle-walking の対象）は今回スコープ外
+ * なので `null` を返して呼び出し側に連番へフォールバックさせる。
+ */
+function fpeBitsFor(size) {
+  if (!Number.isInteger(size) || size <= 0) return null;
+  const bits = Math.log2(size);
+  if (!Number.isInteger(bits) || bits % 2 !== 0) return null;
+  return bits;
+}
+
+/** `indexKey`（マスター鍵）から形式ごとの鍵を KDF で導出する。
+ *  ADR-0007 §5.5「鍵はファイル×形式ごとに変える」——同じ鍵だと異なるリストで
+ *  同じ n が同じ idx になり対応が読めてしまう（今回はファイルが1つなので形式だけで分ける）。*/
+function deriveIndexKey(masterKey, format) {
+  return createHmac('sha256', masterKey).update(String(format)).digest();
+}
 
 // 1-bit status: bit i lives in byte floor(i/8), position i%8 (LSB-first per spec).
 export function packBits(bits) {
@@ -238,12 +258,16 @@ export class StatusListService {
   // （issue #30。以前は 256 で、超えると黙って伸びて「256〜280 件くらい発行した」と分かった）。
   // 65536 にしても配布は 1.3 KB のまま（zlib が効く）・署名 0.9 ms（Workers 無料枠は 10 ms）・
   // 保存 128 KB（KV の1値上限 25 MiB）。**匿名集合が 256 → 65536 に広がる**のでプライバシーも改善。
-  constructor({ uri, issuerKeyPem = null, issuerCertDer = null, signers = null, size = 65536 } = {}) {
+  constructor({ uri, issuerKeyPem = null, issuerCertDer = null, signers = null, size = 65536, indexKey = null } = {}) {
     this.uri = uri;                      // 既定（後方互換: 発行済みの資格証が指す /status-lists/1）
     this.issuerKeyPem = issuerKeyPem;    // 同上（SD-JWT 系の鍵）
     this.issuerCertDer = issuerCertDer;
     this.signers = signers;
     this.size = size;
+    // ADR-0007: 索引の払い出しを連番から鍵つき全単射（FPE）へ変える鍵。
+    // **未指定なら従来どおり連番**（既定の挙動を変えない・既存デプロイ/テストの回帰防止）。
+    // 本番への注入は今回のスコープ外（次の段階）
+    this.indexKey = indexKey;
     // 形式ごとの独立したリスト。`legacy` は分割前に発行した資格証のためのもの
     this.lists = {
       legacy: { bits: new Array(size).fill(0), next: 0, reasons: new Map() },
@@ -265,7 +289,15 @@ export class StatusListService {
   }
   #list(format) { return this.lists[StatusListService.fmt(format)]; }
 
-  /** 資格証1件ぶんの枠を取る。**形式ごとに独立した索引空間**。 */
+  /** 資格証1件ぶんの枠を取る。**形式ごとに独立した索引空間**。
+   *
+   * ADR-0007: 公開される `idx` は「連番カウンタ → FPE」で払い出す
+   * （conformance `VCIEnsureBatchStatusListIndicesAreUnpredictable` が、バッチ発行の
+   * 索引が等差数列＝連番であることから同一バッチ/同一保有者を推測できると指摘した）。
+   * **状態はカウンタ1つのまま**——枠の使い切り判定（#30 の不変条件）は
+   * FPE 後の値ではなく**カウンタ側**（`l.next`）で行う。FPE は全単射なので
+   * 「カウンタが枠内」と「idx が枠内」は同値だが、判定はカウンタで行うほうが
+   * cycle-walking 等を将来入れたときも崩れない。 */
   allocate(format = null) {
     const l = this.#list(format);
     // **枠を超えたら黙って伸ばさない。** 伸ばすとリスト長で発行数が漏れる（issue #30）。
@@ -274,7 +306,20 @@ export class StatusListService {
       throw new Error(`status list full: ${StatusListService.fmt(format)} の枠 ${this.size} を使い切りました`
         + '（新しいリストへの切り替えが必要です — issue #30）');
     }
-    return { idx: l.next++, uri: this.uriFor(format) };
+    const n = l.next++;
+    const idx = this.#idxFor(format, n);
+    return { idx, uri: this.uriFor(format) };
+  }
+  /** カウンタ `n` から公開する `idx` を導出する。
+   *  `indexKey` 未指定、または `size` が FPE の対象外（2のべき乗かつ偶数ビットでない）
+   *  のときは**従来どおり連番**にフォールバックする（ADR-0007 §5 決定1。
+   *  cycle-walking で任意サイズへ拡張する話は今回のスコープ外）。 */
+  #idxFor(format, n) {
+    if (!this.indexKey) return n;
+    const bits = fpeBitsFor(this.size);
+    if (bits == null) return n;
+    const key = deriveIndexKey(this.indexKey, StatusListService.fmt(format));
+    return feistelEncrypt(bits, key, n);
   }
   revoke(idx, reason = 'unspecified', format = null) {
     const l = this.#list(format);
@@ -297,7 +342,10 @@ export class StatusListService {
    *  パックすれば 32KB。発行・失効のたびに読み書きする値なので効く（issue #30）。 */
   snapshot() {
     return Object.fromEntries(Object.entries(this.lists).map(([f, l]) =>
-      [f, { packed: b64url(packBits(l.bits)), size: l.bits.length, next: l.next, reasons: [...l.reasons] }]));
+      [f, { packed: b64url(packBits(l.bits)), size: l.bits.length, next: l.next, reasons: [...l.reasons],
+            // **どの採番方式でこのリストを埋めてきたか**を残す（ADR-0007）。
+            // 途中で方式を変えると二重割り当てが起きるので、`restore()` が食い違いを断る
+            fpe: !!this.indexKey }]));
   }
   restore(saved) {
     if (!saved) return;
@@ -309,6 +357,23 @@ export class StatusListService {
         const n = v.size ?? bytes.length * 8;
         this.lists[f].bits = Array.from({ length: n }, (_, i) => bitAt(bytes, i));
       } else if (v.bits) { this.lists[f].bits = v.bits; }
+      // **採番方式を途中で変えてはいけない**（ADR-0007・2026-08-30）。
+      // 連番で 0..N-1 まで払い出したリストに後から FPE を入れると、`feistel(N)` は
+      // 空間全体のどこにでも落ちるので**既に発行済みの索引に当たりうる**。当たると
+      // 1つのビットを2枚の資格証が共有し、**片方を失効させたらもう片方も失効する**
+      // （draft-ietf-oauth-status-list §13.3 は索引の一意性を MUST とする）。
+      // しかも**発行時には何も起きず、失効させた日に初めて壊れる**ので気づけない。
+      // 逆向き（FPE で埋めたリストを連番で続ける）も同じ理由で危険。
+      // 安全な状態は「最初から FPE」か「ずっと連番」の2つだけなので、
+      // **食い違ったら黙って倒れず理由を出して断る**——新方式は新しいリストで始める
+      // （ADR-0007「既発行分の扱い」＝旧 /1/ は温存し、新規発行を新リストへ）
+      const wasFpe = !!v.fpe, nowFpe = !!this.indexKey && fpeBitsFor(this.size) != null;
+      if ((v.next ?? 0) > 0 && wasFpe !== nowFpe) {
+        throw new Error(`status list "${f}" の採番方式が食い違います`
+          + `（保存時=${wasFpe ? 'FPE' : '連番'} / 現在=${nowFpe ? 'FPE' : '連番'}・払い出し済み ${v.next} 件）。`
+          + '途中で切り替えると既発行の索引と衝突して二重割り当てになります。'
+          + '新方式は新しいリストで始めてください（ADR-0007）');
+      }
       if (v.next != null) this.lists[f].next = v.next;
       if (v.reasons) this.lists[f].reasons = new Map(v.reasons);
     }
