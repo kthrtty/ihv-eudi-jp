@@ -884,6 +884,28 @@ REVIEW は人手確認待ちで自動チェックは全通過。
   **本番の防御を緩めるときは復元手順を先に作る**（許可リストへの localhost 追加は
   `/tmp/restore-allowlist.sh` で戻す）。conformance クライアントは KV の登録表へ足す
 
+- **VP を通すのに要る設定は3つで、どれか1つ欠けると全モジュールが落ちる**（2026-08-30・再測で3回踏んだ）。
+  症状が段階的に変わるので、1つ直すたびに「まだ落ちる」と見えて原因を見失う:
+  (1) **`vcfg:features` の `verifier_trust_presented_jwk`**（#42 の迂回路）／
+  (2) **`vcfg:trust_jwk`＝suite の発行者公開鍵**——**(1) だけでは足りない**。suite の
+  SD-JWT VC はヘッダが `{alg,typ}` だけで **x5c も jwk も kid も無い**ので、
+  `verifySdJwtVc` の `directJwk` に外から鍵を渡さないと `no x5c in the SD-JWT VC header`
+  で全滅する。**設定が2つあることを忘れて片方だけ戻す/戻し忘れる**のが事故の形／
+  (3) **`CID_PREFIX=x509_hash`**——`scripts/conformance-vp.mjs` の既定は `x509_san_dns` で、
+  そのままだと happy-flow が **`aud mismatch`** で落ちる。HAIP §5 が MUST とするのは
+  `x509_hash` なので**既定が非準拠側だった**（2026-08-30 に既定を `x509_hash` へ変更）。
+  切り分けの順序は **(1)(2) → 発行者署名が通りクレームが出る → 残った `aud mismatch` が (3)**。
+  **測定後の復元は (1)(2) の両方**（`vcfg:trust_jwk` を null に戻す）。戻したら
+  **1モジュール流して `no x5c` が返ることを実測する**——「戻したつもり」を残さない
+- **プラン ID はセルフホストと公式で別物**（2026-08-30）。L1 に控えていた ID は
+  セルフホスト時のもので、公式では **404**。公式の現行は
+  **VP=`ijXyyAHl9Ik9m` / VCI=`HqWqgjhHjyDwi`**。`GET /api/plan?length=20` で一覧できるので、
+  404 が出たら ID を疑う前に**まず一覧を引く**
+- **`REDIRECT_URI_ALLOWLIST` は KV では足せない**（2026-08-30）。デプロイ時に `--var` で
+  注入される変数なので、**conformance の VCI を回すには必ず再デプロイが要る**
+  （`.deploy.env` に上書きを書く→`npm run deploy`）。フラグやアンカーは KV で完結するのに
+  ここだけ経路が違う。測定後は**その行を消してもう一度デプロイするまでが手順**
+
 ## ロードマップ
 - [x] M1–M5（土台/発行/wallet-core/Verifier/相互運用 golden）
 - [x] POST-M5: Offer配送・失効・16構成・auth-code/セッション/persona・役割ヘッダ・Annex C/D ディスパッチ・検証者コンソール

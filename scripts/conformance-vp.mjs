@@ -9,7 +9,12 @@ import { requireOrigins, requireSuite } from './conformance-origins.mjs';
 const { url: S, headers: AUTH } = requireSuite();
 // **本番ドメインは書かない**（.deploy.env / 環境変数から解決する）
 const { verifier: V } = requireOrigins();
-const PREFIX = process.env.CID_PREFIX ?? 'x509_san_dns';
+// **既定は `x509_hash`**（2026-08-30 に `x509_san_dns` から変更）。HAIP 1.0 §5 が
+// MUST とするのはこちらで、**既定が非準拠側だと happy-flow が `aud mismatch` で落ちる**
+// ——発行者署名もクレーム抽出も通ったうえで aud だけ食い違うので、原因が
+// 資格証側にあるように見えて切り分けを誤らせた。`x509_san_dns` で測りたいときは
+// `CID_PREFIX=x509_san_dns` を明示する
+const PREFIX = process.env.CID_PREFIX ?? 'x509_hash';
 const j = async (u, i) => (await fetch(u, i)).json();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
