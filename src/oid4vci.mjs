@@ -1628,7 +1628,12 @@ export class IssuerService {
         uri: this.statusList.uriFor(f === 'legacy' ? null : f),
         size: this.statusList.size,
         issued: l.next,                                   // 払い出し済みの索引数
-        revoked: l.bits.reduce((n, b) => n + (b ? 1 : 0), 0),
+        // **ビット列は packed** なので、バイトを数えるのではなく立っているビットを数える
+        // （2026-08-30。`reduce` のままだとバイト値の総和になり件数が合わない）
+        revoked: l.bits.reduce((n, byte) => {
+          let c = 0; for (let b = byte; b; b >>= 1) c += b & 1;
+          return n + c;
+        }, 0),
       };
     }
     return out;

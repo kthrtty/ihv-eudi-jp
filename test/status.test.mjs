@@ -890,3 +890,40 @@ test('ADR-0007 fpe マーカーを持たない旧スナップショットは連�
   b.restore(snap);
   assert.equal(b.allocate('mdoc').idx, 1);
 });
+
+// ---- ビット列は packed のまま保持する（2026-08-30） ----
+// 1ビットに1要素の JS 配列で持つと **64倍**（65,536 で 0.5MB / 2^24 で 127.5MB）。
+// しかも `_loadState()` は毎アクセス呼ばれるので展開コストが毎回かかり、実測で
+// **65,536×5本の展開だけで 10.78ms** ＝ Workers の CPU 上限（1リクエスト 10ms）を
+// 単独で使い切っていた。#30 で packed 永続化へ移したのと同じ罠を展開側で踏んでいた。
+
+test('ビット列は packed の Uint8Array で保持する（0/1 配列に展開しない）', () => {
+  const s = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536 });
+  const bits = s.snapshot();
+  // 内部表現を直接見る（回帰の要点はここ。API 越しでは 0/1 配列でも通ってしまう）
+  const inner = s.isRevoked(0, 'mdoc');   // 触ってから
+  assert.equal(inner, false);
+  const svcBits = s.snapshot().mdoc.packed;
+  assert.equal(Buffer.from(svcBits, 'base64url').length, 65536 / 8, 'packed は size/8 バイト');
+  assert.equal(bits.mdoc.size, 65536, 'size はビット数で保存する（旧スナップショットとの互換）');
+});
+
+test('packed のままでも revoke/isRevoked が隣のビットを汚さない', () => {
+  const s = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536 });
+  for (const idx of [0, 7, 8, 63, 64, 65535]) s.revoke(idx, 'unspecified', 'mdoc');
+  for (const idx of [0, 7, 8, 63, 64, 65535]) assert.equal(s.isRevoked(idx, 'mdoc'), true, `idx ${idx}`);
+  // **バイト境界の隣**が巻き込まれていないこと（ビット演算の取り違えはここに出る）
+  for (const idx of [1, 6, 9, 62, 66, 65534]) assert.equal(s.isRevoked(idx, 'mdoc'), false, `idx ${idx} は無傷`);
+});
+
+test('旧形式（0/1 配列）のスナップショットも packed として読める', () => {
+  // 本番 KV には `packed` を持つものしか無いが、#25 以前の `bits` 配列も読めることは
+  // 落とさない（`restore()` の後方互換）
+  const s = new StatusListService({ uri: `${ISSUER}/status-lists/1`, size: 65536 });
+  const raw = new Array(65536).fill(0); raw[5] = 1; raw[9] = 1;
+  s.restore({ mdoc: { bits: raw, next: 10 } });
+  assert.equal(s.isRevoked(5, 'mdoc'), true);
+  assert.equal(s.isRevoked(9, 'mdoc'), true);
+  assert.equal(s.isRevoked(6, 'mdoc'), false);
+  assert.equal(s.allocate('mdoc').idx, 10, 'next も引き継ぐ');
+});

@@ -26,6 +26,18 @@ function fpeBitsFor(size) {
   return bits;
 }
 
+/**
+ * `size` ビットぶんの **packed** なビット列を作る（2026-08-30）。
+ *
+ * **1ビットに1要素の JS 配列で持たない。** 実測で **64倍**——65,536 で 0.5MB /
+ * 2^24 で **127.5MB**（packed なら 8KB / 2.0MB）。しかも `_loadState()` は
+ * **毎アクセス**呼ばれるので展開コストが毎回かかり、**65,536×5本の展開だけで 10.78ms**
+ * ＝ Workers の CPU 上限（1リクエスト 10ms）を単独で使い切る水準だった。
+ * #30 で「JSON の往復だけで 5ms」を理由に packed 永続化へ移したのと同じ罠を、
+ * 展開側で踏んでいた。読み書きは `bitAt` とビット演算で行う。
+ */
+function newBits(size) { return new Uint8Array(Math.ceil(size / 8)); }
+
 /** `indexKey`（マスター鍵）から形式ごとの鍵を KDF で導出する。
  *  ADR-0007 §5.5「鍵はファイル×形式ごとに変える」——同じ鍵だと異なるリストで
  *  同じ n が同じ idx になり対応が読めてしまう（今回はファイルが1つなので形式だけで分ける）。*/
@@ -35,6 +47,9 @@ function deriveIndexKey(masterKey, format) {
 
 // 1-bit status: bit i lives in byte floor(i/8), position i%8 (LSB-first per spec).
 export function packBits(bits) {
+  // **既に packed なら素通しする**（2026-08-30）。`StatusListService` はビット列を
+  // packed の `Uint8Array` のまま保持するので、`compressList` へそのまま渡せるようにする
+  if (bits instanceof Uint8Array) return bits;
   const bytes = new Uint8Array(Math.ceil(bits.length / 8));
   bits.forEach((v, i) => { if (v) bytes[i >> 3] |= (1 << (i & 7)); });
   return bytes;
@@ -285,14 +300,14 @@ export class StatusListService {
     // サービス全体の `indexKey` の有無で判定すると、新パーティションを足した途端に
     // 既存3本にも FPE がかかったように restore() のガードが誤判定する
     this.lists = {
-      legacy: { bits: new Array(size).fill(0), next: 0, reasons: new Map(), fpe: false },
-      mdoc: { bits: new Array(size).fill(0), next: 0, reasons: new Map(), fpe: false },
-      sdjwt: { bits: new Array(size).fill(0), next: 0, reasons: new Map(), fpe: false },
+      legacy: { bits: newBits(size), next: 0, reasons: new Map(), fpe: false },
+      mdoc: { bits: newBits(size), next: 0, reasons: new Map(), fpe: false },
+      sdjwt: { bits: newBits(size), next: 0, reasons: new Map(), fpe: false },
     };
     // **鍵が無いのに新リストを開けない**——partition/indexKey のどちらか欠けたら従来どおり
     if (partition && indexKey) {
-      this.lists.mdoc2 = { bits: new Array(size).fill(0), next: 0, reasons: new Map(), fpe: true };
-      this.lists.sdjwt2 = { bits: new Array(size).fill(0), next: 0, reasons: new Map(), fpe: true };
+      this.lists.mdoc2 = { bits: newBits(size), next: 0, reasons: new Map(), fpe: true };
+      this.lists.sdjwt2 = { bits: newBits(size), next: 0, reasons: new Map(), fpe: true };
     }
   }
   /** 形式名を正規化する。未知は legacy（後方互換）。`mdoc2`/`sdjwt2` は新パーティションの
@@ -368,10 +383,10 @@ export class StatusListService {
     if (!(Number.isInteger(idx) && idx >= 0 && idx < this.size)) {
       throw new Error(`status list index out of range: ${idx}（枠 ${this.size}）`);
     }
-    l.bits[idx] = 1;
+    l.bits[idx >> 3] |= (1 << (idx & 7));
     l.reasons.set(idx, { reason, date: new Date().toISOString() });
   }
-  isRevoked(idx, format = null) { return this.#list(format).bits[idx] === 1; }
+  isRevoked(idx, format = null) { return bitAt(this.#list(format).bits, idx) === 1; }
   reasonFor(idx, format = null) { return this.#list(format).reasons.get(idx) || null; }
 
   /** 永続化する形。形式ごとに持つ（旧形式のスナップショットも読める）。
@@ -380,7 +395,8 @@ export class StatusListService {
    *  パックすれば 32KB。発行・失効のたびに読み書きする値なので効く（issue #30）。 */
   snapshot() {
     return Object.fromEntries(Object.entries(this.lists).map(([f, l]) =>
-      [f, { packed: b64url(packBits(l.bits)), size: l.bits.length, next: l.next, reasons: [...l.reasons],
+      // `size` は**ビット数**（旧スナップショットとの互換）。`bits` は既に packed なので詰め直さない
+      [f, { packed: b64url(l.bits), size: l.bits.length * 8, next: l.next, reasons: [...l.reasons],
             // **どの採番方式でこのリストを埋めてきたか**を残す（ADR-0007）。**リスト単位**——
             // サービス全体の `indexKey` の有無ではなく、そのリスト自身の `fpe` を書く
             // （legacy/mdoc/sdjwt は常に false、mdoc2/sdjwt2 だけ true）。
@@ -395,8 +411,10 @@ export class StatusListService {
       if (v.packed) {
         const bytes = Buffer.from(v.packed, 'base64url');
         const n = v.size ?? bytes.length * 8;
-        this.lists[f].bits = Array.from({ length: n }, (_, i) => bitAt(bytes, i));
-      } else if (v.bits) { this.lists[f].bits = v.bits; }
+        // **展開しない**（2026-08-30）。packed のまま持つ。`n` はビット数なので
+        // バイト数へ直して切り出す（保存時より短ければ `#pad` が伸ばす）
+        this.lists[f].bits = new Uint8Array(bytes.subarray(0, Math.ceil(n / 8)));
+      } else if (v.bits) { this.lists[f].bits = packBits(v.bits); }   // 旧形式（0/1 配列）
       // **採番方式を途中で変えてはいけない**（ADR-0007・2026-08-30）。
       // 連番で 0..N-1 まで払い出したリストに後から FPE を入れると、`feistel(N)` は
       // 空間全体のどこにでも落ちるので**既に発行済みの索引に当たりうる**。当たると
@@ -427,7 +445,8 @@ export class StatusListService {
   /** 全リストを事前確保の長さに揃える（短いときだけ 0 で埋める）。 */
   #pad() {
     for (const l of Object.values(this.lists)) {
-      if (l.bits.length < this.size) l.bits = [...l.bits, ...new Array(this.size - l.bits.length).fill(0)];
+      const want = Math.ceil(this.size / 8);
+      if (l.bits.length < want) { const b = new Uint8Array(want); b.set(l.bits); l.bits = b; }
     }
   }
 
