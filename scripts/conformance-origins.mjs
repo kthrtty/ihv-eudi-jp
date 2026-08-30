@@ -13,7 +13,13 @@ function deployEnv() {
   return Object.fromEntries(
     readFileSync(f, 'utf8').split('\n')
       .map((l) => l.trim()).filter((l) => l && !l.startsWith('#'))
-      .map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]),
+      // **前後の引用符を剥がす**（2026-08-30）。値に空白を含むもの（REDIRECT_URI_ALLOWLIST /
+    // SSRF_ALLOWED_ORIGINS / CLIENT_REGISTRY）を裸で書くと、**シェルで `. ./.deploy.env` した
+    // ときに2つ目以降のトークンがコマンドとして実行される**（実測: `no such file or
+    // directory: https://web-wallet…`）。引用して書けるようにするが、こちらのパーサは
+    // 行末まで読むだけなので剥がさないとリテラルの `"` が値に混ざる
+    .map((l) => [l.slice(0, l.indexOf('=')),
+      l.slice(l.indexOf('=') + 1).replace(/^(['"])([\s\S]*)\1$/, '$2')]),
   );
 }
 

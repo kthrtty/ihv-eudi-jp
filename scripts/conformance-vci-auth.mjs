@@ -140,12 +140,47 @@ async function reviewPending() {
 // 読むだけにして、ログイン画面のまま戻る。2回目以降は通常どおり進める
 let deferredOnce = !process.env.CONFORMANCE_DEFER_LOGIN;
 
+/**
+ * **暗黙送信 URL を叩く**。suite のコールバック画面は JS でここへ POST するので、
+ * ブラウザを使わない場合は自分で叩かないと WAITING のまま止まる。
+ * **未認証で戻る経路でも必要**——suite はこの到達で「訪問が終わった」ことを知る。
+ */
+const submitted = new Set();
+async function submitImplicit() {
+  // **未送信のものが現れるまで待つ**。訪問ごとに新しい暗黙送信 URL が作られるが、
+  // 作られるまでに間があるので 1.5 秒で1回だけ見ると前回のものしか見えない
+  // （＝送るものが無く、suite は待ち続けてタイムアウトする）
+  let submit = null;
+  for (let k = 0; k < 10; k++) {
+    await sleep(1500);
+    const log = await j(`${SUITE}/api/log/${testId}?length=500`, { headers: AUTH });
+    const rows = Array.isArray(log) ? log : (log.data ?? []);
+    const fresh = rows.map((r) => r.implicit_submit?.fullUrl).filter(Boolean)
+      .filter((u) => !submitted.has(u)).pop();
+    if (fresh) { submit = fresh; break; }
+  }
+  // **同じ URL を二度送らない**（2026-08-30 実測）。暗黙送信 URL は訪問ごとに作られるが、
+  // その訪問が**コールバックまで到達しなかったとき**（認可エラー画面など）は新しいものが
+  // 作られない。前回のものを送り直すと **1回目のコード付きコールバックを再送**する形になり、
+  // suite は「2回目もコードが返った」と解釈する——`par-attempt-reuse-request_uri` は
+  // それで `expected to return an error but did not` の警告を出し、続けて同じコードを
+  // 再交換して `invalid_grant: authorization code has already been used` で落ちていた
+  // （**我々の AS は正しく二重使用を拒否している**。落としていたのは測定側）
+  if (submit) { submitted.add(submit); await fetch(submit); }
+}
+
 /** 認可 URL を1つ処理する（ログイン→同意→コールバック→暗黙送信、またはエラー画面の証拠提出）。 */
 async function drive(url, cookie) {
   if (!deferredOnce) {
     deferredOnce = true;
     await fetch(url);          // Cookie を送らない＝未認証のままログイン画面を見る
-    return { ok: true, loc: '(1回目は未認証のまま・2回目を待つ)' };
+    // **暗黙送信 URL をここでも叩く**（2026-08-30）。suite は「その訪問が終わった」ことを
+    // この URL への到達で知る（実行ログの `CreateRandomImplicitSubmitUrl` →
+    // `Incoming HTTP request to /test/a/<alias>/implicit/…`）。叩かずに戻ると
+    // **1回目の訪問が無かったことになり**、続く2回目が「initial visit」と判定されて
+    // 「The user was authenticated on the initial visit」で落ちる
+    await submitImplicit();
+    return { ok: true, loc: '(1回目は未認証のまま・暗黙送信済み)' };
   }
   const res0 = await fetch(url, { headers: { cookie } });
   const html = await res0.text();
@@ -153,11 +188,24 @@ async function drive(url, cookie) {
     // 同意画面が出ない。**修正1で /authorize のエラーは HTML の画面**になったので、
     // PKCE 必須・redirect_uri 不正・request_uri 異常系はここに来る。REVIEW ステップとして
     // 証拠を求められているときだけ screenshot を撮って提出する（それ以外は素直に失敗とする）
+    // **画面の文言でも判定する**——我々のエラー画面は日本語で、OAuth のエラーコードが
+    // 本文に出るとは限らない（`renderAuthorizeError` の見出しは「この認可要求は処理できません」）。
+    // 英語のコードだけを見ていると、正しくエラーを見せているのに「同意画面が出ない」と誤報する
     const looksLikeErrorResponse = res0.status === 400
-      && /invalid_request|invalid_client|invalid_grant/.test(html);
-    if (looksLikeErrorResponse && await reviewPending()) {
-      const r = await screenshotAndSubmit(url, cookie);
-      return r.ok ? { ok: true, loc: '(エラー画面の証跡を提出・REVIEW)' } : { ok: false, why: r.why };
+      && (/invalid_request|invalid_client|invalid_grant/.test(html)
+        || /この認可要求は処理できません/.test(html));
+    if (looksLikeErrorResponse) {
+      // **証跡を求められているときだけ撮る**。求められていないテスト——`par-attempt-reuse`
+      // のように「エラー画面を見せる**か** invalid_request_uri で戻す」のどちらでもよいもの
+      // ——では、**エラー画面が出たこと自体が期待どおり**なので失敗にしてはいけない。
+      // 以前は REVIEW 待ちでなければ一律「同意画面が出ない」と報告していて、
+      // 正しく拒否できているのに測定側が落としていた（2026-08-30 実測）
+      if (await reviewPending()) {
+        const r = await screenshotAndSubmit(url, cookie);
+        return r.ok ? { ok: true, loc: '(エラー画面の証跡を提出・REVIEW)' } : { ok: false, why: r.why };
+      }
+      await submitImplicit();   // 訪問が終わったことを suite に伝える
+      return { ok: true, loc: '(認可エラー画面＝期待どおり)' };
     }
     return { ok: false, why: `同意画面が出ない: ${html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 100)}` };
   }
@@ -175,13 +223,7 @@ async function drive(url, cookie) {
   if (!loc) return { ok: false, why: `リダイレクトが返らない（HTTP ${res.status}）` };
   await fetch(loc, { redirect: 'manual' });          // suite にコードを渡す
 
-  // **暗黙送信 URL を叩く**。suite のコールバック画面は JS でここへ POST するので、
-  // ブラウザを使わない場合は自分で叩かないと WAITING のまま止まる
-  await sleep(1500);
-  const log = await j(`${SUITE}/api/log/${testId}?length=500`, { headers: AUTH });
-  const rows = Array.isArray(log) ? log : (log.data ?? []);
-  const submit = rows.map((r) => r.implicit_submit?.fullUrl).filter(Boolean).pop();
-  if (submit) await fetch(submit);
+  await submitImplicit();
   return { ok: true, loc };
 }
 
@@ -197,7 +239,12 @@ const cookie = await login();
 // **ただし DEFER_LOGIN のときだけ 2 回まで許す**——PAR の request_uri 再利用テストは
 // **同じ認可 URL を2回訪問**させ、1回目は未認証・2回目で認証させる。
 // 1回に制限したままだと2回目が来ず、待ちが解消せずタイムアウトする（2026-08-30 実測）
-const MAX_VISITS = process.env.CONFORMANCE_DEFER_LOGIN ? 2 : 1;
+// **「同じ URL を何回訪問するか」と「1回目にログインを控えるか」は別の軸**（2026-08-30）。
+// 再利用テスト（`par-attempt-reuse-request_uri`）は **1回目で使い切ってから2回目で
+// エラーを見る**ので、訪問は2回・ログインは1回目から必要。両者を1つの旗にまとめていて
+// 2回目が来ずに終わっていた
+const MAX_VISITS = Number(process.env.CONFORMANCE_MAX_VISITS
+  ?? (process.env.CONFORMANCE_DEFER_LOGIN ? 2 : 1));
 const done = new Map();
 let rounds = 0;
 
