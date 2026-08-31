@@ -67,12 +67,30 @@ All files     |   99.8  |    79.6  |   98.9  |   99.8
 ## 適合テスト（OpenID conformance suite）
 
 suite に対して発行者・検証者を測る。
-**HAIP は独立プランではなく variant**——VCI は `fapi_profile: vci_haip`、VP は `vp_profile: haip`。
+
+**HAIP には専用プランがある**——`oid4vci-1_0-issuer-haip-test-plan`（61 モジュール）と
+`oid4vp-1final-verifier-haip-test-plan`。汎用プラン + `fapi_profile: vci_haip` /
+`vp_profile: haip` でも回るが**測れる範囲が狭い**（汎用21件は HAIP 61件の完全な部分集合で、
+差は FAPI2 security profile の40件）。**「HAIP で回した」と言うときは何を回したかを
+プラン名で記録する**。なお**セルフホストと公式は suite が同一**（プラン数もモジュール数も一致）。
 
 ```
 npm run conformance:vci-auth <testId>       # 認可待ちを（何回でも）進める
 npm run conformance:vp <planId> [module…]   # VP を回して結果画面を REVIEW に提出
+node .run-vci.mjs <planId> [module…]        # VCI を回す（モジュール個別も可）
 ```
+
+### 結果を読む
+
+```
+npm run conformance:status <planId> [<planId>…]   # 判定の一覧（PASSED 以外を testId 付きで）
+npm run conformance:why <testId> [<testId>…]      # 落ちた理由を suite のログから引く
+```
+
+**`status` は PASSED 以外だけを出します**——次に見るべきものがそこにしかないためで、
+出てきた testId はそのまま `why` に渡せます。`why` は**同じ src と同じ本文を畳みます**
+（TLS 系のように同一チェックが何度も出るものがあり、**件数の多さと原因の数は一致しない**）。
+FAILURE が0件と出たら、それは通ったのではなく**未完のまま止まっている**（REVIEW 待ちなど）意味です。
 
 **対象オリジンは `.deploy.env` から解決する**（`scripts/conformance-origins.mjs`）。
 本番ドメインはリポジトリに書かない規約なので、未設定なら `example.test` のまま止まる。
@@ -144,3 +162,18 @@ SUITE_URL=https://www.certification.openid.net npm run conformance:vci-auth <tes
 - 警告メッセージが**どのプロパティかを言わない**ことがある。判定根拠は jar 内の
   JSON Schema（`json-schemas/oid4vci/*.json`）なので、取り出して手元で検証すると特定できる
   （`unevaluatedProperties:false` を扱える Draft 2020-12 の検証器が要る）
+
+### KV の書き込み枠
+
+Cloudflare KV の無料枠は**書き込み 1,000 回/日**。適合テストの VCI 全 63 件で
+約 570 回に達したことがあり、**測定を重ねると枠を使い切ります**。
+
+```
+npm run kv-count              # authorization_code 1周あたりの KV 書き込み回数
+MODE=haip npm run kv-count    # DPoP 必須（適合テスト相当）
+CREDS=5 npm run kv-count      # 1回の Credential Request で5枚
+```
+
+**ネットワークにも本番 KV にも触りません**（`createApp` の既定は memoryStore で、
+store をラップして数えるだけ）。接頭辞ごとの内訳が出るので、機能を足したときに
+**どのキー種別の書き込みが増えたか**が分かります。
