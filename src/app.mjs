@@ -4,7 +4,7 @@
 // to lazy disk read then redirects to /issuer.html (Workers Static Assets).
 import { Hono } from 'hono';
 import { fileURLToPath } from 'node:url';
-import { IssuerService } from './oid4vci.mjs';
+import { IssuerService, httpErr } from './oid4vci.mjs';
 import { VerifierService } from './verifier.mjs';
 import { buildDelivery, offerByValueUri, offerByReferenceUri, offerQrSvg } from './offer.mjs';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
@@ -477,7 +477,11 @@ export function createApp(opts = {}) {
   app.get('/history', async (c) => {
     const user = await svc.sessionUser(sid(c));
     if (!user) return c.redirect('/login?next=/history', 302);
-    return c.html(renderHistory(user, await svc.issuances(), { page: c.req.query('p') }));
+    // **本人の記録だけ**（2026-08-31）。`renderHistory` は `user` を受け取りながら
+    // 絞っておらず、**他人の書類種別・発行日時・失効状態まで見えていた**。
+    // 保有者鍵は `sha256:` に丸めていたが、そこが唯一の防御になっていた
+    const mine = (await svc.issuances()).filter((e) => e.user === user.id);
+    return c.html(renderHistory(user, mine, { page: c.req.query('p') }));
   });
 
   // Account menu → account settings (edit persona data)
@@ -916,16 +920,50 @@ export function createApp(opts = {}) {
     });
   }
 
-  // issuer's own issuance ledger (history). No presentation/tracking data.
-  app.get('/issuances', async (c) => c.json({ issuances: await svc.issuances() }));
+  // 発行台帳（自分が発行した記録のみ。提示の追跡データは持たない）。
+  // **セッション必須・本人の記録だけ**（2026-08-31 のセキュリティ確認で発覚）。
+  // それまで無認証で全件返しており、`user`（利用者 ID）と `holder`（保有者公開鍵の
+  // 座標 `x.y`）が同時に漏れていた。この2つが揃うと、**検証者が提示で受け取った
+  // 保有者鍵から利用者を逆引きできる**——「発行者は提示を追跡しない」を逆方向から崩す。
+  //
+  // **`holder` は本人にも返さない**。画面（`renderHistory`）は `sha256:` の短縮形しか
+  // 使っておらず、生の座標を出す用途が無い。**出さなければ漏れても逆引きに使えない**
+  // **`fail(c, e)` を通す**——throw を素で上げると 500 になる（Hono は
+  // `httpErr` の `status` を知らない）。検証者アプリでも同じ罠を踏んだ
+  app.get('/issuances', async (c) => {
+    try {
+      const user = await svc.sessionUser(sid(c));
+      if (!user) throw httpErr(401, 'login_required', 'ログインしてください');
+      const mine = (await svc.issuances()).filter((e) => e.user === user.id);
+      return c.json({ issuances: mine.map(({ holder, ...rest }) => rest) });
+    } catch (e) { return fail(c, e); }
+  });
 
   // revoke one issued credential by its status index
+  // 発行済みを失効させる。**`/history` 画面のボタンから、ログイン中の本人が叩く**。
+  // idx は形式ごとに独立した索引空間（issue #25）。format 省略時は発行台帳から引く。
+  //
+  // **セッション必須・自分の発行記録だけ**（2026-08-31 のセキュリティ確認で発覚）。
+  // それまで無認証で、**索引を総当たりすれば任意の資格証を無効化できた**。
+  // **失効は不可逆で unrevoke API が無い**ので、被害が回復できない種類の穴だった。
+  // 索引空間を予測困難にした（ADR-0007）のは秘匿であって認可ではない。
+  //
+  // **アクセストークンでは縛れない**——OID4VCI のトークンは発行のために1回使って
+  // 600 秒で切れる。「紛失したので失効させたい」時点では残っていない。
+  //
+  // **他人の索引は 403 ではなく 404**。403 だと「存在するが他人のもの」と分かり、
+  // 総当たりで発行状況を推測できる（`/applications/:id` と同じ方針）
   app.post('/revoke', async (c) => {
-    // idx は形式ごとに独立した索引空間（issue #25）。format 省略時は legacy（分割前の資格証）
-    // idx は形式ごとに独立した索引空間（issue #25）。format 省略時は発行台帳から引く
-    try { const { index, reason, format } = await c.req.json(); const r = await svc.revoke(index, reason, format);
-      return c.json({ revoked: index, format: r.format, reason: reason ?? null }); }
-    catch (e) { return fail(c, e); }
+    try {
+      const user = await svc.sessionUser(sid(c));
+      if (!user) throw httpErr(401, 'login_required', 'ログインしてください');
+      const { index, reason, format } = await c.req.json();
+      const mine = (await svc.issuances()).some((e) => e.idx === Number(index)
+        && e.user === user.id && (!format || e.statusFormat === format));
+      if (!mine) throw httpErr(404, 'not_found', 'その発行記録は見つかりません');
+      const r = await svc.revoke(index, reason, format);
+      return c.json({ revoked: index, format: r.format, reason: reason ?? null });
+    } catch (e) { return fail(c, e); }
   });
 
   return app;

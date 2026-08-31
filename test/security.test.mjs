@@ -373,3 +373,53 @@ test('申請フォームの radio / select は選択肢外の値を拒否する'
     form: { ...base, property_type: '住家（持家）' } });
   assert.equal(ok.form.property_type, '住家（持家）');
 });
+
+// 管理系 API の認可（2026-08-31 のセキュリティ確認で発覚）。
+// **`POST /revoke` と `GET /issuances` が無認証だった**。前者は不可逆（unrevoke API が無い）
+// で、索引を総当たりすれば任意の資格証を無効化できた。後者は `user`（利用者 ID）と
+// `holder`（保有者公開鍵の座標）を同時に返しており、**検証者が提示で受け取った鍵から
+// 利用者を逆引きできる**——「発行者は提示を追跡しない」を逆方向から崩す経路だった。
+//
+// **アクセストークンでは縛れない**（OID4VCI のトークンは発行用で 600 秒で切れる）。
+// どちらもブラウザから叩く API なので**セッションで縛る**のが正しい。
+test('管理系 API は無認証で叩けない（/revoke・/issuances）', async () => {
+  const app = createApp({ credentialIssuer: 'https://issuer.ihv.example' });
+  const rv = await app.request('/revoke', { method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ index: 0, reason: 'x' }) });
+  assert.equal(rv.status, 401, '失効は不可逆なので無認証で通してはならない');
+  const ls = await app.request('/issuances');
+  assert.equal(ls.status, 401);
+});
+
+test('/issuances は本人の記録だけ返し、保有者公開鍵を出さない', async () => {
+  const app = createApp({ credentialIssuer: 'https://issuer.ihv.example' });
+  const sess = async (uid) => {
+    const r = await (await app.request('/login', { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: uid }) })).json();
+    return `sid=${r.session_id}`;
+  };
+  const a = await sess('u_001');
+  const b = await sess('u_002');
+  const list = async (ck) => (await (await app.request('/issuances', { headers: { cookie: ck } })).json()).issuances;
+
+  // 台帳が空でも「他人の分が混ざらない」構造は確かめられる
+  for (const ck of [a, b]) {
+    const rows = await list(ck);
+    assert.ok(Array.isArray(rows));
+    // **保有者公開鍵は返さない**——画面は sha256 の短縮形しか使わない
+    assert.ok(rows.every((e) => !('holder' in e)), 'holder を返してはならない');
+  }
+});
+
+test('/revoke は他人の索引を 404 にする（存在を明かさない）', async () => {
+  const app = createApp({ credentialIssuer: 'https://issuer.ihv.example' });
+  const login = await (await app.request('/login', { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_002' }) })).json();
+  // 自分の発行記録が無い索引＝他人のものか存在しないもの。**403 と区別できると
+  // 総当たりで発行状況を推測できる**ので、どちらも 404 に揃える
+  const r = await app.request('/revoke', { method: 'POST',
+    headers: { 'content-type': 'application/json', cookie: `sid=${login.session_id}` },
+    body: JSON.stringify({ index: 12345, reason: 'x' }) });
+  assert.equal(r.status, 404);
+});

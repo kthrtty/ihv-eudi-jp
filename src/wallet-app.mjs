@@ -1303,7 +1303,7 @@ function home(s, issuerUrl, verifierUrl, cat = [], statuses = {}) {
       <details class="devlinks"><summary>開発者リンク</summary>
         <div class="devgrid">
           <a href="${esc(issuerUrl)}/">発行者トップ</a>
-          <a href="${esc(issuerUrl)}/issuances">発行台帳</a>
+          <a href="${esc(issuerUrl)}/history">発行台帳</a>
           <a href="/request">認可要求（旧ピッカー）</a>
           <a href="/offer-form">オファー受領（旧フォーム）</a>
           <a href="/dev/holder-key">バインディング鍵</a>

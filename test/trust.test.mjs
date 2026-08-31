@@ -16,6 +16,11 @@ const der = (rel) => new X509Certificate(readFileSync(root(rel))).raw;
 const ISSUER = 'https://issuer.ihv.example';
 const schemeCaDer = der('pki/vical/vical-ca.crt');
 
+// `/issuances` `/revoke` はセッション必須・本人の記録だけを扱う（2026-08-31 のセキュリティ確認）
+const login = async (app, userId = 'u_001') => (await (await app.request('/login', {
+  method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: userId }),
+})).json()).session_id;
+
 const lote = () => JSON.parse(readFileSync(root('trust/lote.json'), 'utf8'));
 const vical = () => readFileSync(root('trust/vical.cbor'));
 const rical = () => readFileSync(root('trust/rical.cbor'));
@@ -332,15 +337,17 @@ test('#26 Status List の署名者をアンカーへ結び付ける（未指定�
 
 test('#26 偽の Status List（自前の CA で署名した「全部有効」）は弾かれる', async () => {
   const app = createApp({ credentialIssuer: ISSUER });
+  const sid = await login(app);
+  const cookie = { cookie: `sid=${sid}` };
   // 発行して失効させる
   const offer = await (await app.request('/offer', {
-    method: 'POST', headers: { 'content-type': 'application/json' },
+    method: 'POST', headers: { 'content-type': 'application/json', ...cookie },
     body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'] }),
   })).json();
   const w = createWallet();
   await w.receive({ request: app.request.bind(app), offer: offer.credential_offer, credentialIssuer: ISSUER });
-  const { issuances } = await (await app.request('/issuances')).json();
-  await app.request('/revoke', { method: 'POST', headers: { 'content-type': 'application/json' },
+  const { issuances } = await (await app.request('/issuances', { headers: cookie })).json();
+  await app.request('/revoke', { method: 'POST', headers: { 'content-type': 'application/json', ...cookie },
     body: JSON.stringify({ index: issuances[0].idx, reason: 'test' }) });
 
   const uri = `${ISSUER}/status-lists/1/mdoc`;
@@ -400,14 +407,16 @@ test('#28 /dev/endpoints が「信頼と失効」節と対応表を返す', asyn
 // 失効の集計は**署名しない**（3形式ぶん ES256 を走らせると Workers の 10ms を食う）。
 test('#30 statusSummary は署名せずに枠・払い出し・失効を返す', async () => {
   const app = createApp({ credentialIssuer: ISSUER });
+  const sid = await login(app);
+  const cookie = { cookie: `sid=${sid}` };
   const offer = await (await app.request('/offer', {
-    method: 'POST', headers: { 'content-type': 'application/json' },
+    method: 'POST', headers: { 'content-type': 'application/json', ...cookie },
     body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'] }),
   })).json();
   const w = createWallet();
   await w.receive({ request: app.request.bind(app), offer: offer.credential_offer, credentialIssuer: ISSUER });
-  const { issuances } = await (await app.request('/issuances')).json();
-  await app.request('/revoke', { method: 'POST', headers: { 'content-type': 'application/json' },
+  const { issuances } = await (await app.request('/issuances', { headers: cookie })).json();
+  await app.request('/revoke', { method: 'POST', headers: { 'content-type': 'application/json', ...cookie },
     body: JSON.stringify({ index: issuances[0].idx, reason: 'test' }) });
 
   const s = await app.svc.statusSummary();

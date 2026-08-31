@@ -110,7 +110,7 @@ test('applications: 再判定で内容が変わると既発行VCを失効させ�
   assert.ok(before);
 
   // サーバ側のサービスで再判定する
-  const server = await (await fetch(`${ISSUER}/issuances`)).json();
+  const server = await (await fetch(`${ISSUER}/issuances`, { headers: { cookie: `sid=${sid}` } })).json();
   const mine = server.issuances.filter((e) => e.applicationId === before.id);
   assert.equal(mine.length, 2, '2形式ぶんが同じ申請に紐づく');
   assert.ok(mine.every((e) => !e.revoked), '交付直後は失効していない');
@@ -122,7 +122,7 @@ test('applications: 再判定で内容が変わると既発行VCを失効させ�
   assert.equal(body.contentChanged, true);
   assert.equal(body.revoked.length, 2, '当該申請から出た2枚だけを失効させる');
 
-  const after = await (await fetch(`${ISSUER}/issuances`)).json();
+  const after = await (await fetch(`${ISSUER}/issuances`, { headers: { cookie: `sid=${sid}` } })).json();
   for (const e of after.issuances.filter((x) => x.applicationId === before.id)) {
     assert.equal(e.revoked, true, '再判定で内容が変わったので失効');
   }
@@ -205,7 +205,7 @@ test('applications: 申請→認定→交付→再判定→失効 を発行 EP �
   const got = await wallet.authorizeAndReceive({
     request: req, configId: 'disaster_mdoc', sessionId: sid, credentialIssuer: ISSUER });
   assert.ok(got);
-  const led = (await (await fetch(`${ISSUER}/issuances`)).json()).issuances.filter((e) => e.applicationId === appId);
+  const led = (await (await fetch(`${ISSUER}/issuances`, { headers: { cookie: `sid=${sid}` } })).json()).issuances.filter((e) => e.applicationId === appId);
   assert.equal(led.length, 1, '発行台帳が申請に紐づく');
   assert.equal(led[0].revoked, false);
 
@@ -213,7 +213,7 @@ test('applications: 申請→認定→交付→再判定→失効 を発行 EP �
   const re = await (await decideAs(appId, { status: 'approved', decision: { damage_level: '全壊' }, authority: '熊本市長' })).json();
   assert.equal(re.contentChanged, true);
   assert.equal(re.revoked.length, 1);
-  const after = (await (await fetch(`${ISSUER}/issuances`)).json()).issuances.find((e) => e.applicationId === appId);
+  const after = (await (await fetch(`${ISSUER}/issuances`, { headers: { cookie: `sid=${sid}` } })).json()).issuances.find((e) => e.applicationId === appId);
   assert.equal(after.revoked, true, '再判定で交付済みが失効する');
 
   // 5) 新しい判定で再交付できる

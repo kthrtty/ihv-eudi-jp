@@ -885,8 +885,14 @@ test('wallet Status List キャッシュ: 既定5分はキャッシュ済みリ�
   const issuer = serve({ fetch: createApp({ credentialIssuer: ISSUER }).fetch, port: IP });
   try {
     const wallet = createWalletApp({ walletOrigin: WALLET, issuerUrl: ISSUER });
+    // `/issuances` `/revoke` はセッション必須・本人の記録だけを扱う（2026-08-31 のセキュリティ確認）。
+    // 発行者側のオファーもこのセッションで作り、発行台帳を本人に紐づける
+    const issuerSid = (await (await fetch(`${ISSUER}/login`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_001' }),
+    })).json()).session_id;
+    const issuerCookie = { cookie: `sid=${issuerSid}` };
     const made = await (await fetch(`${ISSUER}/offer`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
+      method: 'POST', headers: { 'content-type': 'application/json', ...issuerCookie },
       body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'] }),
     })).json();
     const add = await wallet.request('/add?credential_offer_uri=' + encodeURIComponent(`${ISSUER}/offer/${made.offer_id}`));
@@ -898,9 +904,9 @@ test('wallet Status List キャッシュ: 既定5分はキャッシュ済みリ�
     assert.doesNotMatch(home, /未確認/);
 
     // issuer 側で失効 → 既定 TTL(5分) の間は「キャッシュされたリストで判定」なので 有効 のまま
-    const { issuances } = await (await fetch(`${ISSUER}/issuances`)).json();
+    const { issuances } = await (await fetch(`${ISSUER}/issuances`, { headers: issuerCookie })).json();
     await fetch(`${ISSUER}/revoke`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
+      method: 'POST', headers: { 'content-type': 'application/json', ...issuerCookie },
       body: JSON.stringify({ index: issuances[0].idx, reason: 'test' }),
     });
     home = await (await wallet.request('/', { headers: { cookie } })).text();
@@ -939,8 +945,13 @@ test('verifier Status List キャッシュ: 既定はキャッシュ済みリス
   try {
     const { createWallet } = await import('../src/wallet.mjs');
     const wallet = createWallet();
+    // `/issuances` `/revoke` はセッション必須・本人の記録だけを扱う（2026-08-31 のセキュリティ確認）
+    const issuerSid = (await (await fetch(`${ISSUER}/login`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_001' }),
+    })).json()).session_id;
+    const issuerCookie = { cookie: `sid=${issuerSid}` };
     const offer = await (await fetch(`${ISSUER}/offer`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
+      method: 'POST', headers: { 'content-type': 'application/json', ...issuerCookie },
       body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'] }),
     })).json();
     await wallet.receive({ request: (p, i) => fetch(ISSUER + p, i), offer: offer.credential_offer, credentialIssuer: ISSUER });
@@ -959,9 +970,9 @@ test('verifier Status List キャッシュ: 既定はキャッシュ済みリス
 
     assert.match(await present(), /検証しました/, 'valid before revocation (list now cached)');
 
-    const { issuances } = await (await fetch(`${ISSUER}/issuances`)).json();
+    const { issuances } = await (await fetch(`${ISSUER}/issuances`, { headers: issuerCookie })).json();
     await fetch(`${ISSUER}/revoke`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
+      method: 'POST', headers: { 'content-type': 'application/json', ...issuerCookie },
       body: JSON.stringify({ index: issuances[0].idx, reason: 'test' }),
     });
 

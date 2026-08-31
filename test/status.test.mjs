@@ -13,6 +13,11 @@ import { packBits, bitAt, compressList, decompressList, buildStatusListToken, pa
 
 const ISSUER = 'https://issuer.ihv.example';
 const holderJwk = () => generateKeyPairSync('ec', { namedCurve: 'P-256' }).publicKey.export({ format: 'jwk' });
+// `/issuances` `/revoke` はセッション必須・本人の記録だけを扱う（2026-08-31 のセキュリティ確認）。
+// テストは事前にログインしてセッションIDを Cookie で渡す
+const login = async (app, userId = 'u_001') => (await (await app.request('/login', {
+  method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: userId }),
+})).json()).session_id;
 
 test('status bits: pack/unpack + zlib round-trip (LSB-first)', () => {
   const bits = new Array(20).fill(0); bits[0] = 1; bits[9] = 1; bits[17] = 1;
@@ -57,13 +62,15 @@ test('verifyStatus resolves the list and reports valid vs revoked', async () => 
 test('end-to-end revocation: issue -> valid -> revoke -> verifier rejects', async () => {
   const app = createApp({ credentialIssuer: ISSUER });
   const wallet = createWallet();
+  const sid = await login(app);
+  const cookie = { cookie: `sid=${sid}` };
   // wire a verifier whose status resolver fetches the issuer's published list
   const resolve = statusResolverFor(app);
   const v = new VerifierService({ statusResolver: resolve });
 
   // issue PID mdoc into the wallet
   const offer = await (await app.request('/offer', {
-    method: 'POST', headers: { 'content-type': 'application/json' },
+    method: 'POST', headers: { 'content-type': 'application/json', ...cookie },
     body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'] }),
   })).json();
   await wallet.receive({ request: app.request.bind(app), offer: offer.credential_offer, credentialIssuer: ISSUER });
@@ -74,10 +81,10 @@ test('end-to-end revocation: issue -> valid -> revoke -> verifier rejects', asyn
   assert.equal(ok.valid, true, ok.errors.join(';'));
 
   // issuer revokes the issued credential (idx 0)
-  const issued = await (await app.request('/issuances')).json();
+  const issued = await (await app.request('/issuances', { headers: cookie })).json();
   assert.equal(issued.issuances.length, 1);
   assert.equal(issued.issuances[0].revoked, false);
-  await app.request('/revoke', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ index: issued.issuances[0].idx, reason: 'lost_device' }) });
+  await app.request('/revoke', { method: 'POST', headers: { 'content-type': 'application/json', ...cookie }, body: JSON.stringify({ index: issued.issuances[0].idx, reason: 'lost_device' }) });
 
   // round 2: same presentation flow -> now rejected as revoked
   const req2 = await v.createRequest({ specs: [{ id: 'pid', configId: 'pid_mdoc', claims: ['family_name'] }] });
@@ -86,7 +93,7 @@ test('end-to-end revocation: issue -> valid -> revoke -> verifier rejects', asyn
   assert.ok(no.errors.some((e) => /revoked/.test(e)), no.errors.join(';'));
 
   // and the issuer history reflects the revocation + reason (no presentation data)
-  const after = await (await app.request('/issuances')).json();
+  const after = await (await app.request('/issuances', { headers: cookie })).json();
   assert.equal(after.issuances[0].revoked, true);
   assert.equal(after.issuances[0].revocation.reason, 'lost_device');
 });
@@ -117,15 +124,18 @@ test('isolate 跨ぎの失効伝播: 失効を書いた isolate と別のイン�
   };
   const A = createApp({ credentialIssuer: ISSUER, store });
   const B = createApp({ credentialIssuer: ISSUER, store });
+  // セッションは共有 store 経由で A/B どちらからでも通る（同じ KV を読むため）
+  const sid = await login(A);
+  const cookie = { cookie: `sid=${sid}` };
 
   // isolate A で発行
   const offer = await (await A.request('/offer', {
-    method: 'POST', headers: { 'content-type': 'application/json' },
+    method: 'POST', headers: { 'content-type': 'application/json', ...cookie },
     body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'] }),
   })).json();
   const wallet = createWallet();
   await wallet.receive({ request: A.request.bind(A), offer: offer.credential_offer, credentialIssuer: ISSUER });
-  const { issuances } = await (await A.request('/issuances')).json();
+  const { issuances } = await (await A.request('/issuances', { headers: cookie })).json();
   const idx = issuances[0].idx;
 
   // pid_mdoc なので mdoc のリストを指す（idx は形式ごとに独立した索引空間・issue #25）
@@ -137,7 +147,7 @@ test('isolate 跨ぎの失効伝播: 失効を書いた isolate と別のイン�
 
   // isolate B で失効
   const rv = await B.request('/revoke', {
-    method: 'POST', headers: { 'content-type': 'application/json' },
+    method: 'POST', headers: { 'content-type': 'application/json', ...cookie },
     body: JSON.stringify({ index: idx, reason: 'test' }),
   });
   assert.equal(rv.status, 200);
@@ -146,7 +156,7 @@ test('isolate 跨ぎの失効伝播: 失効を書いた isolate と別のイン�
   assert.equal((await verifyStatus({ idx, uri }, resolveA)).revoked, true,
     'the OTHER isolate must serve the updated list');
   // 発行履歴（A 経由）にも失効が見える
-  const after = await (await A.request('/issuances')).json();
+  const after = await (await A.request('/issuances', { headers: cookie })).json();
   assert.equal(after.issuances.find((e) => e.idx === idx).revoked, true);
 });
 
@@ -180,9 +190,11 @@ test('#25 Status List は形式ごとの信頼根へチェーンする', async (
 // 参照されない索引が歯抜けで混ざる（Token Status List の {uri, idx} は「その URI のリストの中の idx」）。
 test('#25 索引空間は形式ごとに独立し、失効が互いに漏れない', async () => {
   const app = createApp({ credentialIssuer: ISSUER });
+  const sid = await login(app);
+  const cookie = { cookie: `sid=${sid}` };
   const take = async (configId) => {
     const offer = await (await app.request('/offer', {
-      method: 'POST', headers: { 'content-type': 'application/json' },
+      method: 'POST', headers: { 'content-type': 'application/json', ...cookie },
       body: JSON.stringify({ credential_configuration_ids: [configId] }),
     })).json();
     const w = createWallet();
@@ -191,7 +203,7 @@ test('#25 索引空間は形式ごとに独立し、失効が互いに漏れな�
   };
   await take('pid_mdoc');
   await take('pid_sdjwt');
-  const { issuances } = await (await app.request('/issuances')).json();
+  const { issuances } = await (await app.request('/issuances', { headers: cookie })).json();
   const md = issuances.find((e) => e.statusFormat === 'mdoc');
   const sd = issuances.find((e) => e.statusFormat === 'sdjwt');
   assert.equal(md.idx, 0);
@@ -200,7 +212,7 @@ test('#25 索引空間は形式ごとに独立し、失効が互いに漏れな�
 
   // mdoc#0 を失効させても sdjwt#0 は無事（format は発行台帳から引かれる）
   const rv = await (await app.request('/revoke', { method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...cookie },
     body: JSON.stringify({ index: 0, reason: 'test', format: 'mdoc' }) })).json();
   assert.equal(rv.format, 'mdoc');
   const resolve = statusResolverFor(app);
@@ -210,7 +222,7 @@ test('#25 索引空間は形式ごとに独立し、失効が互いに漏れな�
 
   // format 省略時は台帳から引く。両形式に同じ idx があるので曖昧＝断る
   const amb = await app.request('/revoke', { method: 'POST',
-    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ index: 0, reason: 'x' }) });
+    headers: { 'content-type': 'application/json', ...cookie }, body: JSON.stringify({ index: 0, reason: 'x' }) });
   assert.equal(amb.status, 400, '曖昧なら黙って片方を消さずに断る');
 });
 
@@ -236,6 +248,9 @@ test('#25 発行済み分との互換: 旧 KV 状態を引き継ぎ、旧 URI �
   };
   const app = createApp({ credentialIssuer: ISSUER, store });
   const resolve = statusResolverFor(app);
+  // 旧レコードは user: 'u_001' なので、同じ利用者でログインして本人の記録として扱う
+  const sid = await login(app, 'u_001');
+  const cookie = { cookie: `sid=${sid}` };
 
   // 旧 URI（形式なし）がそのまま配れて、旧 idx の失効が保たれている
   assert.equal((await app.request('/status-lists/1')).status, 200);
@@ -244,25 +259,25 @@ test('#25 発行済み分との互換: 旧 KV 状態を引き継ぎ、旧 URI �
   assert.equal((await verifyStatus({ idx: 4, uri: `${ISSUER}/status-lists/1` }, resolve)).revoked, false);
 
   // 発行台帳の表示も壊れない（statusFormat 無し＝legacy として引く）
-  const { issuances } = await (await app.request('/issuances')).json();
+  const { issuances } = await (await app.request('/issuances', { headers: cookie })).json();
   assert.equal(issuances.find((e) => e.idx === 3).revoked, true);
   assert.equal(issuances.find((e) => e.idx === 3).revocation.reason, 'lost_device');
   assert.equal(issuances.find((e) => e.idx === 4).revoked, false);
 
   // 旧レコードの失効も format 省略で通る（台帳から legacy と分かる）
   const rv = await (await app.request('/revoke', { method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...cookie },
     body: JSON.stringify({ index: 4, reason: 'superseded' }) })).json();
   assert.equal(rv.format, 'legacy');
   assert.equal((await verifyStatus({ idx: 4, uri: `${ISSUER}/status-lists/1` }, resolve)).revoked, true);
 
   // 新規発行は形式ごとのリストへ行き、旧 idx とぶつからない
   const offer = await (await app.request('/offer', { method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...cookie },
     body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'] }) })).json();
   const w = createWallet();
   await w.receive({ request: app.request.bind(app), offer: offer.credential_offer, credentialIssuer: ISSUER });
-  const after = await (await app.request('/issuances')).json();
+  const after = await (await app.request('/issuances', { headers: cookie })).json();
   const fresh = after.issuances.find((e) => e.statusFormat === 'mdoc');
   assert.equal(fresh.idx, 0, '新しい索引空間は 0 から');
   assert.equal((await verifyStatus({ idx: 3, uri: `${ISSUER}/status-lists/1` }, resolve)).revoked, true,
