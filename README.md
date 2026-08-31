@@ -47,7 +47,7 @@ EU のデジタルID規則（eIDAS 2.0）とその技術仕様である ARF に�
 | 発行者（Issuer） | ウォレット（Holder） | 検証者（Verifier） |
 |---|---|---|
 | ![発行者トップ](docs/images/home-issuer.png) | ![ウォレット](docs/images/home-wallet.png) | ![検証者](docs/images/home-verifier.png) |
-| 資格証を選んで発行し、QR / リンクでウォレットへ渡す | 受け取った資格証をカードで一覧。追加・並び替え・失効確認 | 実在の民間手続きを模した10シナリオを体験 |
+| 資格証を選んで発行し、QR / リンクでウォレットへ渡す | 受け取った資格証をカードで一覧。追加・並び替え・失効確認 | 実在の手続きを模したシナリオを体験 |
 
 このほかに**自治体窓口**（Admin）があります。罹災証明書と離島割引資格証は
 自治体の審査を経ないと交付されないため、住民が申請し職員が認定する動線を別オリジンで実装しています。
@@ -102,8 +102,7 @@ KV の namespace id の差し替えなど、clone しただけでは動かない
 
 ## 提示・検証の流れ
 
-検証者は実在の手続きを模した**10シナリオ**を用意しています。すべて**民間の受理者**です
-（行政宛の手続きはマイナポータル連携などで代替されるため、資格証が効くのは行政の外側だという整理です）。
+検証者は実在の手続きを模したシナリオを用意しています。
 
 代表例の「**子どもの銀行口座開設**」では、2段階の提示を行います。
 
@@ -111,7 +110,7 @@ KV の namespace id の差し替えなど、clone しただけでは動かない
 2. 住民票の写しを提示し、**世帯員に「子」がいること**を確認
 
 さらに、**2回の提示が同じ保有者鍵で署名されたこと**を検証します。
-これにより「本人確認した人と、住民票を出した人が同一である」ことが保証されます。
+これにより「本人確認した人と、住民票を出した人が同一である」ことを確認します。
 
 | ① シナリオを選ぶ | ② ウォレットの同意画面 |
 |---|---|
@@ -178,7 +177,7 @@ web/          静的アセット
 | [GETTING_STARTED.md](GETTING_STARTED.md) | **自分のアカウントにデプロイする手順** |
 | [docs/architecture.md](docs/architecture.md) | 全体構成 |
 | [docs/trust-and-revocation.md](docs/trust-and-revocation.md) | 鍵の階層、トラストリスト、失効の仕組み |
-| [docs/verifier-scenarios.md](docs/verifier-scenarios.md) | 10シナリオの設計意図 |
+| [docs/verifier-scenarios.md](docs/verifier-scenarios.md) | 各シナリオの設計意図 |
 | [docs/wallet-attestation.md](docs/wallet-attestation.md) | ウォレットと鍵の真正性の検証 |
 | [docs/web-wallet.md](docs/web-wallet.md) | Web ウォレットの設計 |
 | [docs/mdoc-handover.md](docs/mdoc-handover.md) | DC API と mdoc のハンドオーバー |
