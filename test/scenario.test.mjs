@@ -554,3 +554,40 @@ test('OID4VP: 所有者が居ない要求（コンソール・適合テスト経
   // **Cookie 無しで 200**。ここを閉じると scripts/conformance-vp.mjs が壊れる
   assert.equal((await v.request(`/oid4vp/result/${b.transactionId}`)).status, 200);
 });
+
+// 罹災証明書の住所（2026-08-31 修正）。
+// **身分証の住所と罹災住家の所在地は一致しないのが普通**——統一様式（府政防第737号）が
+// この2つを**別項目にしている理由がそれ**。賃貸・二世帯・単身赴任・空き家、そして
+// 罹災後に住民票を移した場合。一致を受理条件にしていたため、**正当な請求が
+// 機械的に落ちていた**（実機で通過できないと報告があった）。
+//
+// 注意喚起（`warn`）に留める。**`warn` は受理を妨げない**——ここを `ok:false` に
+// 戻すと同じ不具合が再発する。
+test('disaster-aid: 身分証と罹災住家の住所が違っても受理する（注意は出す）', async () => {
+  const { SCENARIOS, evaluateScenario } = await import('../src/scenarios.mjs');
+  const s = SCENARIOS['disaster-aid'];
+  const mk = (claims) => ({ valid: true, results: [{ claims }], linkedSameHolder: true });
+  const pid = mk({ family_name: '山田', given_name: '太郎', residence_address: '東京都千代田区1-1-1' });
+  const eaa = (address) => mk({ family_name: '山田', given_name: '太郎', address,
+    disaster_name: '令和8年熊本地震', damage_level: '半壊' });
+
+  // 一致：従来どおり通り、警告は出ない
+  const same = evaluateScenario(s, pid, eaa('東京都千代田区1-1-1'));
+  assert.equal(same.ok, true);
+  assert.ok(!same.checks.some((c) => c.warn), '一致なら警告は出さない');
+
+  // **不一致でも受理する**（ここが修正の本体）
+  const diff = evaluateScenario(s, pid, eaa('熊本県熊本市中央区大江3-1-5'));
+  assert.equal(diff.ok, true, '住所の不一致で受理を止めてはならない');
+  const warned = diff.checks.filter((c) => c.warn);
+  assert.equal(warned.length, 1, '注意は1件だけ出す');
+  assert.ok(warned[0].ok, 'warn は ok:true でなければ受理が止まる');
+  // **両方の住所を文面に出す**——「違う」だけでは人が判断できない
+  assert.match(warned[0].label, /東京都千代田区1-1-1/);
+  assert.match(warned[0].label, /熊本県熊本市中央区大江3-1-5/);
+
+  // 氏名の不一致は従来どおり受理しない（警告に格下げしていないこと）
+  const badName = evaluateScenario(s, pid, mk({ family_name: '鈴木', given_name: '一郎',
+    address: '東京都千代田区1-1-1', disaster_name: 'x', damage_level: '半壊' }));
+  assert.equal(badName.ok, false, '氏名の不一致は受理しない');
+});

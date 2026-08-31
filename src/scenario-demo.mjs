@@ -57,6 +57,9 @@ const RESULT_CSS = `
   .lbl2{font-size:16px;color:var(--muted);font-weight:700}
   .checks{display:grid;gap:6px;margin-top:6px}.ck2{font-size:16px}
   .cok{color:var(--verify);font-weight:700}.cng2{color:var(--error-2);font-weight:700}
+  /* 注意（受理はするが人に見てほしい）。DADS は yellow/orange を警告に予約している
+     ので、役割色ではなく --warning-2 を使う */
+  .cwarn{color:var(--warning-2);font-weight:700}
   .mini2{font-size:16px;color:var(--verify)}
   .tech{margin-top:14px}.tech>summary{cursor:pointer;font-size:16px;color:var(--muted);font-weight:700}
   .json{background:#0E1A2B;color:#D7E0EE;border-radius:10px;padding:14px;font-size:16px;line-height:1.5;overflow:auto;max-height:340px;font-family:"IBM Plex Mono",monospace;white-space:pre;margin:8px 0}
@@ -322,8 +325,15 @@ export function renderScenarioAccept(s, result1, result2, evaluation) {
     { ok: allValid || !sigBroken, label: '発行元の電子署名は正しい（改ざんなし）' },
     { ok: allValid || !revBroken, label: '証明書は失効していない' },
   ];
-  const checkRows = [...baseChecks, ...checks].map((c) =>
-    `<div class="ck2"><span class="${c.ok ? 'cok' : 'cng2'}">${c.ok ? '✓' : '✗'}</span> ${esc(c.label)}</div>`).join('');
+  // **3値で描く**（2026-08-31）。`ok:false`＝受理しない／`warn:true`＝受理はするが
+  // 人に見てほしいこと／それ以外＝満たした。**警告を ✗ で描くと「落ちた」と誤読される**
+  // ——罹災の住所不一致のように、**一致しないのが正常な場合**があるため。
+  const mark = (c) => (!c.ok ? { cls: 'cng2', ic: '✗' }
+    : c.warn ? { cls: 'cwarn', ic: '⚠' } : { cls: 'cok', ic: '✓' });
+  const checkRows = [...baseChecks, ...checks].map((c) => {
+    const m = mark(c);
+    return `<div class="ck2"><span class="${m.cls}">${m.ic}</span> ${esc(c.label)}</div>`;
+  }).join('');
   const failReason = !ok ? failText(result1, result2, checks) : '';
   const okLabel = s.acceptLabel || '申請を受理しました';
   const tech = oneStep
