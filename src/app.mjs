@@ -1390,7 +1390,17 @@ export function createVerifierApp(opts = {}) {
       specs: [{ id: 'q1', configId, claims }], transport: 'redirect',
       responseUriBase: `${verifierOrigin}/oid4vp/response`,
     });
-    await putRequest(transactionId, request);
+    // **この要求を作ったブラウザを覚える**（結果画面の所有者。上の GET を参照）。
+    // Cookie が無ければ発行する——**要求ごとではなくブラウザごと**にしておかないと、
+    // 同じ人が続けて2件試したときに前の結果が見られなくなる
+    let owner = getCookie(c, 'vres');
+    if (!owner) {
+      // **暗号的乱数を使う**。既存の `demoId` は `Math.random()` だが、あれは
+      // 見た目の識別子。こちらは**閲覧を許すかどうかの判定材料**なので推測されては困る
+      owner = crypto.randomUUID();
+      setCookie(c, 'vres', owner, { httpOnly: true, sameSite: 'Lax', secure: true, path: '/' });
+    }
+    await putRequest(transactionId, { ...request, owner });
     const requestUri = `${verifierOrigin}/oid4vp/request/${transactionId}`;
     const walletPresent = `${walletOrigin}/present?request_uri=${encodeURIComponent(requestUri)}`;
     return c.html(renderWebVerify({ request, requestUri, walletPresent }));
@@ -1413,6 +1423,22 @@ export function createVerifierApp(opts = {}) {
   app.post('/oid4vp/response/:txn', async (c) => {
     try {
       const txn = c.req.param('txn');
+      // **応答は1回だけ受ける**（2026-08-31 のセキュリティ確認で発覚）。同じ vp_token を
+      // 2回出すと2回とも 200 を返していた。復号は SessionTranscript（nonce・response_uri・
+      // client_id）に束ねてあるので**他の要求への流用はできない**が、**同じ要求に対する
+      // 再送は通る**——結果が上書きされるので、履歴を膨らませたり、後から開く結果画面の
+      // 中身を差し替えたりできる。OID4VP §8.2 の「successfully processed」は一度きりの
+      // 処理を指すと読むのが自然で、nonce が使い捨てである以上ここも使い捨てが筋。
+      // **判定は結果レコードの有無で足りる**（`vpres:` は TTL 付きで、要求の寿命と揃う）
+      // **検証者アプリの `fail()` は発行者側とは別実装**で `oauthError` を見ないので、
+      // ここは下の検証失敗と同じ形（400 + `error` + `redirect_uri`）を直接返す
+      if (await getResult(txn)) {
+        const prev = await getScn(txn);
+        return c.json({ error: 'invalid_request',
+          error_description: 'this authorization response has already been submitted',
+          redirect_uri: prev ? `${verifierOrigin}/verifier/s/${prev.id}/result/${txn}`
+            : `${verifierOrigin}/oid4vp/result/${txn}` }, 400);
+      }
       const body = await c.req.parseBody();
       const result = withImgClaims(await v.verifyResponse({ transactionId: txn, encryptedResponse: body.response }));
       await putResult(txn, result);
@@ -1437,7 +1463,22 @@ export function createVerifierApp(opts = {}) {
       return c.json({ redirect_uri: dest }); // direct_post.jwt
     } catch (e) { return fail(c, e); }
   });
-  app.get('/oid4vp/result/:txn', async (c) => c.html(renderWebVerifyResult(await getResult(c.req.param('txn')))));
+  // 結果画面。**開示されたクレームが載る**ので、txn を知っているだけでは見せない
+  // （2026-08-31 のセキュリティ確認で発覚。それまで Cookie 無しで誰でも 200 で開けた）。
+  // **要求を作ったブラウザに束ねる**——`/demo/webverify` が発行する `vres` Cookie と、
+  // 要求レコードに残した所有者 ID を突き合わせる。txn は乱数だが、URL は
+  // ウォレットからのリダイレクト先として渡り、履歴やログに残る（capability URL の弱点）。
+  //
+  // **所有者が記録されていない要求は従来どおり開ける**——`/vp/build` は検証者コンソールや
+  // 適合テストのドライバが**ブラウザ外から**叩く経路で、そこに Cookie は無い。
+  // ここを一律で閉じると `scripts/conformance-vp.mjs` の証跡取得が壊れる。
+  // 「所有者が居るなら本人だけ」「居ないなら公開」は、閉められる所だけ閉める形。
+  app.get('/oid4vp/result/:txn', async (c) => {
+    const txn = c.req.param('txn');
+    const req = await getRequest(txn);
+    if (req?.owner && req.owner !== getCookie(c, 'vres')) return c.notFound();
+    return c.html(renderWebVerifyResult(await getResult(txn)));
+  });
 
   return app;
 }

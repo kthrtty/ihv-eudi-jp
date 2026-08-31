@@ -498,3 +498,59 @@ test('scenarios: 申請の認定が無い persona には交付されない（認
     }),
     (e) => /交付申請の認定が必要|invalid_credential_request/.test(String(e?.message ?? e)));
 });
+
+// OID4VP の応答受付と結果画面（2026-08-31 のセキュリティ確認で発覚した2点）。
+// 復号は SessionTranscript に束ねてあるので**他の要求への流用はできない**が、
+// **同じ要求への再送**は通っていた（2回とも 200）。結果は上書きされるので、
+// 履歴を膨らませたり、後から開く結果画面の中身を差し替えたりできた。
+test('OID4VP: 同じ応答は2回受け付けない（リプレイ拒否）', async () => {
+  const v = vapp();
+  const login = await (await fetch(`${ISSUER}/login`, { method: 'POST',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({ user_id: 'u_001' }) })).json();
+  const wallet = createWallet();
+  await wallet.authorizeAndReceive({ request: (p, i) => fetch(ISSUER + p, i),
+    configId: 'pid_mdoc', sessionId: login.session_id, credentialIssuer: ISSUER });
+  const b = await (await J(v, '/vp/build', { configId: 'pid_mdoc', claims: ['family_name'], target: 'web' })).json();
+  const jwe = await wallet.respond(b.request);
+  const post = () => v.request(`/oid4vp/response/${b.transactionId}`, { method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ response: jwe }).toString() });
+
+  const first = await post();
+  assert.equal(first.status, 200, '1回目は通る');
+  const second = await post();
+  assert.equal(second.status, 400, '2回目は拒否される');
+  assert.match(JSON.stringify(await second.json()), /already been submitted/);
+});
+
+// 結果画面には**開示されたクレームが載る**。txn は乱数だが、URL はウォレットからの
+// リダイレクト先として渡り履歴やログに残る（capability URL の弱点）ので、
+// **要求を作ったブラウザに束ねる**。ただし**所有者が記録されていない要求は開ける**
+// ——`/vp/build` は検証者コンソールや適合テストのドライバがブラウザ外から叩く経路で、
+// そこに Cookie は無い。一律で閉じると `scripts/conformance-vp.mjs` の証跡取得が壊れる。
+test('OID4VP: 結果画面は要求を作ったブラウザにだけ見せる（所有者が居るとき）', async () => {
+  const v = vapp();
+  // ブラウザ経路（/demo/webverify）は owner を記録し、vres Cookie を発行する
+  const page = await v.request('/demo/webverify?cfg=pid_mdoc&claims=family_name');
+  assert.equal(page.status, 200);
+  const setCookie = page.headers.get('set-cookie') || '';
+  assert.match(setCookie, /vres=/, 'ブラウザ経路は vres Cookie を発行する');
+  const vres = /vres=([^;]+)/.exec(setCookie)[1];
+  const txn = /oid4vp\/request\/([A-Za-z0-9_-]+)/.exec(await page.text())[1];
+
+  // Cookie 無し＝他人は 404（存在も明かさない）
+  assert.equal((await v.request(`/oid4vp/result/${txn}`)).status, 404);
+  // 別の Cookie でも 404
+  assert.equal((await v.request(`/oid4vp/result/${txn}`,
+    { headers: { cookie: 'vres=someone-else' } })).status, 404);
+  // 本人は開ける
+  assert.equal((await v.request(`/oid4vp/result/${txn}`,
+    { headers: { cookie: `vres=${vres}` } })).status, 200);
+});
+
+test('OID4VP: 所有者が居ない要求（コンソール・適合テスト経路）は従来どおり開ける', async () => {
+  const v = vapp();
+  const b = await (await J(v, '/vp/build', { configId: 'pid_mdoc', claims: ['family_name'], target: 'web' })).json();
+  // **Cookie 無しで 200**。ここを閉じると scripts/conformance-vp.mjs が壊れる
+  assert.equal((await v.request(`/oid4vp/result/${b.transactionId}`)).status, 200);
+});
