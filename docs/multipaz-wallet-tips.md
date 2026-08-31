@@ -41,7 +41,78 @@
 
 ---
 
-## 2. 発行者 URL を直接入れて認可コードフローを回す
+## 2. adb で logcat を読む
+
+画面に出る文言だけでは切り分けられないことが多いので、**実機を USB で繋いで logcat を読む**のが
+いちばん速い手段です。
+
+### 準備
+
+端末側で**開発者向けオプション**と **USB デバッグ**を有効にします
+（設定 → デバイス情報 → ビルド番号を7回タップ → 開発者向けオプション → USB デバッグ）。
+
+```bash
+adb devices          # 端末が `device` として出ること。`unauthorized` なら端末側の確認ダイアログを許可
+```
+
+### 取り方
+
+```bash
+adb logcat -c                       # まず捨てる（前の実行のログと混ざらない）
+adb logcat -v time > /tmp/mp.log    # 別ターミナルで流しっぱなしにし、端末を操作する
+```
+
+**タグでフィルタせず、全部取ってから `grep` してください。**
+`adb logcat Multipaz:V *:S` のような書き方は **zsh だと `*:S` が glob 展開されて失敗します**
+（`no matches found` になる）。取ってから絞るほうが確実で、しかも
+**関係ないと思っていたタグに答えがあることが多い**です。
+
+```bash
+grep -iE "multipaz|openid4vci|provisioning|revocation" /tmp/mp.log | less
+```
+
+### 見るべきタグ
+
+Multipaz は用途ごとにタグを分けています（SDK の `TAG` 定数）。
+
+| タグ | いつ見るか |
+|---|---|
+| `ProvisioningModel` / `OpenID4VCIProvisioningClient` | 発行が進まない・途中で止まる |
+| `IssuerConfiguration` | メタデータの解釈（proof 型・バッチ枚数・クライアント認証方式の選択） |
+| `CredentialOffer` | オファーの読み取り（QR / ディープリンク） |
+| `CachingRevocationChecker` | 失効確認。`RevocationCheckResult: …` が出る |
+| `Iso180135Presentment` / `BleTransport*` | 対面提示（QR + BLE） |
+
+### `Logger.d` と `Logger.i` の違いを押さえる
+
+```kotlin
+// SDK の Logger.kt
+var isDebugEnabled = false          // ← 既定は false
+fun d(tag, msg) { if (isDebugEnabled) { … } }
+fun i(tag, msg) { …無条件… }
+```
+
+**`Logger.d` は開発者モードの Enable debug logging を入れないと出ません。**
+一方 **`Logger.i` は既定で出ます**——失効確認の結果（`RevocationCheckResult: …`）はこちらなので、
+デバッグログを入れなくても読めます。**「ログに出ない＝通っていない」ではありません。**
+
+デバッグログには **PII が含まれうる**とアプリ自身が警告しています。取ったログを共有するときは注意してください。
+
+### 発行者側のログと突き合わせる
+
+このデモの3つのポータルは、ヘッダーの `>_` から**開発者コンソール**を開けます
+（`GET /dev/log`）。**実機の logcat と、発行者が受け取ったリクエストの両方を並べる**と
+原因がすぐ絞れます。実際、実機で発行が通らなかったときの原因は次の2つで、
+どちらも**片側だけ見ていては分からない**ものでした。
+
+- AS メタデータに `pushed_authorization_request_endpoint` が**文字列として無い**
+  （logcat に `pushed_authorization_request_endpoint must be a string` と出る）
+- Credential エンドポイントへトークンを **`Authorization: DPoP <token>`** で送ってくる
+  （`Bearer` 固定で受けていると 401）
+
+---
+
+## 3. 発行者 URL を直接入れて認可コードフローを回す
 
 QR を読まずに、**発行者のメタデータから資格証の一覧を引いて選ぶ**動線があります。
 
@@ -80,10 +151,10 @@ Multipaz は AS メタデータの `token_endpoint_auth_methods_supported` を�
 
 ---
 
-## 3. バッチ発行は「対応している」
+## 4. バッチ発行は「対応している」
 
 > **ご注意**: 「Multipaz がバッチ発行に対応しておらず1つ目しか取れない」というのは
-> **誤りです**。混同されやすい別の制約があります（次節）。
+> **誤りです**。混同されやすい別の制約があります（第5節）。
 
 Multipaz は**メタデータを読んでバッチ枚数を決めます**。
 
@@ -100,7 +171,7 @@ IssuerConfiguration.kt:
 
 ---
 
-## 4. 1回のオファーで複数種類を選んでも、1つしか発行されない
+## 5. 1回のオファーで複数種類を選んでも、1つしか発行されない
 
 **これが「1つ目しか取れない」の正体です。** バッチ発行とは別の話で、
 **Credential Offer に複数の資格証を載せても Multipaz は先頭しか見ません**。
@@ -129,7 +200,7 @@ Credential Request にも単数の `credential_configuration_id` が入るため
 
 ---
 
-## 5. 対面提示には User Defined Query を使う
+## 6. 対面提示には User Defined Query を使う
 
 Multipaz は**ホルダーとリーダーの両方の役**を1つのアプリに持っており、対面提示は
 Android / iOS とも実装済みです。**素のビルドのまま `jp.go.*` のような独自 docType を要求できます。**
@@ -145,7 +216,7 @@ Android / iOS とも実装済みです。**素のビルドのまま `jp.go.*` �
 
 ---
 
-## 6. トラストアンカーは3口から登録する
+## 7. トラストアンカーは3口から登録する
 
 設定のトラスト管理から、**3つの形式**で追加できます
 （`androidApp/…/ui/settings/TrustManagerScreen.kt`）。
