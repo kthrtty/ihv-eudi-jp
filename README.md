@@ -1,107 +1,195 @@
 # ihv-eudi-jp
 
-eIDAS2.0 / ARF 準拠の **Issuer–Verifier–Holder（IHV）デモ**（日本属性）。
-OID4VCI 1.0 で発行、OID4VP 1.0 + HAIP で提示、**mso_mdoc / SD-JWT VC** の選択的開示、
-DC API 連携（OID4VP over DC API=実機確認済み／Annex C `org-iso-mdoc`=DeviceRequest+readerAuth 準拠・実機E2Eは issue #13）、Token Status List 失効、そして DC API を使わない
-**Web ウォレット経路（HTTPS リダイレクト）**まで。設計の単一ソースは `CLAUDE.md`、詳細は `docs/`。
+> [!WARNING]
+> 本プロジェクトは、デモ・学習を目的としたプロトタイプおよびサンプル実装であり、
+> 本番での運用を意図したものではありません。
+> 登場する組織・人物・デジタル資格証等は全て架空のものです。
 
-## 動作イメージ
+**デジタル資格証を「発行 → 保管 → 提示 → 検証」まで、ブラウザだけで一周できるデモ実装です。**
 
-3 つの独立オリジン（発行者 / ウォレット / 検証者）で構成され、役割ごとにヘッダー色・favicon・タブタイトルが変わります。
-発行者で選んだ和色グラデーションのカードが、そのままウォレットに並びます。
+EU のデジタルID規則（eIDAS 2.0）とその技術仕様である ARF に沿って作られていますが、
+載せている資格証は**日本の書類**です。住民票の写し、課税証明書、罹災証明書、
+国家資格の証明など9種類を、実在の手続きを模した流れで扱えます。
+
+```
+発行者ポータル  ──オファー(QR/リンク)──▶  ウォレット  ──提示(OID4VP)──▶  検証者ポータル
+   (Issuer)                              (Holder)                        (Verifier)
+       ▲
+       └── 自治体窓口(Admin) ── 罹災証明などは職員の審査を経てから交付される
+```
+
+---
+
+## これは何を示すデモか
+
+**紙の証明書を持ち歩く代わりに、スマートフォンの中の資格証で手続きを済ませる**世界を、
+実装レベルで確かめるためのものです。次の3点を実際に動く形で示します。
+
+**必要な項目だけを渡せること（選択的開示）**
+「20歳以上か」を確認したい相手に、生年月日そのものを渡す必要はありません。
+資格証は項目ごとに切り離せる形で発行され、提示のたびに何を渡すかを本人が選びます。
+
+**誰が発行したかを検証できること**
+資格証には発行者の署名が入り、検証者は公開されたトラストリストを辿って
+「この署名は本物の発行者のものか」を確かめます。偽造された証明書は受理されません。
+
+**発行者に提示先を知られないこと**
+検証者は失効リストを丸ごと取得して手元で判定するため、
+発行者は「誰がどこに資格証を見せたか」を観測できません。
+
+---
+
+## 画面
+
+3つの独立したオリジン（発行者 / ウォレット / 検証者）で構成され、
+役割ごとにヘッダー色・favicon・タブタイトルが変わるので、いま自分がどのサイトにいるかが常に分かります。
 
 | 発行者（Issuer） | ウォレット（Holder） | 検証者（Verifier） |
 |---|---|---|
-| ![発行者トップ: クレデンシャル選択](docs/images/home-issuer.png) | ![ウォレット: 保管カード一覧](docs/images/home-wallet.png) | ![検証者: シナリオ一覧](docs/images/home-verifier.png) |
-| 発行できるクレデンシャルを選び「発行（オファーを生成）」→ QR / リンクでウォレットへ | 受領したクレデンシャルをカードで一覧。➕ でカタログ発行、QR でオファー受領 | 実在の民間手続きを模した 9 シナリオ（8 文書を使用）でステップ型の提示・検証を体験 |
+| ![発行者トップ](docs/images/home-issuer.png) | ![ウォレット](docs/images/home-wallet.png) | ![検証者](docs/images/home-verifier.png) |
+| 資格証を選んで発行し、QR / リンクでウォレットへ渡す | 受け取った資格証をカードで一覧。追加・並び替え・失効確認 | 実在の民間手続きを模した10シナリオを体験 |
 
-> **実機動作確認**: **Multipaz Wallet（Android）で mdoc 形式について、発行（OID4VCI + PAR + DPoP）から
-> 提示（OID4VP over DC API / Annex D）まで簡易的に動作確認済み**です。SessionTranscript の
-> `jwk_thumbprint`（bstr）整合など、外部の参照実装（Multipaz）に対する相互運用を確認しています。
-> DC API 提示の詳細フローと修正経緯は `CLAUDE.md`（M6）を参照。
+このほかに**自治体窓口**（Admin）があります。罹災証明書と離島割引資格証は
+自治体の審査を経ないと交付されないため、住民が申請し職員が認定する動線を別オリジンで実装しています。
 
-## クイックスタート
+---
 
-```bash
-npm ci              # 依存復元（package-lock.json あり）
-npm run setup       # dev PKI + trust-list + schemas を生成（pki/ は gitignore のため必須）
-npm test            # 117 tests（node:test）
-npm run coverage    # c8（対象 src/**）
-```
+## 使ってみる
 
-> Claude Code で開く場合: 上記のあと `git init && git add -A && git commit -m init` →
-> リポジトリ直下で `claude`。`CLAUDE.md` が自動でプロジェクト文脈として読まれます。
-
-## デモの流れ（代表シナリオ）
-
-3 つの独立オリジン — **発行者（Issuer・青）／ウォレット（Holder・ティール）／検証者（Verifier・煉瓦）** — を
-ブラウザだけで行き来する代表フローです。ヘッダー色・favicon・タブタイトルでどのサイトにいるかが常に分かります。
-
-### 発行 — Issuer → Holder（OID4VCI / pre-authorized_code）
-
-発行者ポータルでクレデンシャルを選んで「発行」を押し、オファーをウォレットへ受け渡します（QR＝別端末／
-リンク＝同一端末。コピー&ペースト不要）。
-
-| ① クレデンシャルを選択して発行 | ② ウォレットへの受け渡し（QR とリンク） |
-|---|---|
-| ![発行者: PID と住民票の写しを選択](docs/images/readme-issue-select.png) | ![受け渡しカード: QR / Web ウォレット / カスタムスキーマ / コピー](docs/images/readme-issue-handoff.png) |
-
-| ③ Web ウォレットが受領（OID4VCI） | ④ 保管一覧（選択的開示のソースになる） |
-|---|---|
-| ![ウォレット: 2件のクレデンシャルを保管](docs/images/readme-issue-wallet-add.png) | ![ウォレット: 保管中のクレデンシャル](docs/images/readme-issue-wallet-home.png) |
-
-### 検証 — Holder → Verifier（OID4VP + HAIP・ステップ型シナリオ）
-
-検証者は実在の手続きを模した **9 シナリオ**（8 種の文書を全て使用）を提供。代表例
-**「子どもの銀行口座開設」**では、Step1 で保護者の本人確認（PID）、Step2 で住民票の写し（世帯全員・続柄記載）を
-`linkTo` 連鎖で提示し、**世帯員に「子」がいること＋2 回の提示が同一の保有者鍵で署名されたこと**を検証して受理します。
-
-| ① シナリオを選ぶ | ② ウォレットの同意画面（Step2: 住民票の写し） |
-|---|---|
-| ![検証者: 9シナリオのランディング](docs/images/readme-verify-scenarios.png) | ![ウォレット: 提示先/利用目的/世帯全員開示の警告/送信プレビュー](docs/images/readme-verify-consent.png) |
-
-| ③ Step1 完了（本人確認） | ④ 受理（親子関係＋同一鍵を確認） |
-|---|---|
-| ![検証者: 本人確認が完了しました](docs/images/readme-verify-step1.png) | ![検証者: 申請を受理しました（世帯員に子を確認）](docs/images/readme-verify-accept.png) |
-
-同意画面には **提示先（client_metadata.client_name）・利用目的（request.purpose）・開示される項目と値・
-世帯全員が開示される旨の警告** が表示され、必須／任意（holder が外せる）を選んで暗号化送信（direct_post.jwt）します。
-mdoc / SD-JWT のどちらの形式で発行されていても提示できます（DCQL `credential_sets` による形式代替）。
-各画面のヘッダー `>_` から**開発者コンソール**（Token/Credential/OID4VP の実通信・部分マスク付き）を開けます。
-
-## 構成
-
-```
-src/        コア（cbor/cose/mdoc/sdjwt/dcql/jwe/status/handover）＋ issuer/oid4vci/verifier/wallet
-            ＋ app.mjs(Hono) ＋ wallet-app.mjs(Web ウォレット) ＋ *-demo.mjs(画面)
-web/        issuer.html / verifier.html / mockups / captures（生成物・gitignore）
-schemas/    8 クレデンシャル定義 + credential-catalog.json（16 構成 = 8×{mdoc,SD-JWT}）
-pki/        dev PKI（gitignore・npm run setup で生成）   trust/  trust-list.json（LOTL モック）
-test/       単体テスト（I→H→V 往復・golden・否定経路）   scripts/ 生成・interop・UIキャプチャ
-docs/       architecture / verifier-scenarios / mdoc-handover / web-wallet / testing / interop / deploy
-            trust-and-revocation（鍵の階層・VICAL/RICAL・失効） / proximity-wallet（対面提示の方向性）
-worker.mjs  Cloudflare Workers 入口     wrangler.toml
-```
-
-## デモ画面のキャプチャ（任意）
+### 手元で動かす
 
 ```bash
-npx playwright install chromium     # 初回のみ（ヘッドレス Chromium）
-node scripts/capture-authcode.mjs   # 認可コード（wallet/issuer 起点）
-node scripts/capture-verify.mjs     # 検証者コンソール（DCQL/選択開示）
-node scripts/capture-webwallet.mjs  # Web ウォレット発行（pre-auth + auth-code, 2オリジン）
-node scripts/capture-webverify.mjs  # Web ウォレット提示/検証（OID4VP redirect, 3オリジン）
+npm ci
+npm run setup
+npm test
 ```
 
-## 再生成・相互運用
+**`npm ci`** — `package-lock.json` のとおりに依存パッケージを入れます
+（`npm install` と違い、ロックファイルを書き換えません）。
 
-```bash
-npm run interop      # Multipaz 突合用の参照ベクトル(hex)（docs/interop.md）
-npm run setup        # PKI / trust / schemas を再生成
+**`npm run setup`** — このリポジトリには鍵も資格証の定義も入っていないので、**初回に必ず実行します**。
+次の3つを作ります。
+
+- `pki/` — 開発用の自己署名 PKI（発行者・検証者・リーダーの鍵と証明書）。
+  **鍵を含むため git 管理外**です
+- `trust/` — 誰を信頼するかのリスト（LoTE / VICAL / RICAL）
+- `schemas/` — 9種類の資格証の定義。どの項目を持ち、券面をどう表示するかを決めます
+
+**`npm test`** — 発行から検証までの往復、仕様のゴールデンベクタ、失敗経路を通します。
+すべて通れば、手元の環境が正しく用意できています。
+
+### 自分の Cloudflare アカウントに置く
+
+**[GETTING_STARTED.md](GETTING_STARTED.md)** を参照してください。
+KV の namespace id の差し替えなど、clone しただけでは動かない箇所があります。無料プランで足ります。
+
+---
+
+## 発行の流れ
+
+発行者ポータルで資格証を選んで「発行」を押すと、オファーがウォレットへ渡ります。
+別端末なら QR、同じ端末ならリンクで、コピー＆ペーストは要りません。
+
+| ① 資格証を選んで発行 | ② ウォレットへの受け渡し |
+|---|---|
+| ![資格証の選択](docs/images/readme-issue-select.png) | ![QR とリンク](docs/images/readme-issue-handoff.png) |
+
+| ③ ウォレットが受領 | ④ 保管一覧 |
+|---|---|
+| ![受領](docs/images/readme-issue-wallet-add.png) | ![保管中の資格証](docs/images/readme-issue-wallet-home.png) |
+
+---
+
+## 提示・検証の流れ
+
+検証者は実在の手続きを模した**10シナリオ**を用意しています。すべて**民間の受理者**です
+（行政宛の手続きはマイナポータル連携などで代替されるため、資格証が効くのは行政の外側だという整理です）。
+
+代表例の「**子どもの銀行口座開設**」では、2段階の提示を行います。
+
+1. 保護者の本人確認（PID を提示）
+2. 住民票の写しを提示し、**世帯員に「子」がいること**を確認
+
+さらに、**2回の提示が同じ保有者鍵で署名されたこと**を検証します。
+これにより「本人確認した人と、住民票を出した人が同一である」ことが保証されます。
+
+| ① シナリオを選ぶ | ② ウォレットの同意画面 |
+|---|---|
+| ![シナリオ一覧](docs/images/readme-verify-scenarios.png) | ![同意画面](docs/images/readme-verify-consent.png) |
+
+| ③ 本人確認が完了 | ④ 受理 |
+|---|---|
+| ![Step1 完了](docs/images/readme-verify-step1.png) | ![受理](docs/images/readme-verify-accept.png) |
+
+同意画面には**提示先・利用目的・渡す項目とその値**が表示され、必須でない項目は本人が外せます。
+世帯全員の情報が渡る場合はその旨が警告として出ます。送信は暗号化されます。
+
+各画面のヘッダーにある `>_` から**開発者コンソール**を開くと、
+実際に流れているプロトコルのやり取り（トークン要求・資格証発行・提示）を機微情報をマスクした形で観察できます。
+
+---
+
+## 対応している仕様
+
+| 領域 | 内容 |
+|---|---|
+| 発行 | OID4VCI 1.0（事前認可コード / 認可コード + PKCE、PAR、DPoP） |
+| 提示 | OID4VP 1.0 + HAIP（HTTPS リダイレクト経路と Digital Credentials API 経路の両方） |
+| 資格証の形式 | **mso_mdoc**（ISO/IEC 18013-5）と **SD-JWT VC** の両方。同じ書類をどちらでも発行 |
+| 失効 | Token Status List（形式ごとに独立したリスト） |
+| 信頼 | ETSI TS 119602 LoTE、ISO 18013-5 VICAL / RICAL |
+| クライアント認証 | Wallet Attestation、Key Attestation |
+| 暗号 | ES256 / P-256、応答暗号化は ECDH-ES + A128GCM、DC API 経路は HPKE |
+
+**9種類の書類 × 2形式 = 18構成**を発行できます。
+
+### 外部の実装・試験との突き合わせ
+
+自分のテストだけで「準拠している」と言わないために、外部の実装と試験に当てています。
+
+- **Android 実機（Multipaz Wallet）** — mdoc 形式について、発行から提示まで一周を確認済み
+  （Digital Credentials API の2経路とも）
+- **OpenID Foundation の適合テスト（公式インスタンス）** — OID4VP は失敗ゼロ、
+  OID4VCI も実装起因の未達はゼロ。残る未達は環境要因（`*.workers.dev` では
+  TLS の最低バージョンを設定できない）と、測定ツール側の制約によるものです
+
+---
+
+## リポジトリの構成
+
+```
+src/          プロトコル実装（CBOR / COSE / mdoc / SD-JWT / DCQL / 失効 / 信頼）と
+              4つの Worker（発行者・検証者・ウォレット・自治体窓口）、画面
+schemas/      資格証の定義（生成物。scripts/gen-schemas.mjs から作る）
+pki/          開発用の鍵と証明書（git 管理外。npm run setup が生成）
+trust/        トラストリスト（LoTE / VICAL / RICAL）
+test/         発行→提示→検証の往復、仕様のゴールデンベクタ、失敗経路
+scripts/      生成・デプロイ・相互運用・画面キャプチャ
+docs/         設計と運用のドキュメント
+web/          静的アセット
 ```
 
-## 現状
+---
 
-M1–M5 完了。POST-M5 で Offer 配送・失効・16 構成・authorization_code(PKCE)＋セッション/persona・
-Annex C/D 選択ディスパッチ・検証者コンソール・**Web ウォレット（発行/提示）**まで実装。
-ロードマップは `CLAUDE.md`。残りは Web ウォレット項目選択UI、M6 Android(DC API) 実機、M7 Workers 本番化。
+## ドキュメント
+
+| ファイル | 内容 |
+|---|---|
+| [GETTING_STARTED.md](GETTING_STARTED.md) | **自分のアカウントにデプロイする手順** |
+| [docs/architecture.md](docs/architecture.md) | 全体構成 |
+| [docs/trust-and-revocation.md](docs/trust-and-revocation.md) | 鍵の階層、トラストリスト、失効の仕組み |
+| [docs/verifier-scenarios.md](docs/verifier-scenarios.md) | 10シナリオの設計意図 |
+| [docs/wallet-attestation.md](docs/wallet-attestation.md) | ウォレットと鍵の真正性の検証 |
+| [docs/web-wallet.md](docs/web-wallet.md) | Web ウォレットの設計 |
+| [docs/mdoc-handover.md](docs/mdoc-handover.md) | DC API と mdoc のハンドオーバー |
+| [docs/testing.md](docs/testing.md) | テストと外部適合テスト |
+| [docs/deploy.md](docs/deploy.md) | 運用中の環境の保守 |
+| [docs/interop.md](docs/interop.md) | 参照実装との突き合わせ |
+| [docs/proximity-wallet.md](docs/proximity-wallet.md) | 対面提示（調査段階） |
+| `CLAUDE.md` | 設計判断と実装上の落とし穴の記録。**AI コーディング支援向けの作業メモ**で、分量が多く仕様の引用が中心です |
+
+---
+
+## 補足
+
+鍵は開発用の自己署名であり、本番の PKI や実在の自治体・発行機関とは一切関係がありません。
