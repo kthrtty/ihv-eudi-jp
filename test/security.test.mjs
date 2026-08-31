@@ -279,7 +279,7 @@ test('#33 審査の判定は選択肢・日付の値域を検証する', async (
   const disaster = await svc.submitApplication({ userId: 'u_002', kind: 'disaster',
     targetCode: '43202', disasterId: 'r8-kumamoto',
     form: { damaged_address: '中央区1-1', contact_tel: '090-0000-0000', damage_cause: ['地震'],
-      property_type: '住家', statement: '被害あり', consents: { info: true, support: true } } });
+      property_type: '住家（持家）', statement: '被害あり', consents: { info: true, support: true } } });
 
   // 選択肢に無い被害の程度＝罹災証明書の本体（統一様式の必須記載事項）を偽れた
   await assert.rejects(() => svc.decideApplication(disaster.id, { status: 'approved',
@@ -320,7 +320,7 @@ test('#33 添付は中身を読む前に大きさで断る', async () => {
   const form = (file) => {
     const fd = new FormData();
     for (const [k, v] of Object.entries({ damaged_address: '中央区1-1', contact_tel: '090-0000-0000',
-      property_type: '住家', statement: 'x', disaster_id: 'r8-kumamoto' })) fd.append(k, v);
+      property_type: '住家（持家）', statement: 'x', disaster_id: 'r8-kumamoto' })) fd.append(k, v);
     fd.append('damage_cause', '地震');
     fd.append('consent_info', 'on'); fd.append('consent_support', 'on');
     if (file) fd.append('attachments', file);
@@ -336,4 +336,40 @@ test('#33 添付は中身を読む前に大きさで断る', async () => {
   // 小さければ中身の判定まで進む（大きさで塞ぎすぎていない）
   const small = new File([new Uint8Array(64)], 'small.bin', { type: 'image/jpeg' });
   assert.match(await post(form(small)), /対応していない形式です/);
+});
+
+// 申請フォームの値域検証（2026-08-31 のセキュリティ確認で発覚）。
+// #33 で「form と decision を**同じ規則で見る**」と決めたのに、**繋いだのは decision 側だけ**
+// だった。`missingRequired` は入力の有無しか見ないので、`radio` / `select` に選択肢外の値を
+// 送るとそのまま台帳に入り、**申告値として VC のクレームになる**。
+// **型ごとに穴の有無が違った**のが見落としの原因——`checkgroup` は `parseChecks` が
+// 選択肢で絞るので無事だった。だから「一部が守られている」ことが安心材料にならない。
+test('申請フォームの radio / select は選択肢外の値を拒否する', async () => {
+  const { IssuerService } = await import('../src/oid4vci.mjs');
+  const svc = new IssuerService();
+  const base = { damaged_address: '中央区1-1', contact_tel: '090-0000-0000',
+    damage_cause: ['地震'], statement: '被害あり', consents: { info: true, support: true } };
+
+  // radio: 実測で 303 のまま通っていた（`property_type` は options 付きの radio）
+  await assert.rejects(() => svc.submitApplication({ userId: 'u_002', kind: 'disaster',
+    targetCode: '43202', disasterId: 'r8-kumamoto',
+    form: { ...base, property_type: '存在しない選択肢（自由入力）' } }),
+  /選択肢から選んでください/);
+
+  // select も同じ規則で見る（`building_type`）
+  await assert.rejects(() => svc.submitApplication({ userId: 'u_002', kind: 'disaster',
+    targetCode: '43202', disasterId: 'r8-kumamoto',
+    form: { ...base, property_type: '住家（持家）', building_type: '鉄筋コンクリート999階建' } }),
+  /選択肢から選んでください/);
+
+  // 離島の区分は `islandEligible()` の交付ゲートに効くので、ここを抜かれると交付までできる
+  await assert.rejects(() => svc.submitApplication({ userId: 'u_002', kind: 'island',
+    targetCode: '46213', form: { applied_category: 'VIP島民', island_name: '種子島' } }),
+  /選択肢から選んでください/);
+
+  // **正しい値は通る**（検証を足して正常系を壊していないこと）
+  const ok = await svc.submitApplication({ userId: 'u_002', kind: 'disaster',
+    targetCode: '43202', disasterId: 'r8-kumamoto',
+    form: { ...base, property_type: '住家（持家）' } });
+  assert.equal(ok.form.property_type, '住家（持家）');
 });

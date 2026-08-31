@@ -419,6 +419,15 @@ export class IssuerService {
     if (missing.length) throw httpErr(400, 'invalid_request', `未入力の必須項目: ${missing.join('・')}`);
     const long = overlongFields(t.form, clean);
     if (long.length) throw httpErr(400, 'invalid_request', `入力が長すぎます: ${long.join('・')}`);
+    // **申請フォームも `validate.mjs` の規則で見る**（2026-08-31 のセキュリティ確認で発覚）。
+    // #33 で「form と decision を同じ規則で見る」と決めたのに、**繋いだのは decision 側だけ**
+    // だった。`missingRequired` は**入力の有無しか見ない**ので、`radio` / `select` に
+    // 選択肢外の値を送るとそのまま台帳に入り、申告値として VC のクレームになる
+    // （実測: `property_type` に自由入力、`applied_category: "VIP島民"` が 303 で通った）。
+    // `checkgroup` は `parseChecks` が選択肢で絞るので無事だった＝**型ごとに穴の有無が
+    // 違う**のが見落としの原因。ここを通せば新しい書類を足しても自動で効く
+    const invalid = validateFields(t.form, clean);
+    if (invalid.length) throw httpErr(400, 'invalid_request', invalid.join('・'));
     const bad = t.validate ? t.validate(clean, muni, persona) : null;
     if (bad) throw httpErr(400, 'invalid_request', bad);
     // **1日あたりの提出件数を絞る**（issue #33 ④）。申請台帳は `_persist:apps` という
