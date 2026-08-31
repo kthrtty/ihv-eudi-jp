@@ -71,8 +71,9 @@ suite に対して発行者・検証者を測る。
 **HAIP には専用プランがある**——`oid4vci-1_0-issuer-haip-test-plan`（61 モジュール）と
 `oid4vp-1final-verifier-haip-test-plan`。汎用プラン + `fapi_profile: vci_haip` /
 `vp_profile: haip` でも回るが**測れる範囲が狭い**（汎用21件は HAIP 61件の完全な部分集合で、
-差は FAPI2 security profile の40件）。**「HAIP で回した」と言うときは何を回したかを
-プラン名で記録する**。なお**セルフホストと公式は suite が同一**（プラン数もモジュール数も一致）。
+差は FAPI2 security profile の40件）。
+**「HAIP で回した」と言うときは何を回したかをプラン名で記録すること。**
+なお**セルフホストと公式は suite が同一です**（プラン数もモジュール数も一致）。
 
 ```
 npm run conformance:vci-auth <testId>       # 認可待ちを（何回でも）進める

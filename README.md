@@ -147,7 +147,8 @@ KV の namespace id の差し替えなど、clone しただけでは動かない
 自分のテストだけで「準拠している」と言わないために、外部の実装と試験に当てています。
 
 - **Android 実機（Multipaz Wallet）** — mdoc 形式について、発行から提示まで一周を確認済み
-  （Digital Credentials API の2経路とも）
+  （Digital Credentials API の2経路とも）。
+  実機で試すときの注意点は [docs/multipaz-wallet-tips.md](docs/multipaz-wallet-tips.md) に
 - **OpenID Foundation の適合テスト（公式インスタンス）** — OID4VP は失敗ゼロ、
   OID4VCI も実装起因の未達はゼロ。残る未達は環境要因（`*.workers.dev` では
   TLS の最低バージョンを設定できない）と、測定ツール側の制約によるものです
@@ -179,6 +180,7 @@ web/          静的アセット
 | [docs/trust-and-revocation.md](docs/trust-and-revocation.md) | 鍵の階層、トラストリスト、失効の仕組み |
 | [docs/verifier-scenarios.md](docs/verifier-scenarios.md) | 各シナリオの設計意図 |
 | [docs/wallet-attestation.md](docs/wallet-attestation.md) | ウォレットと鍵の真正性の検証 |
+| [docs/multipaz-wallet-tips.md](docs/multipaz-wallet-tips.md) | **Android 実機（Multipaz Wallet）で試すときの実務メモ** |
 | [docs/web-wallet.md](docs/web-wallet.md) | Web ウォレットの設計 |
 | [docs/mdoc-handover.md](docs/mdoc-handover.md) | DC API と mdoc のハンドオーバー |
 | [docs/testing.md](docs/testing.md) | テストと外部適合テスト |
