@@ -138,9 +138,14 @@ function stepActions(s, step, { txn1 = null, selftest = true } = {}) {
         return d;
       }
       // **DC API が使えないときの受け皿**（2026-09-06）。iOS の DC API は Annex C と
-      // Apple が許可した doctype に限られ jp.go.* を扱えない。HAIP 1.0 §9.3.1.1 に沿って
-      // カスタムスキームでウォレットを起動する。target を web に組み直すのは、dcapi の
+      // Apple が許可した doctype に限られ、このデモの証明書を扱えない。HAIP 1.0 §9.3.1.1 に
+      // 沿ってカスタムスキームでウォレットを起動する。target を web に組み直すのは、dcapi の
       // 要求とは形が違う（redirect 方式・request_uri 参照配信）ため。
+      //
+      // **ここに Web ウォレットのボタンは置かない**。利用者は「スマホのウォレットで提示」を
+      // 選んだのだから、失敗時に別のウォレットへ誘導し直すのは選択の否定になる。出すべきは
+      // 「同じウォレットを別の方法で呼び出す」だけ。Web ウォレットは主画面に兄弟の
+      // ボタンとして並んでいるので、戻れば選べる。
       async function nativeFallback(note) {
         const d = await build('web'); if (!d) return;
         const all = d.nativeLinks || [];
@@ -156,10 +161,9 @@ function stepActions(s, step, { txn1 = null, selftest = true } = {}) {
           + '<div class="dcfb-h">この OS では DC API でこの証明書を扱えません</div>'
           + '<div class="dcfb-b">iOS の DC API は ISO 18013-7 Annex C と、mDL・EUDI PID など'
           + ' Apple が許可した証明書の種類にのみ対応しており、このデモで扱う証明書は対象外です。'
-          + 'インストール済みのウォレットを直接開くか、Web ウォレットをお使いください。</div>'
+          + 'このまま同じウォレットを、カスタム URL スキームで呼び出します。</div>'
           + '<div class="dcfb-a">'
           + (all[0] ? '<a class="btn" href="' + esc2(all[0].url) + '">インストール済みウォレットで開く</a>' : '')
-          + '<a class="btn ghost" href="' + esc2(d.walletPresent) + '">Web ウォレットで提示する</a>'
           + '</div>'
           + '<details class="dcfb-d"><summary>別の方法で開く（開発者向け）</summary>'
           + '<div class="dcfb-alt">' + links + '</div>'
