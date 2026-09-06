@@ -33,6 +33,18 @@ const PID_STEP = {
 const sameName = (pid, eaa, fk = 'family_name', gk = 'given_name') =>
   !!(pid && eaa) && strip(cl(pid, 'family_name')) === strip(cl(eaa, fk)) && strip(cl(pid, 'given_name')) === strip(cl(eaa, gk));
 
+// 保有者鍵の一致は「受理条件」ではなく「参考情報」。日本では PID が OS ウォレットに載り、
+// 属性証明は別のウォレットに入る**マルチウォレットが前提**で、そのとき鍵が違うのは正常。
+// ISO 18013-5 はクレデンシャルごとに別鍵を持つことを求めており（非連結性）、揃うほうが
+// むしろ例外。同一人物であることは氏名・生年月日の突合（各シナリオの受理条件の筆頭）が担う。
+//
+// 住所の件（府政防第737号・2026-08-31）と同じく `{ ok: true, warn: true }` の3値で描く。
+// ✗ にすると「落ちた」と誤読され、正常な構成を異常だと伝えてしまう。
+const sameHolderCheck = (r2) => (r2?.linkedSameHolder === true
+  ? { ok: true, label: '同一の保有者鍵で署名（同じウォレットからの連続提示）' }
+  : { ok: true, warn: true,
+      label: '別のウォレットからの提示（身分証と属性証明でウォレットが分かれる構成では正常。同一人物であることは氏名・生年月日の一致で確認）' });
+
 export const SCENARIOS = {
   marriage: {
     id: 'marriage',
@@ -55,7 +67,7 @@ export const SCENARIOS = {
         { ok: sameName(pid, eaa) && String(cl(pid, 'birth_date')) === String(cl(eaa, 'birth_date')),
           label: '身分証と独身証明書の氏名・生年月日が一致' },
         { ok: /独身/.test(String(cl(eaa, 'marital_status'))), label: `独身であることを確認（提示値: ${cl(eaa, 'marital_status') ?? '—'}）` },
-        { ok: r2?.linkedSameHolder === true, label: '同一の保有者鍵で署名を確認（別人のウォレットの混用を防止）' },
+        sameHolderCheck(r2),
       ];
     },
     acceptText(pid, eaa) {
@@ -85,7 +97,7 @@ export const SCENARIOS = {
             && String(cl(pid, 'birth_date')) === String(cl(eaa, 'holder_birth_date')),
           label: '身分証と資格証明の氏名・生年月日が一致' },
         { ok: !!cl(eaa, 'qualification_name'), label: `資格の保有を確認（提示値: ${cl(eaa, 'qualification_name') ?? '—'} / ${cl(eaa, 'registration_number') ?? '—'}）` },
-        { ok: r2?.linkedSameHolder === true, label: '同一の保有者鍵で署名を確認（別人のウォレットの混用を防止）' },
+        sameHolderCheck(r2),
       ];
     },
     acceptText(pid, eaa) {
@@ -129,7 +141,7 @@ export const SCENARIOS = {
           : { ok: true, warn: true,
             label: `身分証の住所と罹災住家の所在地が異なります（身分証: ${cl(pid, 'residence_address') ?? '—'} / 罹災住家: ${cl(eaa, 'address') ?? '—'}）——賃貸・二世帯・被災後の転居などで正常に起こります。対象物件の確認は保険証券と突き合わせてください` },
         { ok: !!cl(eaa, 'damage_level'), label: `被害程度を確認（提示値: ${cl(eaa, 'damage_level') ?? '—'} / ${cl(eaa, 'disaster_name') ?? ''}）` },
-        { ok: r2?.linkedSameHolder === true, label: '同一の保有者鍵で署名を確認（別人のウォレットの混用を防止）' },
+        sameHolderCheck(r2),
       ];
     },
     acceptText(pid, eaa) {
@@ -161,7 +173,7 @@ export const SCENARIOS = {
         { ok: sameName(pid, eaa) && String(cl(pid, 'birth_date')) === String(cl(eaa, 'birth_date')),
           label: '身分証と接種証明の氏名・生年月日が一致' },
         { ok: Number(cl(eaa, 'dose_number')) >= 2, label: `接種回数が要件（2回以上）を満たす（提示値: ${cl(eaa, 'dose_number') ?? '—'} 回）` },
-        { ok: r2?.linkedSameHolder === true, label: '同一の保有者鍵で署名を確認（別人のウォレットの混用を防止）' },
+        sameHolderCheck(r2),
       ];
     },
     acceptText(pid, eaa) {
@@ -193,7 +205,7 @@ const householdChecks = (pid, eaa, r2) => {
     { ok: String(cl(eaa, 'relationship_to_head')) === '世帯主',
       label: `申請者が世帯主であることを確認（提示値: ${cl(eaa, 'relationship_to_head') ?? '—'}。世帯主でない場合は戸籍での確認が必要）` },
     { ok: !!child, label: `世帯員に「子」を確認（提示値: ${child ? `${child.family_name} ${child.given_name}（${child.relationship_to_head}）` : '—'}）` },
-    { ok: r2?.linkedSameHolder === true, label: '同一の保有者鍵で署名を確認（別人のウォレットの混用を防止）' },
+    sameHolderCheck(r2),
   ];
 };
 
@@ -289,7 +301,7 @@ SCENARIOS.mortgage = {
       { ok: sameName(pid, eaa), label: '身分証と課税証明書の氏名が一致' },
       { ok: cl(eaa, 'total_income') != null && cl(eaa, 'tax_year') != null,
         label: `審査に必要な所得情報を確認（${cl(eaa, 'tax_year') ?? '—'}・所得金額あり）` },
-      { ok: r2?.linkedSameHolder === true, label: '同一の保有者鍵で署名を確認（別人のウォレットの混用を防止）' },
+      sameHolderCheck(r2),
     ];
   },
   acceptText(pid, eaa) {
@@ -321,7 +333,7 @@ SCENARIOS.inheritance = {
         label: '身分証と戸籍謄本の氏名・生年月日が一致（相続人本人の戸籍）' },
       { ok: !!cl(eaa, 'father_name'),
         label: `被相続人（父）との親子関係を確認（父の氏名: ${cl(eaa, 'father_name') ?? '—'}・続柄: ${cl(eaa, 'relationship') ?? '—'}）` },
-      { ok: r2?.linkedSameHolder === true, label: '同一の保有者鍵で署名を確認（別人のウォレットの混用を防止）' },
+      sameHolderCheck(r2),
     ];
   },
   acceptText(pid, eaa) {
@@ -366,7 +378,7 @@ SCENARIOS.island = {
         { ok: routes.includes(BOOKED_ROUTE),
           label: `予約便 ${BOOKED_ROUTE} が対象路線に含まれることを確認（提示値: ${routes || '—'}）` },
         { ok: !!exp && exp >= TODAY(), label: `資格証が有効期限内（${exp || '—'}）` },
-        { ok: r2?.linkedSameHolder === true, label: '同一の保有者鍵で署名を確認（別人のウォレットの混用を防止）' },
+        sameHolderCheck(r2),
       ];
     },
     acceptText(pid, eaa) {

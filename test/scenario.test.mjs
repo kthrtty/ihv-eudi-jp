@@ -92,7 +92,7 @@ for (const id of Object.keys(SCENARIOS).filter((k) => SCENARIOS[k].steps.length 
     assert.match(step1Html, /本人確認が完了しました/, 'step 1 = identity confirmed');
     assert.match(step1Html, /ステップ2/, 'step 1 page invites step 2');
     assert.match(acceptHtml, /受理しました/, 'step 2 = application accepted');
-    assert.match(acceptHtml, /同一の保有者鍵で署名を確認/, 'same-key (linkedSameHolder) check shown');
+    assert.match(acceptHtml, /同一の保有者鍵で署名/, 'same-key (linkedSameHolder) check shown');
     assert.match(acceptHtml, /技術詳細を表示/, 'tech details folded away');
   });
 }
@@ -225,12 +225,18 @@ test('scenarios: web-wallet step flow — step1 carries purpose+RP name; step2 l
   assert.match(acceptHtml, /申請を受理しました/, 'same wallet -> linkedSameHolder holds -> accepted');
 });
 
-test('scenarios: step 2 from a DIFFERENT wallet is rejected (linkedSameHolder)', async () => {
+// **別ウォレットそのものは拒否理由にしない**（2026-09-06）。日本では PID が OS ウォレットに
+// 載り、属性証明は別のウォレットに入るマルチウォレットが前提で、保有者鍵が違うのは正常。
+// 混用を止めるのは氏名・生年月日の突合のほうなので、攻撃者は「別の鍵」ではなく
+// **「別人の証明書」**としてモデル化する。鍵だけ違って中身が同じものを拒否すると、
+// 正当なマルチウォレット構成を弾いてしまう。
+test('scenarios: step 2 が別人の証明書なら受理しない（氏名突合）', async () => {
   const v = vapp();
-  const mkWallet = async (cfgs) => {
+  const mkWallet = async (cfgs, claims = null) => {
     const w = createWallet();
     for (const cfg of cfgs) {
-      const offer = await (await fetch(`${ISSUER}/offer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ credential_configuration_ids: [cfg] }) })).json();
+      const body = { credential_configuration_ids: [cfg], ...(claims ? { claims } : {}) };
+      const offer = await (await fetch(`${ISSUER}/offer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
       await w.receive({ request: (p, i) => fetch(ISSUER + p, i), offer: offer.credential_offer, credentialIssuer: ISSUER });
     }
     return w;
@@ -244,14 +250,17 @@ test('scenarios: step 2 from a DIFFERENT wallet is rejected (linkedSameHolder)',
     return (await resp.json()).redirect_uri;
   };
   const wA = await mkWallet(['pid_mdoc']);          // the victim's identity
-  const wB = await mkWallet(['vaccine_mdoc']);      // an attacker's certificate
+  // 攻撃者の証明書＝**別人の氏名**。鍵が違うだけでは（正当な別ウォレットと区別できず）
+  // 拒否理由にならないので、突合で落ちる中身にする。
+  const wB = await mkWallet(['vaccine_mdoc'],
+    { vaccine_mdoc: { family_name: '佐藤', given_name: '花子' } });
   const b1 = await (await J(v, '/vp/build', { scenario: 'entry', step: 1, target: 'web' })).json();
   await present(b1, wA);
   const b2 = await (await J(v, '/vp/build', { scenario: 'entry', step: 2, linkTxn: b1.transactionId, target: 'web' })).json();
   const dest2 = await present(b2, wB);
   const html = await (await v.request(new URL(dest2).pathname)).text();
-  assert.match(html, /受理できませんでした/, 'different holder key across steps -> rejected');
-  assert.match(html, /異なるウォレットから行われました/, 'plain-language reason');
+  assert.match(html, /受理できませんでした/, 'different subject across steps -> rejected');
+  assert.match(html, /氏名/, '突合で落ちたことが読み取れる');
 });
 
 test('scenarios: /vp/build validation — unknown scenario 400; step 2 without linkTxn 400; stale result page degrades', async () => {

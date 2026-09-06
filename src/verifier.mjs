@@ -479,11 +479,20 @@ export class VerifierService {
     const sameHolderAcrossCreds = holderIds.length >= 2 ? new Set(holderIds).size === 1 : null;
 
     // session linking: same holder across the linked sequence
+    //
+    // **鍵の一致は検証の合否にしない**（2026-09-06）。日本では PID が OS ウォレットに載り、
+    // 属性証明は別のウォレットに入る**マルチウォレットが前提**で、そのとき保有者鍵が
+    // 違うのは正常。しかも ISO 18013-5 はクレデンシャルごとに別鍵を持つことを求めており
+    // （非連結性）、鍵をまたいで揃えること自体が仕様の意図に反する。
+    //
+    // 提示そのものは暗号的に正当なのだから `valid` を落としてはいけない。落とすと
+    // 応答 POST が 400 になり、ウォレットは本文の `redirect_uri` を読む前に例外を投げて
+    // ブラウザへ戻れなくなる（実機で確認）。事実として報告し、判断はシナリオ側に委ねる。
+    // 同一人物であることの担保は氏名・生年月日の突合（scenarios.mjs の受理条件の筆頭）が担う。
     let linkedSameHolder = null;
     if (session.linkTo) {
       const prior = await this.store.get(`holder:${session.linkTo}`);
       linkedSameHolder = prior != null && holder != null && prior === holderId(holder);
-      if (!linkedSameHolder) errors.push('linked presentation is a different holder');
     }
     // record the holder handle only for VALID presentations — an invalid one must
     // never (re)bind the session's holder for later linked steps
