@@ -115,6 +115,7 @@ function stepActions(s, step, { txn1 = null, selftest = true } = {}) {
     <style>
       .dcfb{border:1px solid var(--line);border-left:3px solid var(--warning-2);border-radius:10px;
         background:#FDF7E3;padding:14px 16px;margin-top:12px;text-align:left}
+      .dcfb-n{font-size:16px;color:var(--error-2);margin-bottom:10px;line-height:1.7}
       .dcfb-h{font-weight:700;color:#6b5a1e;margin-bottom:6px}
       .dcfb-b{font-size:16px;color:#6b5a1e;line-height:1.8}
       .dcfb-a{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
@@ -140,7 +141,7 @@ function stepActions(s, step, { txn1 = null, selftest = true } = {}) {
       // Apple が許可した doctype に限られ jp.go.* を扱えない。HAIP 1.0 §9.3.1.1 に沿って
       // カスタムスキームでウォレットを起動する。target を web に組み直すのは、dcapi の
       // 要求とは形が違う（redirect 方式・request_uri 参照配信）ため。
-      async function nativeFallback() {
+      async function nativeFallback(note) {
         const d = await build('web'); if (!d) return;
         const all = d.nativeLinks || [];
         // 先頭は主ボタンに出すので、折り畳みには**残りのスキームだけ**並べる
@@ -151,6 +152,7 @@ function stepActions(s, step, { txn1 = null, selftest = true } = {}) {
           : null;
         document.getElementById('msg').innerHTML =
           '<div class="dcfb">'
+          + (note ? '<div class="dcfb-n">' + esc2(note) + '</div>' : '')
           + '<div class="dcfb-h">この OS では DC API でこの証明書を扱えません</div>'
           + '<div class="dcfb-b">iOS の DC API は ISO 18013-7 Annex C と、mDL・EUDI PID など'
           + ' Apple が許可した証明書の種類にのみ対応しています。jp.go.* の証明書は対象外です。'
@@ -182,7 +184,12 @@ function stepActions(s, step, { txn1 = null, selftest = true } = {}) {
           await fetch('/vp/verify', { method: 'POST', headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ transactionId: d.transactionId, encryptedResponse }) });
           window.location.href = '/verifier/s/${s.id}/result/' + d.transactionId;
-        } catch (e) { msg('提示がキャンセルまたは失敗しました: ' + (e?.message ?? e)); }
+        } catch (e) {
+          // **失敗したときも受け皿を出す**（2026-09-06）。userAgentAllowsProtocol が
+          // true でも、提示できる証明書が無ければここに来る（iOS で jp.go.* を要求した
+          // 場合がまさにそれ）。1行のエラーで終わると次の手が無い。
+          await nativeFallback('提示がキャンセルまたは失敗しました: ' + (e?.message ?? e));
+        }
       };
     </script>`;
 }
