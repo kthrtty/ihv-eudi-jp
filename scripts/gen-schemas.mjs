@@ -3,7 +3,6 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { WALLET_CARD_THEME } from '../src/authcode-demo.mjs';
-import CARD_ART from '../assets/cardart.json' with { type: 'json' };
 const out = (p, o) => writeFileSync(new URL(`../${p}`, import.meta.url), JSON.stringify(o, null, 2));
 mkdirSync(new URL('../schemas', import.meta.url), { recursive: true });
 
@@ -209,15 +208,20 @@ const single = {
 // 2〜3KB に収めている。2箇所に載せるので概算は倍になる（`npm run gen-schemas` が実測を出す）。
 const displayFor = (schema, fmtLabel) => {
   const t = WALLET_CARD_THEME[schema.id] || WALLET_CARD_THEME.pid;
-  const art = CARD_ART[schema.id];
-  const uri = art ? `data:${art.mime};base64,${art.b64}` : null;
+  // **券面は URL で渡す**（2026-09-06）。形式を券面に焼くと画像が形式ごとに分かれ、
+  // data: URI では同一画像の重複除去が効かず gzip が 184KB→329KB に膨らんだ。
+  // Multipaz は `data:` でない URI を取得して書類に保存する（JsonParsing.kt の
+  // loadImage）。`[assets]` が web/ を配信するので Worker のコードは増えない。
+  //
+  // **相対パスで置く**。絶対 URL は実行時に `base` から組む（metadata() が
+  // credential_endpoint などと同じ規則で絶対化する）——静的カタログに本番の
+  // ドメインを焼かないため。
+  const uri = `/cardart/${schema.id}_${fmtLabel === 'mdoc' ? 'mdoc' : 'sdjwt'}.jpg`;
   const common = {
     background_color: t.c2,
     text_color: '#FFFFFF',
-    ...(uri ? {
-      logo: { uri, alt_text: schema.display.ja },
-      background_image: { uri },
-    } : {}),
+    logo: { uri, alt_text: schema.display.ja },
+    background_image: { uri },
   };
   return [
     { name: schema.display.ja, description: `${fmtLabel} ／ IHV デモ発行者`, locale: 'ja-JP', ...common },

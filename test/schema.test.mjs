@@ -109,11 +109,14 @@ test('OID4VCI display: 券面は logo に載せる（background_image だけで�
       // 同じ券面を両方に載せる。background_image は OID4VCI の意味論として残す
       assert.equal(d.background_image?.uri, d.logo.uri, `${where}: 同じ画像`);
 
-      // data: URI は **標準 base64**（Multipaz の loadImage は fromBase64。base64url ではない）
-      const m = /^data:image\/jpeg;base64,(.+)$/.exec(d.logo.uri);
-      assert.ok(m, `${where}: data:image/jpeg;base64,… の形`);
-      assert.ok(!/[-_]/.test(m[1]), `${where}: base64url 文字を含まない`);
-      const buf = Buffer.from(m[1], 'base64');
+      // **URL で渡す**（2026-09-06）。カタログには相対パスを置き、metadata() が `base` から
+      // 絶対化する。data: URI をやめたのは、形式を券面に焼くと画像が形式ごとに分かれて
+      // 同一画像の重複除去が効かず、gzip が 184KB→329KB に膨らんだから。Multipaz は
+      // `data:` でない URI を httpClient.get() で取得して書類に保存する。
+      assert.equal(d.logo.uri, `/cardart/${id}.jpg`, `${where}: /cardart/<configId>.jpg の形`);
+      // **参照先が実在してこそ意味がある**。カタログだけ直して素材を作り忘れると
+      // 券面が既定のままになり、しかもメタデータは正しく見える。
+      const buf = readFileSync(fileURLToPath(new URL(`../web/cardart/${id}.jpg`, import.meta.url)));
       assert.equal(buf.subarray(0, 2).toString('hex'), 'ffd8', `${where}: JPEG SOI`);
       assert.equal(buf.subarray(-2).toString('hex'), 'ffd9', `${where}: JPEG EOI`);
       // **上限は「事故を捕まえる」ためのもの**（写真をそのまま入れる等）。

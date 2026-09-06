@@ -204,7 +204,7 @@ export function vcardHtml(type, { title, sub = '', fmt = '', issuer = 'デジタ
   // HTML に残すのは**動くもの＝形式チップと状態チップだけ**。これらはメタデータ画像には
   // 焼けない（失効状態は発行後に変わる）。
   return `<${tag} ${href ? `href="${esc(href)}"` : ''} class="vcard" style="--c1:${t.c1};--c2:${t.c2};--c3:${t.c3};${style}">
-    <span class="vface">${cardArtSvg(type, { title: `${title}${sub ? `（${sub}）` : ''}` })}</span>
+    <span class="vface">${cardArtSvg(type, { title: `${title}${sub ? `（${sub}）` : ''}`, format: fmt === 'mdoc' ? 'mso_mdoc' : fmt ? 'dc+sd-jwt' : null })}</span>
     ${fmt ? `<span class="vfmt">${esc(fmt)}</span>` : ''}
     <span class="vst${revoked ? ' revoked' : unknown ? ' na' : ''}">${esc(status)}</span>
   </${tag}>`;

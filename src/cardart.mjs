@@ -98,7 +98,7 @@ const JA_SIZE = 23, EN_SIZE = 11.5;
  * `inline:false` はラスタライズ用のスタンドアロン文書。
  */
 let uidSeq = 0;
-export function cardArtSvg(id, { inline = true, w = CARD_W, h = CARD_H, title = null } = {}) {
+export function cardArtSvg(id, { inline = true, w = CARD_W, h = CARD_H, title = null, format = null } = {}) {
   const t = WALLET_CARD_THEME[id] || WALLET_CARD_THEME.pid;
   const sil = embInner(id) || CARD_SIL.pid;
   const nm = DISPLAY_NAMES[id] || { ja: id, en: id };
@@ -120,6 +120,12 @@ export function cardArtSvg(id, { inline = true, w = CARD_W, h = CARD_H, title = 
   const jaS = 'fill="#fff" font-family="\'Noto Sans JP\',\'Hiragino Sans\',sans-serif" font-weight="700" style="filter:drop-shadow(0 1.5px 2px rgba(0,0,0,.5))"';
   const enS = 'fill="rgba(255,255,255,.88)" font-family="\'Noto Sans JP\',\'Helvetica Neue\',Arial,sans-serif" font-weight="400" letter-spacing=".01em" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))"';
   const isS = 'fill="rgba(255,255,255,.72)" font-family="\'Noto Sans JP\',\'Helvetica Neue\',Arial,sans-serif" font-weight="700" font-size="14" letter-spacing=".14em"';
+  // **形式を券面に焼く**（2026-09-06）。Multipaz は券面画像に文字を重ねないので、
+  // 画像に入れない限りネイティブウォレットでは mdoc か SD-JWT かが分からない
+  // （Web は HTML の形式チップで出している）。形式は configId で固定＝発行後に
+  // 変わらないので焼ける。**状態（失効）は焼けない**——あちらは後から変わる。
+  // 一般利用者が意識する情報ではないため、発行者表記の接尾辞として控えめに出す。
+  const fmtSuffix = format ? ` · ${format === 'mso_mdoc' ? 'MDOC' : 'SD-JWT'}` : '';
   const body = `<defs>
       <linearGradient id="${u}g" x1="0" y1="0" x2="1" y2="1">
         <stop offset="0%" stop-color="${t.c1}"/><stop offset="62%" stop-color="${t.c2}"/>
@@ -135,7 +141,7 @@ export function cardArtSvg(id, { inline = true, w = CARD_W, h = CARD_H, title = 
     <g ${emb} transform="translate(22 10) scale(${EM / 24})">${sil}</g>
     <text x="${22 + EM + 14}" y="33" ${jaS} font-size="${JA_SIZE}">${esc(nm.ja)}</text>
     <text x="${22 + EM + 14}" y="54" ${enS} font-size="${EN_SIZE}">${esc(en)}</text>
-    <text x="24" y="${CARD_H - 22}" ${isS}>DEMO VC ISSUER</text>`;
+    <text x="24" y="${CARD_H - 22}" ${isS}>DEMO VC ISSUER${fmtSuffix}</text>`;
   const open = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${CARD_W} ${CARD_H}"`
     + (inline ? ` role="img" aria-label="${esc(label)}" preserveAspectRatio="xMidYMid slice"`
               : ` width="${w}" height="${h}"`) + '>';
