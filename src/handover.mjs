@@ -90,14 +90,28 @@ export function annexDSessionTranscript({ origin, nonce, jwkThumbprint }) {
 
 /**
  * OID4VP over HTTPS redirects (non-DC-API) SessionTranscript for mdoc.
- * SessionTranscript = [null, null, ["OpenID4VPHandover", SHA256(CBOR([client_id, response_uri, nonce]))]].
- * Computed identically by wallet and verifier from request fields (client_id,
- * response_uri, nonce) so it is self-consistent. NOTE: the exact handover for the
- * non-DC-API case is still being pinned in OID4VP (issue #402) and may fold in the
- * wallet-generated nonce (JWE apu);固定する時は golden vector で外部適合を確認。
+ * OID4VP 1.0 Appendix B.2.6.1（Invocation via Redirects）:
+ *   SessionTranscript      = [null, null, OpenID4VPHandover]
+ *   OpenID4VPHandover      = ["OpenID4VPHandover", SHA256(OpenID4VPHandoverInfoBytes)]
+ *   OpenID4VPHandoverInfo  = [clientId, nonce, jwkThumbprint, responseUri]
+ *
+ * **順序を [clientId, responseUri, nonce] にしていたのを直した**（2026-09-06）。
+ * OID4VP #402 が未決だった頃の暫定実装で、自前ウォレットと Verifier が同じ計算を
+ * していたため自己整合だけで通っていた。第三者ウォレット（Multipaz）を相手にすると
+ * SessionTranscript が食い違い `device signature invalid` になる。1.0 は B.2.6.1 として
+ * 確定済みなのでそれに合わせる。適合スイートが検出できなかったのは、リダイレクト経路の
+ * 試験が SD-JWT で、mdoc の SessionTranscript を通らなかったため。
+ *
+ * jwkThumbprint は**応答を暗号化するときだけ** bstr（RFC 7638 の SHA-256 Thumbprint）で、
+ * 暗号化しないなら null。RAW バイト列であることが必須なのは annexDSessionTranscript と
+ * 同じ（あちらは tstr で渡して同じ症状を出した。上の M6 のコメント参照）。
  */
-export function oid4vpRedirectSessionTranscript({ clientId, responseUri, nonce }) {
-  const handoverDataBytes = sha256(cborEncode([clientId, responseUri, nonce]));
+export function oid4vpRedirectSessionTranscript({ clientId, responseUri, nonce, jwkThumbprint = null }) {
+  const tp = jwkThumbprint == null ? null
+    : (typeof jwkThumbprint === 'string'
+        ? new Uint8Array(Buffer.from(jwkThumbprint, 'base64url'))
+        : jwkThumbprint);
+  const handoverDataBytes = sha256(cborEncode([clientId, nonce, tp, responseUri]));
   return cborEncode([null, null, ['OpenID4VPHandover', handoverDataBytes]]);
 }
 

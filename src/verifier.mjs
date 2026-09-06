@@ -305,7 +305,8 @@ export class VerifierService {
         : prefix === 'x509_hash'
           ? `x509_hash:${createHash('sha256').update(Buffer.from(this.rpCertDer)).digest('base64url')}`
           : `redirect_uri:${respUri}`;
-      const transcript = oid4vpRedirectSessionTranscript({ clientId, responseUri: respUri, nonce });
+      // 応答は direct_post.jwt（暗号化）なので thumbprint は必ず載る（B.2.6.1 の第3要素）
+      const transcript = oid4vpRedirectSessionTranscript({ clientId, responseUri: respUri, nonce, jwkThumbprint: thumbprint });
       await this.store.set(`vp:${transactionId}`, { protocol: 'annex-d', transport: 'redirect', clientId, nonce, dcql: dcql_query, transcript, encPem, sessionId: sessionId ?? transactionId, linkTo, signed: signedReq, clientIdPrefix: prefix });
       const request = {
         // **リダイレクト経路では署名の有無によらず client_id を必ず載せる**
