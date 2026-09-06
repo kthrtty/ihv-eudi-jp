@@ -13,8 +13,8 @@ import { resolveForWallet } from './dcql.mjs';
 import { parseDeviceRequest, verifyReaderAuth, loadTrustedReaderCAs } from './device-request.mjs';
 
 const PRE_AUTH_GRANT = 'urn:ietf:params:oauth:grant-type:pre-authorized_code';
-const annexDRedirectTranscript = (request) => oid4vpRedirectSessionTranscript({
-  clientId: request.client_id, responseUri: request.response_uri, nonce: request.nonce,
+const annexDRedirectTranscript = (request, jwkThumbprint) => oid4vpRedirectSessionTranscript({
+  clientId: request.client_id, responseUri: request.response_uri, nonce: request.nonce, jwkThumbprint,
 });
 const b64url = (b) => Buffer.from(b).toString('base64url');
 const s256 = (s) => b64url(createHash('sha256').update(Buffer.from(s, 'ascii')).digest());
@@ -215,7 +215,7 @@ export function createWallet(snapshot = null) {
       // redirect transport (OID4VP over HTTPS, direct_post.jwt) vs DC API (annex-d)
       const isRedirect = request.response_mode === 'direct_post.jwt' && !!request.response_uri;
       const transcript = isRedirect
-        ? annexDRedirectTranscript(request)
+        ? annexDRedirectTranscript(request, thumbprint)
         : annexDSessionTranscript({ origin: request.origin, nonce: request.nonce, jwkThumbprint: thumbprint });
       // KB-JWT の audience: DC API は OID4VP 1.0 に従い origin:<origin>（実機 Multipaz と同じ）。
       // HTTPS リダイレクト経路は従来どおり client_id。

@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   coseKeyFromJwk, buildEncryptionInfo, cborEncode, cborDecode, b64url, hex,
-  annexCSessionTranscript, annexDSessionTranscript,
+  annexCSessionTranscript, annexDSessionTranscript, oid4vpRedirectSessionTranscript,
   hpkeSuite, annexCSeal, annexCOpen,
 } from '../src/handover.mjs';
 
@@ -63,6 +63,48 @@ test('Annex D: SessionTranscript golden vector + structure', () => {
   const dec = cborDecode(st);
   assert.equal(dec[2][0], 'OpenID4VPDCAPIHandover');
   assert.equal(dec[2][1].length, 32);
+});
+
+// リダイレクト経路（OID4VP 1.0 B.2.6.1）。**要素の順序と thumbprint の有無を固定する**——
+// ここを [clientId, responseUri, nonce] にしていた時期があり、自前ウォレットと Verifier が
+// 同じ計算をしていたため自己整合だけで通り、Multipaz を相手にして初めて
+// `device signature invalid` として露見した（2026-09-06）。適合スイートはこの経路を
+// SD-JWT でしか通らないので、mdoc の SessionTranscript は素通りだった。
+const REDIRECT_CLIENT_ID = 'x509_san_dns:verifier.ihv.example';
+const REDIRECT_RESPONSE_URI = 'https://verifier.ihv.example/oid4vp/response/abc';
+const GOLDEN_REDIRECT_ST = '83f6f682714f70656e494434565048616e646f7665725820c53ff405ac5190ff3c2ff8888439726223e08b61b740306b7de34c864924fe33';
+const GOLDEN_REDIRECT_ST_NO_TP = '83f6f682714f70656e494434565048616e646f76657258208ede4e4726cf45014ea373b548afc7bfd322817ab4231eefebcd18f56c57570e';
+
+test('Redirect: SessionTranscript golden vector + structure', () => {
+  const st = oid4vpRedirectSessionTranscript({
+    clientId: REDIRECT_CLIENT_ID, responseUri: REDIRECT_RESPONSE_URI, nonce: 'n-0S6_WzA2Mj',
+    jwkThumbprint: 'lU2TGgf17pOvZbQeAhyfm0q9wn8fpfFXaJdN0Vw20dk',
+  });
+  assert.equal(hex(st), GOLDEN_REDIRECT_ST);
+  const dec = cborDecode(st);
+  assert.equal(dec[0], null);              // DeviceEngagementBytes
+  assert.equal(dec[1], null);              // EReaderKeyBytes
+  assert.equal(dec[2][0], 'OpenID4VPHandover');
+  assert.equal(dec[2][1].length, 32);
+});
+
+test('Redirect: 応答を暗号化しないときは jwkThumbprint が null（B.2.6.1 第3要素）', () => {
+  const st = oid4vpRedirectSessionTranscript({
+    clientId: REDIRECT_CLIENT_ID, responseUri: REDIRECT_RESPONSE_URI, nonce: 'n-0S6_WzA2Mj',
+  });
+  assert.equal(hex(st), GOLDEN_REDIRECT_ST_NO_TP);
+  assert.notEqual(hex(st), GOLDEN_REDIRECT_ST);
+});
+
+test('Redirect: HandoverInfo は [clientId, nonce, jwkThumbprint, responseUri] の順', () => {
+  // 順序が入れ替われば別のハッシュになる。旧実装の並びと一致しないことを固定する。
+  const tp = 'lU2TGgf17pOvZbQeAhyfm0q9wn8fpfFXaJdN0Vw20dk';
+  const spec = oid4vpRedirectSessionTranscript({
+    clientId: REDIRECT_CLIENT_ID, responseUri: REDIRECT_RESPONSE_URI, nonce: 'n-0S6_WzA2Mj', jwkThumbprint: tp,
+  });
+  // 旧実装相当（[clientId, responseUri, nonce]・thumbprint なし）を手で組んで突き合わせる
+  const legacyInfo = cborEncode([REDIRECT_CLIENT_ID, REDIRECT_RESPONSE_URI, 'n-0S6_WzA2Mj']);
+  assert.notEqual(hex(cborDecode(spec)[2][1]), hex(new Uint8Array(legacyInfo)));
 });
 
 test('Annex C: HPKE single-shot seal->open round-trips (info=SessionTranscript)', async () => {
