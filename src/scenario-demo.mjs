@@ -155,7 +155,7 @@ function stepActions(s, step, { txn1 = null, selftest = true } = {}) {
           + (note ? '<div class="dcfb-n">' + esc2(note) + '</div>' : '')
           + '<div class="dcfb-h">この OS では DC API でこの証明書を扱えません</div>'
           + '<div class="dcfb-b">iOS の DC API は ISO 18013-7 Annex C と、mDL・EUDI PID など'
-          + ' Apple が許可した証明書の種類にのみ対応しています。jp.go.* の証明書は対象外です。'
+          + ' Apple が許可した証明書の種類にのみ対応しており、このデモで扱う証明書は対象外です。'
           + 'インストール済みのウォレットを直接開くか、Web ウォレットをお使いください。</div>'
           + '<div class="dcfb-a">'
           + (all[0] ? '<a class="btn" href="' + esc2(all[0].url) + '">インストール済みウォレットで開く</a>' : '')
