@@ -112,6 +112,21 @@ function stepActions(s, step, { txn1 = null, selftest = true } = {}) {
     <div class="actions">${jsButtons}</div>
     ${step === 1 ? selfBtn : ''}
     <div id="msg"></div>
+    <style>
+      .dcfb{border:1px solid var(--line);border-left:3px solid var(--warning-2);border-radius:10px;
+        background:#FDF7E3;padding:14px 16px;margin-top:12px;text-align:left}
+      .dcfb-h{font-weight:700;color:#6b5a1e;margin-bottom:6px}
+      .dcfb-b{font-size:16px;color:#6b5a1e;line-height:1.8}
+      .dcfb-a{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+      .dcfb-d{margin-top:12px;font-size:16px}
+      .dcfb-d summary{cursor:pointer;color:var(--muted)}
+      .dcfb-alt{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+      .dcfb-k{font-size:16px;color:var(--muted);margin-top:12px}
+      .dcfb-uri{word-break:break-all;font-size:16px;background:#fff;border:1px solid var(--line);
+        border-radius:8px;padding:8px 10px;margin-top:4px}
+      .dcfb-qr{width:180px;height:180px;background:#fff;border:1px solid var(--line);
+        border-radius:8px;padding:8px;margin-top:6px;display:block}
+    </style>
     <script>
       const esc2 = (x) => String(x).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
       const msg = (m) => document.getElementById('msg').innerHTML = '<div class="hint" style="color:var(--error-2)">' + esc2(m) + '</div>';
@@ -121,13 +136,45 @@ function stepActions(s, step, { txn1 = null, selftest = true } = {}) {
         if (d.error) { msg(d.error); return null; }
         return d;
       }
+      // **DC API が使えないときの受け皿**（2026-09-06）。iOS の DC API は Annex C と
+      // Apple が許可した doctype に限られ jp.go.* を扱えない。HAIP 1.0 §9.3.1.1 に沿って
+      // カスタムスキームでウォレットを起動する。target を web に組み直すのは、dcapi の
+      // 要求とは形が違う（redirect 方式・request_uri 参照配信）ため。
+      async function nativeFallback() {
+        const d = await build('web'); if (!d) return;
+        const all = d.nativeLinks || [];
+        // 先頭は主ボタンに出すので、折り畳みには**残りのスキームだけ**並べる
+        const links = all.slice(1).map((l) =>
+          '<a class="btn ghost" href="' + esc2(l.url) + '">' + esc2(l.scheme) + ' で開く</a>').join('');
+        const qr = d.transactionId
+          ? '/oid4vp/request/' + encodeURIComponent(d.transactionId) + '/qr'
+          : null;
+        document.getElementById('msg').innerHTML =
+          '<div class="dcfb">'
+          + '<div class="dcfb-h">この OS では DC API でこの証明書を扱えません</div>'
+          + '<div class="dcfb-b">iOS の DC API は ISO 18013-7 Annex C と、mDL・EUDI PID など'
+          + ' Apple が許可した証明書の種類にのみ対応しています。jp.go.* の証明書は対象外です。'
+          + 'インストール済みのウォレットを直接開くか、Web ウォレットをお使いください。</div>'
+          + '<div class="dcfb-a">'
+          + (all[0] ? '<a class="btn" href="' + esc2(all[0].url) + '">インストール済みウォレットで開く</a>' : '')
+          + '<a class="btn ghost" href="' + esc2(d.walletPresent) + '">Web ウォレットで提示する</a>'
+          + '</div>'
+          + '<details class="dcfb-d"><summary>別の方法で開く（開発者向け）</summary>'
+          + '<div class="dcfb-alt">' + links + '</div>'
+          + '<div class="dcfb-k">request_uri</div>'
+          + '<div class="dcfb-uri mono">' + esc2(d.requestUri || '') + '</div>'
+          + (qr ? '<div class="dcfb-k">別の端末のウォレットで読む</div>'
+                + '<img class="dcfb-qr" alt="request QR" src="' + esc2(qr) + '">' : '')
+          + '</details>'
+          + '</div>';
+      }
       document.getElementById('webbtn').onclick = async () => {
         const d = await build('web'); if (d) window.location.href = d.walletPresent;
       };
       document.getElementById('dcbtn').onclick = async () => {
         const d = await build('dcapi'); if (!d) return;
         const okDc = typeof window.DigitalCredential !== 'undefined' && !!DigitalCredential.userAgentAllowsProtocol?.(d.dcProtocol);
-        if (!okDc) { msg('このブラウザ／OS は DC API に未対応です。「Web ウォレットで提示する」をお試しください。'); return; }
+        if (!okDc) { await nativeFallback(); return; }
         try {
           const credential = await navigator.credentials.get({ mediation: 'required', digital: { requests: [{ protocol: d.dcProtocol, data: d.request }] } });
           const data = credential.data ?? credential;

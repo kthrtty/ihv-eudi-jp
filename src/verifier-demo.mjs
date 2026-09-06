@@ -158,8 +158,21 @@ export function renderVerifyConsole(groups = []) {
         <summary class="eyebrow" style="cursor:pointer">提示要求（Verifier → Wallet に渡す JSON）を表示</summary>
         <pre id="reqjson" class="json"></pre>
       </details>
+      <div id="native"></div>
       <div id="result"></div>
     </div>
+    <style>
+      .nwf{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:12px;background:#f7f9fc}
+      .nwf-k{font-size:16px;color:var(--muted);margin-top:10px}
+      .nwf-k:first-child{margin-top:0}
+      .nwf-a{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+      .nwf-uri{word-break:break-all;font-size:16px;background:#fff;border:1px solid var(--line);
+        border-radius:8px;padding:8px 10px;margin-top:4px}
+      .nwf-d{margin-top:12px;font-size:16px}
+      .nwf-d summary{cursor:pointer;color:var(--muted)}
+      .nwf-qr{width:180px;height:180px;background:#fff;border:1px solid var(--line);
+        border-radius:8px;padding:8px;margin-top:6px;display:block}
+    </style>
     <script>
       const CHECKS = ${JSON.stringify(CHECKS)};
       const DCAPI_PROTOCOLS = ['openid4vp-v1-unsigned', 'org-iso-mdoc'];
@@ -210,10 +223,28 @@ export function renderVerifyConsole(groups = []) {
         return { req, opt };
       }
       function updateCount() { const s = states(); $('csel').textContent = '（必須 ' + s.req.length + ' ・ 任意 ' + s.opt.length + '）'; }
-      function reset() { $('reqbox').classList.add('hidden'); $('result').innerHTML = ''; built = null; }
+      function reset() { $('reqbox').classList.add('hidden'); $('result').innerHTML = ''; $('native').innerHTML = ''; built = null; }
       // Escape BEFORE any innerHTML: claim values come from an external wallet
       // (untrusted input on the native DC API path) and errors may echo them.
       function err(m) { $('result').innerHTML = '<div class="hint" style="color:var(--error-2)">'+esc(m)+'</div>'; }
+      // **DC API を通さない提示口**（HAIP 1.0 §9.3.1.1 のフォールバック）。target=web の
+      // ビルドでのみ nativeLinks が返る。どのスキームが登録済みかは OS に問い合わせられ
+      // ないので、候補を並べて利用者に選ばせる。
+      function renderNative(d) {
+        if (!d.nativeLinks || !d.nativeLinks.length) { $('native').innerHTML = ''; return; }
+        const btns = d.nativeLinks.map((l, i) =>
+          '<a class="btn'+(i ? ' ghost' : '')+'" href="'+esc(l.url)+'">'+esc(l.scheme)+' で開く</a>').join('');
+        const qr = '/oid4vp/request/'+encodeURIComponent(d.transactionId)+'/qr';
+        $('native').innerHTML =
+          '<div class="nwf">'
+          + '<div class="nwf-k">インストール済みウォレットを直接開く（DC API 不使用）</div>'
+          + '<div class="nwf-a">'+btns+'</div>'
+          + '<div class="nwf-k">request_uri</div>'
+          + '<div class="nwf-uri mono">'+esc(d.requestUri || '')+'</div>'
+          + '<details class="nwf-d"><summary>別の端末のウォレットで読む（QR）</summary>'
+          + '<img class="nwf-qr" alt="request QR" src="'+esc(qr)+'"></details>'
+          + '</div>';
+      }
 
       claimsEl.addEventListener('click', (e) => {
         const b = e.target.closest('.seg3 button'); if (!b) return;
@@ -252,6 +283,7 @@ export function renderVerifyConsole(groups = []) {
         const d = await (await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
         if (d.error) { err(d.error); return null; }
         built = { target: tgt, ...d };
+        renderNative(d);
         $('reqjson').textContent = JSON.stringify(d.request, null, 2);
         $('reqbox').classList.remove('hidden');
         $('result').innerHTML = '';
@@ -286,7 +318,15 @@ export function renderVerifyConsole(groups = []) {
         const dcSupported = typeof window.DigitalCredential !== 'undefined' && !!DigitalCredential.userAgentAllowsProtocol?.(built.dcProtocol);
         beacon({ phase: 'dispatch', protocol: built.dcProtocol, ua: navigator.userAgent, dcSupported, request: built.request });
         if (!dcSupported) {
-          err('このブラウザ／OS は DC API（' + built.dcProtocol + '）に未対応です。Annex D + Web ウォレットをお試しください。');
+          // **カスタムスキームへ逃がす**（HAIP 1.0 §9.3.1.1）。iOS の DC API は Annex C と
+          // Apple が許可した doctype に限られ、jp.go.* は扱えない。target=web で組み直せば
+          // request_uri 参照配信になり、ネイティブウォレットを直接起動できる。
+          err('このブラウザ／OS は DC API（' + built.dcProtocol + '）に未対応です。'
+            + 'インストール済みウォレットを直接開くか、Web ウォレットをお試しください。');
+          try {
+            document.querySelector('input[name=target][value=web]')?.click();
+            await doBuild();
+          } catch (e) { /* 選択肢を出せなくても本来のエラー表示は残す */ }
           return;
         }
         $('present').disabled = true; $('present').textContent = 'ウォレット呼び出し中…';
