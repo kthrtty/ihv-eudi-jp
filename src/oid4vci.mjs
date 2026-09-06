@@ -1121,9 +1121,23 @@ export class IssuerService {
             jwt: { ...cfg.proof_types_supported.jwt, key_attestations_required: {} } } }
           : cfg]))
       : catalog.credential_configurations_supported;
+    // **券面の相対パスを絶対 URL にする**（2026-09-06）。カタログには
+    // `/cardart/<configId>.jpg` を置いてあり、他の発行者 URL と同じく `base` から組む
+    // ——静的カタログに本番のドメインを焼かないため。data: URI をやめたのは、形式を
+    // 券面に焼くと画像が形式ごとに分かれて重複除去が効かず、gzip が 184KB→329KB に
+    // 膨らむから。Multipaz は `data:` でない URI を取得して書類に保存する。
+    const absCardArt = (cfgs) => Object.fromEntries(Object.entries(cfgs ?? {}).map(([id, cfg]) => {
+      const display = cfg.credential_metadata?.display;
+      if (!Array.isArray(display)) return [id, cfg];
+      const fix = (img) => (img?.uri?.startsWith('/') ? { ...img, uri: `${base}${img.uri}` } : img);
+      return [id, { ...cfg, credential_metadata: { ...cfg.credential_metadata,
+        display: display.map((d) => ({ ...d,
+          ...(d.logo ? { logo: fix(d.logo) } : {}),
+          ...(d.background_image ? { background_image: fix(d.background_image) } : {}) })) } }];
+    }));
     return {
       ...catalog,
-      ...(configs ? { credential_configurations_supported: configs } : {}),
+      ...(configs ? { credential_configurations_supported: absCardArt(configs) } : {}),
       credential_issuer: base,
       authorization_servers: [base],
       credential_endpoint: `${base}/credential`,
