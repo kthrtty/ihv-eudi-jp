@@ -989,9 +989,17 @@ export function createVerifierApp(opts = {}) {
   // eudi-openid4vp / mdoc-openid4vp を加えた4種）ため、**複数を並べて返す**。
   // どれが入っているかは OS 側から問い合わせられないので、選ぶのは利用者。
   const NATIVE_WALLET_SCHEMES = ['haip-vp', 'openid4vp'];
-  const nativeWalletLinks = (requestUri) => NATIVE_WALLET_SCHEMES.map((scheme) => ({
+  // **client_id を必ず前に置く**（2026-09-06・実機で切り分け）。Multipaz SDK の
+  // `uriSchemePresentment()` は URL 全体を Ktor の `parseUrlEncodedParameters()` に
+  // かける。あれは `&` で割ってから `=` で割るだけなので、`request_uri` が先頭だと
+  // 最初のキーが `openid4vp://?request_uri` になり `No request_uri` で落ちる。
+  // 前に別のパラメータがあればスキームはそちらのキーに吸われて正しく読める。
+  // RFC 9101 §5.2.1 も request_uri を使うときは client_id を載せろと言っており、
+  // 回避策ではなく本来の形。
+  const nativeWalletLinks = (requestUri, clientId) => NATIVE_WALLET_SCHEMES.map((scheme) => ({
     scheme,
-    url: `${scheme}://?request_uri=${encodeURIComponent(requestUri)}`,
+    url: `${scheme}://?client_id=${encodeURIComponent(clientId ?? '')}`
+       + `&request_uri=${encodeURIComponent(requestUri)}`,
   }));
   // トラストアンカーの取得層（issue #26/#28）。**設定した URI があるときだけ有効**——
   // 無ければ従来どおり PKI バンドルの1枚で検証する（テスト・オフライン互換）。
@@ -1408,7 +1416,7 @@ export function createVerifierApp(opts = {}) {
         const requestUri = `${verifierOrigin}/oid4vp/request/${transactionId}`;
         const walletPresent = `${walletOrigin}/present?request_uri=${encodeURIComponent(requestUri)}`;
         return c.json({ transactionId, request, target, walletPresent, requestUri,
-          nativeLinks: nativeWalletLinks(requestUri) });
+          nativeLinks: nativeWalletLinks(requestUri, request.client_id) });
       }
       // native DC API (Annex C or D)
       const { transactionId, request } = await v.createRequest({ specs, protocol, ...scnOpts });
@@ -1455,7 +1463,7 @@ export function createVerifierApp(opts = {}) {
     const requestUri = `${verifierOrigin}/oid4vp/request/${transactionId}`;
     const walletPresent = `${walletOrigin}/present?request_uri=${encodeURIComponent(requestUri)}`;
     return c.html(renderWebVerify({ request, requestUri, walletPresent,
-      nativeLinks: nativeWalletLinks(requestUri) }));
+      nativeLinks: nativeWalletLinks(requestUri, request.client_id) }));
   });
   // OID4VP 1.0 §5: Request URI は **署名済み要求オブジェクト（JAR・RFC 9101）** を
   // `application/oauth-authz-req+jwt` で返す。素の JSON を返していたのは非準拠だった
@@ -1477,12 +1485,15 @@ export function createVerifierApp(opts = {}) {
   // NATIVE_WALLET_SCHEMES に限る。
   app.get('/oid4vp/request/:txn/qr', async (c) => {
     const txn = c.req.param('txn');
-    if (!(await getRequest(txn))) return c.text('unknown request', 404);
+    const r = await getRequest(txn);
+    if (!r) return c.text('unknown request', 404);
     const scheme = c.req.query('scheme') || NATIVE_WALLET_SCHEMES[0];
     if (!NATIVE_WALLET_SCHEMES.includes(scheme)) return c.text('unsupported scheme', 400);
     const requestUri = `${verifierOrigin}/oid4vp/request/${txn}`;
+    const clientId = r.client_id;
     c.header('content-type', 'image/svg+xml');
-    return c.body(await offerQrSvg(`${scheme}://?request_uri=${encodeURIComponent(requestUri)}`));
+    return c.body(await offerQrSvg(nativeWalletLinks(requestUri, clientId)
+      .find((l) => l.scheme === scheme).url));
   });
   app.post('/oid4vp/response/:txn', async (c) => {
     try {
