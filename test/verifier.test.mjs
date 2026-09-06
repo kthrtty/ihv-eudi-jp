@@ -498,7 +498,12 @@ test('Verifier console page reads verification claims from results[] (regression
   assert.match(page, /d\.results \|\| \[\]/, 'showResult flattens claims from results[]');
 });
 
-test('Verifier scenario C negative: linked presentation from a DIFFERENT holder fails', async () => {
+// **鍵違いは valid を落とさない**（2026-09-06）。マルチウォレット（PID は OS ウォレット、
+// 属性証明は別ウォレット）が前提の日本では保有者鍵が違うのは正常で、提示そのものは
+// 暗号的に正当。ここで valid:false にすると応答 POST が 400 になり、ウォレットは本文の
+// redirect_uri を読む前に例外を投げてブラウザへ戻れなくなる（実機で確認）。
+// 事実として linkedSameHolder:false を報告し、受理の判断はシナリオ側（氏名突合）に委ねる。
+test('Verifier scenario C: 保有者鍵が違っても valid は落とさず linkedSameHolder で報告する', async () => {
   const walletA = await walletWith(['pid_mdoc']);
   const walletB = await walletWith(['qualification_mdoc']); // different wallet => different holder key
   const v = new VerifierService();
@@ -511,8 +516,9 @@ test('Verifier scenario C negative: linked presentation from a DIFFERENT holder 
     linkTo: r1req.transactionId,
   });
   const r2 = await v.verifyResponse({ transactionId: r2req.transactionId, encryptedResponse: await walletB.respond(r2req.request) });
-  assert.equal(r2.valid, false);
-  assert.ok(r2.errors.some((e) => /different holder/.test(e)), r2.errors.join(';'));
+  assert.equal(r2.valid, true, r2.errors.join(';'));
+  assert.equal(r2.linkedSameHolder, false, '鍵が違うことは事実として報告される');
+  assert.ok(!r2.errors.some((e) => /different holder/.test(e)), '検証エラーにはしない');
 });
 
 test('Annex C/D dispatch: same mdoc verifies over both org-iso-mdoc (HPKE) and OID4VP (JWE)', async () => {
