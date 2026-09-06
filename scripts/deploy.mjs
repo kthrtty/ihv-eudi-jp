@@ -92,11 +92,23 @@ vars.CLIENT_REGISTRY = env.CLIENT_REGISTRY
     ...MULTIPAZ_CLIENT_IDS.map((id) => `${id}=${MULTIPAZ_REDIRECT_URIS.join(',')}`)].join(' ');
 
 const varArgs = Object.entries(vars).flatMap(([k, v]) => ['--var', `${k}:${v}`]);
-const configs = [null, 'wrangler.verifier.toml', 'wrangler.wallet.toml', 'wrangler.admin.toml'];
+const ALL = { issuer: null, verifier: 'wrangler.verifier.toml', wallet: 'wrangler.wallet.toml', admin: 'wrangler.admin.toml' };
+// **対象を絞れるようにする**（2026-09-06）。1つの Worker だけ直したときに4つとも
+// 出し直すのは、変えていないものを本番に触る分だけ余計なリスクを負う。
+// 引数なしのときは従来どおり全部（`npm run deploy` の挙動は変えない）。
+//   例: npm run deploy -- verifier
+const picked = process.argv.slice(2);
+for (const name of picked) {
+  if (!(name in ALL)) {
+    console.error(`✗ 不明なデプロイ対象: ${name}（指定できるのは ${Object.keys(ALL).join(' / ')}）`);
+    process.exit(1);
+  }
+}
+const configs = picked.length ? picked.map((n) => ALL[n]) : Object.values(ALL);
 for (const cfg of configs) {
   const args = ['wrangler', 'deploy', ...(cfg ? ['--config', cfg] : []), ...varArgs];
   console.log(`\n▶ ${args.join(' ')}`);
   const r = spawnSync('npx', args, { stdio: 'inherit' });
   if (r.status !== 0) process.exit(r.status ?? 1);
 }
-console.log('\n✓ 4 Workers deployed with real origins (from .deploy.env)');
+console.log(`\n✓ ${configs.length} Worker(s) deployed with real origins (from .deploy.env)`);
