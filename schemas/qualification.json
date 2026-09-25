@@ -83,7 +83,7 @@
       },
       "sdjwt": {
         "path": [
-          "birthdate"
+          "holder_birth_date"
         ]
       }
     },

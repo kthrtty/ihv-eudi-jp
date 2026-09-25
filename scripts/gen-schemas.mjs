@@ -16,7 +16,12 @@ const c = (key, type, disp, o = {}) => ({
   optional: !!o.optional,
   sensitive: !!o.sensitive,                     // sd-hidden by default in UI
   mdoc: { namespace: o.ns, element: o.el || key },
-  sdjwt: { path: o.path || [o.sd_key || key] },
+  // **SD-JWT の path は key に固定する**（2026-09-26）。発行処理（src/issuer.mjs）は SD-JWT を
+  // key でそのまま発行するので、ここで別名（`birthdate` や `address.formatted`）を名乗ると、
+  // メタデータだけが実物と違う名前を配ることになる。Multipaz が `birth_date` に表示名を
+  // 当てられずに露見した（発行処理と Verifier は key で揃っていたので自己完結のテストは通っていた）。
+  // 標準名に寄せるなら、発行処理・Verifier・vct の版を一緒に変える話になる。
+  sdjwt: { path: [key] },
   ...(o.note ? { note: o.note } : {}),
 });
 
@@ -34,12 +39,12 @@ const pid = {
   },
   basic_four: ['name', 'residence_address', 'birth_date', 'sex'],
   claims: [
-    c('family_name', 'string', { ja: '姓', en: 'Family name' }, { ns: PID_NS, basic4: true, path: ['family_name'] }),
-    c('given_name', 'string', { ja: '名', en: 'Given name' }, { ns: PID_NS, basic4: true, path: ['given_name'] }),
+    c('family_name', 'string', { ja: '姓', en: 'Family name' }, { ns: PID_NS, basic4: true }),
+    c('given_name', 'string', { ja: '名', en: 'Given name' }, { ns: PID_NS, basic4: true }),
     c('family_name_kana', 'string', { ja: '姓(カナ)', en: 'Family name kana' }, { ns: PID_NS, optional: true }),
     c('given_name_kana', 'string', { ja: '名(カナ)', en: 'Given name kana' }, { ns: PID_NS, optional: true }),
-    c('birth_date', 'full-date', { ja: '生年月日', en: 'Date of birth' }, { ns: PID_NS, basic4: true, el: 'birth_date', sd_key: 'birthdate', path: ['birthdate'] }),
-    c('residence_address', 'string', { ja: '住所', en: 'Residence address' }, { ns: PID_NS, basic4: true, el: 'resident_address', path: ['address', 'formatted'] }),
+    c('birth_date', 'full-date', { ja: '生年月日', en: 'Date of birth' }, { ns: PID_NS, basic4: true, el: 'birth_date' }),
+    c('residence_address', 'string', { ja: '住所', en: 'Residence address' }, { ns: PID_NS, basic4: true, el: 'resident_address' }),
     c('sex', 'uint(ISO5218)', { ja: '性別', en: 'Sex' }, { ns: PID_NS, basic4: true, note: 'ISO/IEC 5218: 0=unknown,1=male,2=female,9=N/A' }),
     c('portrait', 'jpeg/bstr', { ja: '顔写真', en: 'Portrait' }, { ns: PID_NS, note: 'mdoc: bstr(JPEG); sd-jwt: base64url string' }),
     // PID metadata + derived
@@ -68,7 +73,7 @@ const juminhyo = {
   claims: [
     c('family_name', 'string', { ja: '姓', en: 'Family name' }, { ns: JU_NS }),
     c('given_name', 'string', { ja: '名', en: 'Given name' }, { ns: JU_NS }),
-    c('birth_date', 'full-date', { ja: '生年月日', en: 'Date of birth' }, { ns: JU_NS, sd_key: 'birthdate', path: ['birthdate'] }),
+    c('birth_date', 'full-date', { ja: '生年月日', en: 'Date of birth' }, { ns: JU_NS }),
     c('sex', 'uint(ISO5218)', { ja: '性別', en: 'Sex' }, { ns: JU_NS }),
     c('residence_address', 'string', { ja: '住所', en: 'Residence address' }, { ns: JU_NS, el: 'resident_address' }),
     c('municipality', 'string', { ja: '市区町村', en: 'Municipality' }, { ns: JU_NS }),
@@ -102,7 +107,7 @@ const qualification = {
   claims: [
     c('holder_family_name', 'string', { ja: '姓', en: 'Holder family name' }, { ns: QU_NS }),
     c('holder_given_name', 'string', { ja: '名', en: 'Holder given name' }, { ns: QU_NS }),
-    c('holder_birth_date', 'full-date', { ja: '生年月日', en: 'Holder date of birth' }, { ns: QU_NS, sd_key: 'birthdate', path: ['birthdate'] }),
+    c('holder_birth_date', 'full-date', { ja: '生年月日', en: 'Holder date of birth' }, { ns: QU_NS }),
     c('qualification_name', 'string', { ja: '資格名', en: 'Qualification name' }, { ns: QU_NS, note: 'e.g. 医師 / 看護師 / 一級建築士' }),
     c('qualification_category', 'string', { ja: '資格区分', en: 'Qualification category' }, { ns: QU_NS }),
     c('registration_number', 'string', { ja: '登録番号', en: 'Registration number' }, { ns: QU_NS }),
@@ -127,7 +132,7 @@ const koseki = {
     c('head_of_family', 'string', { ja: '筆頭者氏名', en: 'Head of family' }, { ns: KO_NS }),
     c('family_name', 'string', { ja: '姓', en: 'Family name' }, { ns: KO_NS }),
     c('given_name', 'string', { ja: '名', en: 'Given name' }, { ns: KO_NS }),
-    c('birth_date', 'full-date', { ja: '生年月日', en: 'Date of birth' }, { ns: KO_NS, sd_key: 'birthdate', path: ['birthdate'] }),
+    c('birth_date', 'full-date', { ja: '生年月日', en: 'Date of birth' }, { ns: KO_NS }),
     c('sex', 'uint(ISO5218)', { ja: '性別', en: 'Sex' }, { ns: KO_NS }),
     c('relationship', 'string', { ja: '続柄', en: 'Relationship' }, { ns: KO_NS, note: 'e.g. 長男/長女' }),
     c('father_name', 'string', { ja: '父', en: 'Father' }, { ns: KO_NS, optional: true }),
@@ -151,7 +156,7 @@ const tax = {
   claims: [
     c('family_name', 'string', { ja: '姓', en: 'Family name' }, { ns: TX_NS }),
     c('given_name', 'string', { ja: '名', en: 'Given name' }, { ns: TX_NS }),
-    c('birth_date', 'full-date', { ja: '生年月日', en: 'Date of birth' }, { ns: TX_NS, sd_key: 'birthdate', path: ['birthdate'] }),
+    c('birth_date', 'full-date', { ja: '生年月日', en: 'Date of birth' }, { ns: TX_NS }),
     c('address', 'string', { ja: '住所', en: 'Address' }, { ns: TX_NS }),
     c('tax_year', 'string', { ja: '課税年度', en: 'Tax year' }, { ns: TX_NS }),
     c('total_income', 'uint', { ja: '合計所得金額', en: 'Total income' }, { ns: TX_NS, sensitive: true }),
@@ -175,7 +180,7 @@ const single = {
   claims: [
     c('family_name', 'string', { ja: '姓', en: 'Family name' }, { ns: SG_NS }),
     c('given_name', 'string', { ja: '名', en: 'Given name' }, { ns: SG_NS }),
-    c('birth_date', 'full-date', { ja: '生年月日', en: 'Date of birth' }, { ns: SG_NS, sd_key: 'birthdate', path: ['birthdate'] }),
+    c('birth_date', 'full-date', { ja: '生年月日', en: 'Date of birth' }, { ns: SG_NS }),
     c('honseki', 'string', { ja: '本籍', en: 'Permanent domicile' }, { ns: SG_NS, sensitive: true }),
     c('marital_status', 'string', { ja: '婚姻状況', en: 'Marital status' }, { ns: SG_NS, note: 'e.g. 独身(未婚)' }),
     c('statement', 'string', { ja: '証明事項', en: 'Statement' }, { ns: SG_NS, note: 'e.g. 婚姻の記録なし' }),
@@ -273,7 +278,7 @@ const vaccine = {
   claims: [
     c('family_name', 'string', { ja: '姓', en: 'Family name' }, { ns: VC_NS }),
     c('given_name', 'string', { ja: '名', en: 'Given name' }, { ns: VC_NS }),
-    c('birth_date', 'full-date', { ja: '生年月日', en: 'Date of birth' }, { ns: VC_NS, sd_key: 'birthdate', path: ['birthdate'] }),
+    c('birth_date', 'full-date', { ja: '生年月日', en: 'Date of birth' }, { ns: VC_NS }),
     c('disease', 'string', { ja: '対象疾病', en: 'Target disease' }, { ns: VC_NS, note: 'e.g. COVID-19' }),
     c('vaccine_type', 'string', { ja: 'ワクチン名', en: 'Vaccine' }, { ns: VC_NS }),
     c('dose_number', 'uint', { ja: '接種回数', en: 'Dose number' }, { ns: VC_NS }),
@@ -309,7 +314,7 @@ const island = {
   claims: [
     c('family_name', 'string', { ja: '姓', en: 'Family name' }, { ns: IS_NS }),
     c('given_name', 'string', { ja: '名', en: 'Given name' }, { ns: IS_NS }),
-    c('birth_date', 'full-date', { ja: '生年月日', en: 'Date of birth' }, { ns: IS_NS, sd_key: 'birthdate', path: ['birthdate'] }),
+    c('birth_date', 'full-date', { ja: '生年月日', en: 'Date of birth' }, { ns: IS_NS }),
     c('resident_category', 'string', { ja: '対象区分', en: 'Resident category' }, { ns: IS_NS, note: '島民 / 準島民' }),
     c('eligible_routes', 'string', { ja: '対象路線', en: 'Eligible routes' }, { ns: IS_NS, note: '複数路線は読点区切り。実カードの券面記載事項' }),
     c('fare_scheme', 'string', { ja: '適用制度', en: 'Fare scheme' }, { ns: IS_NS, note: 'e.g. 有人国境離島(特定有人国境離島地域)' }),

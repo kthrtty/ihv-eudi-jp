@@ -80,7 +80,7 @@
       },
       "sdjwt": {
         "path": [
-          "birthdate"
+          "birth_date"
         ]
       }
     },

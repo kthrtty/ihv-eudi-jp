@@ -127,7 +127,7 @@
       },
       "sdjwt": {
         "path": [
-          "birthdate"
+          "birth_date"
         ]
       }
     },
@@ -148,8 +148,7 @@
       },
       "sdjwt": {
         "path": [
-          "address",
-          "formatted"
+          "residence_address"
         ]
       }
     },
