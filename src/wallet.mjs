@@ -103,17 +103,25 @@ export function createWallet(snapshot = null) {
       const loc = authRes.headers.get('location');
       if (!loc) { const err = await authRes.json().catch(() => ({})); throw new Error(`authorize failed: ${err.error || authRes.status}`); }
       const code = new URL(loc).searchParams.get('code');
-      return this.exchangeAndReceive({ request, code, verifier, redirectUri, configId, credentialIssuer });
+      return this.exchangeAndReceive({ request, code, verifier, redirectUri, configId, credentialIssuer, clientId });
     },
 
     /** Exchange an authorization code (already obtained via a browser redirect) for
      *  an access token (PKCE) and run issuance. Used by web-wallet callbacks.
      *  Multi-scope authorization: pass configIds[] — ONE code/token exchange, then
      *  one credential request per configuration (returns an array of records). */
-    async exchangeAndReceive({ request, code, verifier, redirectUri, configId, configIds, credentialIssuer }) {
+    async exchangeAndReceive({ request, code, verifier, redirectUri, configId, configIds,
+      credentialIssuer, clientId = 'ihv-wallet' }) {
+      // **`client_id` は /token にも送る**（2026-09-29 修正）。#38 の束縛検証は
+      // 「code を出したときの client_id」と「token 要求の client_id」を突き合わせるので、
+      // **/authorize でだけ名乗って /token で省くと `invalid_grant` になる**。
+      // RFC 6749 §4.1.3 は public client に `client_id` を REQUIRED としており、
+      // 省いてよいのは**認証済みの confidential client** だけ（その場合は
+      // `client_assertion` の `sub` が client_id を運ぶ）。
       const tokenRes = await (await request('/token', {
         method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ grant_type: 'authorization_code', code, code_verifier: verifier, redirect_uri: redirectUri }).toString(),
+        body: new URLSearchParams({ grant_type: 'authorization_code', code, code_verifier: verifier,
+          redirect_uri: redirectUri, client_id: clientId }).toString(),
       })).json();
       if (!tokenRes.access_token) throw new Error(`token failed: ${tokenRes.error || 'no token'}`);
       if (configIds && configIds.length) {

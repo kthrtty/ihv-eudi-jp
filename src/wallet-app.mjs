@@ -25,6 +25,12 @@ import { storedCredRepr } from './vpdebug.mjs';
 import { recordingFetch, getLog, createLogRing } from './devlog.mjs';
 import { securityHeaders, csrfGuard, makeSsrfSafeFetch } from './security.mjs';
 
+// **`/authorize` と `/token` で同じ値を名乗る**ための定数（2026-09-29）。
+// #38 の束縛検証は両者の一致を見るので、**片方だけ直すと `invalid_grant` になる**。
+// 文字列が4箇所に散っていたのが、実際に1か月気づかれなかった原因。
+// **`scripts/deploy.mjs` の `CLIENT_REGISTRY` 既定と同じ値**でなければ発行できない。
+const WEB_WALLET_CLIENT_ID = 'ihv-web-wallet';
+
 // type prefix of a configId (pid_mdoc -> pid) for the issuer-matched icon
 const credType = (configId) => String(configId || '').replace(/_(mdoc|sdjwt)$/, '');
 
@@ -459,7 +465,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     s.pendingAuth[state] = { verifier, configIds, issuerBase: iss, redirectUri };
     await saveSession(s);
     const url = iss + '/authorize?' + new URLSearchParams({
-      response_type: 'code', client_id: 'ihv-web-wallet', redirect_uri: redirectUri,
+      response_type: 'code', client_id: WEB_WALLET_CLIENT_ID, redirect_uri: redirectUri,
       code_challenge: challenge, code_challenge_method: 'S256',
       scope: configIds.join(' '), state,
     }).toString();
@@ -523,7 +529,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
         s.pendingAuth[state] = { verifier, configIds: offer.credential_configuration_ids, issuerBase, redirectUri };
         await saveSession(s);
         const url = `${issuerBase}/authorize?` + new URLSearchParams({
-          response_type: 'code', client_id: 'ihv-web-wallet', redirect_uri: redirectUri,
+          response_type: 'code', client_id: WEB_WALLET_CLIENT_ID, redirect_uri: redirectUri,
           code_challenge: challenge, code_challenge_method: 'S256',
           issuer_state: grants.authorization_code.issuer_state, state,
         }).toString();
@@ -554,7 +560,11 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
     try {
       if (!p.accessToken) {
         const params = p.grant === 'authorization_code'
-          ? { grant_type: 'authorization_code', code: p.code, code_verifier: p.verifier, redirect_uri: p.redirectUri }
+          // **`client_id` を送る**（2026-09-29 修正）。`/authorize` では `ihv-web-wallet` と
+          // 名乗るのに `/token` で省いていたため、#38 の束縛検証が不一致と判定して
+          // **「+」からの発行が `invalid_grant` で全滅していた**（2026-08-26 から約1か月）
+          ? { grant_type: 'authorization_code', code: p.code, code_verifier: p.verifier,
+            redirect_uri: p.redirectUri, client_id: WEB_WALLET_CLIENT_ID }
           : { grant_type: PRE_AUTH, 'pre-authorized_code': p.preAuthCode, ...(p.txCode ? { tx_code: p.txCode } : {}) };
         const tk = await (await httpTo(p.issuerBase)('/token', {
           method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
@@ -616,7 +626,7 @@ export function createWalletApp({ walletOrigin = '', issuerUrl = 'https://issuer
         s.pending = null;
         await saveSession(s);
         const url = `${issuerBase}/authorize?` + new URLSearchParams({
-          response_type: 'code', client_id: 'ihv-web-wallet', redirect_uri: redirectUri,
+          response_type: 'code', client_id: WEB_WALLET_CLIENT_ID, redirect_uri: redirectUri,
           code_challenge: challenge, code_challenge_method: 'S256',
           issuer_state: grants.authorization_code.issuer_state, state,
         }).toString();
