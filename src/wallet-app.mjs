@@ -2093,7 +2093,12 @@ const WSTYLE = `<style>
   .wsh{display:flex;align-items:center;margin-bottom:10px;gap:8px}.wsh b{font-size:16px;line-height:1.4}
   .wx{margin-left:auto;border:0;background:none;font-size:20px;color:var(--muted);cursor:pointer;flex:none}
   .wtiles{display:flex;flex-direction:column;gap:9px}
-  @media(min-width:720px){.wtiles{display:grid;grid-template-columns:1fr 1fr;gap:10px}}
+  /* **2列にしない**（2026-09-29 修正）。min-width:720px は**画面幅**を見ていたが、
+     シートは max-width:560px（内側 524px）で固定なので、画面が広くても入る幅は増えない。
+     実測: 285px×2=570px を 524px に詰めて **55px はみ出し**、名前欄が **37px**
+     ——日本語1文字ぶんまで潰れて「写真/付き/身分/証」と縦に割れていた。
+     1タイルに アイコン46 + 名前 + mdoc/SD-JWT の2チップ154 が横に並ぶ構成なので、
+     **2列にするには1列あたり 300px 以上要る**。シートを広げない限り1列が正しい。 */
   .wtile{border:1px solid var(--line);border-radius:12px;padding:11px 12px;display:flex;gap:11px;align-items:center}
   .wtile.sel{background:#F3F8F6;box-shadow:0 0 0 2px var(--role-ink) inset}
   .wtile .sw{width:46px;height:29px;border-radius:6px;flex:none;background:linear-gradient(135deg,var(--c1),var(--c2))}

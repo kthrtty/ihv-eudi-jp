@@ -92,3 +92,51 @@ test('Web ウォレットの「＋」から認可コードで発行できる（c
     issuer.close(); wallet.close();
   }
 });
+
+// カード追加シートのレイアウト（2026-09-29 修正）。
+// **`@media(min-width:720px)` が画面幅を見て 2 列にしていた**が、シートは
+// `max-width:560px`（内側 524px）で固定なので、画面が広くても入る幅は増えない。
+// 実測 285px×2=570px を 524px に詰めて **55px はみ出し**、名前欄が **37px**
+// ——日本語1文字ぶんまで潰れて「写真/付き/身分/証」と縦に割れていた。
+//
+// **数値で固定する**——見た目の崩れは目視だと見逃すし、
+// 「はみ出していない」はスクリーンショットの比較より計測のほうが確実。
+test('カード追加シート: どの画面幅でも横にはみ出さず、書類名が潰れない', async (t) => {
+  let chromium;
+  try { ({ chromium } = await import('playwright')); }
+  catch { t.skip('playwright 未インストール'); return; }
+
+  const PORT = 8973;
+  const ORIGIN = `http://127.0.0.1:${PORT}`;
+  const srv = serve({
+    fetch: createWalletApp({ walletOrigin: ORIGIN, issuerUrl: ORIGIN }).fetch,
+    port: PORT,
+  });
+  const br = await chromium.launch();
+  try {
+    // **スマホからワイドまで見る**。2 列化の閾値を跨ぐ幅（720px 前後）を必ず含める
+    for (const width of [390, 768, 1280, 2000]) {
+      const page = await (await br.newContext({ viewport: { width, height: 1000 } })).newPage();
+      await page.goto(ORIGIN, { waitUntil: 'networkidle' });
+      await page.evaluate(() => document.getElementById('catSheet')?.removeAttribute('hidden'));
+      await page.waitForTimeout(150);
+      const m = await page.evaluate(() => {
+        const tiles = document.querySelector('#catSheet .wtiles');
+        const tile = document.querySelector('#catSheet .wtile');
+        const name = tile?.querySelector('.tx');
+        return {
+          overflow: tiles ? tiles.scrollWidth - tiles.clientWidth : -1,
+          nameWidth: name ? Math.round(name.getBoundingClientRect().width) : -1,
+        };
+      });
+      assert.equal(m.overflow, 0, `幅${width}px で横にはみ出している（${m.overflow}px）`);
+      // **日本語が1文字ずつ割れない幅**を下限にする（37px まで潰れていたのが不具合）
+      assert.ok(m.nameWidth >= 90,
+        `幅${width}px で書類名の欄が狭すぎる（${m.nameWidth}px）— 縦に割れる`);
+      await page.close();
+    }
+  } finally {
+    await br.close();
+    srv.close();
+  }
+});
