@@ -1274,8 +1274,9 @@ export function createVerifierApp(opts = {}) {
       });
       const { credential_offer } = await offerRes.json();
       await wallet.receive({ request: issuerFetch, offer: credential_offer, credentialIssuer: issuerUrl });
-      const optKeys = parseOptionalKeys((await c.req.parseBody().catch(() => ({})))?.optional_keys);
-      const specs = applyOptionalKeys(s.steps[0].specs, optKeys);
+      const form = await c.req.parseBody().catch(() => ({}));
+      const specs = applyClaimModes(s.steps[0].specs,
+        { optionalKeys: parseKeys(form?.optional_keys), excludedKeys: parseKeys(form?.excluded_keys) });
       if (specs.some((sp) => !sp.claims.length)) return c.html(renderScenarioGone(s));
       const { transactionId, request } = await v.createRequest({ specs });
       const result = withImgClaims(await v.verifyResponse({ transactionId, encryptedResponse: await wallet.respond(request) }));
@@ -1297,8 +1298,9 @@ export function createVerifierApp(opts = {}) {
     try {
       const wallet = createWallet(scn.wallet);
       const txn1 = c.req.param('txn1');
-      const optKeys = parseOptionalKeys((await c.req.parseBody().catch(() => ({})))?.optional_keys);
-      const specs = applyOptionalKeys(s.steps[1].specs, optKeys);
+      const form = await c.req.parseBody().catch(() => ({}));
+      const specs = applyClaimModes(s.steps[1].specs,
+        { optionalKeys: parseKeys(form?.optional_keys), excludedKeys: parseKeys(form?.excluded_keys) });
       if (specs.some((sp) => !sp.claims.length)) return c.html(renderScenarioGone(s));
       const { transactionId, request } = await v.createRequest({ specs, linkTo: txn1 });
       const result = withImgClaims(await v.verifyResponse({ transactionId, encryptedResponse: await wallet.respond(request) }));
@@ -1369,20 +1371,27 @@ export function createVerifierApp(opts = {}) {
     try { return c.json(await v.createRequest(await c.req.json())); } catch (e) { return fail(c, e); }
   });
 
-  // シナリオの必須／任意はブラウザから切り替えられる（画面のチップ＝DCQL の claim_sets）。
+  // シナリオの必須／任意／不要はブラウザから切り替えられる（画面のチップ＝要求そのもの）。
+  //   必須 = どの claim_set にも入る ／ 任意 = 全部入りの claim_set にだけ入る ／
+  //   不要 = そもそも要求しない（claims から落とす）
   // **要求できるクレームはシナリオが宣言した集合に閉じる**——ここを開くと、画面に出ていない
   // 項目を「任意」に見せかけて要求できてしまう（審査画面の `authority` と同じクラスの穴で、
   // 画面で隠すことは防御にならない）。未知のキーは黙って捨てる。
-  const applyOptionalKeys = (specs, keys) => {
-    if (!Array.isArray(keys)) return specs;
-    const want = new Set(keys.map(String));
+  const applyClaimModes = (specs, { optionalKeys, excludedKeys } = {}) => {
+    const opt = Array.isArray(optionalKeys) ? new Set(optionalKeys.map(String)) : null;
+    const off = Array.isArray(excludedKeys) ? new Set(excludedKeys.map(String)) : null;
+    if (!opt && !off) return specs;
     return specs.map((sp) => {
-      const all = [...(sp.claims || []), ...(sp.optional || [])];
-      return { ...sp, claims: all.filter((k) => !want.has(k)), optional: all.filter((k) => want.has(k)) };
+      // 不要を先に落とす（不要かつ任意の指定が来ても、落とすほうが利用者の意図に近い）
+      const all = [...(sp.claims || []), ...(sp.optional || [])].filter((k) => !off?.has(k));
+      return opt
+        ? { ...sp, claims: all.filter((k) => !opt.has(k)), optional: all.filter((k) => opt.has(k)) }
+        : { ...sp, claims: all.filter((k) => !(sp.optional || []).includes(k)),
+          optional: all.filter((k) => (sp.optional || []).includes(k)) };
     });
   };
-  /** フォーム POST で運ばれてくる optional_keys（JSON 配列）。壊れていたら既定に戻す。 */
-  const parseOptionalKeys = (raw) => {
+  /** フォーム POST で運ばれてくる JSON 配列。壊れていたら既定に戻す（落とさない）。 */
+  const parseKeys = (raw) => {
     try { const v = JSON.parse(String(raw ?? '')); return Array.isArray(v) ? v : null; } catch { return null; }
   };
 
@@ -1415,7 +1424,7 @@ export function createVerifierApp(opts = {}) {
         }
       }
       const protocol = scn ? 'annex-d' : (body.protocol || 'annex-d');
-      const specs = scn ? applyOptionalKeys(scn.steps[step - 1].specs, body.optionalKeys)
+      const specs = scn ? applyClaimModes(scn.steps[step - 1].specs, body)
         : Array.isArray(body.specs) && body.specs.length
           ? body.specs.map((s, i) => ({ id: s.id || `q${i + 1}`, configId: s.configId, claims: s.claims, optional: s.optional || [] }))
           : [{ id: 'q1', configId, claims, optional }];

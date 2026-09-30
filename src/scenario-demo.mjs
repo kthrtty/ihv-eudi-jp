@@ -87,60 +87,64 @@ const stepBar = (s, phase) => {
 };
 
 // present-action buttons for a step (web wallet / DC API / self-test continuation)
+/** チップの3状態。押すたびにこの順で回る。DCQL への写り方もここに1つだけ書く。 */
+export const PILL_STATES = [
+  { mode: 'req', cls: 'cp-on', word: '必須' },   // どの claim_set にも入る
+  { mode: 'opt', cls: 'cp-off', word: '任意' },  // 全部入りの claim_set にだけ入る
+  { mode: 'off', cls: 'cp-no', word: '不要' },   // 要求しない（claims から落とす）
+];
+
 const PILL_CSS = `
     <style>
       /* 押せるチップ。button 要素なのでキーボードでも操作できる（span のままだと
          マウスでしか押せない）。フォントは継承させないと UI 既定の等幅に落ちる */
       button.cpill{font-family:inherit;cursor:pointer;line-height:1.6}
       button.cpill:hover{filter:brightness(.97)}
-      /* ラベル側が括弧を含むことがあるので、補足は括弧書きでなくバッジで足す */
-      .cpx{display:inline-block;margin-left:6px;padding:0 6px;border-radius:999px;
-        background:var(--line);color:var(--muted);font-size:14px;line-height:1.5;vertical-align:1px}
+      /* 状態の語。必須／任意／不要はどれも2文字なので、幅は状態で変わらない */
+      .cps{margin-left:7px;font-weight:700;opacity:.8}
       .cphint{font-size:16px;color:var(--muted);line-height:1.8;margin-top:6px}
       .cpwarn{font-size:16px;color:var(--error-2);font-weight:700;margin-top:6px}
     </style>`;
 
-// 必須／任意のトグル。**要求を組み立てる経路が2つある**ので、どちらにも同じものを載せる
-// ——実ウォレット（fetch で /vp/build）と、テスト実行（フォーム POST）。片方だけに入れると、
-// 押しても要求が変わらない画面が残る。
+// 必須／任意／不要の切り替え。**要求を組み立てる経路が2つある**ので、どちらにも同じものを
+// 載せる——実ウォレット（fetch で /vp/build）と、テスト実行（フォーム POST）。片方だけに
+// 入れると、押しても要求が変わらない画面が残る。
+// 状態と語の対応は PILL_STATES が正本（サーバが描く初期状態と同じものを使う）。
 const PILL_JS = `
     <script>
       (() => {
-        // サーバが描くバッジと同じ文字列。ずれると押すたびに表記が変わって見える
-        const OPT_SUFFIX = '任意';
+        const STATES = ${js(PILL_STATES)};
         const box = document.querySelector('.cpills[data-pills="live"]');
         if (!box) return;
         const pills = [...box.querySelectorAll('button.cpill')];
-        const optKeys = () => pills.filter((b) => b.classList.contains('opt')).map((b) => b.dataset.claim);
-        window.__optionalKeys = optKeys;
+        const keysOf = (mode) => pills.filter((b) => b.dataset.mode === mode).map((b) => b.dataset.claim);
+        window.__claimModes = () => ({ optionalKeys: keysOf('opt'), excludedKeys: keysOf('off') });
         const warn = document.createElement('div');
         warn.className = 'cpwarn';
         warn.hidden = true;
         box.insertAdjacentElement('afterend', warn);
         const sync = () => {
-          // **1つも残らない状態では要求を組み立てない**。サーバも同じことを見て断るが、
+          // **必須が1つも無い要求は組み立てない**。サーバも同じことを見て断るが、
           // 押した直後に画面で分かるほうが早い
-          const none = pills.every((b) => b.classList.contains('opt'));
+          const none = !pills.some((b) => b.dataset.mode === 'req');
           warn.hidden = !none;
           warn.textContent = none ? '少なくとも1項目は必須にしてください。' : '';
           for (const el of document.querySelectorAll('#webbtn,#dcbtn,.actions button[type=submit],.alt button[type=submit]')) {
             el.disabled = none;
           }
-          for (const h of document.querySelectorAll('input[name="optional_keys"]')) h.value = JSON.stringify(optKeys());
+          const modes = window.__claimModes();
+          for (const h of document.querySelectorAll('input[name="optional_keys"]')) h.value = JSON.stringify(modes.optionalKeys);
+          for (const h of document.querySelectorAll('input[name="excluded_keys"]')) h.value = JSON.stringify(modes.excludedKeys);
         };
         for (const b of pills) {
           b.addEventListener('click', () => {
-            const wasReq = b.classList.contains('req');
-            b.classList.toggle('req', !wasReq);
-            b.classList.toggle('opt', wasReq);
-            b.setAttribute('aria-pressed', String(!wasReq));
-            b.querySelector('.cpx')?.remove();
-            if (wasReq) {
-              const x = document.createElement('span');
-              x.className = 'cpx';
-              x.textContent = OPT_SUFFIX;
-              b.appendChild(x);
-            }
+            const i = STATES.findIndex((x) => x.mode === b.dataset.mode);
+            const next = STATES[(i + 1) % STATES.length];
+            for (const x of STATES) b.classList.remove(x.cls);
+            b.classList.add(next.cls);
+            b.dataset.mode = next.mode;
+            // 語だけ差し替える。どの語も2文字なので**幅は変わらない**＝行が組み替わらない
+            b.querySelector('.cps').textContent = next.word;
             sync();
           });
         }
@@ -155,7 +159,7 @@ function stepActions(s, step, { txn1 = null, selftest = true } = {}) {
   if (step === 2 && selftest) {
     return `
     <div class="actions">
-      <form method="post" action="/verifier/s/${esc(s.id)}/step2/${esc(txn1)}" style="display:inline"><input type="hidden" name="optional_keys" value=""><button class="btn" type="submit">続けて提示（テスト実行）→</button></form>
+      <form method="post" action="/verifier/s/${esc(s.id)}/step2/${esc(txn1)}" style="display:inline"><input type="hidden" name="optional_keys" value=""><input type="hidden" name="excluded_keys" value=""><button class="btn" type="submit">続けて提示（テスト実行）→</button></form>
     </div>
     <div class="hint" style="margin-top:8px">テスト実行はステップ1と同じテスト用ウォレットで続けます。実ウォレットで通しで試すには <a href="/verifier/s/${esc(s.id)}">最初からやり直す →</a></div>
     <div id="msg"></div>${PILL_CSS}${PILL_JS}`;
@@ -163,7 +167,7 @@ function stepActions(s, step, { txn1 = null, selftest = true } = {}) {
   const selfBtn = step === 1
     ? `<details class="alt"><summary>ウォレットなしで体験する（テスト実行）</summary>
         <div class="muted" style="font-size:16px;margin:6px 0">発行者からテスト用の証明書一式を取得し、ステップごとに提示・検証します。</div>
-        <form method="post" action="/verifier/s/${esc(s.id)}/selftest"><input type="hidden" name="optional_keys" value=""><button class="btn ghost" type="submit">テスト実行（ステップ1: 本人確認）→</button></form>
+        <form method="post" action="/verifier/s/${esc(s.id)}/selftest"><input type="hidden" name="optional_keys" value=""><input type="hidden" name="excluded_keys" value=""><button class="btn ghost" type="submit">テスト実行（ステップ1: 本人確認）→</button></form>
       </details>`
     : '';
   const jsButtons = `
@@ -196,7 +200,7 @@ function stepActions(s, step, { txn1 = null, selftest = true } = {}) {
       async function build(target) {
         const d = await (await fetch('/vp/build', { method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ scenario: ${js(s.id)}, step: ${js(step)}, ${txn1 ? `linkTxn: ${js(txn1)},` : ''} target,
-            optionalKeys: (window.__optionalKeys ? window.__optionalKeys() : []) }) })).json();
+            ...(window.__claimModes ? window.__claimModes() : {}) }) })).json();
         if (d.error) { msg(d.error); return null; }
         return d;
       }
@@ -320,17 +324,23 @@ export function renderScenarioHome(scenarios = []) {
  */
 function claimPills(sp, { live = false } = {}) {
   const cfgId = firstCfg(sp);
-  // 補足は**任意のときだけ DOM に置く**。CSS で隠す作りにすると、必須のチップにも
-  // 画面に出ていない文字列が残る（支援技術と、本文一致で見るテストの両方に効く）
-  const inner = (k, opt) => `${esc(label(cfgId, k))}${opt ? '<span class="cpx">任意</span>' : ''}`;
-  const pill = (k, opt) => (live
-    ? `<button type="button" class="cpill ${opt ? 'opt' : 'req'}" data-claim="${esc(k)}"
-        aria-pressed="${opt ? 'false' : 'true'}">${inner(k, opt)}</button>`
-    : `<span class="cpill ${opt ? 'opt' : 'req'}">${inner(k, opt)}</span>`);
-  const pills = [...sp.claims.map((k) => pill(k, false)),
-    ...(sp.optional || []).map((k) => pill(k, true))].join('');
-  return `<div class="cpills"${live ? ' data-pills="live"' : ''}>${pills}</div>${
-    live ? '<div class="cphint">項目を押すと<b>必須</b>と<b>任意</b>を切り替えられます（要求する DCQL の claim_sets に反映されます）。任意にした項目は、ウォレットの同意画面で利用者が出すかどうかを選べます。</div>' : ''}`;
+  // **状態の語をチップの中に置く**（2026-10-01）。任意のときだけ語を書き足す形にしたら、
+  // **押すたびに幅が変わって行が組み替わり**、押した項目が別の行へ飛んだ。
+  // 必須／任意／不要はどれも2文字なので、常に出しておけば**幅が状態で変わらない**——
+  // 凡例を別に置かなくてよく、語がその場にあるぶん読み取りも速い。
+  const pill = (k, st) => {
+    const body = `${esc(label(cfgId, k))}<span class="cps">${st.word}</span>`;
+    return live
+      ? `<button type="button" class="cpill ${st.cls}" data-claim="${esc(k)}" data-mode="${st.mode}">${body}</button>`
+      : `<span class="cpill ${st.cls}">${body}</span>`;
+  };
+  const [REQ, OPT] = PILL_STATES;
+  const pills = [...sp.claims.map((k) => pill(k, REQ)),
+    ...(sp.optional || []).map((k) => pill(k, OPT))].join('');
+  const hint = `<div class="cphint">項目を押すたびに <b>必須</b> → <b>任意</b> → <b>不要</b> と切り替わります。
+    要求する DCQL に反映されます——<b>任意</b>はウォレットの同意画面で利用者が出すかどうかを選べる項目、
+    <b>不要</b>はそもそも要求しない項目です。</div>`;
+  return `<div class="cpills"${live ? ' data-pills="live"' : ''}>${pills}</div>${live ? hint : ''}`;
 }
 /** One timeline node. state: 'done' | 'cur' | 'todo'. emb: 券面エンボス（提案A・タイトル行の左） */
 function tStep({ num, state, title, body = '', emb = '' }) {
@@ -441,8 +451,14 @@ const TL_CSS = `
   .tng{color:var(--error-2);font-weight:700;font-size:16px;margin:2px 0 6px}
   .cpills{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
   .cpill{font-size:16px;border-radius:999px;padding:3px 11px;display:inline-block}
-  .cpill.req{background:#F6ECEC;color:var(--role-ink);border:1px solid #E7D6D6}
-  .cpill.opt{background:#fff;color:var(--muted);border:1px dashed var(--line)}
+  /* 状態のクラスは接頭辞を付ける。素朴な名前は共有 CSS に同名の規則があり、
+     チップが注記ボックスの余白と字送りを拾って高さが変わっていた（2026-10-01） */
+  .cpill.cp-on{background:#F6ECEC;color:var(--role-ink);border:1px solid #E7D6D6}
+  .cpill.cp-off{background:#fff;color:var(--muted);border:1px dashed var(--line)}
+  /* 不要＝要求しない。取り消し線で「無い」ことを示す（状態の語には掛けない） */
+  .cpill.cp-no{background:var(--gray-50,#f2f4f7);color:var(--muted);border:1px solid var(--line);
+    text-decoration:line-through;opacity:.7}
+  .cpill.cp-no .cps{text-decoration:none}
   .mini2{font-size:16px;color:var(--verify)}
   .warn2{font-size:16px;color:#8a6d1a;background:#FCF7E8;border:1px solid #EFE2B8;border-radius:9px;padding:8px 12px;margin:6px 0 2px}
   .actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}

@@ -10,6 +10,7 @@ import { createApp, createVerifierApp } from '../src/app.mjs';
 import { createWallet } from '../src/wallet.mjs';
 import { SCENARIOS, scenarioConfigIds } from '../src/scenarios.mjs';
 import { buildDcql } from '../src/dcql.mjs';
+import { PILL_STATES } from '../src/scenario-demo.mjs';
 
 // one real issuer server for the verifier's issuerFetch (selftest mints over HTTP)
 const IPORT = 8967;
@@ -678,19 +679,57 @@ test('scenarios: 全部を任意にはできない（必須が1つも無い要�
   assert.match((await r.json()).error, /必須項目を1つ以上/);
 });
 
-test('scenarios: チップは押せるのは進行中のステップだけ', async () => {
+test('scenarios: チップは押せるのは進行中のステップだけ・状態の語を中に持つ', async () => {
   const v = vapp();
   const html = await (await v.request('/verifier/s/disaster-aid')).text();
-  // ステップ1（アクションがある）＝押せる button・ステップ2（まだ）＝押せない span
+  // ステップ1（アクションがある）＝押せる button・ステップ2（まだ）＝押せない span。
   // 属性そのものを数える（スクリプト中のセレクタ文字列も同じ綴りなので、素朴に
   // 全文を数えると2件になる）
   assert.equal((html.match(/<div class="cpills" data-pills="live">/g) || []).length, 1,
     '押せるのは1ステップだけ');
-  assert.match(html, /<button type="button" class="cpill req" data-claim="family_name"[\s\S]{0,60}aria-pressed="true"/);
-  // ステップ2 の項目は押せない形（button にしない）
+  // **状態の語はチップの中**。外に足し引きすると押すたびに幅が変わって行が組み替わる
+  assert.match(html, /<button type="button" class="cpill cp-on" data-claim="family_name" data-mode="req">姓<span class="cps">必須<\/span><\/button>/);
   const step2 = html.slice(html.indexOf('ステップ2'));
   assert.ok(!/<button[^>]*class="cpill/.test(step2), '先のステップは押せない');
-  assert.match(step2, /<span class="cpill opt" data-nothing>|<span class="cpill opt">/, '既定の任意は灰色で出す');
+  assert.match(step2, /<span class="cpill cp-off">[^<]*<span class="cps">任意<\/span>/, '既定の任意も語を持つ');
+  // 3つの語はどれも2文字＝幅が状態で変わらない（行が組み替わらない前提）
+  assert.deepEqual(PILL_STATES.map((x) => x.word.length), [2, 2, 2]);
+});
+
+// **不要＝そもそも要求しない**。任意（要求はするが断れる）とは別物で、DCQL の
+// claims から落ちる＝ウォレットの同意画面にも出ない。
+test('scenarios: 不要にした項目は要求そのものから落ちる', async () => {
+  const v = vapp();
+  const b = await (await J(v, '/vp/build', { scenario: 'disaster-aid', step: 1, target: 'dcapi',
+    excludedKeys: ['residence_address'] })).json();
+  const q = b.request.dcql_query.credentials[0];
+  assert.deepEqual(q.claims.map((c) => c.path.at(-1)).sort(), ['birth_date', 'family_name', 'given_name']);
+  assert.equal(q.claim_sets, undefined, '残りが全部必須なら claim_sets は出ない');
+});
+
+test('scenarios: 不要・任意・必須を混ぜられる', async () => {
+  const v = vapp();
+  const b = await (await J(v, '/vp/build', { scenario: 'disaster-aid', step: 1, target: 'dcapi',
+    excludedKeys: ['residence_address'], optionalKeys: ['birth_date'] })).json();
+  const q = b.request.dcql_query.credentials[0];
+  const byId = Object.fromEntries(q.claims.map((c) => [c.id, c]));
+  const [all, req] = q.claim_sets;
+  assert.deepEqual(q.claims.map((c) => c.path.at(-1)).sort(), ['birth_date', 'family_name', 'given_name']);
+  assert.deepEqual(all.filter((cid) => !req.includes(cid)).map((cid) => byId[cid].path.at(-1)), ['birth_date']);
+});
+
+test('scenarios: 全部を不要にはできない', async () => {
+  const v = vapp();
+  const r = await J(v, '/vp/build', { scenario: 'disaster-aid', step: 1, target: 'dcapi',
+    excludedKeys: ['family_name', 'given_name', 'birth_date', 'residence_address'] });
+  assert.equal(r.status, 400);
+});
+
+test('scenarios: 宣言されていない項目は excludedKeys でも触れない', async () => {
+  const v = vapp();
+  const b = await (await J(v, '/vp/build', { scenario: 'disaster-aid', step: 1, target: 'dcapi',
+    excludedKeys: ['portrait'] })).json();
+  assert.equal(b.request.dcql_query.credentials[0].claims.length, 4, '既定のまま');
 });
 
 test('scenarios: テスト実行も画面のチップに従う（要求と画面がずれない）', async () => {

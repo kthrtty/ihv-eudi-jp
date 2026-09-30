@@ -204,11 +204,25 @@ test('開発者コンソールの寸法は変数で決まり、DADS の 16px が
 });
 
 // インライン CSS/JS はテンプレートリテラルの中にあるので、コメント内のバックティックが
-// リテラルを終端して **CSS と無関係な構文エラー**になる（2026-08-28 に再発させた）。
-test('開発者コンソールの inline CSS コメントにバックティックが無い', async () => {
-  const { readFileSync } = await import('node:fs');
-  const src = readFileSync(new URL('../src/devlog.mjs', import.meta.url), 'utf8');
-  const styles = src.match(/<style>[\s\S]*?<\/style>/g) ?? [];
-  assert.ok(styles.length, '<style> ブロックが見つからない');
-  for (const s of styles) assert.doesNotMatch(s, /`/, 'CSS 内のバックティックはリテラルを終端する');
+// リテラルを終端して **CSS と無関係な構文エラー**になる。
+// **src/ 全体を見る**（2026-10-01 に3度目を踏んだ）——devlog.mjs だけ見ていたが、
+// その後 gen-cardart.mjs・dads.mjs・scenario-demo.mjs でも同じことが起きた。
+// 1ファイルに閉じた罠ではないので、検査も1ファイルに閉じない。
+test('inline CSS のコメントにバックティックが無い（src/ 全体）', async () => {
+  const { readFileSync, readdirSync } = await import('node:fs');
+  const dir = new URL('../src/', import.meta.url);
+  let checked = 0;
+  const bad = [];
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.mjs'))) {
+    const src = readFileSync(new URL(f, dir), 'utf8');
+    for (const block of src.match(/<style>[\s\S]*?<\/style>/g) ?? []) {
+      checked++;
+      // CSS コメントの中だけを見る（プロパティ値にバックティックは出ない）
+      for (const c of block.match(/\/\*[\s\S]*?\*\//g) ?? []) {
+        if (c.includes('`')) bad.push(`${f}: ${c.replace(/\s+/g, ' ').slice(0, 70)}`);
+      }
+    }
+  }
+  assert.ok(checked > 5, `<style> ブロックが少なすぎる（${checked}）`);
+  assert.deepEqual(bad, [], 'CSS コメント内のバックティックはテンプレートリテラルを終端する');
 });
