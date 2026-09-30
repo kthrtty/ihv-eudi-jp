@@ -83,16 +83,20 @@ export function createAdminApp(opts = {}) {
     return c.html(renderAdminList(staff, apps, { issuedBy, applicants, status: c.req.query('status') || '' }));
   });
 
+  // 審査画面の描画。判定が通らなかったときも**同じ画面へ差し戻す**ので共有する。
+  const reviewHtml = async (staff, a, extra = {}) => renderAdminReview(staff, a, await svc.getUser(a.userId), {
+    // 同じ利用者が同じ種別で持っている認定。重複かどうかは審査担当が目視で判断する
+    issued: (await svc.issuances()).filter((e) => e.applicationId === a.id),
+    existing: await svc.existingApprovals(a),
+    ...extra,
+  });
+
   app.get('/a/:id', async (c) => {
     const staff = await staffOf(c);
     if (!staff) return c.redirect(`/login?next=/a/${encodeURIComponent(c.req.param('id'))}`, 302);
     const a = await svc.getApplication(c.req.param('id'));
     if (!a) return c.notFound();
-    // 同じ利用者が同じ種別で持っている認定。重複かどうかは審査担当が目視で判断する
-    return c.html(renderAdminReview(staff, a, await svc.getUser(a.userId), {
-      issued: (await svc.issuances()).filter((e) => e.applicationId === a.id),
-      existing: await svc.existingApprovals(a),
-    }));
+    return c.html(await reviewHtml(staff, a));
   });
 
   // 添付の原本。職員だけ。PDF は必ずダウンロード（インライン描画させない）
@@ -115,12 +119,14 @@ export function createAdminApp(opts = {}) {
       return json ? c.json({ error: 'login_required', error_description: '職員としてサインインしてください' }, 401)
         : c.redirect(`/login?next=/a/${encodeURIComponent(c.req.param('id'))}`, 302);
     }
+    let decision = {}; let rawAuthority = null;   // 差し戻しで描き直すため catch からも見える
     try {
       const a0 = await svc.getApplication(c.req.param('id'));
       if (!a0) return c.notFound();
       const t = getApplicationType(a0.kind);
       const raw = json ? await c.req.json() : await c.req.parseBody();
-      const decision = Object.fromEntries(t.decision.map((x) => [x.key,
+      rawAuthority = raw.authority || null;
+      decision = Object.fromEntries(t.decision.map((x) => [x.key,
         // チェックは JSON（真偽）が優先。HTML フォームは「送られてこない＝未チェック」だが、
         // **JSON でキーごと無い場合は項目の既定値**に従う（審査画面は既定でチェック済みなので、
         // API から判定したときだけ既定と逆になるのは事故のもと）
@@ -132,12 +138,28 @@ export function createAdminApp(opts = {}) {
         // 発行者名は**申請先の自治体**から確定する（IssuerService が解決）。ここで
         // 職員の所属を混ぜると、管轄外を承認したときに誤った交付者が証明書へ載る。
         // 旧レコード（申請先を持たない）のときだけ手入力が届く。
-        authority: raw.authority || null,
+        authority: rawAuthority,
         staff: staffStamp(staff),
       });
       if (json) return c.json({ ok: true, contentChanged: out.contentChanged, revoked: out.revoked, application: out.application });
       return c.redirect(`/a/${out.application.id}?done=1`, 303);
-    } catch (e) { return fail(c, e); }
+    } catch (e) {
+      // **入力の不備は「システムエラー」ではない**。被害の程度を選ばずに認定を押しただけで
+      // 生の JSON が画面に出ていた（`fail` は API 用の形）。フォームからの判定は
+      // 審査画面へ差し戻し、**入れた値を保った**うえで警告として理由を出す。
+      // API（JSON）とプログラム的なエラーは従来どおり `fail` に任せる——差し戻せるのは
+      // 「職員が直せる入力」だけで、404 や 500 を画面に混ぜると原因が見えなくなる。
+      if (!json && e.status === 400 && e.oauthError === 'invalid_request') {
+        const a = await svc.getApplication(c.req.param('id'));
+        if (a) {
+          return c.html(await reviewHtml(staff, a, {
+            errors: String(e.description || e.message).split('・').filter(Boolean),
+            draft: decision, draftAuthority: rawAuthority,
+          }), 400);
+        }
+      }
+      return fail(c, e);
+    }
   });
 
   // 発行ポータルへの案内（誤ってこちらを住民に配ったときの逃げ道）

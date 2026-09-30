@@ -60,7 +60,11 @@ export function checkField(f, value) {
   }
 
   const s = value == null ? '' : String(value);
-  if (f.required && isBlank(s)) return `${f.label}を入力してください`;
+  // 動詞は型に合わせる（選択肢しか無い項目に「入力してください」と出すと、
+  // 何をすればよいか画面と噛み合わない）
+  if (f.required && isBlank(s)) {
+    return `${f.label}を${f.type === 'radio' || f.type === 'select' ? '選択' : '入力'}してください`;
+  }
   if (isBlank(s)) return null;                       // 任意項目の未入力はここで終わり
 
   // ---- 値が妥当か ----

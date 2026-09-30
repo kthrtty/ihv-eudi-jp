@@ -81,7 +81,7 @@ test('applications: 必須項目が無い申請・審査は断る', async () => 
     /未入力の必須項目/);
   const app = await svc.submitApplication({ userId: 'u_002', kind: 'disaster', ...DISASTER, form: DISASTER_FORM });
   await assert.rejects(() => svc.decideApplication(app.id, { status: 'approved', decision: {} }),
-    /被害の程度（判定）を入力してください/, '被害の程度を選ばずに認定はできない');
+    /被害の程度（判定）を選択してください/, '被害の程度を選ばずに認定はできない');
 });
 
 test('applications: 許可されていない状態遷移は拒否する', async () => {

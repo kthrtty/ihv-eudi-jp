@@ -633,3 +633,58 @@ test('apply: 住民票が申請先と同じ市区町村なら入力を省く近�
   const mine = await (await fetch(`${ISSUER}/applications/${id}`, { headers: { cookie: `sid=${sid}` } })).text();
   assert.ok(mine.includes('神奈川県川崎市川崎区宮本町1-1'));
 });
+
+// **入力の不備で生の JSON を返さない**（2026-09-30 の報告）。被害の程度を選ばずに
+// 「この内容で認定する」を押すと `{"error":"invalid_request",…}` が画面に出ていた——
+// 職員には「システムエラー」にしか見えず、しかも入れた追加記載事項が消えた。
+// 判定自体は**通してはいけない**（統一様式の必須記載事項＝この証明書の本体で、
+// 空のまま認定すると被害の程度の無い罹災証明書が署名される）ので、止めたうえで
+// 審査画面へ差し戻し、理由を警告として出す。
+test('admin: 被害の程度を選ばずに認定すると、警告付きの審査画面へ差し戻る', async () => {
+  const appId = await submit(await login('u_002'));
+  const staff = await staffLogin('s_001');
+  const r = await fetch(`${ADMIN}/a/${appId}/decision`, {
+    method: 'POST', redirect: 'manual',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: `asid=${staff}` },
+    body: new URLSearchParams({ status: 'approved', extra_note: '2階まで浸水' }).toString(),
+  });
+  assert.equal(r.status, 400);
+  assert.match(r.headers.get('content-type') || '', /text\/html/, 'JSON を素で返さない');
+  const html = await r.text();
+  assert.ok(!html.startsWith('{'), '生の JSON ではない');
+  assert.match(html, /入力を確認してください/, '警告として理由を出す');
+  assert.match(html, /被害の程度（判定）を選択してください/, '選択肢の項目に「入力」とは言わない');
+  assert.ok(html.includes('2階まで浸水'), '入れた値が消えない');
+  // 台帳は動かない（警告であって、通したわけではない）
+  const after = await (await fetch(`${ADMIN}/a/${appId}`, { headers: { 'x-staff-session': staff } })).text();
+  assert.ok(!after.includes('2階まで浸水'), '未確定の入力は保存しない');
+});
+
+// 差し戻しで**チェックを外した状態が勝手に戻らない**こと。既定は「記載する」なので、
+// 描き直しで既定へ落ちると、記載しないと決めた世帯構成員が VC に載る
+// （SAMPLE の山田家が漏れた 2026-08-09 と同じ形の実害になる）。
+test('admin: 差し戻しても「世帯構成員を記載する」のチェック状態が保たれる', async () => {
+  const appId = await submit(await login('u_002'));
+  const staff = await staffLogin('s_001');
+  const r = await fetch(`${ADMIN}/a/${appId}/decision`, {
+    method: 'POST', redirect: 'manual',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: `asid=${staff}` },
+    body: new URLSearchParams({ status: 'approved' }).toString(),   // チェックを外して送る
+  });
+  const tag = (await r.text()).match(/name="include_household"[^>]*>/)?.[0];
+  assert.ok(tag, 'チェック欄がある');
+  assert.ok(!tag.includes('checked'), '外した状態のまま描き直す');
+});
+
+// API（JSON）は従来どおり機械が読める形のまま。差し戻しは画面だけの話で、
+// ここを HTML にすると呼び出し側が壊れる。
+test('admin: JSON で判定したときは従来どおり JSON のエラーが返る', async () => {
+  const appId = await submit(await login('u_002'));
+  const staff = await staffLogin('s_001');
+  const r = await fetch(`${ADMIN}/a/${appId}/decision`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-staff-session': staff },
+    body: JSON.stringify({ status: 'approved', decision: {} }),
+  });
+  assert.equal(r.status, 400);
+  assert.equal((await r.json()).error, 'invalid_request');
+});

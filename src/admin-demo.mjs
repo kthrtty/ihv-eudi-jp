@@ -78,10 +78,12 @@ function formRow(x, v, kv) {
   return kv(x.label, v);
 }
 
-export function renderAdminReview(staff, a, applicant, { issued = [], existing = [] } = {}) {
+export function renderAdminReview(staff, a, applicant, { issued = [], existing = [], errors = [], draft = null, draftAuthority = null } = {}) {
   const t = getApplicationType(a.kind);
   const live = issued.filter((e) => !e.revoked);
-  const decided = a.decision || {};
+  // 入力に不備があって戻ってきたときは**申請レコードではなく送られてきた値**を描く。
+  // 保存済みの判定で描き直すと、職員が入れた他の項目（追加記載事項など）が黙って消える。
+  const decided = draft ?? a.decision ?? {};
   const already = a.status === 'approved';
   const kv = (k, v) => `<div class="fld"><label>${esc(k)}</label><div class="ro">${esc(v || '—')}</div></div>`;
   return adminShell(t.reviewTitle, `
@@ -115,6 +117,9 @@ export function renderAdminReview(staff, a, applicant, { issued = [], existing =
         <form class="acard" method="POST" action="/a/${esc(a.id)}/decision">
           <div class="sec">${already ? '再判定' : '審査・判定'}</div>
           <p class="lead" style="margin-bottom:10px">${esc(t.reviewLead)}</p>
+          ${errors.length ? `<div class="warn err" id="decerr">⚠️ <b>入力を確認してください。</b>
+            <ul style="margin:6px 0 0;padding-left:1.2em">${errors.map((m) => `<li>${esc(m)}</li>`).join('')}</ul>
+          </div>` : ''}
           ${existing.length ? `<div class="warn">🔁 <b>この申請者には認定済みの${esc(t.short)}が${existing.length}件あります。</b>
             同じ被災・同じ対象に対する<b>重複申請であれば却下</b>してください。別の災害・別の対象であればそのまま認定して構いません。
             <div class="dupl">${existing.map((x) => `<div class="dup"><span class="mono">${esc(x.id)}</span>
@@ -129,7 +134,7 @@ export function renderAdminReview(staff, a, applicant, { issued = [], existing =
             <span class="fhint">証明書に記載される交付者。<b>申請先の自治体から確定</b>します
               （審査した職員の所属からは取りません）。</span></div>`
           : `<div class="fld"><label>発行者名</label>
-            <input name="authority" value="${esc(a.authority || '')}" placeholder="例: 熊本市長">
+            <input name="authority" value="${esc(draftAuthority ?? a.authority ?? '')}" placeholder="例: 熊本市長">
             <span class="fhint">この申請は申請先の自治体を持たない旧レコードです。交付者名を入力してください。</span></div>`}
           <div class="acts">
             <button class="abtn" type="submit" name="status" value="approved">${already ? '判定を変更する' : 'この内容で認定する'}</button>

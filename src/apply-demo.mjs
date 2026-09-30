@@ -333,7 +333,7 @@ export const field = (x, val = '', muni = null, opts = {}) => {
   if (x.type === 'check') {
     return `<div class="fld"${when(x)}><label>${esc(x.label)}</label>
       <label style="font-size:16px;font-weight:400;color:#3d4d63">
-        <input type="checkbox" name="${esc(x.key)}"${x.default ? ' checked' : ''}> ${esc(x.checkLabel || '記載する')}</label>${hint}</div>`;
+        <input type="checkbox" name="${esc(x.key)}"${(typeof val === 'boolean' ? val : x.default) ? ' checked' : ''}> ${esc(x.checkLabel || '記載する')}</label>${hint}</div>`;
   }
   return `<div class="fld"${when(x)}><label>${esc(x.label)} ${req}</label>
     <input type="${x.type === 'date' ? 'date' : x.type === 'tel' ? 'tel' : 'text'}" name="${esc(x.key)}" value="${esc(val)}" placeholder="${esc(x.placeholder || '')}">${hint}</div>`;
