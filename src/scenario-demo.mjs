@@ -87,6 +87,67 @@ const stepBar = (s, phase) => {
 };
 
 // present-action buttons for a step (web wallet / DC API / self-test continuation)
+const PILL_CSS = `
+    <style>
+      /* 押せるチップ。button 要素なのでキーボードでも操作できる（span のままだと
+         マウスでしか押せない）。フォントは継承させないと UI 既定の等幅に落ちる */
+      button.cpill{font-family:inherit;cursor:pointer;line-height:1.6}
+      button.cpill:hover{filter:brightness(.97)}
+      /* ラベル側が括弧を含むことがあるので、補足は括弧書きでなくバッジで足す */
+      .cpx{display:inline-block;margin-left:6px;padding:0 6px;border-radius:999px;
+        background:var(--line);color:var(--muted);font-size:14px;line-height:1.5;vertical-align:1px}
+      .cphint{font-size:16px;color:var(--muted);line-height:1.8;margin-top:6px}
+      .cpwarn{font-size:16px;color:var(--error-2);font-weight:700;margin-top:6px}
+    </style>`;
+
+// 必須／任意のトグル。**要求を組み立てる経路が2つある**ので、どちらにも同じものを載せる
+// ——実ウォレット（fetch で /vp/build）と、テスト実行（フォーム POST）。片方だけに入れると、
+// 押しても要求が変わらない画面が残る。
+const PILL_JS = `
+    <script>
+      (() => {
+        // サーバが描くバッジと同じ文字列。ずれると押すたびに表記が変わって見える
+        const OPT_SUFFIX = '任意';
+        const box = document.querySelector('.cpills[data-pills="live"]');
+        if (!box) return;
+        const pills = [...box.querySelectorAll('button.cpill')];
+        const optKeys = () => pills.filter((b) => b.classList.contains('opt')).map((b) => b.dataset.claim);
+        window.__optionalKeys = optKeys;
+        const warn = document.createElement('div');
+        warn.className = 'cpwarn';
+        warn.hidden = true;
+        box.insertAdjacentElement('afterend', warn);
+        const sync = () => {
+          // **1つも残らない状態では要求を組み立てない**。サーバも同じことを見て断るが、
+          // 押した直後に画面で分かるほうが早い
+          const none = pills.every((b) => b.classList.contains('opt'));
+          warn.hidden = !none;
+          warn.textContent = none ? '少なくとも1項目は必須にしてください。' : '';
+          for (const el of document.querySelectorAll('#webbtn,#dcbtn,.actions button[type=submit],.alt button[type=submit]')) {
+            el.disabled = none;
+          }
+          for (const h of document.querySelectorAll('input[name="optional_keys"]')) h.value = JSON.stringify(optKeys());
+        };
+        for (const b of pills) {
+          b.addEventListener('click', () => {
+            const wasReq = b.classList.contains('req');
+            b.classList.toggle('req', !wasReq);
+            b.classList.toggle('opt', wasReq);
+            b.setAttribute('aria-pressed', String(!wasReq));
+            b.querySelector('.cpx')?.remove();
+            if (wasReq) {
+              const x = document.createElement('span');
+              x.className = 'cpx';
+              x.textContent = OPT_SUFFIX;
+              b.appendChild(x);
+            }
+            sync();
+          });
+        }
+        sync();
+      })();
+    </script>`;
+
 function stepActions(s, step, { txn1 = null, selftest = true } = {}) {
   // Self-test runs are a one-track experience: step 2 MUST reuse the ephemeral
   // wallet's holder key, so real-wallet buttons (which would always fail the
@@ -94,15 +155,15 @@ function stepActions(s, step, { txn1 = null, selftest = true } = {}) {
   if (step === 2 && selftest) {
     return `
     <div class="actions">
-      <form method="post" action="/verifier/s/${esc(s.id)}/step2/${esc(txn1)}" style="display:inline"><button class="btn" type="submit">続けて提示（テスト実行）→</button></form>
+      <form method="post" action="/verifier/s/${esc(s.id)}/step2/${esc(txn1)}" style="display:inline"><input type="hidden" name="optional_keys" value=""><button class="btn" type="submit">続けて提示（テスト実行）→</button></form>
     </div>
     <div class="hint" style="margin-top:8px">テスト実行はステップ1と同じテスト用ウォレットで続けます。実ウォレットで通しで試すには <a href="/verifier/s/${esc(s.id)}">最初からやり直す →</a></div>
-    <div id="msg"></div>`;
+    <div id="msg"></div>${PILL_CSS}${PILL_JS}`;
   }
   const selfBtn = step === 1
     ? `<details class="alt"><summary>ウォレットなしで体験する（テスト実行）</summary>
         <div class="muted" style="font-size:16px;margin:6px 0">発行者からテスト用の証明書一式を取得し、ステップごとに提示・検証します。</div>
-        <form method="post" action="/verifier/s/${esc(s.id)}/selftest"><button class="btn ghost" type="submit">テスト実行（ステップ1: 本人確認）→</button></form>
+        <form method="post" action="/verifier/s/${esc(s.id)}/selftest"><input type="hidden" name="optional_keys" value=""><button class="btn ghost" type="submit">テスト実行（ステップ1: 本人確認）→</button></form>
       </details>`
     : '';
   const jsButtons = `
@@ -112,6 +173,7 @@ function stepActions(s, step, { txn1 = null, selftest = true } = {}) {
     <div class="actions">${jsButtons}</div>
     ${step === 1 ? selfBtn : ''}
     <div id="msg"></div>
+    ${PILL_CSS}
     <style>
       .dcfb{border:1px solid var(--line);border-left:3px solid var(--warning-2);border-radius:10px;
         background:#FDF7E3;padding:14px 16px;margin-top:12px;text-align:left}
@@ -133,7 +195,8 @@ function stepActions(s, step, { txn1 = null, selftest = true } = {}) {
       const msg = (m) => document.getElementById('msg').innerHTML = '<div class="hint" style="color:var(--error-2)">' + esc2(m) + '</div>';
       async function build(target) {
         const d = await (await fetch('/vp/build', { method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ scenario: ${js(s.id)}, step: ${js(step)}, ${txn1 ? `linkTxn: ${js(txn1)},` : ''} target }) })).json();
+          body: JSON.stringify({ scenario: ${js(s.id)}, step: ${js(step)}, ${txn1 ? `linkTxn: ${js(txn1)},` : ''} target,
+            optionalKeys: (window.__optionalKeys ? window.__optionalKeys() : []) }) })).json();
         if (d.error) { msg(d.error); return null; }
         return d;
       }
@@ -195,7 +258,7 @@ function stepActions(s, step, { txn1 = null, selftest = true } = {}) {
           await nativeFallback('提示がキャンセルまたは失敗しました: ' + (e?.message ?? e));
         }
       };
-    </script>`;
+    </script>${PILL_JS}`;
 }
 
 // ---- scenario picker (GET /verifier) ------------------------------------------
@@ -244,10 +307,30 @@ export function renderScenarioHome(scenarios = []) {
 // ---- scenario intro / step-1 page (GET /verifier/s/:id) -------------------------
 // devlog 風の縦タイムライン: 番号丸を線でつなぎ、実行中ステップのブロックに
 // アクション（提示ボタン）を内蔵する。進行するとボタンは次のステップへ移る。
-function claimPills(sp) {
-  const req = sp.claims.map((k) => `<span class="cpill req">${esc(label(firstCfg(sp), k))}</span>`).join('');
-  const opt = (sp.optional || []).map((k) => `<span class="cpill opt">${esc(label(firstCfg(sp), k))}（任意）</span>`).join('');
-  return `<div class="cpills">${req}${opt}</div>`;
+/**
+ * 要求するクレームのチップ。`live` のステップだけ**押して必須／任意を切り替えられる**。
+ *
+ * 切り替えは DCQL の `claim_sets` になる（`buildDcql` の `optional`）。必須＝どの set にも
+ * 入る／任意＝全部入りの set にだけ入る、という標準の表し方で、ウォレットはこれを読んで
+ * 同意画面で任意項目をチェックボックスにする（既定はオフ＝出さない）。**切り替えた結果は
+ * 見た目だけでなく実際の要求に効く**。
+ *
+ * 押せるのは**アクションを持つステップだけ**にする。先のステップまで押せると、そのステップへ
+ * 進んだときに画面が描き直されて選択が消え、押した意味が無くなる。
+ */
+function claimPills(sp, { live = false } = {}) {
+  const cfgId = firstCfg(sp);
+  // 補足は**任意のときだけ DOM に置く**。CSS で隠す作りにすると、必須のチップにも
+  // 画面に出ていない文字列が残る（支援技術と、本文一致で見るテストの両方に効く）
+  const inner = (k, opt) => `${esc(label(cfgId, k))}${opt ? '<span class="cpx">任意</span>' : ''}`;
+  const pill = (k, opt) => (live
+    ? `<button type="button" class="cpill ${opt ? 'opt' : 'req'}" data-claim="${esc(k)}"
+        aria-pressed="${opt ? 'false' : 'true'}">${inner(k, opt)}</button>`
+    : `<span class="cpill ${opt ? 'opt' : 'req'}">${inner(k, opt)}</span>`);
+  const pills = [...sp.claims.map((k) => pill(k, false)),
+    ...(sp.optional || []).map((k) => pill(k, true))].join('');
+  return `<div class="cpills"${live ? ' data-pills="live"' : ''}>${pills}</div>${
+    live ? '<div class="cphint">項目を押すと<b>必須</b>と<b>任意</b>を切り替えられます（要求する DCQL の claim_sets に反映されます）。任意にした項目は、ウォレットの同意画面で利用者が出すかどうかを選べます。</div>' : ''}`;
 }
 /** One timeline node. state: 'done' | 'cur' | 'todo'. emb: 券面エンボス（提案A・タイトル行の左） */
 function tStep({ num, state, title, body = '', emb = '' }) {
@@ -262,7 +345,7 @@ export function renderScenarioRun(s) {
     tStep({
       num: 1, state: 'cur', emb: specEmblem(s.steps[0].specs[0]),
       title: `ステップ1: ${esc(s.steps[0].name)} — ${esc(credName(firstCfg(s.steps[0].specs[0])))}`,
-      body: claimPills(s.steps[0].specs[0]) + stepActions(s, 1),
+      body: claimPills(s.steps[0].specs[0], { live: true }) + stepActions(s, 1),
     }),
     ...(one ? [] : [tStep({
       num: 2, state: 'todo', emb: specEmblem(s.steps[1].specs[0]),
@@ -312,7 +395,7 @@ export function renderScenarioStep1Done(s, txn1, result1, { selftest = false } =
       num: 2, state: okPid ? 'cur' : 'todo', emb: specEmblem(s.steps[1].specs[0]),
       title: `ステップ2: ${esc(s.steps[1].name)} — ${esc(credName(firstCfg(s.steps[1].specs[0])))}`,
       body: okPid
-        ? claimPills(s.steps[1].specs[0]) + stepActions(s, 2, { txn1, selftest })
+        ? claimPills(s.steps[1].specs[0], { live: true }) + stepActions(s, 2, { txn1, selftest })
         : claimPills(s.steps[1].specs[0]) + `<div class="tlock">ステップ1の完了後に提示できます</div>`,
     }),
     tStep({ num: '受', state: 'todo', title: esc(s.stepbarAccept || '申請の受理'), body: '' }),
@@ -357,7 +440,7 @@ const TL_CSS = `
   .tok{color:var(--verify);font-weight:700;font-size:16px;margin:2px 0 6px}
   .tng{color:var(--error-2);font-weight:700;font-size:16px;margin:2px 0 6px}
   .cpills{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
-  .cpill{font-size:16px;border-radius:999px;padding:3px 11px}
+  .cpill{font-size:16px;border-radius:999px;padding:3px 11px;display:inline-block}
   .cpill.req{background:#F6ECEC;color:var(--role-ink);border:1px solid #E7D6D6}
   .cpill.opt{background:#fff;color:var(--muted);border:1px dashed var(--line)}
   .mini2{font-size:16px;color:var(--verify)}

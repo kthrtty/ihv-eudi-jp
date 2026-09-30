@@ -9,6 +9,7 @@ import { serve } from '@hono/node-server';
 import { createApp, createVerifierApp } from '../src/app.mjs';
 import { createWallet } from '../src/wallet.mjs';
 import { SCENARIOS, scenarioConfigIds } from '../src/scenarios.mjs';
+import { buildDcql } from '../src/dcql.mjs';
 
 // one real issuer server for the verifier's issuerFetch (selftest mints over HTTP)
 const IPORT = 8967;
@@ -599,4 +600,149 @@ test('disaster-aid: 身分証と罹災住家の住所が違っても受理する
   const badName = evaluateScenario(s, pid, mk({ family_name: '鈴木', given_name: '一郎',
     address: '東京都千代田区1-1-1', disaster_name: 'x', damage_level: '半壊' }));
   assert.equal(badName.ok, false, '氏名の不一致は受理しない');
+});
+
+// ---- 要求する項目の必須／任意を画面から切り替える（2026-09-30）---------------------
+// 検証者のシナリオ画面に並ぶ項目チップを押すと、必須（強調）と任意（灰色）が入れ替わる。
+// 切り替えは**見た目だけでなく実際の要求**に効く——DCQL の `claim_sets`（必須＝どの set にも
+// 入る／任意＝全部入りの set にだけ入る）になり、ウォレットはこれを読んで同意画面で
+// 任意項目をチェックボックスにする。同意画面側の描画は test/webwallet.test.mjs で固定。
+
+test('scenarios: 既定で任意の項目が claim_sets になる（書類ごとに1項目）', () => {
+  // **構造を pin する**（値だけ見ていると、任意の置き場所が変わっても通ってしまう）
+  const cases = [['disaster-aid', 'household_members'], ['marriage', 'honseki'],
+    ['mortgage', 'total_income'], ['inheritance', 'birth_place']];
+  for (const [id, key] of cases) {
+    const sp = SCENARIOS[id].steps[1].specs[0];
+    assert.deepEqual(sp.optional, [key], `${id} の既定の任意項目`);
+    assert.ok(!sp.claims.includes(key), `${id}: 任意の項目を必須にも入れない`);
+    const q = buildDcql([{ ...sp, configIds: [sp.configIds[1]] }]).credentials[0];
+    assert.equal(q.claim_sets.length, 2, `${id}: 全部入りと必須のみの2つ`);
+    const [all, req] = q.claim_sets;
+    assert.equal(all.length, req.length + 1);
+    assert.ok(req.every((cid) => all.includes(cid)), '必須のみは全部入りの部分集合');
+    // 任意の id（all にだけある）が、その書類の当該クレームを指している
+    const only = all.filter((cid) => !req.includes(cid));
+    const byId = Object.fromEntries(q.claims.map((c) => [c.id, c]));
+    assert.deepEqual(only.map((cid) => byId[cid].path.at(-1)), [key]);
+  }
+});
+
+test('scenarios: optionalKeys で必須⇄任意を入れ替えられる', async () => {
+  const v = vapp();
+  const setsOf = (b) => b.request.dcql_query.credentials[0].claim_sets;
+  const pathsOf = (b) => b.request.dcql_query.credentials[0].claims.map((c) => c.path.at(-1));
+
+  // 既定のステップ1（PID）は全部必須＝claim_sets を出さない
+  const base = await (await J(v, '/vp/build', { scenario: 'disaster-aid', step: 1, target: 'dcapi' })).json();
+  assert.equal(setsOf(base), undefined, '切り替えが無ければ claim_sets は付けない');
+
+  // 必須 → 任意
+  const b = await (await J(v, '/vp/build',
+    { scenario: 'disaster-aid', step: 1, target: 'dcapi', optionalKeys: ['residence_address'] })).json();
+  const [all, req] = setsOf(b);
+  const byId = Object.fromEntries(b.request.dcql_query.credentials[0].claims.map((c) => [c.id, c]));
+  assert.deepEqual(all.filter((cid) => !req.includes(cid)).map((cid) => byId[cid].path.at(-1)),
+    ['resident_address'], '押した項目だけが任意になる');
+  assert.deepEqual(pathsOf(b).length, pathsOf(base).length, '要求する項目自体は増減しない');
+});
+
+test('scenarios: 既定で任意の項目を必須に戻せる（optionalKeys から外す）', async () => {
+  const v = vapp();
+  const step1 = await (await J(v, '/vp/build', { scenario: 'marriage', step: 1, target: 'dcapi' })).json();
+  const b2 = await (await J(v, '/vp/build',
+    { scenario: 'marriage', step: 2, linkTxn: step1.transactionId, target: 'dcapi', optionalKeys: [] })).json();
+  const q = b2.request.dcql_query.credentials[0];
+  assert.equal(q.claim_sets, undefined, '任意が0件なら claim_sets は出ない＝全部必須');
+  assert.ok(q.claims.some((c) => c.path.at(-1) === 'honseki'), '本籍も必須として要求される');
+});
+
+// **画面に出ていない項目は要求できない**。ここを開くと、チップに無い項目を「任意」と
+// 称して要求できてしまう（審査画面の `authority` と同じクラスの穴で、画面で隠すことは
+// 防御にならない）。シナリオが宣言した集合の外は黙って捨てる。
+test('scenarios: 宣言されていない項目は optionalKeys で要求できない', async () => {
+  const v = vapp();
+  const b = await (await J(v, '/vp/build', { scenario: 'disaster-aid', step: 1, target: 'dcapi',
+    optionalKeys: ['portrait', 'age_over_20', '../../etc/passwd'] })).json();
+  const q = b.request.dcql_query.credentials[0];
+  assert.equal(q.claim_sets, undefined, '未知のキーは無視され、既定のまま');
+  assert.deepEqual(q.claims.map((c) => c.path.at(-1)).sort(),
+    ['birth_date', 'family_name', 'given_name', 'resident_address']);
+});
+
+test('scenarios: 全部を任意にはできない（必須が1つも無い要求は作らない）', async () => {
+  const v = vapp();
+  const r = await J(v, '/vp/build', { scenario: 'disaster-aid', step: 1, target: 'dcapi',
+    optionalKeys: ['family_name', 'given_name', 'birth_date', 'residence_address'] });
+  assert.equal(r.status, 400);
+  assert.match((await r.json()).error, /必須項目を1つ以上/);
+});
+
+test('scenarios: チップは押せるのは進行中のステップだけ', async () => {
+  const v = vapp();
+  const html = await (await v.request('/verifier/s/disaster-aid')).text();
+  // ステップ1（アクションがある）＝押せる button・ステップ2（まだ）＝押せない span
+  // 属性そのものを数える（スクリプト中のセレクタ文字列も同じ綴りなので、素朴に
+  // 全文を数えると2件になる）
+  assert.equal((html.match(/<div class="cpills" data-pills="live">/g) || []).length, 1,
+    '押せるのは1ステップだけ');
+  assert.match(html, /<button type="button" class="cpill req" data-claim="family_name"[\s\S]{0,60}aria-pressed="true"/);
+  // ステップ2 の項目は押せない形（button にしない）
+  const step2 = html.slice(html.indexOf('ステップ2'));
+  assert.ok(!/<button[^>]*class="cpill/.test(step2), '先のステップは押せない');
+  assert.match(step2, /<span class="cpill opt" data-nothing>|<span class="cpill opt">/, '既定の任意は灰色で出す');
+});
+
+test('scenarios: テスト実行も画面のチップに従う（要求と画面がずれない）', async () => {
+  const v = vapp();
+  // 必須が1つも無い指定はテスト実行でも作らない
+  const r = await v.request('/verifier/s/disaster-aid/selftest', {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ optional_keys: JSON.stringify(['family_name', 'given_name', 'birth_date', 'residence_address']) }).toString(),
+  });
+  assert.equal(r.status, 200, '画面を返す（303 の受理へは進まない）');
+  assert.ok(!/本人確認が完了しました/.test(await r.text()));
+  // 壊れた値は既定に戻すだけ（落とさない）
+  const ok = await v.request('/verifier/s/disaster-aid/selftest', {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ optional_keys: 'not json' }).toString(),
+  });
+  assert.equal(ok.status, 303);
+});
+
+// **任意にした項目を断っても受理される**——これが「任意」の意味。判定に要るなら必須で
+// 要求するのが筋で、任意で要求しておいて出さなければ落とす、では利用者に選択肢が無い。
+// 課税証明書は既定で合計所得金額が任意なので、断っても仮審査は受理される
+// （判定は課税標準額で行う）。回帰させると「任意なのに出さないと通らない」に戻る。
+test('scenarios: 既定で任意の項目を断っても受理される（合計所得金額）', async () => {
+  const v = vapp();
+  const wallet = createWallet();
+  for (const cfg of scenarioConfigIds(SCENARIOS.mortgage)) {
+    const offer = await (await fetch(`${ISSUER}/offer`, { method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ credential_configuration_ids: [cfg] }) })).json();
+    await wallet.receive({ request: (p, i) => fetch(ISSUER + p, i), offer: offer.credential_offer, credentialIssuer: ISSUER });
+  }
+  const present = async (b, selection = null) => {
+    const jwe = await wallet.respond(b.request, selection);
+    const resp = await v.request(`/oid4vp/response/${b.transactionId}`, {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ response: jwe }).toString(),
+    });
+    return (await resp.json()).redirect_uri;
+  };
+  const b1 = await (await J(v, '/vp/build', { scenario: 'mortgage', step: 1, target: 'web' })).json();
+  await present(b1);
+  const b2 = await (await J(v, '/vp/build',
+    { scenario: 'mortgage', step: 2, linkTxn: b1.transactionId, target: 'web' })).json();
+
+  // 同意画面で任意のチェックを外した状態＝必須だけを開示する
+  const q = b2.request.dcql_query.credentials.find((x) => x.claim_sets);
+  const byId = Object.fromEntries(q.claims.map((c) => [c.id, c]));
+  const onlyRequired = q.claim_sets[1].map((cid) => byId[cid].path.at(-1));
+  assert.ok(!onlyRequired.includes('total_income'), '必須のみの集合に合計所得金額は入らない');
+  const dest = await present(b2, { [q.id]: { disclose: onlyRequired } });
+  const html = await (await v.request(new URL(dest).pathname)).text();
+  assert.match(html, /申請を受理しました/, '任意を断っても受理される');
+  assert.match(html, /合計所得金額は未提示/, '出されなかったことは結果に書く');
 });

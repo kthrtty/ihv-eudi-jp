@@ -59,9 +59,12 @@ export const SCENARIOS = {
       PID_STEP,
       { name: '独身証明書の提示', shortName: '独身証明書',
         specs: [{ id: 'eaa', configIds: ['single_mdoc', 'single_sdjwt'],
-          claims: ['family_name', 'given_name', 'birth_date', 'marital_status', 'statement'] }] },
+          claims: ['family_name', 'given_name', 'birth_date', 'marital_status', 'statement'],
+          // 独身の確認そのものには要らないが、同姓同名の取り違えを避けたい相談所はある。
+          // **既定は任意**＝出さなくても受理される（ウォレットで選べる）
+          optional: ['honseki'] }] },
     ],
-    notDisclosed: '本籍・証明書番号などは要求されず、開示もされません。',
+    notDisclosed: '証明書番号などは要求されず、開示もされません。本籍は任意項目で、提示するかどうかは利用者が選べます。',
     checks(pid, eaa, r2) {
       return [
         { ok: sameName(pid, eaa) && String(cl(pid, 'birth_date')) === String(cl(eaa, 'birth_date')),
@@ -120,9 +123,13 @@ export const SCENARIOS = {
       PID_STEP,
       { name: '罹災証明書の提示', shortName: '罹災証明書',
         specs: [{ id: 'eaa', configIds: ['disaster_mdoc', 'disaster_sdjwt'],
-          claims: ['family_name', 'given_name', 'address', 'disaster_name', 'damage_level'] }] },
+          claims: ['family_name', 'given_name', 'address', 'disaster_name', 'damage_level'],
+          // 保険金は世帯の人数で変わる特約がありうるので要求はするが、査定の本体は
+          // 被害程度なので**既定は任意**。開示すると世帯全員がまとめて出る（discloseNote）
+          optional: ['household_members'] }] },
     ],
     notDisclosed: '建物の構造や証明書番号などは要求されず、開示もされません。',
+    discloseNote: '世帯構成員は任意項目です。提示すると世帯全員の氏名・生年月日・続柄がまとめて開示されます（一部の世帯員のみの開示はできません）。',
     checks(pid, eaa, r2) {
       // **住所の不一致は「受理しない理由」にならない**（2026-08-31 修正）。
       // 統一様式（府政防第737号）が**世帯主住所と被災住家の所在地を別項目**にしているのは、
@@ -293,14 +300,21 @@ SCENARIOS.mortgage = {
     PID_STEP,
     { name: '課税証明書の提示', shortName: '課税証明書',
       specs: [{ id: 'eaa', configIds: ['tax_mdoc', 'tax_sdjwt'],
-        claims: ['family_name', 'given_name', 'tax_year', 'total_income', 'taxable_amount'] }] },
+        claims: ['family_name', 'given_name', 'tax_year', 'taxable_amount'],
+        // **与信の判定に必ず要るのは課税標準額**（税額計算の基礎）で、合計所得金額は
+        // その手前の内訳。要求はするが**既定は任意**にし、出すかどうかを利用者に委ねる
+        optional: ['total_income'] }] },
   ],
   notDisclosed: '税額の内訳や証明書番号などは要求されず、開示もされません。',
   checks(pid, eaa, r2) {
     return [
       { ok: sameName(pid, eaa), label: '身分証と課税証明書の氏名が一致' },
-      { ok: cl(eaa, 'total_income') != null && cl(eaa, 'tax_year') != null,
-        label: `審査に必要な所得情報を確認（${cl(eaa, 'tax_year') ?? '—'}・所得金額あり）` },
+      // **任意にした項目を受理条件にしない**——出さなくても受理されるのが「任意」の意味で、
+      // 必須のつもりなら必須で要求するのが筋。判定は課税標準額で行い、合計所得金額は
+      // 提示されていれば補足として見せる
+      { ok: cl(eaa, 'taxable_amount') != null && cl(eaa, 'tax_year') != null,
+        label: `審査に必要な課税情報を確認（${cl(eaa, 'tax_year') ?? '—'}・課税標準額あり${
+          cl(eaa, 'total_income') != null ? '／合計所得金額も提示' : '／合計所得金額は未提示'}）` },
       sameHolderCheck(r2),
     ];
   },
@@ -324,9 +338,12 @@ SCENARIOS.inheritance = {
     PID_STEP,
     { name: '戸籍謄本の提示', shortName: '戸籍謄本',
       specs: [{ id: 'eaa', configIds: ['koseki_mdoc', 'koseki_sdjwt'],
-        claims: ['family_name', 'given_name', 'birth_date', 'relationship', 'father_name'] }] },
+        claims: ['family_name', 'given_name', 'birth_date', 'relationship', 'father_name'],
+        // 同姓同名の相続人を取り違えないための補助。関係の証明は父の氏名と続柄で足りるので
+        // **既定は任意**
+        optional: ['birth_place'] }] },
   ],
-  notDisclosed: '本籍・出生地・母の氏名などの戸籍記載事項は要求されず、開示もされません。',
+  notDisclosed: '本籍・母の氏名などの戸籍記載事項は要求されず、開示もされません。出生地は任意項目で、提示するかどうかは利用者が選べます。',
   checks(pid, eaa, r2) {
     return [
       { ok: sameName(pid, eaa) && String(cl(pid, 'birth_date')) === String(cl(eaa, 'birth_date')),

@@ -1274,7 +1274,10 @@ export function createVerifierApp(opts = {}) {
       });
       const { credential_offer } = await offerRes.json();
       await wallet.receive({ request: issuerFetch, offer: credential_offer, credentialIssuer: issuerUrl });
-      const { transactionId, request } = await v.createRequest({ specs: s.steps[0].specs });
+      const optKeys = parseOptionalKeys((await c.req.parseBody().catch(() => ({})))?.optional_keys);
+      const specs = applyOptionalKeys(s.steps[0].specs, optKeys);
+      if (specs.some((sp) => !sp.claims.length)) return c.html(renderScenarioGone(s));
+      const { transactionId, request } = await v.createRequest({ specs });
       const result = withImgClaims(await v.verifyResponse({ transactionId, encryptedResponse: await wallet.respond(request) }));
       await putResult(transactionId, result);
       await putScn(transactionId, { id: s.id, step: 1, wallet: wallet.serialize() });
@@ -1294,7 +1297,10 @@ export function createVerifierApp(opts = {}) {
     try {
       const wallet = createWallet(scn.wallet);
       const txn1 = c.req.param('txn1');
-      const { transactionId, request } = await v.createRequest({ specs: s.steps[1].specs, linkTo: txn1 });
+      const optKeys = parseOptionalKeys((await c.req.parseBody().catch(() => ({})))?.optional_keys);
+      const specs = applyOptionalKeys(s.steps[1].specs, optKeys);
+      if (specs.some((sp) => !sp.claims.length)) return c.html(renderScenarioGone(s));
+      const { transactionId, request } = await v.createRequest({ specs, linkTo: txn1 });
       const result = withImgClaims(await v.verifyResponse({ transactionId, encryptedResponse: await wallet.respond(request) }));
       await putResult(transactionId, result);
       await putScn(transactionId, { id: s.id, step: 2, txn1 });
@@ -1363,6 +1369,23 @@ export function createVerifierApp(opts = {}) {
     try { return c.json(await v.createRequest(await c.req.json())); } catch (e) { return fail(c, e); }
   });
 
+  // シナリオの必須／任意はブラウザから切り替えられる（画面のチップ＝DCQL の claim_sets）。
+  // **要求できるクレームはシナリオが宣言した集合に閉じる**——ここを開くと、画面に出ていない
+  // 項目を「任意」に見せかけて要求できてしまう（審査画面の `authority` と同じクラスの穴で、
+  // 画面で隠すことは防御にならない）。未知のキーは黙って捨てる。
+  const applyOptionalKeys = (specs, keys) => {
+    if (!Array.isArray(keys)) return specs;
+    const want = new Set(keys.map(String));
+    return specs.map((sp) => {
+      const all = [...(sp.claims || []), ...(sp.optional || [])];
+      return { ...sp, claims: all.filter((k) => !want.has(k)), optional: all.filter((k) => want.has(k)) };
+    });
+  };
+  /** フォーム POST で運ばれてくる optional_keys（JSON 配列）。壊れていたら既定に戻す。 */
+  const parseOptionalKeys = (raw) => {
+    try { const v = JSON.parse(String(raw ?? '')); return Array.isArray(v) ? v : null; } catch { return null; }
+  };
+
   // POST /vp/build -> request JSON for the chosen present target.
   //   single credential : {configId, claims, optional?, protocol?, target?}
   //   multi credential  : {specs:[{id, configId, claims, optional?}], protocol?, target?}
@@ -1392,7 +1415,7 @@ export function createVerifierApp(opts = {}) {
         }
       }
       const protocol = scn ? 'annex-d' : (body.protocol || 'annex-d');
-      const specs = scn ? scn.steps[step - 1].specs
+      const specs = scn ? applyOptionalKeys(scn.steps[step - 1].specs, body.optionalKeys)
         : Array.isArray(body.specs) && body.specs.length
           ? body.specs.map((s, i) => ({ id: s.id || `q${i + 1}`, configId: s.configId, claims: s.claims, optional: s.optional || [] }))
           : [{ id: 'q1', configId, claims, optional }];

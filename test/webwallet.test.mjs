@@ -795,6 +795,22 @@ test('web wallet present: selective-disclosure UX (提示先 label, per-claim ch
     // the required claim's checkbox is locked (data-req + cannot be unchecked)
     assert.match(html2, /value="family_name"[^>]*data-req="1"/);
     assert.match(html2, /data-req="1"[^>]*checked|checked[^>]*data-req="1"/);
+
+    // **シナリオ画面のチップから来た切り替えも、ここまで届く**（2026-09-30）。
+    // 検証者のシナリオ画面で項目を押して任意にすると `optionalKeys` で送られ、
+    // DCQL の claim_sets になり、同意画面ではチェックを外せる行になる。
+    // 経路が別（configId 直指定ではなくシナリオ）なので、別に見る
+    const build3 = await (await fetch(`${VERIF}/vp/build`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ scenario: 'disaster-aid', step: 1, target: 'web',
+        optionalKeys: ['residence_address'] }),
+    })).json();
+    const reqUri3 = new URL(build3.walletPresent).searchParams.get('request_uri');
+    const html3 = await (await wallet.request('/present?request_uri=' + encodeURIComponent(reqUri3), { headers: { cookie } })).text();
+    // 住所だけが opt-in（チェックが外れていて、外せる）
+    assert.match(html3, /value="resident_address"(?![^>]*data-req)/, '任意にした項目は locked にならない');
+    assert.match(html3, /value="family_name"[^>]*data-req="1"/, '押していない項目は必須のまま');
+    assert.ok(!/value="resident_address"[^>]*checked/.test(html3), '任意は既定で送らない');
   } finally {
     await new Promise((r) => issuer.close(r));
     await new Promise((r) => verifier.close(r));
