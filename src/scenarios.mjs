@@ -30,8 +30,37 @@ const PID_STEP = {
     claims: ['family_name', 'given_name', 'birth_date', 'residence_address'],
   }],
 };
-const sameName = (pid, eaa, fk = 'family_name', gk = 'given_name') =>
-  !!(pid && eaa) && strip(cl(pid, 'family_name')) === strip(cl(eaa, fk)) && strip(cl(pid, 'given_name')) === strip(cl(eaa, gk));
+const blank = (v) => v == null || String(v).trim() === '';
+
+/**
+ * 2つの提示を突き合わせる検査を1つ作る。
+ *
+ * **欠けているものを「一致」にしない**——`strip(undefined)` は空文字なので、素朴に
+ * 比べると**両側から同じ項目を落としたときに `'' === ''` で「一致」に ✓ が立つ**
+ * （2026-10-01 実測）。要求項目を「不要」にできるようにして初めて踏めるようになった穴で、
+ * 姓名を一切要求していないのに「氏名が一致」と言って受理していた——デモとして、
+ * 教えたいことの正反対を教える。要求しなかった項目は突き合わせようがない＝
+ * 本人性を確認できていないので、**通さず、何を戻せばよいかを画面に書く**。
+ *
+ * **両側でキー名が同じである必要は無い**。身分証の family_name と国家資格の
+ * holder_family_name のように**意味の対応**が付けばよく、対応は pairs で与える
+ * （ALIAS は mdoc のワイヤ名とスキーマ名の差を吸収するだけで、これとは別の層）。
+ * 対応が付けられない項目どうしは、そもそもこの検査では扱えない。
+ *
+ * pairs: [[身分証側のキー, 相手側のキー, 画面に出す名前], …]
+ */
+const matchCheck = (pid, eaa, pairs, label) => {
+  const miss = pairs.filter(([pk, ek]) => blank(cl(pid, pk)) || blank(cl(eaa, ek)));
+  if (miss.length) {
+    return { ok: false, unmatchable: true,
+      label: `${label} — ${miss.map((x) => x[2]).join('・')}が提示されていないため突き合わせできません`
+        + '（要求から外している場合は、その項目を「必須」に戻すと確認できます）' };
+  }
+  return { ok: pairs.every(([pk, ek]) => strip(cl(pid, pk)) === strip(cl(eaa, ek))), label };
+};
+/** 氏名・生年月日の対応。相手側のキーが違うシナリオは自前で組む（国家資格の holder_*）。 */
+const NAME_PAIRS = [['family_name', 'family_name', '姓'], ['given_name', 'given_name', '名']];
+const BIRTH_PAIRS = [['birth_date', 'birth_date', '生年月日']];
 
 // 保有者鍵の一致は「受理条件」ではなく「参考情報」。日本では PID が OS ウォレットに載り、
 // 属性証明は別のウォレットに入る**マルチウォレットが前提**で、そのとき鍵が違うのは正常。
@@ -67,8 +96,7 @@ export const SCENARIOS = {
     notDisclosed: '証明書番号などは要求されず、開示もされません。本籍は任意項目で、提示するかどうかは利用者が選べます。',
     checks(pid, eaa, r2) {
       return [
-        { ok: sameName(pid, eaa) && String(cl(pid, 'birth_date')) === String(cl(eaa, 'birth_date')),
-          label: '身分証と独身証明書の氏名・生年月日が一致' },
+        matchCheck(pid, eaa, [...NAME_PAIRS, ...BIRTH_PAIRS], '身分証と独身証明書の氏名・生年月日が一致'),
         { ok: /独身/.test(String(cl(eaa, 'marital_status'))), label: `独身であることを確認（提示値: ${cl(eaa, 'marital_status') ?? '—'}）` },
         sameHolderCheck(r2),
       ];
@@ -96,9 +124,9 @@ export const SCENARIOS = {
     notDisclosed: '登録年月日や資格区分の詳細などは要求されず、開示もされません。',
     checks(pid, eaa, r2) {
       return [
-        { ok: sameName(pid, eaa, 'holder_family_name', 'holder_given_name')
-            && String(cl(pid, 'birth_date')) === String(cl(eaa, 'holder_birth_date')),
-          label: '身分証と資格証明の氏名・生年月日が一致' },
+        matchCheck(pid, eaa, [['family_name', 'holder_family_name', '姓'],
+          ['given_name', 'holder_given_name', '名'], ['birth_date', 'holder_birth_date', '生年月日']],
+        '身分証と資格証明の氏名・生年月日が一致'),
         { ok: !!cl(eaa, 'qualification_name'), label: `資格の保有を確認（提示値: ${cl(eaa, 'qualification_name') ?? '—'} / ${cl(eaa, 'registration_number') ?? '—'}）` },
         sameHolderCheck(r2),
       ];
@@ -139,13 +167,19 @@ export const SCENARIOS = {
       //
       // 実務でも保険会社は物件を証券の対象物件と突き合わせるので、身分証の住所と
       // 一致するかは判断材料の1つにすぎない。**注意喚起（`warn`）に留める**。
-      const addrSame = !!(pid && eaa)
+      // **片方でも無ければ「一致」と言わない**（要求から外せるようになったため）。
+      // ここは元から受理条件ではないので、突き合わせできないことを注意として出す
+      const addrKnown = !blank(cl(pid, 'residence_address')) && !blank(cl(eaa, 'address'));
+      const addrSame = addrKnown
         && strip(cl(pid, 'residence_address')) === strip(cl(eaa, 'address'));
       return [
-        { ok: sameName(pid, eaa), label: '身分証と罹災証明書の氏名が一致' },
-        addrSame
-          ? { ok: true, label: '住所が罹災住家と一致（保険の対象物件の確認）' }
-          : { ok: true, warn: true,
+        matchCheck(pid, eaa, NAME_PAIRS, '身分証と罹災証明書の氏名が一致'),
+        !addrKnown
+          ? { ok: true, warn: true,
+            label: `住所を突き合わせできません（身分証: ${cl(pid, 'residence_address') ?? '—'} / 罹災住家: ${cl(eaa, 'address') ?? '—'}）——対象物件の確認は保険証券と突き合わせてください` }
+          : addrSame
+            ? { ok: true, label: '住所が罹災住家と一致（保険の対象物件の確認）' }
+            : { ok: true, warn: true,
             label: `身分証の住所と罹災住家の所在地が異なります（身分証: ${cl(pid, 'residence_address') ?? '—'} / 罹災住家: ${cl(eaa, 'address') ?? '—'}）——賃貸・二世帯・被災後の転居などで正常に起こります。対象物件の確認は保険証券と突き合わせてください` },
         { ok: !!cl(eaa, 'damage_level'), label: `被害程度を確認（提示値: ${cl(eaa, 'damage_level') ?? '—'} / ${cl(eaa, 'disaster_name') ?? ''}）` },
         sameHolderCheck(r2),
@@ -177,8 +211,7 @@ export const SCENARIOS = {
     notDisclosed: 'ロット番号・接種会場や、身分証の住所などは要求されず、開示もされません。',
     checks(pid, eaa, r2) {
       return [
-        { ok: sameName(pid, eaa) && String(cl(pid, 'birth_date')) === String(cl(eaa, 'birth_date')),
-          label: '身分証と接種証明の氏名・生年月日が一致' },
+        matchCheck(pid, eaa, [...NAME_PAIRS, ...BIRTH_PAIRS], '身分証と接種証明の氏名・生年月日が一致'),
         { ok: Number(cl(eaa, 'dose_number')) >= 2, label: `接種回数が要件（2回以上）を満たす（提示値: ${cl(eaa, 'dose_number') ?? '—'} 回）` },
         sameHolderCheck(r2),
       ];
@@ -206,7 +239,7 @@ const childOf = (eaa) => (Array.isArray(eaa?.household_members) ? eaa.household_
 const householdChecks = (pid, eaa, r2) => {
   const child = childOf(eaa);
   return [
-    { ok: sameName(pid, eaa), label: '申請者（身分証の氏名）と住民票の写しの氏名が一致（本人の世帯の住民票の写し）' },
+    matchCheck(pid, eaa, NAME_PAIRS, '申請者（身分証の氏名）と住民票の写しの氏名が一致（本人の世帯の住民票の写し）'),
     // 住民票の続柄は「世帯主から見た続柄」— 申請者が世帯主でない場合、世帯員の
     // 「子」は申請者の子とは限らない（その場合は戸籍での確認へ）
     { ok: String(cl(eaa, 'relationship_to_head')) === '世帯主',
@@ -308,7 +341,7 @@ SCENARIOS.mortgage = {
   notDisclosed: '税額の内訳や証明書番号などは要求されず、開示もされません。',
   checks(pid, eaa, r2) {
     return [
-      { ok: sameName(pid, eaa), label: '身分証と課税証明書の氏名が一致' },
+      matchCheck(pid, eaa, NAME_PAIRS, '身分証と課税証明書の氏名が一致'),
       // **任意にした項目を受理条件にしない**——出さなくても受理されるのが「任意」の意味で、
       // 必須のつもりなら必須で要求するのが筋。判定は課税標準額で行い、合計所得金額は
       // 提示されていれば補足として見せる
@@ -346,8 +379,7 @@ SCENARIOS.inheritance = {
   notDisclosed: '本籍・母の氏名などの戸籍記載事項は要求されず、開示もされません。出生地は任意項目で、提示するかどうかは利用者が選べます。',
   checks(pid, eaa, r2) {
     return [
-      { ok: sameName(pid, eaa) && String(cl(pid, 'birth_date')) === String(cl(eaa, 'birth_date')),
-        label: '身分証と戸籍謄本の氏名・生年月日が一致（相続人本人の戸籍）' },
+      matchCheck(pid, eaa, [...NAME_PAIRS, ...BIRTH_PAIRS], '身分証と戸籍謄本の氏名・生年月日が一致（相続人本人の戸籍）'),
       { ok: !!cl(eaa, 'father_name'),
         label: `被相続人（父）との親子関係を確認（父の氏名: ${cl(eaa, 'father_name') ?? '—'}・続柄: ${cl(eaa, 'relationship') ?? '—'}）` },
       sameHolderCheck(r2),
@@ -389,8 +421,7 @@ SCENARIOS.island = {
       const cat = String(cl(eaa, 'resident_category') ?? '');
       const exp = String(cl(eaa, 'expiry_date') ?? '');
       return [
-        { ok: sameName(pid, eaa) && String(cl(pid, 'birth_date')) === String(cl(eaa, 'birth_date')),
-          label: '身分証と離島割引資格証の氏名・生年月日が一致' },
+        matchCheck(pid, eaa, [...NAME_PAIRS, ...BIRTH_PAIRS], '身分証と離島割引資格証の氏名・生年月日が一致'),
         { ok: /島民/.test(cat), label: `割引の対象区分を確認（提示値: ${cat || '—'}）` },
         { ok: routes.includes(BOOKED_ROUTE),
           label: `予約便 ${BOOKED_ROUTE} が対象路線に含まれることを確認（提示値: ${routes || '—'}）` },

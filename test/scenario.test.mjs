@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { serve } from '@hono/node-server';
 import { createApp, createVerifierApp } from '../src/app.mjs';
 import { createWallet } from '../src/wallet.mjs';
-import { SCENARIOS, scenarioConfigIds } from '../src/scenarios.mjs';
+import { SCENARIOS, scenarioConfigIds, evaluateScenario } from '../src/scenarios.mjs';
 import { buildDcql } from '../src/dcql.mjs';
 import { PILL_STATES } from '../src/scenario-demo.mjs';
 
@@ -784,4 +784,47 @@ test('scenarios: 既定で任意の項目を断っても受理される（合計
   const html = await (await v.request(new URL(dest).pathname)).text();
   assert.match(html, /申請を受理しました/, '任意を断っても受理される');
   assert.match(html, /合計所得金額は未提示/, '出されなかったことは結果に書く');
+});
+
+// **欠けているものを「一致」にしない**（2026-10-01）。`strip(undefined)` は空文字なので、
+// 素朴に比べると**両側から同じ項目を落としたときに `'' === ''` で ✓ が立つ**——
+// 姓名を一切要求していないのに「氏名が一致」と言って受理していた。要求項目を「不要」に
+// できるようにして初めて踏めるようになった穴で、デモとして教えたいことの正反対を教える。
+test('scenarios: 何も提示されなければ、どのシナリオも突合を「一致」にしない', () => {
+  const empty = { valid: true, results: [{ claims: {} }] };
+  const emptyLinked = { valid: true, linkedSameHolder: true, results: [{ claims: {} }] };
+  for (const s of Object.values(SCENARIOS)) {
+    if (s.steps.length === 1) continue;                 // 1ステップは突合が無い
+    const e = evaluateScenario(s, empty, emptyLinked);
+    assert.equal(e.ok, false, `${s.id}: 空の提示で受理してはいけない`);
+    // 突合の検査が ✓ になっていないこと（warn は注意なので対象外）
+    const passing = e.checks.filter((c) => c.ok && !c.warn).map((c) => c.label);
+    for (const l of passing) {
+      assert.ok(!/一致/.test(l), `${s.id}: 空の提示で「${l.slice(0, 40)}」が通っている`);
+    }
+    // 何が足りないのかを画面に書く（戻し方が分からないと直せない）
+    assert.ok(e.checks.some((c) => c.unmatchable && /突き合わせできません/.test(c.label)),
+      `${s.id}: 突き合わせできない理由を出す`);
+  }
+});
+
+test('scenarios: 片側だけ欠けても「一致」にしない', () => {
+  const pid = { valid: true, results: [{ claims: { family_name: '山田', given_name: '太郎', birth_date: '1990-01-15' } }] };
+  const eaaNoName = { valid: true, linkedSameHolder: true,
+    results: [{ claims: { birth_date: '1990-01-15', marital_status: '独身', statement: '…' } }] };
+  const e = evaluateScenario(SCENARIOS.marriage, pid, eaaNoName);
+  assert.equal(e.ok, false);
+  assert.match(e.checks[0].label, /姓・名が提示されていない/);
+});
+
+// キー名が両側で同じである必要は無い——意味の対応が付けばよい（国家資格は holder_*）。
+test('scenarios: 相手側のキー名が違っても突合できる（国家資格の holder_*）', () => {
+  const pid = { valid: true, results: [{ claims: { family_name: '田中', given_name: '美咲', birth_date: '1985-03-20' } }] };
+  const eaa = { valid: true, linkedSameHolder: true, results: [{ claims: {
+    holder_family_name: '田中', holder_given_name: '美咲', holder_birth_date: '1985-03-20',
+    qualification_name: '看護師', registration_number: 'N-1' } }] };
+  assert.equal(evaluateScenario(SCENARIOS.hiring, pid, eaa).ok, true);
+  // 別人なら落ちる（対応が付いているからこそ突合できている）
+  const other = { ...eaa, results: [{ claims: { ...eaa.results[0].claims, holder_given_name: '花子' } }] };
+  assert.equal(evaluateScenario(SCENARIOS.hiring, pid, other).ok, false);
 });
