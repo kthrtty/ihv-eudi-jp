@@ -10,7 +10,7 @@ import { catalog } from './issuer.mjs';
 import { devToggleHtml, devWidgetHtml } from './devlog.mjs';
 import { applicationTypeList, applicationLine } from './applications.mjs';
 import { verify as verifyCredential } from './issuer.mjs';
-import { offerQrSvg } from './offer.mjs';
+import { offerQrSvg, DC_API_PROTOCOL } from './offer.mjs';
 
 const b64url = (b) => Buffer.from(b).toString('base64url');
 const s256 = (s) => b64url(createHash('sha256').update(Buffer.from(s, 'ascii')).digest());
@@ -916,6 +916,15 @@ export function renderVcSelect(user, groups, { walletOrigin = '', approved = [] 
               <span class="act-tx"><b>この端末のウォレットで開く</b><small>ネイティブウォレット（Multipaz 等）が起動します</small></span>
               <span class="act-ch">›</span>
             </a>
+            ${/* **DC API（navigator.credentials.create）**。カスタムスキームの標準版にあたるが、
+                 **置き換えではなく併記**する——応答するウォレットがまだ限られ（CMWallet のみ。
+                 Multipaz は manifest に CREATE 系の action を持たない）、外すと実機のデモが
+                 動かなくなる。対応していないブラウザでは hidden のままで、押せる人にだけ出る */''}
+            <button type="button" class="act" id="dcapi" hidden>
+              <span class="act-ic">🪪</span>
+              <span class="act-tx"><b>ウォレットに保存（DC API・試験）</b><small>OS のウォレット選択画面が開きます</small></span>
+              <span class="act-ch">›</span>
+            </button>
             <button type="button" class="act" id="copyoffer">
               <span class="act-ic">📋</span>
               <span class="act-tx"><b>オファーをコピー</b><small>その他のウォレットへ手動で渡す場合に</small></span>
@@ -923,6 +932,7 @@ export function renderVcSelect(user, groups, { walletOrigin = '', approved = [] 
             </button>
           </div>
           <div class="qrcap">別の端末のウォレットは QR を読み取り</div>
+          <div class="dcmsg" id="dcmsg" hidden></div>
         </div>
         <details class="jsonfold" id="jsonfold">
           <summary>Credential Offer（JSON）と URI を表示（開発者向け）</summary>
@@ -1035,6 +1045,12 @@ export function renderVcSelect(user, groups, { walletOrigin = '', approved = [] 
           //    which OS-registered wallets (e.g. Multipaz) handle directly
           //  - web wallet via its /add endpoint (accepts the same query params)
           $('opendevice').href = uri;
+          // **DC API は by value／by reference の別が無い**（オファーそのものを渡すので
+          // 常に by value）。サーバがフラグ on のときだけ dc_api を返し、ブラウザが
+          // 対応しているときだけ出す＝**押せる人にだけ出る**漸進的強化
+          dcOffer = d.dc_api ?? null;
+          $('dcapi').hidden = !(dcOffer && dcSupported());
+          $('dcmsg').hidden = true;
           const WALLET = ${JSON.stringify(walletOrigin)};
           if (WALLET) {
             $('openweb').href = WALLET + '/add?' + (mode === 'value'
@@ -1058,6 +1074,48 @@ export function renderVcSelect(user, groups, { walletOrigin = '', approved = [] 
         }
         openOut();
       }
+      // ---- DC API での受け渡し（navigator.credentials.create）--------------------
+      // **オファーはシートを開いた時点で手元にある**。Chrome 146 以降 create() は
+      // transient user activation を消費するので、クリック後に await を挟むと
+      // 活性化が切れうる——だから押す前に作ってある（docs/dc-api-issuance.md §5.2）
+      let dcOffer = null;
+      const DC_PROTO = ${js(DC_API_PROTOCOL)};
+      function dcSupported() {
+        return !!window.DigitalCredential && !!DigitalCredential.userAgentAllowsProtocol
+          && DigitalCredential.userAgentAllowsProtocol(DC_PROTO);
+      }
+      function dcSay(text, ng) {
+        const el = $('dcmsg');
+        el.textContent = text; el.hidden = false;
+        el.classList.toggle('ng', !!ng);
+      }
+      $('dcapi').onclick = async () => {
+        if (!dcOffer) return;
+        try {
+          // **await を挟まずに呼ぶ**（上のコメント参照）
+          await navigator.credentials.create({ digital: { requests: [dcOffer] } });
+          // **返り値は資格証ではなく、発行が終わった合図でもない**。発行者が完了を
+          // 知るのは /token・/credential が自分のサーバに来たときだけなので、
+          // ここで「保存しました」と言い切らない
+          dcSay('ウォレットが受け取りました。保存されたかはウォレット側でご確認ください。');
+        } catch (e) {
+          const n = e && e.name;
+          if (n === 'NotAllowedError') {
+            dcSay('取り消されたか、この要求を受け取れるウォレットがありませんでした。'
+              + '「この端末のウォレットで開く」もお試しください。', true);
+          } else if (n === 'NotSupportedError') {
+            // 141〜154 は userAgentAllowsProtocol が真でもここに来る（既知）
+            $('dcapi').hidden = true;
+            dcSay('このブラウザは DC API での発行に対応していません。'
+              + '「この端末のウォレットで開く」をお使いください。', true);
+          } else if (n === 'TypeError') {
+            dcSay('要求の形式が不正です（開発者向け: ' + (e.message || '') + '）', true);
+          } else {
+            dcSay('ウォレットへの受け渡しに失敗しました: ' + (e && (e.message || n) || e), true);
+          }
+        }
+      };
+
       // 受け渡し（オファリング）はプレビューと同じボトムシートで下から出す
       window.openOut = function () { $('out').classList.add('open'); $('outScrim').classList.add('show'); $('out').setAttribute('aria-hidden', 'false'); };
       window.closeOut = function () { $('out').classList.remove('open'); $('outScrim').classList.remove('show'); $('out').setAttribute('aria-hidden', 'true'); };
@@ -1191,6 +1249,13 @@ export function renderVcSelect(user, groups, { walletOrigin = '', approved = [] 
       .act-tx{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.45}
       .act-tx b{font-size:16px}
       .act-tx small{font-size:16px;color:var(--muted)}
+      /* **display を指定した要素は hidden 属性が効かない**。UA の [hidden]{display:none} は
+         作者側の .act{display:flex} に負けるので、属性で出し分ける要素には必ず添える
+         （属性は付いているのに 68px の箱が出たままになる＝一番気づきにくい形で出る） */
+      .act[hidden]{display:none}
+      .dcmsg{grid-column:1/-1;font-size:16px;line-height:1.8;margin-top:10px;padding:10px 14px;
+        border-radius:10px;background:var(--gray-50,#f2f4f7);color:var(--muted)}
+      .dcmsg.ng{background:#FDECEA;color:var(--error-2)}
       .act-ch{color:var(--muted);font-size:20px;flex:none;line-height:1}
       @media(max-width:640px){
         .handoff{grid-template-columns:1fr;justify-items:center;row-gap:6px}
