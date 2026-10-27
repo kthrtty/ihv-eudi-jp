@@ -114,3 +114,55 @@ test('DC API: 知らない構成 id は黙って落とさず throw する', () =
     asMetadata: {},
   }), /unknown credential_configuration_id nope/);
 });
+
+// ---- Phase 3: 受け取られたかを発行者側で観測する --------------------------------
+// **DC API では `create()` の返り値が完了を意味しない**（資格証でも合図でもない）ので、
+// 発行者は `/token`・`/credential` が自分のサーバへ来たかどうかで知るしかない。
+test('DC API: オファーの状態は引き換えと交付を分けて返す', async () => {
+  const { createWallet } = await import('../src/wallet.mjs');
+  const { app } = mk();
+  const req = (p, i) => app.request(ISSUER + p, i);
+  const d = await (await req('/offer', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc', 'pid_sdjwt'] }) })).json();
+  const st = () => req(`/offer/${d.offer_id}/status`).then((r) => r.json());
+
+  const before = await st();
+  assert.deepEqual({ redeemed: before.redeemed, issued: before.issued, total: before.total },
+    { redeemed: false, issued: 0, total: 2 });
+  assert.ok(before.expires_in > 0 && before.expires_in <= 600, `残り時間が出る（${before.expires_in}）`);
+
+  const wallet = createWallet();
+  await wallet.receive({ request: req, offer: d.credential_offer, credentialIssuer: ISSUER });
+
+  const after = await st();
+  assert.equal(after.redeemed, true);
+  assert.equal(after.issued, 2, '交付された枚数を数える');
+  assert.deepEqual(after.configIds.sort(), ['pid_mdoc', 'pid_sdjwt']);
+});
+
+test('DC API: 知らない／期限切れのオファーは 404', async () => {
+  const { app } = mk();
+  assert.equal((await app.request(`${ISSUER}/offer/zzz/status`)).status, 404);
+});
+
+// **発行状況は利用者の情報**。オファー ID は推測しづらいが、それを防御と呼ばない。
+test('DC API: 所有者のあるオファーの状態は本人にしか見せない', async () => {
+  const { app } = mk();
+  const login = async (id) => `sid=${(await (await app.request(`${ISSUER}/login`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ user_id: id }) })).json()).session_id}`;
+  const owner = await login('u_001');
+  const other = await login('u_002');
+  const d = await (await app.request(`${ISSUER}/offer`, { method: 'POST',
+    headers: { 'content-type': 'application/json', cookie: owner },
+    body: JSON.stringify({ credential_configuration_ids: ['pid_mdoc'] }) })).json();
+  const get = (cookie) => app.request(`${ISSUER}/offer/${d.offer_id}/status`,
+    cookie ? { headers: { cookie } } : undefined);
+
+  assert.equal((await get(owner)).status, 200, '本人は見られる');
+  // **他人には存在も明かさない**（403 ではなく 404）
+  assert.equal((await get(other)).status, 404, '他人は見られない');
+  assert.equal((await get(null)).status, 404, '未ログインも見られない');
+  // 所有者を返さない（誰のオファーかを漏らさない）
+  assert.ok(!('owner' in await (await get(owner)).json()));
+});

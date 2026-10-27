@@ -143,3 +143,37 @@ test('DC API: NotSupportedError ならボタンを引っ込めて別の導線へ
     await new Promise((r) => server.close(r));
   }
 });
+
+// Phase 3: 押したあと**発行者側で完了を観測して**画面に出す。
+// ウォレットの役は wallet-core にやらせる（`create()` のスタブは受け取るだけ）。
+test('DC API: 受け取られたら「発行が完了しました」まで出る', async (t) => {
+  let chromium;
+  try { ({ chromium } = await import('playwright')); }
+  catch { t.skip('playwright 未インストール'); return; }
+
+  const { createWallet } = await import('../src/wallet.mjs');
+  const store = memoryStore();
+  await setFeature(store, 'dc_api_issuance', true);
+  const server = serve({ fetch: createApp({ credentialIssuer: ISSUER, store }).fetch, port: IPORT });
+  const browser = await chromium.launch();
+  try {
+    const page = await (await browser.newContext()).newPage();
+    await page.addInitScript(stub('ok'));
+    await openSheet(page);
+    await page.click('#dcapi');
+    await page.waitForFunction(() => !document.getElementById('dcmsg').hidden);
+    assert.match(await page.textContent('#dcmsg'), /完了を確認しています/, 'まず待ちを出す');
+
+    // ここで**本物のウォレットが取りに来る**（/token → /nonce → /credential）
+    const req = (p, i) => fetch(ISSUER + p, i);
+    const offer = (await page.evaluate(() => JSON.parse(document.getElementById('offerjson').textContent)));
+    await createWallet().receive({ request: req, offer, credentialIssuer: ISSUER });
+
+    await page.waitForFunction(() => /発行が完了しました/.test(document.getElementById('dcmsg').textContent),
+      null, { timeout: 15000 });
+    assert.match(await page.textContent('#dcmsg'), /発行が完了しました（1 件）/);
+  } finally {
+    await browser.close();
+    await new Promise((r) => server.close(r));
+  }
+});

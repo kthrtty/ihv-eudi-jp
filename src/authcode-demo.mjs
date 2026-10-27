@@ -1049,6 +1049,8 @@ export function renderVcSelect(user, groups, { walletOrigin = '', approved = [] 
           // 常に by value）。サーバがフラグ on のときだけ dc_api を返し、ブラウザが
           // 対応しているときだけ出す＝**押せる人にだけ出る**漸進的強化
           dcOffer = d.dc_api ?? null;
+          dcOfferId = d.offer_id ?? null;
+          dcGen++;                       // 前のオファーの監視を止める
           $('dcapi').hidden = !(dcOffer && dcSupported());
           $('dcmsg').hidden = true;
           const WALLET = ${JSON.stringify(walletOrigin)};
@@ -1078,7 +1080,7 @@ export function renderVcSelect(user, groups, { walletOrigin = '', approved = [] 
       // **オファーはシートを開いた時点で手元にある**。Chrome 146 以降 create() は
       // transient user activation を消費するので、クリック後に await を挟むと
       // 活性化が切れうる——だから押す前に作ってある（docs/dc-api-issuance.md §5.2）
-      let dcOffer = null;
+      let dcOffer = null, dcOfferId = null, dcGen = 0;
       const DC_PROTO = ${js(DC_API_PROTOCOL)};
       function dcSupported() {
         return !!window.DigitalCredential && !!DigitalCredential.userAgentAllowsProtocol
@@ -1089,6 +1091,30 @@ export function renderVcSelect(user, groups, { walletOrigin = '', approved = [] 
         el.textContent = text; el.hidden = false;
         el.classList.toggle('ng', !!ng);
       }
+      /** オファーが受け取られたかを発行者側で見に行く（Phase 3）。
+       *  QR・カスタムスキーム経由でも同じ口で観測できるが、いまは
+       *  **返り値が完了を意味しない DC API** に付けてある。 */
+      async function dcWatch(offerId, gen) {
+        if (!offerId) return;
+        for (let i = 0; i < 30 && gen === dcGen; i++) {
+          await new Promise((r) => setTimeout(r, 2000));
+          if (gen !== dcGen) return;                      // 別のオファーを出した
+          let st;
+          try { st = await (await fetch('/offer/' + encodeURIComponent(offerId) + '/status')).json(); }
+          catch (e) { continue; }                         // 一時的な失敗は次の周回で拾う
+          if (st.error) return;                           // 期限切れ（600 秒）
+          if (st.issued > 0) {
+            if (st.issued >= st.total) {
+              dcSay('発行が完了しました（' + st.issued + ' 件）。ウォレットに保存されています。');
+              return;
+            }
+            dcSay('発行中…（' + st.issued + ' / ' + st.total + ' 件）');
+          } else if (st.redeemed) {
+            // **引き換え済みと交付済みは別**——トークンだけ取って来ないこともある
+            dcSay('ウォレットがトークンを引き換えました。発行中…');
+          }
+        }
+      }
       $('dcapi').onclick = async () => {
         if (!dcOffer) return;
         try {
@@ -1097,7 +1123,10 @@ export function renderVcSelect(user, groups, { walletOrigin = '', approved = [] 
           // **返り値は資格証ではなく、発行が終わった合図でもない**。発行者が完了を
           // 知るのは /token・/credential が自分のサーバに来たときだけなので、
           // ここで「保存しました」と言い切らない
-          dcSay('ウォレットが受け取りました。保存されたかはウォレット側でご確認ください。');
+          dcSay('ウォレットが受け取りました。発行の完了を確認しています…');
+          // **完了は発行者側で観測する**——返り値は資格証でも合図でもないので、
+          // /token・/credential が自分のサーバへ来たかどうかを見るしかない
+          dcWatch(dcOfferId, dcGen);
         } catch (e) {
           const n = e && e.name;
           if (n === 'NotAllowedError') {

@@ -1295,6 +1295,11 @@ export class IssuerService {
     let pin = null;
     if (txCode === true) pin = String(randomInt(0, 10000)).padStart(4, '0');
     else if (txCode != null && txCode !== false && txCode !== '') pin = String(txCode);
+    // **オファー ID は先に採番する**。事前認可コードの記録へ入れておくと、
+    // 発行台帳から「このオファーで何枚出たか」を引ける（Phase 3 の状態観測）。
+    // **新しい KV キーは作らない**——`/offer` は無認証なので、1件増やすだけで
+    // 無料枠（1日 1,000 writes）への圧が倍になる
+    const offerId = tok();
     let grants = {}, preAuthorizedCode = null, issuerState = null;
     if (grant === 'authorization_code' || grant === 'both') {
       issuerState = tok();
@@ -1306,7 +1311,10 @@ export class IssuerService {
       // bind the ISSUER-SIDE user (not a claims snapshot): the credential endpoint
       // reads the persona at mint time, so name edits between offer and redemption
       // still land in the VC. Already-redeemed credentials are naturally untouched.
-      await this.store.set(`pac:${preAuthorizedCode}`, { ids, txCode: pin, used: false, ...(claims ? { claims } : {}), ...(applications ? { applications } : {}), ...(userId ? { userId } : {}) });
+      await this.store.set(`pac:${preAuthorizedCode}`, { ids, txCode: pin, used: false, offerId,
+        // 残り時間を出すため（KV は TTL の残りを読めない）。TTL と同じ 600 秒
+        expiresAt: new Date(Date.now() + 600_000).toISOString(),
+        ...(claims ? { claims } : {}), ...(applications ? { applications } : {}), ...(userId ? { userId } : {}) });
       const g = { 'pre-authorized_code': preAuthorizedCode };
       if (pin) g.tx_code = { input_mode: 'numeric', length: pin.length };
       grants[PRE_AUTH_GRANT] = g;
@@ -1316,7 +1324,6 @@ export class IssuerService {
       credential_configuration_ids: ids,
       grants,
     };
-    const offerId = tok();
     await this.store.set(`offer:${offerId}`, credential_offer, 600); // for by-reference retrieval
     return { credential_offer, preAuthorizedCode, issuerState, offerId, offerUri: `${this.credentialIssuer}/offer/${offerId}`, txCode: pin };
   }
@@ -1324,6 +1331,37 @@ export class IssuerService {
   /** Resolve a by-reference offer (served at the credential_offer_uri). */
   async getStoredOffer(offerId) {
     return this.store.get(`offer:${offerId}`);
+  }
+
+  /**
+   * オファーが受け取られたかを**発行者側で観測する**（Phase 3）。
+   *
+   * **DC API では `create()` の返り値が完了を意味しない**（返るのはウォレットの
+   * プロトコル応答で、資格証でも合図でもない）。発行者が完了を知るのは
+   * `/token`・`/credential` が自分のサーバへ来たときだけなので、そこを数える。
+   * QR やカスタムスキーム経由でも同じように効く（DC API 専用ではない）。
+   *
+   * **新しい KV キーは作らない**——既にある `offer:` / `pac:` と発行台帳から導く。
+   * 返り値の `owner` は呼び出し側が見せる相手を絞るのに使う（発行状況は利用者の情報）。
+   */
+  async offerStatus(offerId) {
+    const offer = await this.store.get(`offer:${offerId}`);
+    if (!offer) return null;                       // 期限切れ（600 秒）か存在しない
+    const code = offer.grants?.[PRE_AUTH_GRANT]?.['pre-authorized_code'] ?? null;
+    const pac = code ? await this.store.get(`pac:${code}`) : null;
+    await this._loadState();
+    const issued = this.issuanceLog.filter((e) => e.offerId === offerId);
+    const expiresAt = pac?.expiresAt ?? null;
+    return {
+      owner: pac?.userId ?? null,
+      // **引き換え済みと交付済みは別**。トークンだけ取って `/credential` に来ない
+      // （proof を作れない等）ことがあるので、画面でも分けて見せられるようにする
+      redeemed: code ? !!pac?.used : null,
+      issued: issued.length,
+      total: (offer.credential_configuration_ids ?? []).length,
+      configIds: issued.map((e) => e.configId),
+      expires_in: expiresAt ? Math.max(0, Math.round((Date.parse(expiresAt) - Date.now()) / 1000)) : null,
+    };
   }
 
   // ---- 6. Token Endpoint (pre-authorized_code OR authorization_code) ----
@@ -1350,7 +1388,7 @@ export class IssuerService {
       const jkt = await this.#dpopJkt(ctx, { required: feats.dpop === 'required' });
       await this.store.set(`at:${accessToken}`, { ids: pac.ids, ...(pac.claims ? { claims: pac.claims } : {}),
         ...(pac.applications ? { applications: pac.applications } : {}), ...(pac.userId ? { userId: pac.userId } : {}),
-        ...(jkt ? { jkt } : {}) }, 600);
+        ...(pac.offerId ? { offerId: pac.offerId } : {}), ...(jkt ? { jkt } : {}) }, 600);
       // **束ねたなら token_type も DPoP**（§5）。Bearer と名乗ると、受け取った側は
       // proof を送らなくてよいと解釈する
       return { access_token: accessToken, token_type: jkt ? 'DPoP' : 'Bearer', expires_in: 600 };
@@ -1603,6 +1641,9 @@ export class IssuerService {
         // どの申請から出たVCかを残す。これが無いと「熊本の罹災証明だけ失効」が撃てず、
         // 同じ人の別の申請から出たVCまで巻き添えで失効させてしまう。
         applicationId: application?.id ?? null,
+        // どのオファーから出たかを残す。これが無いと「このオファーは受け取られたか」を
+        // 発行者が自分で観測できない（DC API では create() の返り値が完了を意味しない）
+        offerId: at.offerId ?? null,
         holder: `${holderJwk.x}.${holderJwk.y}`,
         issued_at: new Date().toISOString(),
         expires_at: new Date(Date.now() + 365 * 864e5).toISOString(),

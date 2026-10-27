@@ -555,6 +555,26 @@ export function createApp(opts = {}) {
     return offer ? c.json(offer) : c.json({ error: 'offer not found or expired' }, 404);
   });
 
+  // **オファーが受け取られたかの観測口**（Phase 3・docs/dc-api-issuance.md §5.5）。
+  // DC API では `create()` の返り値が完了を意味しないので、発行者は自分のサーバに
+  // `/token`・`/credential` が来たかどうかで知るしかない。
+  //
+  // **無認証では開けない**——オファー ID は推測しづらいが、発行状況は利用者の情報。
+  // 所有者（オファーを作ったときにログインしていた利用者）が記録されているなら
+  // **本人だけ**、記録が無いオファー（テスト・シナリオの selftest 経路）は従来どおり開ける。
+  // `/oid4vp/result/:txn` と同じ「閉められる所だけ閉める」形。
+  app.get('/offer/:id/status', async (c) => {
+    const st = await svc.offerStatus(c.req.param('id'));
+    if (!st) return c.json({ error: 'offer not found or expired' }, 404);
+    if (st.owner) {
+      const user = await svc.sessionUser(sid(c));
+      // **他人のオファーは存在も明かさない**（申請の控えと同じ扱い）
+      if (!user || user.id !== st.owner) return c.json({ error: 'offer not found or expired' }, 404);
+    }
+    const { owner: _o, ...body } = st;
+    return c.json(body);
+  });
+
   // QR (SVG) for either delivery mode: /offer/:id/qr?mode=value|reference
   app.get('/offer/:id/qr', async (c) => {
     const offer = await svc.getStoredOffer(c.req.param('id'));

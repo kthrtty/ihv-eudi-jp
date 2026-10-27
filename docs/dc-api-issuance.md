@@ -216,13 +216,25 @@ catch 側でもフォールバックする。ローカルの Chrome は **153** 
 小さな観測口が要る:
 
 ```
-GET /offer/:id/status → { redeemed: bool, issued: n, expires_in: sec }
+GET /offer/:id/status → { redeemed, issued, total, configIds, expires_in }
 ```
 
-`pac:<code>` の `used` と発行台帳（`applicationId`／`offerId` 紐付け）から導ける。
-**この口は無認証で作らない**——オファー ID は推測しづらいが、発行状況は利用者の情報。
-セッションで縛るか、オファーを作ったブラウザにだけ見せる（提示結果画面の
-`vres` Cookie と同じ手口）。
+**引き換え（`/token`）と交付（`/credential`）は分けて返す**——トークンだけ取って
+取りに来ないことがあるので、画面でも区別できるようにする。
+
+**新しい KV キーは作らない**。既にある `offer:<id>` → `grants` の事前認可コード →
+`pac:<code>.used`、と発行台帳の `offerId` から導く（`createOffer` → `pac:` → `at:` →
+台帳の順に ID を通した）。**`/offer` は無認証で KV に書く経路**なので、1件増やすだけで
+無料枠（1日 1,000 writes）への圧が倍になる。
+
+**無認証では開けない**——オファー ID は推測しづらいが、それを防御と呼ばない。
+所有者が記録されているオファー（ログイン中に作られたもの）は**本人だけ**、記録の無い
+オファー（テスト・シナリオの selftest）は従来どおり開ける＝`/oid4vp/result/:txn` と同じ
+「閉められる所だけ閉める」形。**他人には 403 でなく 404**（存在も明かさない）。
+応答に `owner` は含めない。
+
+なお**この口は DC API 専用ではない**（QR・カスタムスキーム経由でも同じように効く）。
+いまは**返り値が完了を意味しない DC API** にだけ繋いである。
 
 ### 5.6 フィーチャーフラグに載せる
 
@@ -256,7 +268,7 @@ GET /offer/:id/status → { redeemed: bool, issued: n, expires_in: sec }
 |---|---|---|
 | **Phase 1** ✅ | 剪定メタデータ生成＋`/offer` に `dc_api` ブロックを足す（`offer.mjs` の `dcApiOfferData`／フラグ `dc_api_issuance`） | test/dc-api-offer.test.mjs（8件） |
 | **Phase 2** ✅ | シートに DC API ボタンを**併記**（漸進的強化・エラーの出し分け） | test/dc-api-ui.e2e.test.mjs（`DigitalCredential` をスタブして我々の分岐を見る） |
-| **Phase 3** | `GET /offer/:id/status` と完了表示 | 擬似ウォレットで `/token`→`/credential` を叩いて観測 |
+| **Phase 3** ✅ | `GET /offer/:id/status` と完了表示（押した後 2 秒間隔で最大 60 秒） | test/dc-api-offer.test.mjs（引き換え／交付・所有者束縛）＋ e2e（実ウォレットが取りに来て画面が変わる） |
 
 **自動テストは CDP の仮想ウォレットで張れる**（Chrome 152+）:
 
