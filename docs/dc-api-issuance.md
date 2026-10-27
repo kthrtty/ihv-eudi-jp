@@ -121,7 +121,7 @@ Chrome のサンプルが使っている `credential_issuer_metadata` /
 
 ## 5. 設計
 
-### 4.1 インラインメタデータは**必ず剪定する**（最重要）
+### 5.1 インラインメタデータは**必ず剪定する**（最重要）
 
 本番の実測値:
 
@@ -145,7 +145,7 @@ Chrome のサンプルが使っている `credential_issuer_metadata` /
 - **不変条件**: 券面画像が `data:` URI に戻ったらこの経路は即座に破綻する。
   いまは静的配信（`/cardart/:id.jpg`）なので持っている。**テストで上限を pin する**
 
-### 4.2 オファーは**押す前に作っておく**
+### 5.2 オファーは**押す前に作っておく**
 
 Chrome 146 以降 `create()` は transient user activation を消費する。
 `await fetch('/offer')` を挟んでから呼ぶと活性化が切れうる。
@@ -158,25 +158,27 @@ onclick は `await` を挟まず `create()` を呼べる。
 `invalid_grant` になる。`NotAllowedError`／失敗時に**オファーを取り直して再試行**する
 導線を置く。
 
-### 4.3 受け渡し画面 — 「選ばせる」のではなく**端末で分ける**
+### 5.3 受け渡し画面 — **併記**する（実装した形）
 
-いまのシートは QR・カスタムスキーム・Web ウォレット・コピーが平らに並んでいる。
-DC API を5つ目として足すと選択肢が多すぎるので、**渡す相手で3つに束ねる**:
+いまのシートは QR・Web ウォレット・カスタムスキーム・コピーが平らに並んでいる。
+**束ね直さず、カスタムスキームの隣に1つ足した**（同じ「この端末のウォレット」の列）:
 
-| 束 | 中身 | 出る条件 |
-|---|---|---|
-| **この端末のウォレットへ** | ① DC API（`openid4vci-v1`）→ ② カスタムスキーム `openid-credential-offer://` → ③ Web ウォレット | ① は `userAgentAllowsProtocol` が真のときだけ先頭に出す |
-| **別の端末へ** | QR（既存） | 常時 |
-| **その他** | オファーをコピー | 常時（開発者向けフォールド内でよい） |
+```
+Web ウォレットに追加 → この端末のウォレットで開く → ウォレットに保存（DC API・試験） → オファーをコピー
+```
+
+**出るのは「押せる人」にだけ**——サーバがフラグ on で `dc_api` を返し、かつ
+`DigitalCredential.userAgentAllowsProtocol('openid4vci-v1')` が真のときだけ `hidden` を外す。
+**主ボタン（`act primary`）にはしない**: 試験であり、いま応答するのは CMWallet だけ。
 
 **DC API は「カスタムスキームの標準版」**（Chrome blog が旧手法として MDN の URI スキームを
-引いている）。したがって**置き換えではなく、使えるときに先頭へ出す**漸進的強化にする。
-提示側の `nativeFallback`（scenario-demo.mjs）と同じ考え方。
+引いている）。だが**置き換えない**——応答するウォレットがまだ限られ、我々が実機で発行を
+通している Multipaz は未対応（§8）。外すとデモが動かなくなる。
 
 **by value / by reference のラジオは DC API に効かない**——`data` はオファー
 オブジェクトそのものなので常に by value。UI で明示する。
 
-### 4.4 クライアント JS の骨格
+### 5.4 クライアント JS の骨格
 
 ```js
 // オファーはシートを開いた時点で手元にある（§5.2）。await を挟まずに呼ぶ
@@ -207,7 +209,7 @@ dcapiBtn.onclick = async () => {
 （Chrome 141–154 の既知の挙動・ブログが明記）。**真偽だけで分岐してはいけない**ので
 catch 側でもフォールバックする。ローカルの Chrome は **153** なのでまさにこの範囲。
 
-### 4.5 完了は**サーバ側で観測する**
+### 5.5 完了は**サーバ側で観測する**
 
 `credential.data` は資格証でもなければ完了の合図でもない。発行者が完了を知るのは
 **ウォレットが `/credential` を叩いたとき**。デモとして「保存されました」を出したいなら
@@ -222,7 +224,7 @@ GET /offer/:id/status → { redeemed: bool, issued: n, expires_in: sec }
 セッションで縛るか、オファーを作ったブラウザにだけ見せる（提示結果画面の
 `vres` Cookie と同じ手口）。
 
-### 4.6 フィーチャーフラグに載せる
+### 5.6 フィーチャーフラグに載せる
 
 `src/features.mjs` に `dc_api_issuance: off | on` を足す。**標準化前の経路**なので
 本番で即座に落とせることが要る。フラグ1つから**広告と動作の両方**を導く
@@ -240,6 +242,10 @@ GET /offer/:id/status → { redeemed: bool, issued: n, expires_in: sec }
   画面に出ることになるので、どちらが何かを書く。Bluetooth が要ることも書く
 - **cross-origin iframe からは `digital-credentials-create` の permission policy が要る**。
   我々は自オリジンのページから呼ぶので該当しないが、埋め込みデモを作るときに効く
+- **`display` を指定した要素に `hidden` 属性は効かない**（2026-10-27 に踏んだ）。
+  UA の `[hidden]{display:none}` は作者側の `.act{display:flex}` に負けるので、
+  属性で出し分ける要素には `.act[hidden]{display:none}` を必ず添える。
+  **属性は付いているのに箱が出たまま**という、DevTools でも気づきにくい形で出る
 - **複数構成を1オファーに載せられるか未検証**。仕様上 `credential_configuration_ids` は
   配列だが、Credential Manager の選択画面と CMWallet の挙動は確かめていない。
   Phase 1 は**1書類（形式は複数可）**に絞る
@@ -249,7 +255,7 @@ GET /offer/:id/status → { redeemed: bool, issued: n, expires_in: sec }
 | | 内容 | 検証 |
 |---|---|---|
 | **Phase 1** ✅ | 剪定メタデータ生成＋`/offer` に `dc_api` ブロックを足す（`offer.mjs` の `dcApiOfferData`／フラグ `dc_api_issuance`） | test/dc-api-offer.test.mjs（8件） |
-| **Phase 2** | シートに DC API ボタン（漸進的強化・フォールバック付き） | Playwright + **CDP 仮想ウォレット** |
+| **Phase 2** ✅ | シートに DC API ボタンを**併記**（漸進的強化・エラーの出し分け） | test/dc-api-ui.e2e.test.mjs（`DigitalCredential` をスタブして我々の分岐を見る） |
 | **Phase 3** | `GET /offer/:id/status` と完了表示 | 擬似ウォレットで `/token`→`/credential` を叩いて観測 |
 
 **自動テストは CDP の仮想ウォレットで張れる**（Chrome 152+）:
