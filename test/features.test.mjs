@@ -252,3 +252,46 @@ test('require_par: required にすると PAR 無しの認可要求はエラー�
     { headers: { 'x-session-id': login2.session_id } });
   assert.equal(ok.status, 302, 'request_uri 経由なら required でも通る');
 });
+
+// **真偽のフラグが画面から保存できること**（2026-10-27）。かつて設定画面の `input()` は
+// enum と number しか描けず、boolean は group で除外して回避していた——発行者側にも
+// 真偽のフラグ（dc_api_issuance）を足した時点でこの回避が成り立たなくなる。
+// 穴は2つあった: (1) `f.values.map` が undefined で**設定画面が丸ごと 500**／
+// (2) フォームは文字列しか送らないので `clamp` が 'true' を既定へ落としていた。
+test('真偽のフラグは画面に描けて、有効化も無効化も保存できる', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+  const cookie = await login(app);
+  const page = () => app.request(`${ISSUER}/settings`, { headers: { cookie } }).then((r) => r.text());
+  const save = (v) => app.request(`${ISSUER}/settings`, {
+    method: 'POST', redirect: 'manual',
+    headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ dc_api_issuance: v }).toString(),
+  });
+
+  const html = await page();
+  assert.match(html, /name="dc_api_issuance"/, '真偽のフラグも欄が出る');
+  // **チェックボックスではなくラジオ2つ**——off のとき何も送らない形だと無効化が保存できない
+  assert.match(html, /<input type="radio" name="dc_api_issuance" value="true"/);
+  assert.match(html, /<input type="radio" name="dc_api_issuance" value="false"/);
+
+  assert.equal((await save('true')).status, 302);
+  assert.equal((await readFeatures(app.svc.store, { force: true })).dc_api_issuance, true, '有効化が保存される');
+  assert.equal((await save('false')).status, 302);
+  assert.equal((await readFeatures(app.svc.store, { force: true })).dc_api_issuance, false, '無効化も保存される');
+});
+
+// 新しいフラグを足すたびに設定画面が 500 になっていないか、**全フラグを総当たりで**見る。
+// 型ごとの描画漏れは「そのフラグを足した人だけが踏む」ので、1件ずつ書くと必ず漏れる。
+test('どの型のフラグを足しても設定画面は落ちない', async () => {
+  const app = createApp({ credentialIssuer: ISSUER });
+  const cookie = await login(app);
+  const r = await app.request(`${ISSUER}/settings`, { headers: { cookie } });
+  assert.equal(r.status, 200);
+  const html = await r.text();
+  const types = new Set(Object.values(FEATURES).map((f) => f.type));
+  assert.ok(types.size >= 3, `型が複数ある（${[...types].join('/')}）`);
+  for (const [name, f] of Object.entries(FEATURES)) {
+    if (f.group === '適合テスト（Verifier）') continue;   // 発行者の所掌外
+    assert.match(html, new RegExp(`name="${name}"`), `${name}（${f.type}）の欄が出る`);
+  }
+});

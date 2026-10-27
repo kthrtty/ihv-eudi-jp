@@ -204,6 +204,26 @@ export const FEATURES = {
     // HAIP §6.1.1 が x5c にトラストアンカーを入れることを禁じているのと同じ穴が開く。
     note: '※トラストアンカーを利用せず指定されたJWKを信じる方式のため理由がある場合のみ有効化',
   },
+
+  dc_api_issuance: {
+    group: '試験（策定中の仕様）',
+    label: 'DC API での発行（navigator.credentials.create）',
+    spec: 'W3C Digital Credentials API ＋ OpenID4VCI の DC API プロファイル。'
+      + '**プロファイルは策定中**（openid/OpenID4VCI#410・open・1.1 予定）で、'
+      + 'オファーに発行者／AS メタデータを値で入れる形は Chrome と CMWallet の実装に合わせたもの',
+    type: 'boolean',
+    default: false,
+    affects: [
+      'POST /offer の応答に dc_api（protocol + data）を載せるかどうか',
+      '受け渡し画面に「ウォレットに保存（DC API・試験）」を出すかどうか',
+    ],
+    // **標準化前の経路なので既定は off**。広告（ボタンを出す）と動作（dc_api を返す）を
+    // 1つのフラグから導くので、落とせば両方が同時に消える。
+    // 現時点で応答するのは CMWallet のみ——**Multipaz Wallet は未対応**
+    // （manifest に CREATE 系の action が無い。2026-10-27 実測）なので、
+    // カスタムスキームの導線は残したまま足す
+    note: '※仕様が策定中のため既定は無効。応答するウォレットは限られます',
+  },
 };
 
 const clamp = (name, v) => {
@@ -216,6 +236,11 @@ const clamp = (name, v) => {
     if (v == null || !Number.isFinite(n)) return f.default;
     return Math.min(f.max, Math.max(f.min, Math.round(n)));
   }
+  // **フォームからは文字列しか来ない**。`/settings` の POST は String() して渡すので、
+  // boolean をここで受けないと「保存したのに既定へ戻る」になる（画面にチェックは
+  // 出ているのに効かない、という一番気づきにくい壊れ方）
+  if (v === 'true') return true;
+  if (v === 'false') return false;
   return typeof v === 'boolean' ? v : f.default;
 };
 

@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import { fileURLToPath } from 'node:url';
 import { IssuerService, httpErr } from './oid4vci.mjs';
 import { VerifierService } from './verifier.mjs';
-import { buildDelivery, offerByValueUri, offerByReferenceUri, offerQrSvg } from './offer.mjs';
+import { buildDelivery, offerByValueUri, offerByReferenceUri, offerQrSvg, dcApiRequest } from './offer.mjs';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
 import { shell, renderAuthStart, renderCallback, renderOfferAuthcode, completeIssuance, pkce, authorizeUrl, renderLogin, appShell, renderConsentScreen, renderVcSelect, groupCatalog, renderHistory, renderAccount, renderFeatureSettings, renderAuthorizeError } from './authcode-demo.mjs';
 import { renderVerifyConsole, renderWebVerify, renderWebVerifyResult, renderVerifyHistory, renderVerifierSettings } from './verifier-demo.mjs';
@@ -115,11 +115,12 @@ export function createApp(opts = {}) {
   // **デモの最中に切り替えて対比を見せる**ためにあるので、再デプロイを挟まない。
   // 相手（Multipaz）は AS メタデータの広告を読んで挙動を変えるので、
   // ここを変えると実機の振る舞いも変わる——それ自体が見せ場になる。
-  // **FEATURES は3アプリ共通の1つの定義**（KV キーも共有）だが、この画面の
-  // `renderFeatureSettings`/`input()` は enum と number しか描けない。
-  // `verifier_trust_presented_jwk`（boolean・Verifier 専用）を素通しすると
-  // `f.values.map` が undefined で落ちる——**発行者の設定画面が丸ごと 500 になる**。
-  // 対象外は group で除外する（Verifier 専用フラグを発行者の画面に出す意味も無い）
+  // **FEATURES は3アプリ共通の1つの定義**（KV キーも共有）なので、**発行者に関係の
+  // 無いフラグは group で除外する**。
+  // かつてはここが「`input()` が enum と number しか描けないので boolean を素通しすると
+  // 500 になる」の回避でもあった（2026-10-27 に `input()` を boolean 対応にして解消）。
+  // **除外は見た目の都合ではなく所掌の線**なので残す——Verifier 専用フラグを発行者の
+  // 画面に出すと、押しても自分の挙動は変わらない欄が並ぶ
   const issuerFeatures = (all) => Object.fromEntries(
     Object.entries(all).filter(([, f]) => f.group !== '適合テスト（Verifier）'));
   app.get('/settings', async (c) => {
@@ -533,7 +534,18 @@ export function createApp(opts = {}) {
       const { credential_offer, preAuthorizedCode, issuerState, offerId, offerUri, txCode } =
         await svc.createOffer(credential_configuration_ids, { txCode: tx_code, grant, claims, applications, userId: user?.id ?? null });
       const delivery = await buildDelivery({ offer: credential_offer, offerUri, withQr: qr === true });
-      return c.json({ credential_offer, pre_authorized_code: preAuthorizedCode, issuer_state: issuerState, offer_id: offerId, delivery, tx_code: txCode });
+      // **DC API（navigator.credentials.create）用の1件**。策定中の形なのでフラグで落とせる
+      // ようにしてある（src/features.mjs の dc_api_issuance）。**広告と中身を同じフラグから
+      // 導く**ので、off のときはボタンも出ないしこのメンバーも返らない。
+      // 発行者メタデータは**オファーに載せた構成だけ**に剪定される（offer.mjs 参照）。
+      const base = issuerBase(c);
+      const feats = await svc.features();
+      const dc_api = feats.dc_api_issuance
+        ? dcApiRequest({ offer: credential_offer,
+          issuerMetadata: svc.metadata(base, feats), asMetadata: await asMetadataBody(base) })
+        : null;
+      return c.json({ credential_offer, pre_authorized_code: preAuthorizedCode, issuer_state: issuerState,
+        offer_id: offerId, delivery, tx_code: txCode, ...(dc_api ? { dc_api } : {}) });
     } catch (e) { return fail(c, e); }
   });
 

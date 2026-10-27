@@ -1609,13 +1609,21 @@ export function renderFeatureSettings(FEATURES, current, saved = false) {
   const groups = {};
   for (const [name, f] of Object.entries(FEATURES)) (groups[f.group] ??= []).push([name, f]);
   // 型ごとに入力を出し分ける。**数値は値域を画面にも書く**（サーバ側でも丸める）
+  // **真偽はチェックボックスでなくラジオ2つ**にする。チェックボックスは off のとき
+  // 何も送らないので、POST 側の `if (f[name] != null)` に当たらず**無効化だけが保存
+  // できない**——画面では外れているのに次に開くと戻っている、という形で出る
+  const boolInput = (name, f) => [[true, '有効にする'], [false, '無効にする（既定）']]
+    .map(([v, label]) => `
+        <label><input type="radio" name="${esc(name)}" value="${v}"${current[name] === v ? ' checked' : ''}>
+          ${esc(label)}</label>`).join('');
   const input = (name, f) => (f.type === 'number'
     ? `<label style="display:flex;align-items:center;gap:10px">
          <input type="number" name="${esc(name)}" value="${esc(String(current[name]))}"
            min="${f.min}" max="${f.max}" step="1" style="width:110px">
          <span>${esc(f.unit ?? '')}（${f.min}〜${f.max}。<b>${f.default}＝毎回読む</b>）</span>
        </label>`
-    : f.values.map((v) => `
+    : f.type === 'boolean' ? boolInput(name, f)
+      : f.values.map((v) => `
         <label><input type="radio" name="${esc(name)}" value="${esc(v)}"${current[name] === v ? ' checked' : ''}>
           ${esc(f.valueLabels?.[v] ?? v)}</label>`).join(''));
   const block = ([name, f]) => `
